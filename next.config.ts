@@ -1,4 +1,10 @@
 import type { NextConfig } from "next";
+import withSerwistInit from "@serwist/next";
+
+const withSerwist = withSerwistInit({
+  swSrc: "app/sw.ts",
+  swDest: "public/sw.js",
+});
 
 const nextConfig: NextConfig = {
   // Enable React Strict Mode for better debugging
@@ -9,7 +15,6 @@ const nextConfig: NextConfig = {
     // Optimize package imports for better tree-shaking
     optimizePackageImports: [
       "@clerk/nextjs",
-      "@clerk/clerk-react",
       "convex",
     ],
   },
@@ -60,6 +65,8 @@ const nextConfig: NextConfig = {
     },
   ],
 
+  // No custom rewrites required for service worker (served from /public)
+
   // Compiler optimizations
   compiler: {
     // Remove console logs in production
@@ -89,4 +96,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

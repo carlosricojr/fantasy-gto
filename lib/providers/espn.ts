@@ -48,42 +48,42 @@ async function fetchJson<T>(url: string, opts?: EspnOpts): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function getLeague(season: number, leagueId: string, opts?: EspnOpts) {
+export async function getLeague<T = unknown>(season: number, leagueId: string, opts?: EspnOpts): Promise<T> {
   const cacheKey = `espn:league:${season}:${leagueId}`;
-  const cached = await getCachedJson<any>(cacheKey);
+  const cached = await getCachedJson<T>(cacheKey);
   if (cached) return cached;
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${leagueId}?view=mSettings`;
-  const data = await fetchJson<any>(url, opts);
+  const data = await fetchJson<T>(url, opts);
   await setCachedJson(cacheKey, data, 300);
   return data;
 }
 
-export async function getRoster(
+export async function getRoster<T = unknown>(
   season: number,
   leagueId: string,
   teamId: string,
   week?: number,
   opts?: EspnOpts
-) {
+): Promise<T> {
   const keyWeek = week ?? 0;
   const cacheKey = `espn:roster:${season}:${leagueId}:${teamId}:${keyWeek}`;
-  const cached = await getCachedJson<any>(cacheKey);
+  const cached = await getCachedJson<T>(cacheKey);
   if (cached) return cached;
   const params = new URLSearchParams({ view: "mRoster" });
   if (week) params.set("scoringPeriodId", String(week));
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${leagueId}?${params}`;
-  const data = await fetchJson<any>(url, opts);
+  const data = await fetchJson<T>(url, opts);
   await setCachedJson(cacheKey, data, 300);
   return data;
 }
 
-export async function getScoreboard(season: number, leagueId: string, week: number, opts?: EspnOpts) {
+export async function getScoreboard<T = unknown>(season: number, leagueId: string, week: number, opts?: EspnOpts): Promise<T> {
   const cacheKey = `espn:score:${season}:${leagueId}:${week}`;
-  const cached = await getCachedJson<any>(cacheKey);
+  const cached = await getCachedJson<T>(cacheKey);
   if (cached) return cached;
   const params = new URLSearchParams({ view: "mScoreboard", scoringPeriodId: String(week) });
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${leagueId}?${params}`;
-  const data = await fetchJson<any>(url, opts);
+  const data = await fetchJson<T>(url, opts);
   await setCachedJson(cacheKey, data, 300);
   return data;
 }

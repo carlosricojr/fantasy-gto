@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encryptToken } from "@/lib/providers/espn";
+import { cookies } from "next/headers";
+import { redis } from "@/lib/cache/redis";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,7 +15,12 @@ export async function POST(req: NextRequest) {
       };
       if (!leagueId || !season) return NextResponse.json({ error: "Missing leagueId/season" }, { status: 400 });
       const encrypted = s2 && swid ? { s2: encryptToken(s2), swid: encryptToken(swid) } : undefined;
-      // TODO: enqueue Convex job to fetch league/roster and store minimal trial state
+      if (encrypted) {
+        const key = `trial:${crypto.randomUUID()}`;
+        await redis.set(key, JSON.stringify(encrypted), { ex: 60 * 60 * 24 });
+        const cookieStore = await cookies();
+        cookieStore.set("fgto_trial", key, { httpOnly: true, sameSite: "lax", secure: true, maxAge: 60 * 60 * 24 });
+      }
       return NextResponse.json({ ok: true, leagueId, season, tokens: Boolean(encrypted) });
     }
     // CSV fallback
@@ -26,8 +33,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, items });
     }
     return NextResponse.json({ error: "Unsupported content-type" }, { status: 415 });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Import failed" }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Import failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

@@ -143,7 +143,8 @@ Notes: `planDisplay` is derived for UI only; **gating uses `entitlements`**. Num
 
 ### 6.1 Checkout & Upgrade
 
-* **UI paywall** → Clerk hosted checkout for Pro (monthly + annual or seasonal option).
+* **Pricing page** → Use Clerk `<PricingTable />` at `/pricing` to present plans and features (B2C billing). Users upgrade from there per Clerk docs.
+* Soft paywalls link to `/pricing` instead of custom `/upgrade` route for consistency.
 * On return, call Convex `billing.syncEntitlements()` to pull entitlements from Clerk for the current user and persist them.
 
 ### 6.2 Webhooks

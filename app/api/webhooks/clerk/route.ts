@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { Webhook } from "svix";
+import { getConvexServerClient, api } from "@/lib/convexServerClient";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const body = await req.text();
@@ -20,11 +21,13 @@ export async function POST(req: Request) {
       "svix-id": svixId,
       "svix-timestamp": svixTimestamp,
       "svix-signature": svixSignature,
-    });
-    // TODO: call Convex billing.applyEvent with evt
+    }) as unknown as { type?: string; data?: unknown };
+    const convex = getConvexServerClient();
+    await convex.action(api.functions.billing.applyEvent, { event: evt });
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Webhook verification failed";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 

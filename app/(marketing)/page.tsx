@@ -7,8 +7,8 @@ export default function MarketingPage() {
       <h1 className="text-4xl font-bold">Fantasy GTO</h1>
       <p className="mt-3 text-lg text-foreground/80">+8.2 points/week vs platform projections.</p>
       <div className="mt-8 flex gap-4">
-        <Link href="/(app)/dashboard"><Button>Try free (no signup)</Button></Link>
-        <Link href="/(app)/projections"><Button variant="outline">See projections</Button></Link>
+        <Link href="/dashboard"><Button>Try free (no signup)</Button></Link>
+        <Link href="/projections"><Button variant="outline">See projections</Button></Link>
       </div>
     </main>
   );
