@@ -1,7 +1,6 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
-import { getCurrentUser, ensureLeagueCountAllowed } from "./_guards";
 
 export const ttfp = action({
   args: {
@@ -15,9 +14,33 @@ export const ttfp = action({
   handler: async (
     ctx,
     { season, leagueId, week, name, s2, swid }
-  ): Promise<{ ok: true; leagueId: string | undefined }> => {
-    const user = await getCurrentUser(ctx);
-    await ensureLeagueCountAllowed(ctx, user._id);
+  ): Promise<{ ok: true; leagueId: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthenticated");
+    let user = await ctx.runQuery(api.functions.auth.getUser, {});
+    if (!user) {
+      user = await ctx.runMutation(api.functions.auth.ensureUser, {});
+      if (!user) throw new Error("Unable to provision user");
+    }
+    const ents = await ctx.runQuery(api.functions.auth.getEntitlements, {});
+    const leagueEnt = ents.find((e: { key: string; active: boolean; value?: unknown }) => e.key === "league_count" && e.active);
+    let limit: number | typeof Infinity = 3;
+    if (leagueEnt) {
+      const val = (leagueEnt as any).value;
+      if (val === "unlimited") limit = Infinity;
+      else if (typeof val === "number") limit = val;
+      else if (typeof val === "string") {
+        const n = Number(val);
+        if (Number.isFinite(n) && n > 0) limit = n;
+      }
+    }
+    if (Number.isFinite(limit)) {
+      const count = await ctx.runQuery(api.functions.audit.countByActorAndKind, {
+        actorUserId: user._id,
+        kind: "league_import",
+      });
+      if (count >= (limit as number)) throw new Error("League import limit reached for current plan");
+    }
     await ctx.runMutation(internal.functions.audit.log, {
       kind: "onboarding_ttfp_start",
       actorUserId: user._id,
@@ -29,6 +52,7 @@ export const ttfp = action({
       externalId: leagueId,
       name,
     });
+    if (!league) throw new Error("League upsert failed");
     await ctx.runAction(api.functions.sync.espn.ingestWeek, { season, leagueId, week, s2, swid });
     await ctx.runMutation(api.functions.proj.buildFeatures, { season, week });
     await ctx.runMutation(api.functions.proj.runProjections, { season, week });
@@ -37,7 +61,7 @@ export const ttfp = action({
       actorUserId: user._id,
       payload: { season, leagueId, week },
     });
-    return { ok: true, leagueId: league?._id };
+    return { ok: true, leagueId: league._id };
   },
 });
 
