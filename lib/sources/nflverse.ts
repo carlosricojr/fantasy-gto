@@ -37,12 +37,37 @@ export function schedulesUrl(): string {
 /** Fetches a URL as text. Injectable so tests never touch the network. */
 export type TextFetcher = (url: string) => Promise<string>;
 
+/**
+ * How long to wait for upstream before giving up.
+ *
+ * Generous, because these are multi-megabyte files, but bounded. Without a deadline a
+ * stalled connection hangs until the surrounding Convex action is killed, burning the whole
+ * time budget and reporting a timeout rather than a diagnosable failure.
+ */
+export const FETCH_TIMEOUT_MS = 60_000;
+
 export const httpTextFetcher: TextFetcher = async (url) => {
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok) {
-    throw new Error(`${url} responded ${response.status}`);
+  // AbortController rather than AbortSignal.timeout: it is supported everywhere this runs,
+  // and the timer is cleared explicitly so a fast response does not hold the event loop.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`${url} responded ${response.status}`);
+    }
+    return await response.text();
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === "AbortError") {
+      throw new Error(`${url} timed out after ${FETCH_TIMEOUT_MS}ms`);
+    }
+    throw cause;
+  } finally {
+    clearTimeout(timer);
   }
-  return response.text();
 };
 
 /**
