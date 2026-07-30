@@ -98,16 +98,16 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.59% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
+| "2.74% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
-| Residual bias of −0.63 points | Published on `/accuracy` rather than hidden. |
+| Residual bias of −0.57 points | Published on `/accuracy` rather than hidden. |
 
 **Removed.** The previous version claimed "+8.2 points/week vs platform projections" and
 "beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model
-cannot support them — the real edge over the strongest baseline tried is 2.59%. Weekly fantasy scoring
+cannot support them — the real edge over the strongest baseline tried is 2.74%. Weekly fantasy scoring
 is dominated by variance that no model built on public box-score data removes. The claims
 were deleted rather than softened.
 
@@ -194,7 +194,7 @@ Stated plainly rather than left to be discovered.
   tested; the model currently projects skill positions only.
 - **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
   entitlement table and are gated, with no implementation behind them yet.
-- **The model has a known −0.63 point high bias**, disclosed on `/accuracy`.
+- **The model has a known −0.57 point high bias**, disclosed on `/accuracy`.
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.

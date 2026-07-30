@@ -14,7 +14,7 @@ file records the rules for changing it.
 **Never state a number the code cannot produce.** Every user-visible claim maps to a row in
 the README's honesty ledger. If you cannot point at the computation, delete the claim
 rather than soften it. This project previously advertised "+8.2 points/week" and "beats
-ESPN by ≥8%" with nothing behind either; the measured edge is 2.59%.
+ESPN by ≥8%" with nothing behind either; the measured edge is 2.74%.
 
 **Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
 same commit.** Hyperparameters in `lib/nfl/model/config.ts` were chosen on 2024 and frozen

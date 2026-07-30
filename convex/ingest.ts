@@ -42,6 +42,14 @@ const WRITE_BATCH = 100;
  */
 const INACTIVITY_WEEKS = 4;
 
+/**
+ * Fraction of the week's playing teams that must have at least one projectable player.
+ *
+ * Below this the board is not representative — most commonly at week 1, before the stats
+ * file has anything but the Thursday opener in it.
+ */
+const MIN_TEAM_COVERAGE = 0.9;
+
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -205,6 +213,7 @@ export const projectWeek = internalAction({
 
       let written = 0;
       let unknownTeam = 0;
+      const coveredTeams = new Set<string>();
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
       let totalExpected = 0;
@@ -292,6 +301,7 @@ export const projectWeek = internalAction({
           // A player projected at zero has no usable history; storing them adds noise.
           if (projection.mean <= 0) continue;
 
+          coveredTeams.add(team);
           rows.push({
             season,
             week,
@@ -326,17 +336,27 @@ export const projectWeek = internalAction({
         }
       }
 
-      // A run that writes nothing is a failure, not a success. Week 1 is the live case:
-      // a player's team comes from a current-season appearance, and before any game is
-      // played there is none — so every player is skipped. Reporting "succeeded" there
-      // would leave an operator with a green job and users with an empty board, which is
-      // exactly the silent-failure mode the job records exist to prevent.
-      const wroteNothing = written === 0;
+      // A run must cover most of the teams playing that week, not merely write *some*
+      // rows.
+      //
+      // Zero rows alone is too weak a test. At week 1 the stats file initially holds only
+      // the Thursday opener, so a handful of players from two teams resolve a
+      // current-season team and everyone else is skipped — `written > 0`, the job goes
+      // green, and users setting Sunday lineups see a board of ~35 players whose game is
+      // already over. Requiring proportional coverage catches that, and it catches a
+      // partial upstream file mid-season too.
+      const teamsPlaying = new Set(weekContestByTeam.keys()).size;
+      const teamsCovered = coveredTeams.size;
+      const coverage = teamsPlaying === 0 ? 0 : teamsCovered / teamsPlaying;
+      const underCovered = coverage < MIN_TEAM_COVERAGE;
+
       await ctx.runMutation(internal.jobs.finish, {
         jobId,
-        status: wroteNothing ? "failed" : "succeeded",
-        error: wroteNothing
-          ? `No projections written. ${unknownTeam} player(s) had no current-season appearance establishing their team, which is expected before week 1 has been played.`
+        status: underCovered ? "failed" : "succeeded",
+        error: underCovered
+          ? `Only ${teamsCovered} of ${teamsPlaying} teams playing week ${week} had any projectable player ` +
+            `(${unknownTeam} skipped for no current-season appearance). This is expected before a week ` +
+            `has been played, and the partial board is not written as a success.`
           : null,
       });
 

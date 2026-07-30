@@ -89,16 +89,16 @@ export const EFFICIENCY_PRIOR: Readonly<Record<Position, number>> = {
  * PPR and Standard they are an unvalidated approximation, and the interface says so.
  *
  * The uncorrected model projects high — it is fitted on players selected for recent
- * production, who regress. These factors were computed on 2024 and applied unchanged to
- * 2025. On the tuning season, disabling them moves MAE from 5.8406 to 5.8821, a larger
- * effect than the usage, Vegas, and matchup terms combined. Reproduce with
- * `pnpm backtest -- --sweeps`.
+ * production, who regress. These are `mean(actual) / mean(predicted)` per position on the
+ * tuning season with calibration switched off, and `pnpm backtest` prints them: the values
+ * here are copied from its output, not from memory. They are applied unchanged to the
+ * evaluation season, so the resulting gain is out-of-sample.
  */
 export const CALIBRATION: Readonly<Record<Position, number>> = {
-  QB: 0.9839,
-  RB: 0.9617,
-  WR: 0.9794,
-  TE: 0.9909,
+  QB: 0.9771,
+  RB: 0.9571,
+  WR: 0.976,
+  TE: 0.9884,
   K: 1,
   DST: 1,
 };
@@ -133,10 +133,10 @@ export interface QuantileBand {
  * the table is total, not because they are evidence.
  */
 export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
-  QB: { p10: 0.17, p90: 1.759, provenance: "measured" },
-  RB: { p10: 0.268, p90: 1.892, provenance: "measured" },
-  WR: { p10: 0.185, p90: 1.802, provenance: "measured" },
-  TE: { p10: 0.216, p90: 1.949, provenance: "measured" },
+  QB: { p10: 0.171, p90: 1.772, provenance: "measured" },
+  RB: { p10: 0.269, p90: 1.901, provenance: "measured" },
+  WR: { p10: 0.186, p90: 1.808, provenance: "measured" },
+  TE: { p10: 0.217, p90: 1.953, provenance: "measured" },
   K: { p10: 0.25, p90: 1.85, provenance: "placeholder" },
   DST: { p10: 0.2, p90: 2.0, provenance: "placeholder" },
 };

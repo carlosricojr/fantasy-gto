@@ -6,7 +6,7 @@ projections by ≥8% MAE and deliver "+8.2 points/week", and neither number had 
 computation behind it.
 
 **Those claims are not achievable and have been removed.** The measured edge is roughly
-2.6%, not 8%. What follows is how that was established.
+2.7%, not 8%. What follows is how that was established.
 
 ## Method
 
@@ -56,25 +56,25 @@ Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-
 
 | Model | MAE | FGTO edge |
 | --- | --- | --- |
-| **FGTO model (frozen)** | **5.8324** | — |
-| Baseline: mean of all prior games | 5.9877 | **+2.59%** |
-| Baseline: last-3-game mean | 6.3618 | +8.32% |
+| **FGTO model (frozen)** | **5.8236** | — |
+| Baseline: mean of all prior games | 5.9877 | **+2.74%** |
+| Baseline: last-3-game mean | 6.3618 | +8.46% |
 
-Per position (MAE): QB 6.742, RB 5.816, WR 5.666, TE 5.245.
+Per position (MAE): QB 6.735, RB 5.803, WR 5.657, TE 5.239.
 
-Residual bias is −0.627 points: the model still projects slightly high even after
+Residual bias is −0.573 points: the model still projects slightly high even after
 calibration, because the evaluation population is selected for recent production and
 regresses. This is disclosed rather than hidden, and it is why the interface leads with a
 range rather than a single number.
 
 ### 2024 — in-sample, n = 2,963
 
-MAE 5.8406 against a prior-games-mean baseline of 6.0009, a 2.67% edge. That this is nearly
+MAE 5.8346 against a prior-games-mean baseline of 6.0009, a 2.77% edge, and essentially zero bias by construction. That this is nearly
 identical to the out-of-sample figure is the useful signal here: the model is not
 overfitted to its tuning season.
 
-**The headline number the product may state is 2.59%**, measured against the strongest
-baseline. The 8.32% figure against a last-3-game baseline is real, but quoting it while
+**The headline number the product may state is 2.74%**, measured against the strongest
+baseline. The 8.46% figure against a last-3-game baseline is real, but quoting it while
 omitting the stronger baseline would be cherry-picking.
 
 ### Correction: lookahead bias, found in review and removed
@@ -95,7 +95,8 @@ previous one was not, regardless of which is larger.
 
 The fix also changed what the Vegas reference contains, so `VEGAS_WEIGHT` was re-selected
 on the tuning season: the corrected sweep prefers 0.5 over 0.25. That re-selection used
-2024 only, leaving 2025 untouched, and produced the final **5.8324**.
+2024 only, leaving 2025 untouched. Combined with the later calibration correction, the
+final out-of-sample result is **5.8236**.
 
 A regression test in `project.test.ts` asserts that a later week cannot change an earlier
 projection's baseline.
@@ -109,10 +110,10 @@ from that output.
 
 | Position | n | p10 | p90 |
 | --- | --- | --- | --- |
-| QB | 560 | 0.170 | 1.759 |
-| RB | 760 | 0.268 | 1.892 |
-| WR | 1,216 | 0.185 | 1.802 |
-| TE | 501 | 0.216 | 1.949 |
+| QB | 560 | 0.171 | 1.772 |
+| RB | 760 | 0.269 | 1.901 |
+| WR | 1,216 | 0.186 | 1.808 |
+| TE | 501 | 0.217 | 1.953 |
 
 The spread is enormous — a tenth-percentile outcome is around a fifth of the projection and
 a ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
@@ -131,17 +132,32 @@ On the tuning season, holding the other parameters at their frozen values:
 
 | Sweep | Result |
 | --- | --- |
-| EMA alpha | 0.05→5.8834, 0.10→5.8492, **0.15→5.8406**, 0.20→5.8503, 0.30→5.9126, 0.40→6.0048 |
-| Usage cap | 0→5.8489, **0.2→5.8406**, 0.4→5.8408, 0.6→5.8473, 0.8→5.8583 |
-| Vegas (team reference) | 0→5.8629, 0.25→5.8464, **0.5→5.8406**, 0.75→5.8478, 1→5.8672 |
-| Vegas (league reference) | 0→5.8629, 0.25→5.8555, 0.5→5.8682, 0.75→5.8999, 1→5.9489 |
-| Opponent weight | 0→5.8458, **0.25→5.8406**, 0.5→5.8416, 0.75→5.8475, 1→5.8590 |
-| Calibration | **on→5.8406**, off→5.8821 |
+| EMA alpha | 0.05→5.8781, 0.10→5.8433, **0.15→5.8346**, 0.20→5.8438, 0.30→5.9052, 0.40→5.9963 |
+| Usage cap | 0→5.8428, **0.2→5.8346**, 0.4→5.8347, 0.6→5.8410, 0.8→5.8516 |
+| Vegas (team reference) | 0→5.8576, 0.25→5.8408, **0.5→5.8346**, 0.75→5.8407, 1→5.8597 |
+| Vegas (league reference) | 0→5.8576, 0.25→5.8493, 0.5→5.8608, 0.75→5.8909, 1→5.9393 |
+| Opponent weight | 0→5.8396, **0.25→5.8346**, 0.5→5.8358, 0.75→5.8417, 1→5.8530 |
+| Calibration | **on→5.8346**, off→5.8821 |
 
-Every row that sits at the frozen value reads 5.8406, because those runs *are* the frozen
-configuration. An earlier revision of this table printed 5.8464 for the alpha and usage
-rows — values carried over from before `VEGAS_WEIGHT` was re-selected — which made it
-self-contradictory: two runs of one identical configuration reported different numbers.
+Every row that sits at the frozen value reads 5.8346, because those runs *are* the frozen
+configuration. Earlier revisions of this table were self-contradictory — two runs of one
+identical configuration printing different numbers — because rows were carried over from a
+previous pipeline instead of being re-measured. They are now all from one run.
+
+### Calibration factors
+
+`pnpm backtest` also derives these, on the tuning season with calibration switched off:
+
+| Position | n | mean predicted | mean actual | factor |
+| --- | --- | --- | --- | --- |
+| QB | 542 | 15.607 | 15.250 | 0.9771 |
+| RB | 769 | 12.592 | 12.052 | 0.9571 |
+| WR | 1,226 | 11.709 | 11.427 | 0.9760 |
+| TE | 426 | 9.687 | 9.575 | 0.9884 |
+
+`CALIBRATION` in `config.ts` is copied from that output. It previously held values from an
+earlier pipeline; syncing them to what the script actually derives improved out-of-sample
+MAE from 5.8324 to 5.8236 and cut bias from −0.627 to −0.573.
 
 Two things are worth reading off that table. The league-referenced Vegas sweep is
 monotonically worse past its first step and never beats leaving the term out entirely,
@@ -158,7 +174,7 @@ precomputed PPR column. Agreement at that tolerance is what confirmed the port w
 faithful.
 
 Both of those figures predate the lookahead-bias fix described above, so they are a
-statement about *port fidelity*, not about current accuracy. The current number is 5.8324.
+statement about *port fidelity*, not about current accuracy. The current number is 5.8236.
 
 ## What the sweeps established
 
@@ -179,9 +195,9 @@ team's quality in their own scoring history, so scaling by team strength again a
 twice. Only the game-specific deviation is new information.
 
 **Usage and opponent adjustments are real but very small.** Against switching each off,
-the usage cap is worth 0.0083 MAE and the opponent weight 0.0052; across their full sweep
-ranges, 0.0177 and 0.0184. They are retained because they are directionally sound and
-improve explainability, not because they move the metric. Calibration, at 0.0415, is worth
+the usage cap is worth 0.0082 MAE and the opponent weight 0.0050; across their full sweep
+ranges, 0.0170 and 0.0184. They are retained because they are directionally sound and
+improve explainability, not because they move the metric. Calibration, at 0.0475, is worth
 more than both combined — which is the honest ordering of what actually matters here.
 
 ## Honest interpretation

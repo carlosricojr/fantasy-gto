@@ -155,6 +155,31 @@ function extractPlanKey(event: ClerkEvent): string | null {
 }
 
 /**
+ * The event's own timestamp, for ordering.
+ *
+ * `svix-timestamp` is stamped per *delivery attempt*, so a retried older event carries a
+ * newer value and would defeat an ordering guard built on it. Clerk stamps the event
+ * itself, so that is preferred; the delivery time is only a fallback, and when it is used
+ * the guard is best-effort rather than exact.
+ */
+function extractEventAt(event: ClerkEvent, svixTimestamp: string): number {
+  const data = event.data ?? {};
+  const candidate = data.updated_at ?? data.created_at ?? data.event_at;
+  const numeric =
+    typeof candidate === "number"
+      ? candidate
+      : typeof candidate === "string" && candidate.trim() !== ""
+        ? Number(candidate)
+        : null;
+
+  if (numeric !== null && Number.isFinite(numeric)) {
+    // Clerk sends seconds in some payloads and milliseconds in others.
+    return numeric < 1e11 ? numeric * 1000 : numeric;
+  }
+  return Number(svixTimestamp) * 1000;
+}
+
+/**
  * Normalises a period end to epoch milliseconds.
  *
  * Clerk sends seconds in some payloads and milliseconds in others. A value below 1e11 is
@@ -238,9 +263,7 @@ const clerkWebhook = httpAction(async (ctx, request) => {
       status: firstString(data.status),
       subscriptionId: firstString(data.id, data.subscription_id),
       currentPeriodEnd: extractPeriodEnd(event),
-      // The signed Svix timestamp is the ordering key. It is part of the verified
-      // signature, so a caller cannot forge it to replay an old state.
-      eventAt: Number(svixTimestamp) * 1000,
+      eventAt: extractEventAt(event, svixTimestamp),
     });
 
     return new Response(null, { status: 200 });

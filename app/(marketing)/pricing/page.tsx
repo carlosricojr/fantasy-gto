@@ -48,7 +48,9 @@ export default function PricingPage() {
       <h1 className="text-3xl font-semibold tracking-tight">Choose your plan</h1>
       <p className="mt-3 text-muted-foreground">
         Projections and the lineup optimiser are free and need no account. Pro removes the
-        {" "}{freeLeagues}-league limit and adds the tools below.
+        {" "}{freeLeagues}-league limit. What else it adds is listed below — derived from
+        the same table the server authorises against, so this page cannot promise more than
+        the code delivers.
       </p>
 
       <div className="mt-10">

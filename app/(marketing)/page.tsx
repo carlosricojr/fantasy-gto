@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
  *
  * Every claim here is backed by something checkable. The previous version led with
  * "+8.2 points/week vs platform projections", a number with no computation behind it and
- * one the measured model cannot support: the real edge over a strong baseline is 2.59%
+ * one the measured model cannot support: the real edge over a strong baseline is 2.74%
  * (`docs/model-validation.md`). It has been removed rather than softened.
  *
  * What is left is what the product can actually defend: an optimal lineup is optimal by
@@ -75,7 +75,7 @@ export default function MarketingPage() {
           <h2 className="font-medium">What we don&rsquo;t claim</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Weekly fantasy scoring is mostly variance. Measured on a held-out season, these
-            projections beat a prior-games-average baseline by <strong>2.59%</strong> in mean
+            projections beat a prior-games-average baseline by <strong>2.74%</strong> in mean
             absolute error. That is a real edge and a small one, and anyone promising far
             more than that is guessing. Where this tool adds more is in the decisions built
             on top: exact lineup optimisation, and a floor and ceiling calibrated from how

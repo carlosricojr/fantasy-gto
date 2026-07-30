@@ -310,6 +310,42 @@ async function main(): Promise<void> {
     if (season === EVALUATION_SEASON) reportQuantiles(model);
   }
 
+  /**
+   * Derives the per-position calibration factors.
+   *
+   * These are `mean(actual) / mean(predicted)` on the **tuning** season with calibration
+   * switched off — the same computation that produced the constants in `config.ts`. It is
+   * printed here so those constants are reproducible rather than asserted, which is the
+   * rule the rest of this script exists to satisfy.
+   */
+  function reportCalibration(): void {
+    const uncalibrated = evaluate(TUNING_SEASON, {
+      ...DEFAULT_MODEL_CONFIG,
+      calibrate: false,
+    }).model;
+
+    process.stdout.write(
+      `\n${"=".repeat(69)}\nCALIBRATION FACTORS, derived on ${TUNING_SEASON} with calibration off\n` +
+        `${"=".repeat(69)}\n` +
+        `  ${"position".padEnd(10)}${"n".padStart(6)}${"mean pred".padStart(11)}` +
+        `${"mean actual".padStart(13)}${"factor".padStart(9)}\n`,
+    );
+    for (const position of positions) {
+      const rows = uncalibrated.filter((r) => r.position === position);
+      const predicted = mean(rows.map((r) => r.predicted));
+      const actual = mean(rows.map((r) => r.actual));
+      const factor = predicted === 0 ? 1 : actual / predicted;
+      process.stdout.write(
+        `  ${position.padEnd(10)}${String(rows.length).padStart(6)}` +
+          `${predicted.toFixed(3).padStart(11)}${actual.toFixed(3).padStart(13)}` +
+          `${factor.toFixed(4).padStart(9)}\n`,
+      );
+    }
+    process.stdout.write(
+      "  These are the values in CALIBRATION (lib/nfl/model/config.ts).\n",
+    );
+  }
+
   // Sweeps are opt-in because they re-evaluate the whole tuning season many times over.
   // They exist so every claim in docs/model-validation.md is reproducible rather than
   // merely asserted — the project's rule is that a number the code cannot produce may not
@@ -383,6 +419,8 @@ async function main(): Promise<void> {
       { name: "uncalibrated", config: { ...base, calibrate: false } },
     ]);
   }
+
+  reportCalibration();
 
   process.stdout.write(
     "\nThe out-of-sample figure is the only one the product may quote.\n" +
