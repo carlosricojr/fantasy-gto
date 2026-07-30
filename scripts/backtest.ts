@@ -157,11 +157,15 @@ async function main(): Promise<void> {
     config: ModelConfig = DEFAULT_MODEL_CONFIG,
   ): {
     model: Evaluation[];
-    seasonMean: Evaluation[];
+    allPriorMean: Evaluation[];
     lastThree: Evaluation[];
   } {
     const model: Evaluation[] = [];
-    const seasonMean: Evaluation[] = [];
+    // Named for what it is: the mean of every prior game in the loaded history, which
+    // spans up to three seasons. Calling it a "season-to-date mean" would be wrong, and
+    // restricting it to the current season would hand the model an unfair advantage early
+    // in the year — the baseline should see exactly the history the model sees.
+    const allPriorMean: Evaluation[] = [];
     const lastThree: Evaluation[] = [];
     const factors = defenseFactors.get(season);
 
@@ -211,11 +215,11 @@ async function main(): Promise<void> {
         });
 
         model.push({ position, predicted: projection.mean, actual });
-        seasonMean.push({ position, predicted: mean(priorPoints), actual });
+        allPriorMean.push({ position, predicted: mean(priorPoints), actual });
         lastThree.push({ position, predicted: mean(priorPoints.slice(-3)), actual });
       }
     }
-    return { model, seasonMean, lastThree };
+    return { model, allPriorMean, lastThree };
   }
 
   function mae(rows: readonly Evaluation[], position?: Position): number {
@@ -232,7 +236,7 @@ async function main(): Promise<void> {
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
       season === TUNING_SEASON ? "TUNING (in-sample)" : "EVALUATION (out-of-sample)";
-    const { model, seasonMean, lastThree } = evaluate(season);
+    const { model, allPriorMean, lastThree } = evaluate(season);
 
     process.stdout.write(`\n${season} — ${label}    n = ${model.length}\n`);
     process.stdout.write(
@@ -244,7 +248,7 @@ async function main(): Promise<void> {
 
     const rows: Array<[string, Evaluation[]]> = [
       ["FGTO model", model],
-      ["baseline: season mean", seasonMean],
+      ["baseline: mean of prior games", allPriorMean],
       ["baseline: last 3 games", lastThree],
     ];
     for (const [name, data] of rows) {
@@ -256,13 +260,13 @@ async function main(): Promise<void> {
     }
 
     const modelMae = mae(model);
-    const baseMae = mae(seasonMean);
+    const baseMae = mae(allPriorMean);
     const lastMae = mae(lastThree);
     process.stdout.write(
       `\n  bias (actual - predicted): ${bias(model) >= 0 ? "+" : ""}${bias(model).toFixed(3)}\n`,
     );
     process.stdout.write(
-      `  vs season mean:  ${(((baseMae - modelMae) / baseMae) * 100).toFixed(2)}%\n`,
+      `  vs prior-games mean: ${(((baseMae - modelMae) / baseMae) * 100).toFixed(2)}%\n`,
     );
     process.stdout.write(
       `  vs last 3 games: ${(((lastMae - modelMae) / lastMae) * 100).toFixed(2)}%\n`,

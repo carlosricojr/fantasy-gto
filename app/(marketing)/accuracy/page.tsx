@@ -46,7 +46,7 @@ export default function AccuracyPage() {
                 <td className="py-2 text-right text-muted-foreground">&mdash;</td>
               </tr>
               <tr>
-                <td className="py-2">Baseline: season-to-date average</td>
+                <td className="py-2">Baseline: mean of all prior games</td>
                 <td className="py-2 text-right tabular-nums">5.9877</td>
                 <td className="py-2 text-right tabular-nums">+2.59%</td>
               </tr>

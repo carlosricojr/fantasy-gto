@@ -75,7 +75,7 @@ export default function MarketingPage() {
           <h2 className="font-medium">What we don&rsquo;t claim</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Weekly fantasy scoring is mostly variance. Measured on a held-out season, these
-            projections beat a season-average baseline by <strong>2.59%</strong> in mean
+            projections beat a prior-games-average baseline by <strong>2.59%</strong> in mean
             absolute error. That is a real edge and a small one, and anyone promising far
             more than that is guessing. Where this tool adds more is in the decisions built
             on top: exact lineup optimisation, and a floor and ceiling calibrated from how

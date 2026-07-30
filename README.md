@@ -98,7 +98,7 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.59% better than a season-average baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
+| "2.59% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
@@ -107,7 +107,7 @@ Every claim the interface makes, and the computation behind it.
 
 **Removed.** The previous version claimed "+8.2 points/week vs platform projections" and
 "beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model
-cannot support them — the real edge over a strong baseline is 2.59%. Weekly fantasy scoring
+cannot support them — the real edge over the strongest baseline tried is 2.59%. Weekly fantasy scoring
 is dominated by variance that no model built on public box-score data removes. The claims
 were deleted rather than softened.
 
@@ -193,3 +193,7 @@ Stated plainly rather than left to be discovered.
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.
 - **Pro currently unlocks only the league cap.** See the entitlements section.
+- **Week 1 of a season projects nobody.** A player's team is taken from a current-season
+  appearance, and before any game is played there is none. Projecting from last season's
+  team would attribute a player to the wrong game entirely, so they are skipped and the
+  count is reported. Wiring nflverse's `weekly_rosters` release would close this.

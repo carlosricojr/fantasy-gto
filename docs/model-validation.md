@@ -15,6 +15,11 @@ Data: nflverse weekly player stats for 2023, 2024, and 2025 regular seasons, joi
 
 Target: PPR fantasy points for QB, RB, WR, and TE.
 
+The baseline is the mean of **every prior game in the loaded history**, which spans up to
+three seasons — not a season-to-date mean. It sees exactly the history the model sees;
+restricting it to the current season would hand the model an unfair advantage early in the
+year and inflate the reported edge.
+
 Evaluation population: a player-week is scored only if the player has at least 4 prior
 games and averaged at least 6.0 PPR points over their last 8. This restricts the metric to
 genuinely rosterable players. Including deep-bench players with near-zero usage would
@@ -52,7 +57,7 @@ Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-
 | Model | MAE | FGTO edge |
 | --- | --- | --- |
 | **FGTO model (frozen)** | **5.8324** | — |
-| Baseline: season-to-date mean | 5.9877 | **+2.59%** |
+| Baseline: mean of all prior games | 5.9877 | **+2.59%** |
 | Baseline: last-3-game mean | 6.3618 | +8.32% |
 
 Per position (MAE): QB 6.742, RB 5.816, WR 5.666, TE 5.245.
@@ -64,7 +69,7 @@ range rather than a single number.
 
 ### 2024 — in-sample, n = 2,963
 
-MAE 5.8406 against a season-mean baseline of 6.0009, a 2.67% edge. That this is nearly
+MAE 5.8406 against a prior-games-mean baseline of 6.0009, a 2.67% edge. That this is nearly
 identical to the out-of-sample figure is the useful signal here: the model is not
 overfitted to its tuning season.
 
@@ -139,8 +144,8 @@ statement about *port fidelity*, not about current accuracy. The current number 
 These are the findings that shaped the model, each measured rather than assumed.
 
 **Long memory beats recency.** Sweeping alpha from 0.05 to 0.40 gives a clear optimum at
-0.15, and a last-3-game baseline (6.36) is substantially *worse* than a season-to-date mean
-(5.99). Weekly fantasy scoring is noisy enough that aggressive recency weighting discards
+0.15, and a last-3-game baseline (6.36) is substantially *worse* than a mean over all prior
+games (5.99). Weekly fantasy scoring is noisy enough that aggressive recency weighting discards
 more signal than it captures. This contradicts the common intuition that "recent form"
 should dominate.
 

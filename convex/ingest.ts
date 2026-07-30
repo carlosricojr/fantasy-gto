@@ -64,6 +64,8 @@ export const projectWeek = internalAction({
   handler: async (ctx, { season, week, scoringIds }): Promise<{
     projections: number;
     players: number;
+    /** Skipped because no current-season appearance established their team. */
+    unknownTeam: number;
   }> => {
     const startedAt = Date.now();
     const jobId = await ctx.runMutation(internal.jobs.start, {
@@ -74,8 +76,13 @@ export const projectWeek = internalAction({
     try {
       const provider = new NflverseProvider();
 
+      // Upstream publishes stats_player_week_{season}.csv only once games have been
+      // played, so at week 1 a 404 is the normal state, not a failure. The file also
+      // contributes nothing to week-1 history — every current-season row is dropped below
+      // — so treating it as fatal would make week 1 permanently unprojectable.
       const currentSeason = await provider.playerWeeks(season);
-      if (!currentSeason.ok) throw new Error(currentSeason.reason);
+      if (!currentSeason.ok && week > 1) throw new Error(currentSeason.reason);
+      const currentWeeks: PlayerWeek[] = currentSeason.ok ? currentSeason.data : [];
       const priorSeason = await provider.playerWeeks(season - 1);
       // A missing prior season is survivable: early-career players simply have less
       // history and the matchup term is skipped.
@@ -92,6 +99,7 @@ export const projectWeek = internalAction({
       // week against the team's own norm, and that norm is computed only from weeks
       // already played — collapsing the whole season to one average would let later form
       // inform an earlier projection.
+      const currentTeamWeek = new Map<string, number>();
       const teamTotals = new Map<string, ImpliedTotalEntry[]>();
       const weekContestByTeam = new Map<string, (typeof contestsResult.data)[number]>();
       for (const contest of contestsResult.data) {
@@ -117,9 +125,29 @@ export const projectWeek = internalAction({
         }
       }
 
+      // A player's team for THIS season, taken from their most recent current-season
+      // appearance regardless of week.
+      //
+      // Which team someone plays for is not a prediction, so reading it from a row at or
+      // after the target week is legitimate for a live run — unlike their production,
+      // which is strictly excluded below. Deriving the team from `history` instead would
+      // read a *prior-season* row at week 1 and project every player against their old
+      // team's game: wrong opponent, wrong betting line, and the bye-week guard passes
+      // because the old team does play. The same thing happens after a trade.
+      const currentTeam = new Map<string, string>();
+      for (const playerWeek of currentWeeks) {
+        const team = playerWeek.competitor.team;
+        if (!team) continue;
+        const seen = currentTeamWeek.get(playerWeek.competitor.id) ?? -1;
+        if (playerWeek.period.index > seen) {
+          currentTeamWeek.set(playerWeek.competitor.id, playerWeek.period.index);
+          currentTeam.set(playerWeek.competitor.id, team);
+        }
+      }
+
       // History strictly before the target week.
       const history = new Map<string, PlayerWeek[]>();
-      for (const playerWeek of [...priorWeeks, ...currentSeason.data]) {
+      for (const playerWeek of [...priorWeeks, ...currentWeeks]) {
         const isFuture =
           playerWeek.period.season === season && playerWeek.period.index >= week;
         if (isFuture) continue;
@@ -161,6 +189,7 @@ export const projectWeek = internalAction({
       }
 
       let written = 0;
+      let unknownTeam = 0;
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
       let totalExpected = 0;
@@ -197,8 +226,15 @@ export const projectWeek = internalAction({
               : NFL_REGULAR_SEASON_WEEKS - lastPlayed.index + week;
           if (weeksSincePlayed > INACTIVITY_WEEKS) continue;
 
-          const team = latest.competitor.team;
-          const contest = team ? weekContestByTeam.get(team) : undefined;
+          // Never fall back to `latest.competitor.team`: at week 1 that is last season's
+          // team. Without current-season evidence the player's team is genuinely unknown,
+          // and skipping is better than projecting them into the wrong game.
+          const team = currentTeam.get(playerId) ?? null;
+          if (!team) {
+            unknownTeam += 1;
+            continue;
+          }
+          const contest = weekContestByTeam.get(team);
 
           // No contest this week means the team is on bye (or the player has no team).
           // Such a player will score exactly zero, so they must not be projected at all.
@@ -281,7 +317,7 @@ export const projectWeek = internalAction({
         error: null,
       });
 
-      return { projections: written, players: identities.size };
+      return { projections: written, players: identities.size, unknownTeam };
     } catch (error) {
       await ctx.runMutation(internal.jobs.finish, {
         jobId,
@@ -326,10 +362,17 @@ export const refreshCurrentSchedule = internalAction({
   handler: async (ctx): Promise<{ skipped: boolean; contests?: number }> => {
     const state = await ctx.runQuery(api.season.current, {});
     if (!state) return { skipped: true };
-    const result = await ctx.runAction(internal.ingest.syncSchedule, {
-      season: state.season,
-    });
-    return { skipped: false, contests: result.contests };
+
+    // Sync the next season too. `season.current` resolves to the latest season with a
+    // *completed* game, so syncing only that season means next season's rows never land,
+    // `season.current` can never advance to it, and both crons stay frozen on a finished
+    // season indefinitely.
+    let contests = 0;
+    for (const season of [state.season, state.season + 1]) {
+      const result = await ctx.runAction(internal.ingest.syncSchedule, { season });
+      contests += result.contests;
+    }
+    return { skipped: false, contests };
   },
 });
 
