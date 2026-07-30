@@ -1,148 +1,91 @@
-# Fantasy GTO - Project Context for Claude
+# Fantasy GTO — Project Context for Claude
 
-## Project Overview
-Fantasy GTO is a fantasy football optimization platform providing data-driven recommendations for lineup decisions, waivers, and trades. Built as a mobile-first PWA with explainable AI models. **ESPN-first launch** strategy with 20M+ addressable users.
+## What this is
 
-## Tech Stack
-- **Frontend**: Next.js 15.5.0 (App Router), React 19, Tailwind CSS 4
-- **Backend**: Convex (real-time database)
-- **Auth & Billing**: Clerk (unified auth + billing with entitlements)
-- **Caching**: Upstash Redis (5-15 min TTL for provider responses)
-- **CDN**: Cloudflare (static projections)
-- **Deployment**: Vercel
-- **Package Manager**: pnpm (ALWAYS use pnpm, never npm or yarn)
+Fantasy football projections with visible reasoning, and a lineup optimiser that solves
+slot assignment exactly. Mobile-first PWA, Clerk-billed free and Pro tiers.
 
-## Key Architecture Decisions
-1. **ESPN-first launch** → Sleeper as Phase 2
-2. **Entitlement-based feature gating** via Clerk
-3. **Mobile-first PWA** with 72-hour offline cache
-4. **Explainable AI models** (EMA + Usage + Vegas)
-5. **Anonymous trial mode** → 1-click ESPN import (no signup)
-6. **Value before payment** → defer paywall until after Week 1
+Read [`README.md`](README.md) first, then [`docs/model-validation.md`](docs/model-validation.md)
+and [`docs/data-sources.md`](docs/data-sources.md). Those three describe what is true; this
+file records the rules for changing it.
 
-## Development Commands
+## Non-negotiable rules
+
+**Never state a number the code cannot produce.** Every user-visible claim maps to a row in
+the README's honesty ledger. If you cannot point at the computation, delete the claim
+rather than soften it. This project previously advertised "+8.2 points/week" and "beats
+ESPN by ≥8%" with nothing behind either; the measured edge is 2.74%.
+
+**Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
+same commit.** Hyperparameters in `lib/nfl/model/config.ts` were chosen on 2024 and frozen
+before evaluating on 2025. Retuning them against 2025 destroys that property and makes the
+published figure meaningless.
+
+**Keep the domain core pure.** Nothing in `lib/core`, `lib/nfl`, or `lib/billing` may
+import Convex, Clerk, React, or call `fetch`, `Date.now()`, or `Math.random()`. Pass the
+clock in. This is what makes the model backtestable and the entitlement logic testable, and
+`lib/purity.test.ts` enforces it. I/O adapters go in `lib/sources/`, which is exempt.
+
+**Never grant an entitlement directly.** Access is derived from subscription state by a
+pure function. If you find yourself writing a mutation that sets a capability, the design
+has gone wrong — that exact bug shipped once already.
+
+**Verify data endpoints before coding against them.** `docs/data-sources.md` records what
+was confirmed by direct request. Upstream renames columns and retires releases; reading a
+column that no longer exists yields zero silently rather than failing.
+
+**ALWAYS use pnpm.**
+
+## Stack
+
+Next.js 15.5 (App Router), React 19, Tailwind 4, Convex, Clerk (auth + billing), Vercel.
+
+There is no Redis and no paid data vendor. Both were in the original plan; neither is
+needed. The unconfigured Upstash client was removed because it logged errors on every build
+and nothing used it. nflverse supplies statistics, schedule, and Vegas lines for free.
+
+## Commands
+
 ```bash
-pnpm dev          # Run frontend + backend (with Turbopack)
-pnpm build        # Build for production
-pnpm lint         # Run linting
-pnpm typecheck    # Run TypeScript checks (if configured)
-pnpm convex dev   # Start Convex dev server
-pnpm convex deploy # Deploy Convex to production
+pnpm verify     # typecheck, lint, tests (both projects) — run before every commit
+pnpm test       # watch mode
+pnpm backtest   # reproduce accuracy figures (add -- --sweeps for parameter sweeps)
+pnpm dev        # frontend + Convex
 ```
 
-## Project Structure
+## Layout
+
 ```
-/app                    # Next.js 15 App Router
-  /(marketing)          # Public pages
-  /(app)                # Protected app pages
-  /api/webhooks/clerk   # Clerk webhook handlers
-  /api/import           # Lineup import endpoint
-  /api/export           # Lineup export endpoint
-/components             # Shared UI components (shadcn/ui)
-/convex
-  /functions            # Backend functions (see §7 in spec)
-  schema.ts
-/lib
-  /providers            # OddsAPI, WeatherAPI, SportsDataIO
-  /cache                # Redis client + helpers
-/docs                   # Technical specifications
+lib/core/       Sport-agnostic: domain types, provider seams, lineup optimiser
+lib/nfl/        NFL domain: csv, teams, season, scoring/, model/, stats/ (pure)
+lib/billing/    Entitlement derivation (pure)
+lib/sources/    Adapter layer — the only part of lib/ allowed to do I/O
+convex/         Thin orchestration; schema, queries, ingest, http webhook
+app/            App Router; (marketing) is public, (app) is mixed
+scripts/        backtest.ts
 ```
 
-## Critical Features for MVP
+Adding a sport means adding an adapter under `lib/<sport>/` that implements the seams in
+`lib/core/providers.ts`. It must not require edits to `lib/core` or to another sport.
 
-### Sprint 0 (NEW - Current)
-- ESPN integration (import/roster/week ingest)
-- Anonymous trial mode
-- Lineup import/export (CSV + platform formats)
+## Where the bodies are buried
 
-### Sprint 1
-- Explainable projections with reasons
-- Start/Sit recommendations
-- PWA shell
-- Clerk Auth + Billing (checkout, entitlements, webhooks)
-- Performance tracking (win-rate, accuracy vs ESPN/Yahoo)
+- **ESPN's fantasy league API has no working host.** `lm.espn.com` and
+  `lm-api-reads.espn.com` are NXDOMAIN on public DNS. "ESPN-first" is no longer the
+  strategy and cannot be. CSV parsing and `leagues.setRoster` are
+  implemented and tested, but no screen calls either yet — `/lineup` is the working path
+  and needs no saved roster.
+- **It is currently the offseason.** Resolve the season from data availability, never from
+  `new Date().getFullYear()` — see `lib/nfl/season.ts`.
+- **nflverse CSVs contain quoted fields with commas.** Use `lib/nfl/csv.ts`, never
+  `String.split(",")`.
+- **The current stats release is `stats_player_week_{season}.csv`.** The older
+  `player_stats` release stops at 2024 and spells several columns differently.
+- **Convex needs its own `@/*` path mapping** (`convex/tsconfig.json`). Without it, shared
+  imports silently degrade to `{}`.
 
-### Sprint 2
-- Waivers + FAAB guidance
-- DST streamer
-- Smart alerts
-- Social proof (leaderboards, shareable cards)
+## Not built yet
 
-## Pricing & Entitlements
-
-### Plans
-- **Free**: 3 leagues max, weekly refresh, start/sit only
-- **Pro**: $4.99/mo with 14-day trial
-- **Annual/Seasonal**: $29.99/year OR $19.99/season (Sept-Jan)
-
-### Entitlements (Pro)
-- `league_count`: unlimited (free=3)
-- `daily_refresh`: daily model updates
-- `waivers_faab`: waiver recommendations
-- `dst_streamer`: DST streaming tool
-- `alerts`: push/email notifications
-- `accuracy_dashboard`: performance comparisons
-- `import_export`: lineup import/export
-- `performance_history`: win-rate tracking
-
-## External Providers & Fallbacks
-1. **OddsAPI** ($99/mo, 10k calls/day) → SportsDataIO → Cache → Disable
-2. **WeatherAPI** (free tier) → Cache (60m) → Stadium defaults
-3. **SportsDataIO** ($299/mo) → Admin override → Conservative projections
-4. **Cache TTLs**: Odds 5m, Weather 10-60m, Injuries 5-15m
-
-## Performance Targets
-- **TTFP**: ≤30 seconds to first projections
-- **Onboarding**: ≤60 seconds ESPN import
-- **Load**: 2,000 concurrent users, p95 <2s
-- **Accuracy**: MAE beats ESPN by ≥8%, Yahoo by ≥6%
-- **Offline**: 72-hour projection cache
-- **Cost**: 1K MAU ≤$150, 10K ≤$1.5K, 100K ≤$10K
-
-## Security & Compliance
-- No payment data stored (Clerk handles PCI)
-- ESPN S2/SWID encrypted at rest, deleted after trial
-- Webhook signatures verified
-- Full audit trail for billing/admin actions
-- 3-day grace period for payment failures
-
-## Common Tasks
-
-### Adding a new feature
-1. Check entitlement requirements
-2. Add Convex function with `requires('entitlement.key')`
-3. Implement UI with soft paywall showing expected value
-4. Test with free, trial, and pro accounts
-
-### Working with providers
-1. Check Redis cache first (5-15 min TTL)
-2. Fall back through provider chain
-3. Log degraded mode if using fallbacks
-4. Show UI badges for degraded data
-
-### Updating dependencies
-```bash
-pnpm update          # Update all dependencies
-pnpm add <package>   # Add new dependency
-```
-
-## Important Notes
-- ALWAYS use pnpm as package manager
-- ESPN-first is CONFIRMED strategy (not Sleeper)
-- Anonymous trial is CRITICAL for adoption
-- Value demonstration BEFORE payment request
-- Public accuracy reports weekly for trust
-- Marketing anchor: "+8.2 points/week vs platform projections"
-
-## Current Sprint
-**Sprint 0**: ESPN integration, anonymous trial, lineup import/export
-
-## Resolved Issues (from initial review)
-✅ ESPN-first launch (was Sleeper-first)
-✅ 14-day trial (was 7-day)
-✅ Free tier expanded to 3 leagues (was 1)
-✅ Added lineup import/export
-✅ Added performance history tracking
-✅ Anonymous trial mode (no signup required)
-✅ Concrete provider details with fallbacks
-✅ Clear seasonal vs annual pricing options
+Waivers, FAAB, D/ST streamer, alerts, and performance history are gated in the entitlement
+table with no implementation behind them. D/ST and kicker scoring exist and are tested, but
+the model projects skill positions only. Do not present any of these as working.

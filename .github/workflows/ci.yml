@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # The token is not needed after checkout, and later steps run repository-controlled
+        # code (install scripts, tests). Not persisting it keeps a compromised dependency
+        # from reaching a credential with write access.
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test:run
+
+      # Build last: it is the slowest gate and the least likely to catch what the
+      # cheaper gates miss. Placeholder credentials keep the build hermetic — no
+      # network calls to Convex or Clerk happen at build time.
+      #
+      # The Clerk key must be structurally valid, not merely non-empty: the SDK
+      # decodes it at prerender time and rejects anything malformed, which fails
+      # the build. This one decodes to "example.clerk.accounts.dev$".
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_CONVEX_URL: https://example-convex-deployment.convex.cloud
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk

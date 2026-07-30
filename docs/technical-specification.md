@@ -1,5 +1,17 @@
 # Fantasy GTO – Optimized Production Plan (MVP‑First) — **Clerk Billing Edition**
 
+> **SUPERSEDED — retained as the record of original intent, not as a description of the
+> build.** This document was written before anything was measured. The implementation
+> departs from it at most load-bearing points: no paid data vendor is used (nflverse is
+> free and sufficient), no Redis, entitlements are *derived* from subscription state rather
+> than granted and stored, the Clerk webhook is served by Convex rather than a Next.js
+> route, and the repository layout differs. Two accuracy targets in here were never
+> achievable and have been corrected in place below.
+>
+> For what the system actually does and what it actually measures, read
+> [`README.md`](../README.md) and [`model-validation.md`](model-validation.md). Where this
+> document and those disagree, those are correct.
+
 This update integrates **Clerk Billing** for subscriptions, entitlements, checkout, and account management to streamline implementation and reduce PCI scope. It also shifts launch priority to **ESPN‑first** (20M+ users) with **Sleeper** as immediate Phase 2, and introduces concrete adoption levers and low‑risk scalability practices.
 
 ---
@@ -49,7 +61,7 @@ Why: ESPN provides maximum reach; anonymous trial + fast TTFP reduces friction a
   * `entitlement.performance_history` → win‑rate and season‑long dashboards.
 * **Free tier**: up to 3 leagues, weekly refresh, start/sit, basic projections only (no waivers/DST/alerts/import‑export/performance history).
 * **Seasonal logic**: If Seasonal ($19.99) is chosen, we keep subscription active but **turn off compute‑heavy jobs** post‑Super Bowl via entitlements schedule (see §6.4). For Annual ($29.99), we pause heavy compute off‑season but continue access to history and off‑season tools when added.
-* **Marketing anchor**: Pro users average **+8.2 points/week vs platform projections** (display prominently across paywalls and landing pages; backed by §9, §11 metrics).
+* ~~**Marketing anchor**: Pro users average **+8.2 points/week vs platform projections**~~ — **withdrawn.** No computation ever supported this figure. The measured edge over the strongest baseline tried is **2.74%** (`docs/model-validation.md`), and the product does not make a points-per-week claim.
 
 Why: Plans are simple to communicate; entitlements map 1:1 to Convex guards; trial + ESPN‑first maximizes conversion.
 
@@ -250,7 +262,7 @@ Notes: `planDisplay` is derived for UI only; **gating uses `entitlements`**. Num
 * 2,000 concurrent users with **p95 < 2s** for projections + lineup endpoints.
 * **Clerk checkout & portal** work end‑to‑end; entitlements sync within seconds via webhook; 14‑day trials honored.
 * **Free limits enforced**: 3 leagues, weekly refresh; Pro = unlimited leagues + daily refresh.
-* **MAE beats ESPN by ≥8% and Yahoo by ≥6%** (rolling 3 weeks), per‑position.
+* ~~**MAE beats ESPN by ≥8% and Yahoo by ≥6%** (rolling 3 weeks), per‑position.~~ — **withdrawn.** Neither platform's projections are obtainable as a licensed feed, so no such comparison is computed anywhere in this repository. The measured result is a 2.74% edge over a prior-games-mean baseline.
 * Weekly public accuracy report published; payment failure grace = 3 days before restriction.
 
 ---

@@ -12,6 +12,12 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
 
+    /* No `paths` mapping here on purpose. Everything under `lib/` imports by relative
+     * path, so the domain core resolves identically under tsc, vitest, tsx, and the
+     * esbuild bundler Convex uses. Convex's bundler does honour tsconfig paths, but
+     * depending on that would make the deploy fragile: four different resolvers would
+     * each need the alias configured, and the failure only appears at bundle time. */
+
     /* These compiler options are required by Convex */
     "target": "ESNext",
     "lib": ["ES2021", "dom"],

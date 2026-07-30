@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# generated service worker (built from app/sw.ts by @serwist/next)
+/public/sw.js
+/public/sw.js.map
+
 # production
 /build
 
@@ -32,6 +36,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -45,3 +50,10 @@ package-lock.json
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# local data cache for the backtest
+/.cache/
+
+# agent/tooling scratch files — must never be committed
+scripts/__tmp_*
+**/__proto/
