@@ -83,10 +83,25 @@ export const projectWeek = internalAction({
       const currentSeason = await provider.playerWeeks(season);
       if (!currentSeason.ok && week > 1) throw new Error(currentSeason.reason);
       const currentWeeks: PlayerWeek[] = currentSeason.ok ? currentSeason.data : [];
-      const priorSeason = await provider.playerWeeks(season - 1);
+
+      // Load the same number of prior seasons the backtest does.
+      //
+      // `scripts/backtest.ts` feeds `projectPlayer` three seasons; loading fewer here
+      // would mean the published accuracy figure was measured on a pipeline that differs
+      // from the one serving users. The effect on any single projection is small, but the
+      // problem is categorical: the number on /accuracy has to describe the shipped model.
+      const priorSeasonCount = 2;
       // A missing prior season is survivable: early-career players simply have less
       // history and the matchup term is skipped.
-      const priorWeeks: PlayerWeek[] = priorSeason.ok ? priorSeason.data : [];
+      const priorWeeks: PlayerWeek[] = [];
+      for (let back = priorSeasonCount; back >= 1; back -= 1) {
+        const result = await provider.playerWeeks(season - back);
+        if (result.ok) priorWeeks.push(...result.data);
+      }
+
+      // Defense-vs-position factors come from the immediately prior season only, matching
+      // the backtest. Using the full window would blend two seasons of defensive form.
+      const dvpSource = priorWeeks.filter((w) => w.period.season === season - 1);
 
       const contestsResult = await provider.allContests();
       const linesResult = await provider.allMarketLines();
@@ -194,7 +209,7 @@ export const projectWeek = internalAction({
       // run rather than a number that changes as each ruleset starts.
       let totalExpected = 0;
       for (const scoring of rulesets) {
-        const defenseFactors = buildDefenseFactors(priorWeeks, scoring, DVP_SHRINKAGE);
+        const defenseFactors = buildDefenseFactors(dvpSource, scoring, DVP_SHRINKAGE);
 
         const rows = [];
         for (const [playerId, bucket] of history) {

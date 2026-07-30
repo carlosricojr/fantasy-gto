@@ -46,6 +46,7 @@ export const setSubscription = internalMutation({
     status: statusValidator,
     clerkSubscriptionId: v.union(v.string(), v.null()),
     currentPeriodEnd: v.union(v.number(), v.null()),
+    eventAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.db
@@ -84,6 +85,7 @@ export const setSubscription = internalMutation({
       currentPeriodEnd: args.currentPeriodEnd,
       clerkSubscriptionId: args.clerkSubscriptionId,
       updatedAt: now,
+      lastEventAt: args.eventAt ?? existing?.lastEventAt ?? null,
     };
 
     if (existing) {
@@ -116,6 +118,8 @@ export const applyClerkEvent = internalMutation({
     status: v.union(v.string(), v.null()),
     subscriptionId: v.union(v.string(), v.null()),
     currentPeriodEnd: v.union(v.number(), v.null()),
+    /** Provider timestamp, used to reject an out-of-order delivery. */
+    eventAt: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ applied: boolean }> => {
     const now = Date.now();
@@ -173,6 +177,23 @@ export const applyClerkEvent = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .first();
 
+    // Reject a delivery older than the one already applied. Svix does not guarantee
+    // order, and a retried upgrade landing after a cancellation would otherwise restore
+    // Pro permanently.
+    if (
+      args.eventAt !== undefined &&
+      existing?.lastEventAt != null &&
+      args.eventAt < existing.lastEventAt
+    ) {
+      await ctx.db.insert("audit", {
+        kind: "billing.stale_event_ignored",
+        userId: user._id,
+        detail: `${args.eventType} at ${args.eventAt} is older than applied ${existing.lastEventAt}`,
+        at: now,
+      });
+      return { applied: false };
+    }
+
     // A subscription event that carries no resolvable plan key must NOT be read as a
     // downgrade. Clerk spells the plan in several places and this handler probes for it;
     // if none matched, the event tells us nothing about the plan, and resolving it to
@@ -225,6 +246,7 @@ export const applyClerkEvent = internalMutation({
       currentPeriodEnd: args.currentPeriodEnd ?? existing?.currentPeriodEnd ?? null,
       clerkSubscriptionId: args.subscriptionId ?? existing?.clerkSubscriptionId ?? null,
       updatedAt: now,
+      lastEventAt: args.eventAt ?? existing?.lastEventAt ?? null,
     };
 
     if (existing) {

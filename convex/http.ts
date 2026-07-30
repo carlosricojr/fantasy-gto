@@ -238,6 +238,9 @@ const clerkWebhook = httpAction(async (ctx, request) => {
       status: firstString(data.status),
       subscriptionId: firstString(data.id, data.subscription_id),
       currentPeriodEnd: extractPeriodEnd(event),
+      // The signed Svix timestamp is the ordering key. It is part of the verified
+      // signature, so a caller cannot forge it to replay an old state.
+      eventAt: Number(svixTimestamp) * 1000,
     });
 
     return new Response(null, { status: 200 });

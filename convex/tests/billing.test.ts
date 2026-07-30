@@ -273,6 +273,69 @@ describe("applyClerkEvent", () => {
     expect((await asUser(t, "downgrade").query(api.users.me, {})).plan).toBe("free");
   });
 
+  it("ignores a delivery older than the one already applied", async () => {
+    // Svix does not guarantee order, and the webhook returns 500 on failure to force a
+    // retry — which re-queues that delivery behind newer ones. Without an ordering guard
+    // a delayed upgrade landing after a cancellation restores Pro permanently, and no
+    // later event corrects it.
+    const t = convexTest(schema, modules);
+    await asUser(t, "order").mutation(api.users.ensure, {});
+
+    const cancelAt = 2_000_000;
+    const upgradeAt = 1_000_000; // sent first, delivered second
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "order",
+      planKey: "pro",
+      status: "canceled",
+      subscriptionId: null,
+      currentPeriodEnd: 0,
+      eventAt: cancelAt,
+    });
+    expect((await asUser(t, "order").query(api.users.me, {})).plan).toBe("free");
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "order",
+      planKey: "pro",
+      status: "active",
+      subscriptionId: null,
+      currentPeriodEnd: null,
+      eventAt: upgradeAt,
+    });
+
+    expect((await asUser(t, "order").query(api.users.me, {})).plan).toBe("free");
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.stale_event_ignored")).toBe(true);
+  });
+
+  it("applies a newer delivery normally", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "inorder").mutation(api.users.ensure, {});
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "inorder",
+      planKey: "pro",
+      status: "active",
+      subscriptionId: null,
+      currentPeriodEnd: null,
+      eventAt: 1_000_000,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "inorder",
+      planKey: "pro",
+      status: "canceled",
+      subscriptionId: null,
+      currentPeriodEnd: 0,
+      eventAt: 2_000_000,
+    });
+
+    expect((await asUser(t, "inorder").query(api.users.me, {})).plan).toBe("free");
+  });
+
   it("audits an event that carries no Clerk user id instead of guessing", async () => {
     const t = convexTest(schema, modules);
     const result = await t.mutation(internal.billing.applyClerkEvent, {

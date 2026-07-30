@@ -50,6 +50,16 @@ export default defineSchema({
     currentPeriodEnd: v.union(v.number(), v.null()),
     clerkSubscriptionId: v.union(v.string(), v.null()),
     updatedAt: v.number(),
+    /**
+     * The provider timestamp of the event that last wrote this row.
+     *
+     * Svix does not guarantee delivery order, and the webhook returns 500 on a mutation
+     * failure to force a retry — which re-queues that delivery behind newer ones. Without
+     * this, a delayed upgrade landing after a cancellation rewrites the account back to
+     * active and it holds Pro indefinitely with no live subscription. Both directions are
+     * terminal: no later event corrects the state.
+     */
+    lastEventAt: v.union(v.number(), v.null()),
   })
     // One row per user; read on every entitlement check.
     .index("by_user", ["userId"]),

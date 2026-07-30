@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { limit, planCapabilities } from "@/lib/billing/entitlements";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 
@@ -80,15 +81,20 @@ export default function DashboardPage() {
     }
   }
 
+  // Read the cap from the entitlement table rather than repeating "3" in prose. The
+  // moment the table changes, a hard-coded number would put /dashboard and /pricing in
+  // disagreement and let a capped user submit a form the server rejects.
+  const freeLeagues = limit(planCapabilities("free"), "league_count");
   const planKnown = !authLoading && me !== undefined;
   const leaguesKnown = !authLoading && leagues !== undefined;
-  const atFreeLimit = planKnown && me.plan === "free" && (leagues?.length ?? 0) >= 3;
+  const atFreeLimit =
+    planKnown && me.plan === "free" && (leagues?.length ?? 0) >= freeLeagues;
 
   const subtitle = !planKnown
     ? undefined
     : me.plan === "pro"
       ? "Pro — unlimited leagues"
-      : "Free — up to 3 leagues";
+      : `Free — up to ${freeLeagues} leagues`;
 
   return (
     <PageShell title="My leagues" subtitle={subtitle}>
@@ -151,7 +157,7 @@ export default function DashboardPage() {
         {atFreeLimit ? (
           <div className="mt-3 rounded-lg border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              Free includes three leagues. Pro removes the limit.
+              Free includes {freeLeagues} leagues. Pro removes the limit.
             </p>
             <Button asChild size="sm" className="mt-3">
               <Link href="/pricing">See plans</Link>
@@ -170,8 +176,16 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="league-format">Roster format</Label>
-              <div className="flex flex-wrap gap-2" id="league-format">
+              {/* htmlFor only binds to labelable elements, and a div is not one. The
+                  group needs role + aria-labelledby or it has no accessible name. */}
+              <span id="league-format-label" className="text-sm font-medium">
+                Roster format
+              </span>
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-labelledby="league-format-label"
+              >
                 {ROSTER_TEMPLATES.map((template) => (
                   <Button
                     key={template.id}
@@ -189,8 +203,14 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="league-scoring">Scoring</Label>
-              <div className="flex flex-wrap gap-2" id="league-scoring">
+              <span id="league-scoring-label" className="text-sm font-medium">
+                Scoring
+              </span>
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-labelledby="league-scoring-label"
+              >
                 {SCORING_PRESETS.map((preset) => (
                   <Button
                     key={preset.id}
