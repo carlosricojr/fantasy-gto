@@ -186,13 +186,15 @@ games (5.99). Weekly fantasy scoring is noisy enough that aggressive recency wei
 more signal than it captures. This contradicts the common intuition that "recent form"
 should dominate.
 
-**The Vegas reference matters more than the Vegas weight.** Measured against the *league*
-average, the term never beats switching it off (5.8629 at weight 0) and degrades
-monotonically after its first step, reaching 5.9489 at full weight. Measured against the
-team's own prior weeks, it has a genuine interior optimum at 0.5 (5.8406). The cause of the
-difference is double-counting: a player on a high-scoring offence already carries that
-team's quality in their own scoring history, so scaling by team strength again applies it
-twice. Only the game-specific deviation is new information.
+**The Vegas reference matters more than the Vegas weight.** Both references start from the
+same 5.8576 at weight 0 — with the weight at zero the block is skipped entirely, so the
+reference is irrelevant there. From there they diverge sharply. Against the team's own
+prior weeks the term has a genuine interior optimum, 5.8346 at 0.5, and degrades gently on
+either side. Against the *league* average it manages only a shallow gain (5.8493 at 0.25)
+before turning and degrading steeply to 5.9393 at full weight — worse than not using the
+term at all. The cause is double-counting: a player on a high-scoring offence already
+carries that team's quality in their own scoring history, so scaling by team strength again
+applies it twice. Only the game-specific deviation is new information.
 
 **Usage and opponent adjustments are real but very small.** Against switching each off,
 the usage cap is worth 0.0082 MAE and the opponent weight 0.0050; across their full sweep

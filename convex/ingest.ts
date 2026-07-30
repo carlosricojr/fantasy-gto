@@ -3,8 +3,9 @@
 import { v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import { type ActionCtx, internalAction } from "./_generated/server";
 
+import type { Contribution } from "../lib/core/domain";
 import { DVP_SHRINKAGE } from "../lib/nfl/model/config";
 import {
   type ImpliedTotalEntry,
@@ -29,6 +30,22 @@ import type { PlayerWeek } from "../lib/nfl/stats/parse";
  * (player, season, week, ruleset), so a retry after a partial failure converges rather
  * than duplicating.
  */
+
+/** One stored projection, as `projections.upsertBatch` accepts it. */
+interface ProjectionRow {
+  season: number;
+  week: number;
+  playerId: string;
+  position: string;
+  scoringId: string;
+  team: string;
+  opponent: string;
+  mean: number;
+  floor: number;
+  ceiling: number;
+  contributions: Contribution[];
+  modelVersion: string;
+}
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
@@ -69,12 +86,34 @@ export const projectWeek = internalAction({
     week: v.number(),
     scoringIds: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { season, week, scoringIds }): Promise<{
-    projections: number;
-    players: number;
-    /** Skipped because no current-season appearance established their team. */
-    unknownTeam: number;
-  }> => {
+  handler: (ctx, args): Promise<ProjectWeekResult> =>
+    runProjectWeek(ctx, args, new NflverseProvider()),
+});
+
+export interface ProjectWeekResult {
+  projections: number;
+  players: number;
+  /** Skipped because no current-season appearance established their team. */
+  unknownTeam: number;
+}
+
+/** The database surface the run needs. Narrowed so a test can supply it directly. */
+type ProjectWriteCtx = Pick<ActionCtx, "runMutation">;
+
+/**
+ * The body of `projectWeek`, with its data source and database handed in.
+ *
+ * Separated from the action purely so both are injectable. The ordering this function
+ * imposes — every row buffered until team coverage is verified — is the kind of property
+ * that can only be tested by observing the sequence of writes, and that is untestable
+ * while the provider is constructed inside the handler.
+ */
+export async function runProjectWeek(
+  ctx: ProjectWriteCtx,
+  { season, week, scoringIds }: { season: number; week: number; scoringIds?: string[] },
+  provider: NflverseProvider,
+): Promise<ProjectWeekResult> {
+  {
     const startedAt = Date.now();
     const jobId = await ctx.runMutation(internal.jobs.start, {
       kind: `project:${season}-${week}`,
@@ -82,8 +121,6 @@ export const projectWeek = internalAction({
     });
 
     try {
-      const provider = new NflverseProvider();
-
       // Upstream publishes stats_player_week_{season}.csv only once games have been
       // played, so at week 1 a 404 is the normal state, not a failure. The file also
       // contributes nothing to week-1 history — every current-season row is dropped below
@@ -217,10 +254,21 @@ export const projectWeek = internalAction({
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
       let totalExpected = 0;
+      /**
+       * Rows held until team coverage has been verified.
+       *
+       * Writing as each ruleset finishes and checking coverage afterwards is not
+       * equivalent: `projections.forWeek` is a public query that filters on neither job
+       * status nor freshness, and no page reads the job record, so rows written before a
+       * failed check stay live and are served as if they were the whole week. At week 1
+       * that is a ~40-player board from the Thursday opener, with the optimiser solving
+       * against a pool missing nearly every player a user owns.
+       */
+      const pending: ProjectionRow[][] = [];
       for (const scoring of rulesets) {
         const defenseFactors = buildDefenseFactors(dvpSource, scoring, DVP_SHRINKAGE);
 
-        const rows = [];
+        const rows: ProjectionRow[] = [];
         for (const [playerId, bucket] of history) {
           const latest = bucket[bucket.length - 1];
           const position = latest.competitor.position;
@@ -319,7 +367,34 @@ export const projectWeek = internalAction({
         }
 
         totalExpected = Math.max(totalExpected, rows.length * rulesets.length);
+        pending.push(rows);
+      }
 
+      // Coverage is decided before anything is written.
+      //
+      // A run must cover most of the teams playing that week, not merely produce *some*
+      // rows. Zero rows alone is too weak a test: at week 1 the stats file initially holds
+      // only the Thursday opener, so a handful of players resolve a current-season team
+      // and everyone else is skipped — the run would look successful while serving a board
+      // whose games have already finished. The same check catches a truncated upstream
+      // file mid-season.
+      const teamsPlaying = new Set(weekContestByTeam.keys()).size;
+      const coverage = teamsPlaying === 0 ? 0 : coveredTeams.size / teamsPlaying;
+
+      if (coverage < MIN_TEAM_COVERAGE) {
+        await ctx.runMutation(internal.jobs.finish, {
+          jobId,
+          status: "failed",
+          error:
+            `Only ${coveredTeams.size} of ${teamsPlaying} teams playing ${season} week ${week} ` +
+            `had a projectable player (${unknownTeam} skipped for no current-season ` +
+            `appearance). Nothing was written: a partial board would be served as though it ` +
+            `were the whole week.`,
+        });
+        return { projections: 0, players: identities.size, unknownTeam };
+      }
+
+      for (const rows of pending) {
         for (const batch of chunk(rows, WRITE_BATCH)) {
           await ctx.runMutation(internal.projections.upsertBatch, { rows: batch });
           written += batch.length;
@@ -336,28 +411,10 @@ export const projectWeek = internalAction({
         }
       }
 
-      // A run must cover most of the teams playing that week, not merely write *some*
-      // rows.
-      //
-      // Zero rows alone is too weak a test. At week 1 the stats file initially holds only
-      // the Thursday opener, so a handful of players from two teams resolve a
-      // current-season team and everyone else is skipped — `written > 0`, the job goes
-      // green, and users setting Sunday lineups see a board of ~35 players whose game is
-      // already over. Requiring proportional coverage catches that, and it catches a
-      // partial upstream file mid-season too.
-      const teamsPlaying = new Set(weekContestByTeam.keys()).size;
-      const teamsCovered = coveredTeams.size;
-      const coverage = teamsPlaying === 0 ? 0 : teamsCovered / teamsPlaying;
-      const underCovered = coverage < MIN_TEAM_COVERAGE;
-
       await ctx.runMutation(internal.jobs.finish, {
         jobId,
-        status: underCovered ? "failed" : "succeeded",
-        error: underCovered
-          ? `Only ${teamsCovered} of ${teamsPlaying} teams playing week ${week} had any projectable player ` +
-            `(${unknownTeam} skipped for no current-season appearance). This is expected before a week ` +
-            `has been played, and the partial board is not written as a success.`
-          : null,
+        status: "succeeded",
+        error: null,
       });
 
       return { projections: written, players: identities.size, unknownTeam };
@@ -371,8 +428,8 @@ export const projectWeek = internalAction({
     } finally {
       void startedAt;
     }
-  },
-});
+  }
+}
 
 /**
  * Resolves the live season and week, then recomputes projections for it.

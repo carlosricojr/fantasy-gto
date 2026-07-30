@@ -99,10 +99,12 @@ export default function AccuracyPage() {
             <strong className="text-foreground">
               Betting lines, but measured against the team&rsquo;s own norm.
             </strong>{" "}
-            Scaling by a game&rsquo;s implied total against the league average made the
-            model monotonically worse — a player on a strong offence already carries that
-            strength in their scoring history, so applying it again double-counts. The
-            baseline uses only weeks already played, so nothing after kickoff informs it.
+            Scaling by a game&rsquo;s implied total against the league average is worth
+            almost nothing and turns harmful as it is weighted up — a player on a strong
+            offence already carries that strength in their scoring history, so applying it
+            again double-counts. Measured against the team&rsquo;s own recent games it has a
+            clear optimum. The baseline uses only weeks already played, so nothing after
+            kickoff informs it.
           </li>
           <li>
             <strong className="text-foreground">Calibration.</strong> Correcting the

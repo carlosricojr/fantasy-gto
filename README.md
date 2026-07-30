@@ -17,9 +17,35 @@ pnpm backtest -- --sweeps  # reproduce how each parameter was chosen
 pnpm dev                   # Next.js + Convex
 ```
 
-`pnpm dev` needs a Convex deployment and Clerk keys in `.env.local`. `pnpm verify` and
-`pnpm backtest` need neither — the domain core has no infrastructure dependencies, which
-is deliberate.
+`pnpm verify` and `pnpm backtest` need no configuration at all — the domain core has no
+infrastructure dependencies, which is deliberate. `pnpm dev` needs a Convex deployment and
+Clerk keys; copy [`.env.example`](.env.example) to `.env.local` and follow it.
+
+### Billing webhook
+
+**The Clerk webhook is served by Convex, not by Next.js.** Point the Clerk endpoint at:
+
+```
+https://<your-deployment>.convex.site/clerk-webhook
+```
+
+Note `.convex.site`, not the `.convex.cloud` URL used by the client. Then set the signing
+secret on the deployment, which is a different store from `.env.local`:
+
+```bash
+npx convex env set CLERK_WEBHOOK_SECRET whsec_...
+npx convex env set CLERK_JWT_ISSUER_DOMAIN https://your-instance.clerk.accounts.dev
+```
+
+Subscribe the endpoint to `user.*` and `subscription.*` events.
+
+This is worth stating explicitly because getting it wrong fails *silently* in the worst
+direction: nothing errors in the browser, the app looks healthy, and every paying
+subscriber is treated as free because no `subscriptions` row is ever written. The handler
+lives in [`convex/http.ts`](convex/http.ts); it verifies the Svix signature and rejects
+unsigned deliveries. If you previously ran a version of this app that received the webhook
+at the Next.js route `/api/webhooks/clerk`, that route no longer exists and an endpoint
+still aimed at it is now getting a 404 — re-point it.
 
 ### Seeding a deployment
 
