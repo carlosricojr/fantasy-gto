@@ -6,7 +6,7 @@ projections by ≥8% MAE and deliver "+8.2 points/week", and neither number had 
 computation behind it.
 
 **Those claims are not achievable and have been removed.** The measured edge is roughly
-1.3%, not 8%. What follows is how that was established.
+2.53%, not 8%. What follows is how that was established.
 
 ## Method
 
@@ -93,17 +93,29 @@ projection's baseline.
 
 ### The calibration step earns its place
 
-Adding the per-position bias correction moved out-of-sample MAE from 5.9095 to 5.8507 and
-cut mean bias from −0.87 to −0.59. The factors were computed on 2024 and applied unchanged
-to 2025, so that gain is genuine rather than a curve fit.
+Measured on the current (leakage-free) pipeline by setting every `CALIBRATION` factor to 1
+and re-running:
+
+| | MAE | Bias | vs season mean |
+| --- | --- | --- | --- |
+| Without calibration | 5.8946 | −0.873 | +1.56% |
+| **With calibration** | **5.8365** | **−0.595** | **+2.53%** |
+
+The factors were computed on 2024 and applied unchanged to 2025, so this is an
+out-of-sample gain rather than a curve fit. It is also the single largest contributor to
+the headline number — larger than the usage, Vegas, and matchup terms combined.
 
 ### Implementation agreement
 
-The model was prototyped in Python before being written in TypeScript. The two agree to
-5.8512 versus 5.8507 — a difference of 0.0005 MAE, arising because the TypeScript model
-recomputes every historical score through the configurable scoring engine (with two-decimal
-quantisation) while the prototype read upstream's precomputed PPR column. Agreement at that
-tolerance is what confirms the port is faithful.
+The model was prototyped in Python before being written in TypeScript. Run against the same
+pipeline, the two agreed to 5.8512 versus 5.8507 — a difference of 0.0005 MAE, arising
+because the TypeScript model recomputes every historical score through the configurable
+scoring engine (with two-decimal quantisation) while the prototype read upstream's
+precomputed PPR column. Agreement at that tolerance is what confirmed the port was
+faithful.
+
+Both of those figures predate the lookahead-bias fix described above, so they are a
+statement about *port fidelity*, not about current accuracy. The current number is 5.8365.
 
 ## What the sweeps established
 
@@ -132,14 +144,14 @@ explainability, not because they move the metric much.
 
 Weekly fantasy football scoring is dominated by irreducible variance. An MAE near 5.9
 points against a mean around 12 means the error is roughly half the signal, and no amount of
-feature engineering on public box-score data closes that. A ~1.3% edge over a strong
+feature engineering on public box-score data closes that. A ~2.5% edge over a strong
 baseline is a real but modest result, and it is the truthful characterization of this model.
 
 The product's defensible value is therefore **not** projection supremacy. It is:
 
 - **Optimal lineup assignment**, which is provable rather than statistical. Given any set of
   projections, the maximum-weight matching is optimal by construction and beats the greedy
-  fill that naive tools use. See `lib/model/optimizer.ts`.
+  fill that naive tools use. See `lib/core/optimizer.ts`.
 - **Explainability** — every projection decomposes into named contributions that sum to the
   mean, so a user can see *why*.
 - **Calibrated floor and ceiling**, supporting variance-aware decisions.

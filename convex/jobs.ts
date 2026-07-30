@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internalMutation, query } from "./_generated/server";
+import { requireUser } from "./lib/auth";
 
 /**
  * Job records.
@@ -45,7 +46,11 @@ export const finish = internalMutation({
 });
 
 /**
- * The most recent run of each kind.
+ * The most recent run of a kind.
+ *
+ * Requires a signed-in caller and returns only progress, never `error` or `detail`. Job
+ * failures quote upstream messages and internal identifiers, which is operator
+ * information, not something to hand to an anonymous visitor.
  *
  * Uses the `by_kind_started` index in descending order and takes one row, rather than
  * collecting every historical run and sorting in memory.
@@ -53,10 +58,20 @@ export const finish = internalMutation({
 export const latest = query({
   args: { kind: v.string() },
   handler: async (ctx, { kind }) => {
-    return await ctx.db
+    await requireUser(ctx);
+    const job = await ctx.db
       .query("jobs")
       .withIndex("by_kind_started", (q) => q.eq("kind", kind))
       .order("desc")
       .first();
+    if (!job) return null;
+    return {
+      kind: job.kind,
+      status: job.status,
+      processed: job.processed,
+      total: job.total,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+    };
   },
 });

@@ -149,11 +149,15 @@ export const setRoster = mutation({
       throw new Error("That league does not exist.");
     }
 
+    // A player must appear at most once across the whole roster. Checking only
+    // slot-to-slot would let the same player be started and benched simultaneously,
+    // which double-counts them in every downstream projection total.
     const assigned = slots
       .map((slot) => slot.playerId)
       .filter((id): id is string => id !== null);
-    if (new Set(assigned).size !== assigned.length) {
-      throw new Error("A player cannot occupy two slots at once.");
+    const everyone = [...assigned, ...bench];
+    if (new Set(everyone).size !== everyone.length) {
+      throw new Error("A player can only appear once on a roster.");
     }
 
     const existing: Doc<"rosters"> | null = await ctx.db

@@ -54,6 +54,19 @@ describe("round2", () => {
     expect(Object.is(round2(-0.001), -0)).toBe(false);
   });
 
+  it("rounds decimal half-ties correctly despite binary representation", () => {
+    // 1.005 * 100 is 100.49999999999999, so a naive scale-and-round returns 1.00.
+    expect(round2(1.005)).toBe(1.01);
+    expect(round2(-1.005)).toBe(-1.01);
+    expect(round2(2.675)).toBe(2.68);
+    expect(round2(8.615)).toBe(8.62);
+  });
+
+  it("handles non-finite input without producing NaN", () => {
+    expect(round2(Number.NaN)).toBe(0);
+    expect(round2(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
   it("tames binary floating point error", () => {
     // 0.04 * 3 is 0.12000000000000001 in IEEE-754.
     expect(round2(0.04 * 3)).toBe(0.12);

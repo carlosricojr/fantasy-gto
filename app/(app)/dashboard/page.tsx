@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { EmptyState, PageShell } from "@/components/page-shell";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +38,11 @@ export default function DashboardPage() {
   const [scoringId, setScoringId] = useState(SCORING_PRESETS[0].id);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Deleting a league also deletes its roster and cannot be undone, so it is confirmed
+  // explicitly rather than fired straight from the list.
+  const [pendingDelete, setPendingDelete] = useState<{ id: Id<"leagues">; name: string } | null>(
+    null,
+  );
 
   async function onCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -60,14 +72,19 @@ export default function DashboardPage() {
     }
   }
 
-  const atFreeLimit =
-    me?.plan === "free" && (leagues?.length ?? 0) >= 3;
+  // `me` is undefined until the query resolves. Treating that as "free" would flash the
+  // free-tier limit at a subscriber on every page load.
+  const planKnown = me !== undefined;
+  const atFreeLimit = planKnown && me.plan === "free" && (leagues?.length ?? 0) >= 3;
+
+  const subtitle = !planKnown
+    ? undefined
+    : me.plan === "pro"
+      ? "Pro — unlimited leagues"
+      : "Free — up to 3 leagues";
 
   return (
-    <PageShell
-      title="My leagues"
-      subtitle={me?.plan === "pro" ? "Pro — unlimited leagues" : "Free — up to 3 leagues"}
-    >
+    <PageShell title="My leagues" subtitle={subtitle}>
       {me?.graceRemainingMs != null && (
         <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
           A payment did not go through. Pro features stay available for{" "}
@@ -106,7 +123,7 @@ export default function DashboardPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => removeLeague({ leagueId: league._id })}
+                onClick={() => setPendingDelete({ id: league._id, name: league.name })}
               >
                 Delete
               </Button>
@@ -182,6 +199,44 @@ export default function DashboardPage() {
           </form>
         )}
       </section>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this league?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {pendingDelete?.name} and its roster will be removed. This cannot be undone.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                if (!pendingDelete) return;
+                const target = pendingDelete;
+                setPendingDelete(null);
+                try {
+                  await removeLeague({ leagueId: target.id });
+                } catch (cause) {
+                  setError(
+                    cause instanceof Error ? cause.message : "Could not delete that league.",
+                  );
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

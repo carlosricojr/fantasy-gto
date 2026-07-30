@@ -177,14 +177,24 @@ export function solveLineup(
   }
 
   // Locked players hold their slot; the solver optimises what remains around them.
+  //
+  // Two guards matter here. A player locked to a slot they are not eligible for is bad
+  // input, and seating them would let the optimiser return an illegal lineup — so they are
+  // skipped and the slot is optimised normally. A player who is locked but cannot score
+  // (ruled out after kickoff) still occupies the slot, because a started player cannot be
+  // moved, but they are credited zero rather than their projection. Crediting it would
+  // overstate the lineup total and, through startSitAdvice, understate the gain from a
+  // change the user can still make.
   const lockedIds = new Set<string>();
   for (const player of ordered) {
     const slotId = player.lockedToSlotId;
-    if (!slotId || !slotById.has(slotId)) continue;
+    if (!slotId) continue;
+    const slot = slotById.get(slotId);
+    if (!slot || !isEligible(slot, player)) continue;
     const target = assignments.get(slotId);
     if (!target || target.competitorId !== null) continue;
     target.competitorId = player.id;
-    target.projectedPoints = player.projectedPoints;
+    target.projectedPoints = isStartable(player) ? player.projectedPoints : 0;
     target.locked = true;
     lockedIds.add(player.id);
   }

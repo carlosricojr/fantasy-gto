@@ -9,6 +9,7 @@ import {
   can,
   canAddLeague,
   entitlementsFor,
+  limit,
 } from "../../lib/billing/entitlements";
 
 /**
@@ -163,9 +164,10 @@ export async function requireLeagueCapacity(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   if (!canAddLeague(entitlements, existing.length)) {
+    const cap = limit(entitlements, "league_count");
     throw new EntitlementError(
       "league_count",
-      `Your plan includes ${existing.length} leagues. Upgrade to Pro for unlimited leagues.`,
+      `Your plan includes ${cap} league${cap === 1 ? "" : "s"}. Upgrade to Pro for unlimited leagues.`,
     );
   }
 }

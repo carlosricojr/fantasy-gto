@@ -123,9 +123,14 @@ export const projectWeek = internalAction({
         );
       }
 
-      const rulesets = (scoringIds ?? [DEFAULT_SCORING.id])
-        .map((id) => SCORING_PRESETS.find((preset) => preset.id === id))
-        .filter((preset): preset is (typeof SCORING_PRESETS)[number] => preset !== undefined);
+      // An unrecognised ruleset must fail the job, not be silently dropped. Filtering it
+      // out would report success while writing no projections for that ruleset, and the
+      // gap would only surface as an empty board days later.
+      const rulesets = (scoringIds ?? [DEFAULT_SCORING.id]).map((id) => {
+        const preset = SCORING_PRESETS.find((candidate) => candidate.id === id);
+        if (!preset) throw new Error(`Unknown scoring ruleset "${id}"`);
+        return preset;
+      });
 
       // Persist identity for everyone we know about, so rosters can resolve names.
       const identities = new Map<

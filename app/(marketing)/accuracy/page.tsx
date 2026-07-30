@@ -106,8 +106,9 @@ export default function AccuracyPage() {
           </li>
           <li>
             <strong className="text-foreground">Calibration.</strong> Correcting the
-            measured tendency to over-project improved error from 5.9095 to 5.8365
-            out-of-sample.
+            measured tendency to over-project improved error from 5.8946 to 5.8365
+            out-of-sample, and cut bias from −0.87 to −0.60. It contributes more than the
+            usage, betting-line, and matchup terms combined.
           </li>
         </ul>
       </section>

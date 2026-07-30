@@ -16,11 +16,20 @@ describe("toLineupCsv", () => {
     expect(lines).toHaveLength(4);
   });
 
-  it("formats projections to two decimals and leaves absent ones blank", () => {
+  it("writes projections at full precision and leaves absent ones blank", () => {
+    // Not `toFixed(2)`: truncating here would make export-then-import lossy for any
+    // value carrying more precision than the display format.
     const csv = toLineupCsv(ROWS);
-    expect(csv).toContain("21.40");
+    expect(csv).toContain("21.4");
     expect(csv).toContain("17.05");
     expect(csv.trimEnd().split("\r\n")[3]).toBe("TE,,,,");
+  });
+
+  it("preserves precision beyond two decimals", () => {
+    const csv = toLineupCsv([
+      { slot: "QB", player: "X", position: "QB", team: "BUF", projected: 21.456 },
+    ]);
+    expect(csv).toContain("21.456");
   });
 
   it("quotes fields containing commas", () => {

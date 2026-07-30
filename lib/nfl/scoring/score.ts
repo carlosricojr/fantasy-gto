@@ -21,11 +21,32 @@ import type {
  * a lineup total does not depend on the order players were added.
  */
 
-/** Rounds to two decimals, half away from zero, without `-0`. */
+/**
+ * Rounds to two decimals, half away from zero, without `-0`.
+ *
+ * Scaling by 100 and rounding does not work: `1.005 * 100` is `100.49999999999999` in
+ * IEEE-754, so the obvious implementation returns 1.00 while claiming to round half up.
+ * Adding an epsilon does not fix it either — the error is larger than one ulp.
+ *
+ * Shifting the decimal point through the exponent instead is exact, because it reuses the
+ * decimal representation rather than performing a binary multiplication. The sign is
+ * handled separately because `Math.round` breaks ties toward positive infinity, which
+ * would round -1.005 to -1.00 rather than away from zero.
+ */
 export function round2(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  const scaled = Math.round(Math.abs(value) * 100 + Number.EPSILON) / 100;
-  const signed = value < 0 ? -scaled : scaled;
+
+  const magnitude = Math.abs(value);
+  const shifted = Number(`${magnitude}e2`);
+
+  // Exponential input (e.g. 1e21) stringifies with its own `e`, which the shift above
+  // cannot parse. Nothing in fantasy scoring reaches that range, but fall back rather
+  // than return NaN.
+  const rounded = Number.isFinite(shifted)
+    ? Number(`${Math.round(shifted)}e-2`)
+    : Math.round(magnitude * 100) / 100;
+
+  const signed = value < 0 ? -rounded : rounded;
   return signed === 0 ? 0 : signed;
 }
 

@@ -41,7 +41,7 @@ export function toLineupCsv(rows: readonly LineupRow[]): string {
         escapeField(row.player),
         escapeField(row.position),
         escapeField(row.team),
-        row.projected === null ? "" : row.projected.toFixed(2),
+        row.projected === null ? "" : String(row.projected),
       ].join(","),
     );
   }

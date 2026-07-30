@@ -62,12 +62,18 @@ export interface GameContext {
    */
   impliedTeamTotal: number | null;
   /**
-   * This team's own average implied total across the season.
+   * This team's own average implied total across the weeks **already played**.
    *
    * The Vegas adjustment is measured against this rather than the league average.
    * Sweeping proved league-relative scaling makes the model monotonically worse: a player
    * on a strong offence already carries that strength in their own scoring history, so
    * scaling by team quality again counts it twice.
+   *
+   * It must exclude the week being projected and everything after it — see
+   * `meanImpliedTotalBefore`. Averaging the whole season is lookahead bias, and it
+   * inflated this model's reported accuracy until it was caught in review.
+   *
+   * `null` when there is no prior week, in which case the league mean is used.
    */
   teamMeanImpliedTotal: number | null;
 }
@@ -189,7 +195,7 @@ export function projectPlayer(input: ProjectionInput): Projection {
       "Usage trend",
       delta,
       delta >= 0
-        ? "Recent snap and target volume points to more production than raw scoring shows."
+        ? "Recent volume — attempts, carries, and targets — points to more production than raw scoring shows."
         : "Recent opportunity is below what this player's scoring implies.",
     );
     running = blended;

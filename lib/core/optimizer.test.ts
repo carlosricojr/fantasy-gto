@@ -183,6 +183,53 @@ describe("solveLineup — correctness", () => {
     expect(solution.totalPoints).toBe(25);
   });
 
+  it("ignores a lock onto an ineligible slot rather than seating an illegal lineup", () => {
+    const slots = [QB, RB1];
+    const roster = [
+      player("wr-locked", "WR", 30, { lockedToSlotId: "qb" }),
+      player("qb1", "QB", 12),
+      player("rb1", "RB", 9),
+    ];
+    const solution = solveLineup(slots, roster);
+    const qb = solution.assignments.find((a) => a.slotId === "qb")!;
+    expect(qb.competitorId).toBe("qb1");
+    expect(qb.locked).toBe(false);
+    expect(solution.benchedIds).toContain("wr-locked");
+    expect(solution.totalPoints).toBe(21);
+  });
+
+  it("ignores a lock onto a slot that does not exist", () => {
+    const roster = [player("rb1", "RB", 14, { lockedToSlotId: "nonexistent" })];
+    const solution = solveLineup([RB1], roster);
+    expect(solution.assignments[0].competitorId).toBe("rb1");
+    expect(solution.assignments[0].locked).toBe(false);
+  });
+
+  it("keeps a locked-but-ruled-out player in their slot at zero points", () => {
+    // Their game has started, so they cannot be moved — but they will not score, and
+    // crediting the projection would overstate the lineup.
+    const slots = [RB1, FLEX];
+    const roster = [
+      player("rb-out", "RB", 18, { availability: "out", lockedToSlotId: "rb1" }),
+      player("wr1", "WR", 11),
+    ];
+    const solution = solveLineup(slots, roster);
+    const rb1 = solution.assignments.find((a) => a.slotId === "rb1")!;
+    expect(rb1.competitorId).toBe("rb-out");
+    expect(rb1.locked).toBe(true);
+    expect(rb1.projectedPoints).toBe(0);
+    expect(solution.totalPoints).toBe(11);
+  });
+
+  it("assigns a locked player at most one slot", () => {
+    const slots = [RB1, RB2];
+    const roster = [player("rb1", "RB", 12, { lockedToSlotId: "rb1" })];
+    const ids = solveLineup(slots, roster)
+      .assignments.map((a) => a.competitorId)
+      .filter(Boolean);
+    expect(ids).toEqual(["rb1"]);
+  });
+
   it("is deterministic across runs when projections tie", () => {
     const slots = [FLEX];
     const roster = [

@@ -91,27 +91,40 @@ export const CALIBRATION: Readonly<Record<Position, number>> = {
   DST: 1,
 };
 
-/**
- * Empirical quantiles of actual/projected, by position, measured out-of-sample on 2025
- * after calibration. These turn a point estimate into a floor and a ceiling.
- *
- * The spread is enormous — a tenth-percentile outcome is around a fifth of the projection
- * and a ninetieth-percentile outcome nearly double it. That is not a defect in the model;
- * it is the actual week-to-week variance of fantasy football, and showing it honestly is
- * more useful than implying a precision that does not exist.
- */
 export interface QuantileBand {
   p10: number;
   p90: number;
+  /**
+   * Whether these numbers were measured or assumed.
+   *
+   * `measured` bands come from the out-of-sample backtest. `placeholder` bands do not —
+   * they are plausible values standing in until the position is actually projected and
+   * measured. The distinction is recorded in the type rather than in a comment so the
+   * interface can decline to present an unmeasured range as if it were evidence.
+   */
+  provenance: "measured" | "placeholder";
 }
 
+/**
+ * Quantiles of actual/projected, used to turn a point estimate into a floor and ceiling.
+ *
+ * QB, RB, WR, and TE were measured out-of-sample on 2025 after calibration. The spread is
+ * enormous — a tenth-percentile outcome is around a fifth of the projection and a
+ * ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
+ * the week-to-week variance of fantasy football, and showing it honestly is more useful
+ * than implying a precision that does not exist.
+ *
+ * K and DST are **placeholders**. The model does not project those positions yet (see the
+ * README's known gaps), so there is no backtest behind their bands. They are present so
+ * the table is total, not because they are evidence.
+ */
 export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
-  QB: { p10: 0.165, p90: 1.751 },
-  RB: { p10: 0.264, p90: 1.892 },
-  WR: { p10: 0.189, p90: 1.775 },
-  TE: { p10: 0.212, p90: 1.949 },
-  K: { p10: 0.25, p90: 1.85 },
-  DST: { p10: 0.2, p90: 2.0 },
+  QB: { p10: 0.165, p90: 1.751, provenance: "measured" },
+  RB: { p10: 0.264, p90: 1.892, provenance: "measured" },
+  WR: { p10: 0.189, p90: 1.775, provenance: "measured" },
+  TE: { p10: 0.212, p90: 1.949, provenance: "measured" },
+  K: { p10: 0.25, p90: 1.85, provenance: "placeholder" },
+  DST: { p10: 0.2, p90: 2.0, provenance: "placeholder" },
 };
 
 /**
