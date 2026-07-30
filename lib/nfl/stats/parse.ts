@@ -31,7 +31,18 @@ export function toPeriod(row: CsvRow): Period {
   return { season: num(row, "season"), index: num(row, "week") };
 }
 
-export function toCompetitor(row: CsvRow): Competitor | null {
+/**
+ * A competitor whose position is known to be fantasy-scorable.
+ *
+ * The shared `Competitor` carries `position` as an open string so the core stays
+ * sport-agnostic. This narrows it back down for NFL code, which lets the scoring engine
+ * and the model index position-keyed tables without a cast or a runtime check.
+ */
+export interface NflCompetitor extends Competitor {
+  position: Position;
+}
+
+export function toCompetitor(row: CsvRow): NflCompetitor | null {
   const id = str(row, "player_id");
   const position = toPosition(str(row, "position"));
   if (id === "" || position === null) return null;
@@ -115,7 +126,7 @@ export function toUsageLine(row: CsvRow): UsageLine {
 
 /** A fully parsed player-week: identity, context, production, and usage. */
 export interface PlayerWeek {
-  competitor: Competitor;
+  competitor: NflCompetitor;
   period: Period;
   seasonType: string;
   contestId: string;
