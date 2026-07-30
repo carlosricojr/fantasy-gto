@@ -131,3 +131,37 @@ no 2026 game has been played. The most recent season with complete statistics is
 Application defaults must therefore resolve "current season" from data availability rather
 than from the wall clock, and the UI must present an offseason state honestly instead of
 rendering an empty current week. See `lib/nfl/season.ts`.
+
+## 5. Clerk billing webhook — NOT verified by observation
+
+Every other source in this document was confirmed by direct request. This one was not, and
+the distinction matters enough to state rather than blur.
+
+`convex/http.ts` parses Clerk subscription events without a captured payload to check
+against. No webhook delivery is recorded here, and there is no fixture. The field names it
+probes — `data.plan.{slug,key,name}`, `data.items[].plan.*`, `data.items[].status`,
+`data.items[].period_start` / `period_end`, `data.primary_email_address_id` — are taken
+from Clerk's documentation and from the shapes the tests in `convex/tests/http.test.ts`
+encode. Clerk marks `period_end` optional on a subscription item; whether it omits
+`period_start`, or sends `0`, or sends the future switchover date for a scheduled item, is
+**not established**.
+
+The parsers are therefore written so that being wrong about the shape degrades rather than
+misfires:
+
+- Plan selection is tiered. The period only discriminates *among* items whose status is
+  plausibly live, so an unfamiliar or absent period cannot promote a scheduled or finished
+  item over the current one. With no usable status and no usable period, it falls back to
+  `items[0]` — the behaviour that predates any of this.
+- Zero and negative timestamps are read as absent, not as 1970.
+- An unrecognised or absent status makes the whole event uninformative: `applyClerkEvent`
+  writes no subscription state at all and records an audit row. A payload we cannot parse
+  cannot revoke a paying subscriber.
+- An unrecognised plan key resolves to free and is audited; an absent one leaves the
+  recorded plan untouched.
+
+**What would close this.** Capture one real delivery of each of `subscription.created`,
+`subscription.updated` (including a scheduled plan change and a cancel-at-period-end), and
+`subscriptionItem.updated` from a Clerk test instance, record the shapes here, and turn
+them into fixtures. Until that exists, treat the item-selection logic as defensive
+inference, not as a verified integration.

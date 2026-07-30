@@ -244,6 +244,13 @@ Stated plainly rather than left to be discovered.
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.
 - **Pro currently unlocks only the league cap.** See the entitlements section.
+- **The Clerk webhook payload shape is inferred, not verified.** Every data source in
+  `docs/data-sources.md` was confirmed by direct request except this one: no real delivery
+  has been captured, so the field names `convex/http.ts` probes come from documentation
+  rather than observation. The parsers are written to degrade rather than misfire — an
+  event that cannot be parsed writes nothing and is audited, so it cannot revoke a paying
+  subscriber — but that is a mitigation, not a verification. See section 5 of
+  `docs/data-sources.md`.
 - **Saved-roster start/sit is not wired to a screen.** `startSitAdvice` in
   `lib/core/optimizer.ts` is implemented and tested, but no page calls it — a league
   currently records scoring and roster format, and start/sit is delivered through

@@ -143,6 +143,84 @@ describe("extractPlanKey", () => {
     ).toBe("pro_monthly");
   });
 
+  it("never lets a period promote an item whose status is not live", () => {
+    // The period discriminates among live items; it must not promote one. Clerk marks
+    // `period_end` optional, so a scheduled or finished item can carry a period that
+    // brackets today — a start in the past with no end reads as "current" to a check that
+    // ignores status.
+
+    // Revocation direction: a finished free item with an open-ended past period, beside
+    // the Pro item the subscriber is actually on.
+    expect(
+      extractPlanKey(
+        event({
+          items: [
+            { status: "ended", plan: { slug: "free" }, period_start: NOW - 720 * HOUR },
+            {
+              status: "active",
+              plan: { slug: "pro_monthly" },
+              period_start: NOW - 24 * HOUR,
+              period_end: NOW + 240 * HOUR,
+            },
+          ],
+        }),
+        NOW,
+      ),
+    ).toBe("pro_monthly");
+
+    // Grant direction: a finished Pro item still carrying its old period, beside the free
+    // plan the account was downgraded to.
+    expect(
+      extractPlanKey(
+        event({
+          items: [
+            {
+              status: "ended",
+              plan: { slug: "pro_monthly" },
+              period_start: NOW - 720 * HOUR,
+            },
+            { status: "active", plan: { slug: "free" }, period_start: NOW - 24 * HOUR },
+          ],
+        }),
+        NOW,
+      ),
+    ).toBe("free");
+
+    // A scheduled item must not win on period either.
+    expect(
+      extractPlanKey(
+        event({
+          items: [
+            { status: "upcoming", plan: { slug: "free" }, period_start: 0 },
+            { status: "active", plan: { slug: "pro_monthly" } },
+          ],
+        }),
+        NOW,
+      ),
+    ).toBe("pro_monthly");
+  });
+
+  it("treats a zero period bound as absent, not as 1970", () => {
+    // A field defaulted to 0 would otherwise read as a period that began at the epoch and
+    // therefore covers every present moment.
+    expect(
+      extractPlanKey(
+        event({
+          items: [
+            { plan: { slug: "free" }, period_start: 0, period_end: 0 },
+            {
+              status: "active",
+              plan: { slug: "pro_monthly" },
+              period_start: NOW - 24 * HOUR,
+              period_end: NOW + 240 * HOUR,
+            },
+          ],
+        }),
+        NOW,
+      ),
+    ).toBe("pro_monthly");
+  });
+
   it("still treats a finished item as finished", () => {
     // `ended` and `expired` are not a paid remainder, so they must not win over a live
     // item. This is the boundary that makes the `canceled` case above safe.

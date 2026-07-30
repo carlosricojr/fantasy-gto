@@ -174,17 +174,12 @@ function extractPlanKey(event: ClerkEvent, now: number): string | null {
   //
   // Status alone cannot settle it. A `canceled` item may be the one still entitled — a
   // cancellation runs to the end of the period already paid for — or it may be a finished
-  // item sitting beside a current free one, and the two payloads look identical. The period
-  // is what actually distinguishes them, so it is checked first; status is the fallback for
-  // payloads that omit period bounds, and `items[0]` the fallback for those that omit both.
+  // item sitting beside a current free one, and the two payloads look identical by status.
+  // So the choice is made in two tiers: among items whose status is plausibly live, prefer
+  // the one whose period covers now; failing that, the first plausibly-live item; failing
+  // that, `items[0]`.
   const items = Array.isArray(data.items) ? data.items.map(asRecord) : [];
-  const coversNow = (entry: Record<string, unknown> | null): boolean => {
-    if (entry === null) return false;
-    const start = toEpochMillis(entry.period_start ?? entry.current_period_start);
-    const end = toEpochMillis(entry.period_end ?? entry.current_period_end);
-    if (start === null && end === null) return false;
-    return (start === null || start <= now) && (end === null || end > now);
-  };
+
   const isLiveItem = (entry: Record<string, unknown> | null): boolean => {
     // A non-object entry describes nothing, so it must not win the search — otherwise a
     // malformed first element would be selected over a real current item behind it.
@@ -192,6 +187,22 @@ function extractPlanKey(event: ClerkEvent, now: number): string | null {
     const status = firstString(entry.status);
     return status === null || LIVE_ITEM_STATUSES.has(status.trim().toLowerCase());
   };
+
+  // The period discriminates *among* live items. It must never promote one on its own.
+  //
+  // Clerk marks `period_end` optional, so a scheduled or finished item can carry a period
+  // that brackets now — a start in the past with no end reads as "current" to a check that
+  // ignores status. Ranking on period first therefore let an `upcoming` or `ended` item beat
+  // the genuinely live one, which is the whole failure this function exists to avoid, in
+  // both directions: revoking a paying subscriber, and granting Pro to a downgraded one.
+  const coversNow = (entry: Record<string, unknown> | null): boolean => {
+    if (!isLiveItem(entry) || entry === null) return false;
+    const start = toEpochMillis(entry.period_start ?? entry.current_period_start);
+    const end = toEpochMillis(entry.period_end ?? entry.current_period_end);
+    if (start === null && end === null) return false;
+    return (start === null || start <= now) && (end === null || end > now);
+  };
+
   const item = items.find(coversNow) ?? items.find(isLiveItem) ?? items[0] ?? null;
   const itemPlan = item ? asRecord(item.plan) : null;
 
@@ -252,6 +263,10 @@ function extractPeriodEnd(event: ClerkEvent): number | null {
  * Clerk sends seconds in some places and milliseconds in others. The 1e11 threshold splits
  * them: as seconds that is the year 5138, and as milliseconds it is 1973 — no real
  * subscription timestamp falls between.
+ *
+ * Zero and negatives are treated as absent rather than as 1970. A field defaulted to 0
+ * would otherwise read as a period that began at the epoch and so covers every present
+ * moment.
  */
 function toEpochMillis(candidate: unknown): number | null {
   const numeric =
@@ -261,7 +276,7 @@ function toEpochMillis(candidate: unknown): number | null {
         ? Number(candidate)
         : null;
 
-  if (numeric === null || !Number.isFinite(numeric)) return null;
+  if (numeric === null || !Number.isFinite(numeric) || numeric <= 0) return null;
   return numeric < 1e11 ? numeric * 1000 : numeric;
 }
 
