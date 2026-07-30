@@ -27,13 +27,34 @@ export const start = internalMutation({
   },
 });
 
+/**
+ * Records progress on a running job.
+ *
+ * Ignores an update once the job has reached a terminal state, and refuses counts that
+ * cannot be real. A late or malformed progress call is a caller bug, and persisting it
+ * would leave a finished job displaying a moving bar — the record exists to be trusted
+ * when something goes wrong, so it must not itself be a source of confusion.
+ */
 export const progress = internalMutation({
   args: { jobId: v.id("jobs"), processed: v.number(), total: v.number() },
   handler: async (ctx, { jobId, processed, total }) => {
+    if (!Number.isInteger(processed) || !Number.isInteger(total)) return;
+    if (processed < 0 || total < 0 || processed > total) return;
+
+    const job = await ctx.db.get(jobId);
+    if (!job || job.status !== "running") return;
+
     await ctx.db.patch(jobId, { processed, total });
   },
 });
 
+/**
+ * Marks a job terminal.
+ *
+ * Idempotent: an already-finished job keeps its original outcome. A retried action could
+ * otherwise overwrite the first failure's message with a second one, losing the error that
+ * actually explains what happened.
+ */
 export const finish = internalMutation({
   args: {
     jobId: v.id("jobs"),
@@ -41,6 +62,9 @@ export const finish = internalMutation({
     error: v.union(v.string(), v.null()),
   },
   handler: async (ctx, { jobId, status, error }) => {
+    const job = await ctx.db.get(jobId);
+    if (!job || job.status !== "running") return;
+
     await ctx.db.patch(jobId, { status, error, finishedAt: Date.now() });
   },
 });
