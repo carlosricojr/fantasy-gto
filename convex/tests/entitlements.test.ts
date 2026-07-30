@@ -116,6 +116,56 @@ describe("the free-tier league cap", () => {
   });
 });
 
+describe("error payloads reach the client", () => {
+  // Convex redacts the message of a non-ConvexError exception on a production deployment,
+  // so a plain Error would surface as "Server Error" — a crash where the upgrade path
+  // should be. convex-test does not redact, so asserting on the *message* passes either
+  // way. Asserting on the structured `data` payload is what distinguishes them.
+  it("carries a structured entitlement payload, not a bare message", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "payload_user").mutation(api.users.ensure, {});
+    for (const n of [1, 2, 3]) await createLeague(t, "payload_user", `L${n}`);
+
+    await expect(createLeague(t, "payload_user", "L4")).rejects.toMatchObject({
+      data: {
+        code: "entitlement",
+        feature: "league_count",
+        message: expect.stringContaining("Upgrade to Pro"),
+      },
+    });
+  });
+
+  it("carries a structured unauthenticated payload", async () => {
+    const t = convexTest(schema, modules);
+    await expect(
+      t.mutation(api.leagues.create, {
+        name: "Anon",
+        season: 2025,
+        platform: "manual",
+        externalId: null,
+        scoringId: "ppr",
+        slots: STANDARD_SLOTS,
+      }),
+    ).rejects.toMatchObject({ data: { code: "unauthenticated" } });
+  });
+
+  it("carries a structured payload for a roster that names a player twice", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "dup_user").mutation(api.users.ensure, {});
+    const leagueId = await createLeague(t, "dup_user", "Dup");
+
+    await expect(
+      asUser(t, "dup_user").mutation(api.leagues.setRoster, {
+        leagueId,
+        slots: [
+          { slotId: "rb1", slotLabel: "RB", eligiblePositions: ["RB"], playerId: "p1" },
+        ],
+        bench: ["p1"],
+      }),
+    ).rejects.toMatchObject({ data: { code: "invalid" } });
+  });
+});
+
 describe("ownership", () => {
   it("does not let one user read another's league", async () => {
     const t = convexTest(schema, modules);
@@ -221,7 +271,9 @@ describe("me", () => {
     const me = await asUser(t, "user_me").query(api.users.me, {});
     expect(me.signedIn).toBe(true);
     expect(me.plan).toBe("pro");
-    expect(me.entitlements.import_export).toBe(true);
+    // Pro's only implemented differentiator today is the league cap, and it must survive
+    // the wire rather than arriving as null.
+    expect(me.entitlements.league_count).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("never grants a capability that is not implemented", async () => {

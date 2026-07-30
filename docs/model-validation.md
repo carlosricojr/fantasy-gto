@@ -105,12 +105,17 @@ On the tuning season, holding the other parameters at their frozen values:
 
 | Sweep | Result |
 | --- | --- |
-| EMA alpha | 0.05→5.8922, 0.10→5.8562, **0.15→5.8464**, 0.20→5.8544, 0.30→5.9115, 0.40→6.0025 |
-| Usage cap | 0→5.8531, **0.2→5.8464**, 0.4→5.8474, 0.6→5.8549, 0.8→5.8665 |
+| EMA alpha | 0.05→5.8834, 0.10→5.8492, **0.15→5.8406**, 0.20→5.8503, 0.30→5.9126, 0.40→6.0048 |
+| Usage cap | 0→5.8489, **0.2→5.8406**, 0.4→5.8408, 0.6→5.8473, 0.8→5.8583 |
 | Vegas (team reference) | 0→5.8629, 0.25→5.8464, **0.5→5.8406**, 0.75→5.8478, 1→5.8672 |
 | Vegas (league reference) | 0→5.8629, 0.25→5.8555, 0.5→5.8682, 0.75→5.8999, 1→5.9489 |
 | Opponent weight | 0→5.8458, **0.25→5.8406**, 0.5→5.8416, 0.75→5.8475, 1→5.8590 |
 | Calibration | **on→5.8406**, off→5.8821 |
+
+Every row that sits at the frozen value reads 5.8406, because those runs *are* the frozen
+configuration. An earlier revision of this table printed 5.8464 for the alpha and usage
+rows — values carried over from before `VEGAS_WEIGHT` was re-selected — which made it
+self-contradictory: two runs of one identical configuration reported different numbers.
 
 Two things are worth reading off that table. The league-referenced Vegas sweep is
 monotonically worse past its first step and never beats leaving the term out entirely,
@@ -147,9 +152,11 @@ difference is double-counting: a player on a high-scoring offence already carrie
 team's quality in their own scoring history, so scaling by team strength again applies it
 twice. Only the game-specific deviation is new information.
 
-**Usage and opponent adjustments are real but small.** The usage cap moves the metric by
-about 0.07 and the opponent weight by about 0.05. They are retained because they are
-directionally sound and improve explainability, not because they move the metric much.
+**Usage and opponent adjustments are real but very small.** Against switching each off,
+the usage cap is worth 0.0083 MAE and the opponent weight 0.0052; across their full sweep
+ranges, 0.0177 and 0.0184. They are retained because they are directionally sound and
+improve explainability, not because they move the metric. Calibration, at 0.0415, is worth
+more than both combined — which is the honest ordering of what actually matters here.
 
 ## Honest interpretation
 

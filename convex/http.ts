@@ -147,6 +147,9 @@ function extractPlanKey(event: ClerkEvent): string | null {
     plan?.name,
     itemPlan?.slug,
     itemPlan?.key,
+    // The top-level branch anticipates `name`, so the nested one must too — otherwise a
+    // plan spelled only under `data.items[0].plan.name` extracts as null.
+    itemPlan?.name,
     data.plan_id,
   );
 }

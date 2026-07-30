@@ -201,6 +201,78 @@ describe("applyClerkEvent", () => {
     expect(second).toBe(first);
   });
 
+  it("does not downgrade a subscriber when the event carries no plan key", async () => {
+    // Clerk spells the plan in several places. If none matched, the event says nothing
+    // about the plan — resolving it to "free" would drop a paying customer instantly,
+    // because effectivePlan short-circuits on planId === "free" and the grace window
+    // stops applying entirely.
+    const t = convexTest(schema, modules);
+    await asUser(t, "keep").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "keep",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "keep",
+      planKey: null,
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "keep").query(api.users.me, {})).plan).toBe("pro");
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.unresolved_plan_key")).toBe(true);
+  });
+
+  it("preserves the grace window when a past_due event carries no plan key", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "grace").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "grace",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.past_due",
+      clerkUserId: "grace",
+      planKey: null,
+      status: "past_due",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    const me = await asUser(t, "grace").query(api.users.me, {});
+    expect(me.plan).toBe("pro");
+    expect(me.graceRemainingMs).not.toBeNull();
+  });
+
+  it("still downgrades a genuinely free subscription event", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "downgrade").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "downgrade",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "downgrade",
+      planKey: "free",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "downgrade").query(api.users.me, {})).plan).toBe("free");
+  });
+
   it("audits an event that carries no Clerk user id instead of guessing", async () => {
     const t = convexTest(schema, modules);
     const result = await t.mutation(internal.billing.applyClerkEvent, {

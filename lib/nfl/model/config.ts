@@ -84,6 +84,10 @@ export const EFFICIENCY_PRIOR: Readonly<Record<Position, number>> = {
 /**
  * Per-position multiplicative bias correction.
  *
+ * **Fitted on PPR only**, like `OUTCOME_QUANTILES` and the published accuracy figure. They
+ * are applied to every ruleset because a per-ruleset fit has not been measured; for Half
+ * PPR and Standard they are an unvalidated approximation, and the interface says so.
+ *
  * The uncorrected model projects high — it is fitted on players selected for recent
  * production, who regress. These factors were computed on 2024 and applied unchanged to
  * 2025. On the tuning season, disabling them moves MAE from 5.8406 to 5.8821, a larger
@@ -116,7 +120,8 @@ export interface QuantileBand {
 /**
  * Quantiles of actual/projected, used to turn a point estimate into a floor and ceiling.
  *
- * QB, RB, WR, and TE were measured out-of-sample on 2025 after calibration. The spread is
+ * QB, RB, WR, and TE were measured out-of-sample on 2025 after calibration, **under PPR
+ * scoring**. Applied to another ruleset they are an approximation, not a measurement. The spread is
  * enormous — a tenth-percentile outcome is around a fifth of the projection and a
  * ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
  * the week-to-week variance of fantasy football, and showing it honestly is more useful

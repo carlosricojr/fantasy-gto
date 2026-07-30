@@ -482,6 +482,61 @@ describe("startSitAdvice", () => {
     expect(result.advice.map((a) => a.pointsGained)).toEqual([18, 3]);
   });
 
+  it("never recommends starting a locked player who has been ruled out", () => {
+    // The solver seats a locked-but-out player at zero because their game has begun and
+    // they cannot be moved. Advice must not then present that as an action worth taking,
+    // credited at a projection the same call scores as zero.
+    const slots = [RB1, FLEX];
+    const roster = [
+      player("rb-out", "RB", 18, { availability: "out", lockedToSlotId: "rb1" }),
+      player("wr1", "WR", 11),
+    ];
+    const current = new Map<string, string | null>([
+      ["rb1", "rb-out"],
+      ["flex", null],
+    ]);
+    const result = startSitAdvice(slots, roster, current);
+
+    expect(result.advice.map((a) => a.startCompetitorId)).not.toContain("rb-out");
+    expect(result.pointsGained).toBe(11);
+    const summed = result.advice.reduce((total, a) => total + a.pointsGained, 0);
+    expect(Math.round(summed * 100) / 100).toBe(result.pointsGained);
+  });
+
+  it("names an unavailable occupant as the player to bench", () => {
+    // An empty sitCompetitorId means the slot was empty. Leaving it empty when the slot is
+    // occupied by an out player hides the one action the recommendation depends on.
+    const roster = [
+      player("rb-out", "RB", 20, { availability: "out" }),
+      player("rb-ok", "RB", 10),
+    ];
+    const current = new Map([["rb1", "rb-out"]]);
+    const result = startSitAdvice([RB1], roster, current);
+
+    expect(result.advice).toHaveLength(1);
+    expect(result.advice[0]).toMatchObject({
+      startCompetitorId: "rb-ok",
+      sitCompetitorId: "rb-out",
+    });
+    expect(result.pointsGained).toBe(10);
+  });
+
+  it("gains still sum to the total when an unavailable player is involved", () => {
+    const slots = [RB1, FLEX];
+    const roster = [
+      player("rb-out", "RB", 22, { availability: "out" }),
+      player("rb-ok", "RB", 13),
+      player("wr1", "WR", 9),
+    ];
+    const current = new Map([
+      ["rb1", "rb-out"],
+      ["flex", "wr1"],
+    ]);
+    const result = startSitAdvice(slots, roster, current);
+    const summed = result.advice.reduce((total, a) => total + a.pointsGained, 0);
+    expect(Math.round(summed * 100) / 100).toBe(result.pointsGained);
+  });
+
   it("never recommends starting an unavailable player", () => {
     const roster = [
       player("rb-out", "RB", 40, { availability: "out" }),

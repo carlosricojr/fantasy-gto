@@ -118,9 +118,12 @@ export function describePeriod(period: Period): string {
 export function describeSeasonState(state: SeasonState): string {
   switch (state.phase) {
     case "offseason":
-      return `The ${state.season} season is complete. Showing final Week ${state.week} results.`;
+      // "results" would be wrong: the pages that render this string show model
+      // projections with floor/ceiling bands, never actual scores. A user comparing them
+      // against real box scores would conclude the data is broken.
+      return `The ${state.season} season is complete. Showing projections for its final week, Week ${state.week}.`;
     case "preseason":
-      return `The ${state.season} season has not kicked off yet. Showing Week ${state.week} previews.`;
+      return `The ${state.season} season has not kicked off yet. Showing Week ${state.week} projections.`;
     case "regular":
       return `${state.season} Week ${state.week}`;
   }

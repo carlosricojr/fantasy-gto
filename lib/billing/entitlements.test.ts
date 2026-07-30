@@ -5,6 +5,7 @@ import {
   FREE_SUBSCRIPTION,
   GRACE_PERIOD_MS,
   PRO_PLAN_KEYS,
+  UNLIMITED,
   UNIMPLEMENTED_FEATURES,
   type Subscription,
   can,
@@ -50,9 +51,7 @@ describe("entitlement table", () => {
 
   it("caps free leagues at three and makes Pro unlimited", () => {
     expect(limit(planCapabilities("free"), "league_count")).toBe(3);
-    expect(limit(planCapabilities("pro"), "league_count")).toBe(
-      Number.POSITIVE_INFINITY,
-    );
+    expect(limit(planCapabilities("pro"), "league_count")).toBe(UNLIMITED);
   });
 
   it("withholds every paid capability on the free tier", () => {
@@ -225,6 +224,18 @@ describe("canAddLeague", () => {
     const pro = entitlementsFor(subscription(), NOW);
     expect(canAddLeague(pro, 0)).toBe(true);
     expect(canAddLeague(pro, 10_000)).toBe(true);
+  });
+
+  it("survives JSON serialisation, so a Pro client does not read null", () => {
+    // Infinity serialises to null. A client reading null would compute `count < 0` and
+    // tell a paying subscriber they had hit their limit.
+    const pro = entitlementsFor(subscription(), NOW);
+    const roundTripped = JSON.parse(JSON.stringify(pro)) as typeof pro;
+    expect(roundTripped.league_count).toBe(UNLIMITED);
+    expect(canAddLeague(roundTripped, 10_000)).toBe(true);
+    for (const value of Object.values(pro)) {
+      expect(Number.isFinite(value) || typeof value === "boolean").toBe(true);
+    }
   });
 });
 

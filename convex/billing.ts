@@ -173,9 +173,25 @@ export const applyClerkEvent = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .first();
 
-    // An unrecognised price key resolves to free, which would silently downgrade a paying
-    // customer. Record it so the misconfiguration is visible rather than mysterious.
-    if (!isPaymentFailure && !isKnownPlanKey(args.planKey)) {
+    // A subscription event that carries no resolvable plan key must NOT be read as a
+    // downgrade. Clerk spells the plan in several places and this handler probes for it;
+    // if none matched, the event tells us nothing about the plan, and resolving it to
+    // "free" would drop a paying customer instantly — `effectivePlan` short-circuits on
+    // planId === "free", so status, currentPeriodEnd, and the whole grace window stop
+    // applying. The absence is recorded so the extraction gap is visible.
+    const planUnresolved = !isPaymentFailure && args.planKey === null;
+    if (planUnresolved) {
+      await ctx.db.insert("audit", {
+        kind: "billing.unresolved_plan_key",
+        userId: user._id,
+        detail: `${args.eventType} carried no plan key; keeping plan=${existing?.planId ?? "free"}`,
+        at: now,
+      });
+    }
+
+    // An unrecognised (as opposed to absent) price key resolves to free, which would
+    // silently downgrade a paying customer. Record it so the misconfiguration is visible.
+    if (!isPaymentFailure && !planUnresolved && !isKnownPlanKey(args.planKey)) {
       await ctx.db.insert("audit", {
         kind: "billing.unknown_plan_key",
         userId: user._id,
@@ -187,9 +203,10 @@ export const applyClerkEvent = internalMutation({
     // A payment failure carries no plan, so the recorded one is kept. With no recorded
     // subscription there is nothing to keep, and defaulting to Pro would grant a paid plan
     // off the back of a *failed* payment — so it falls back to free.
-    const planId: PlanId = isPaymentFailure
-      ? (existing?.planId ?? "free")
-      : planFromClerkKey(args.planKey);
+    const planId: PlanId =
+      isPaymentFailure || planUnresolved
+        ? (existing?.planId ?? "free")
+        : planFromClerkKey(args.planKey);
 
     const status: SubscriptionStatus = isPaymentFailure
       ? "past_due"

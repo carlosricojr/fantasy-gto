@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -26,22 +28,56 @@ import {
 
 export type Ctx = QueryCtx | MutationCtx;
 
+/**
+ * Application errors are thrown as `ConvexError`, not `Error`.
+ *
+ * Convex redacts the message of any non-`ConvexError` exception on a production
+ * deployment — the client receives "Server Error" and nothing else. These messages exist
+ * precisely to be read by a user (a free subscriber hitting the league cap needs the
+ * upgrade path, not a crash), so they must travel in `ConvexError` data.
+ *
+ * This is invisible in tests: `convex-test` is a local simulator and does not redact, so a
+ * plain `Error` passes every assertion here while breaking in production.
+ */
+export type AppErrorCode = "unauthenticated" | "entitlement" | "not_found" | "invalid";
+
+/**
+ * The payload carried to the client.
+ *
+ * The index signature is required by Convex's `Value` constraint on `ConvexError`; the
+ * named fields are what callers actually read.
+ */
+export type AppErrorData = {
+  code: AppErrorCode;
+  message: string;
+  feature?: FeatureKey;
+  [key: string]: string | undefined;
+};
+
 /** Thrown when the caller is not signed in. */
-export class UnauthenticatedError extends Error {
-  constructor() {
-    super("You need to be signed in to do that.");
-    this.name = "UnauthenticatedError";
-  }
+export function unauthenticated(): ConvexError<AppErrorData> {
+  return new ConvexError<AppErrorData>({
+    code: "unauthenticated",
+    message: "You need to be signed in to do that.",
+  });
 }
 
 /** Thrown when the caller's plan does not include a capability. */
-export class EntitlementError extends Error {
-  readonly feature: FeatureKey;
-  constructor(feature: FeatureKey, message: string) {
-    super(message);
-    this.name = "EntitlementError";
-    this.feature = feature;
-  }
+export function entitlementRequired(
+  feature: FeatureKey,
+  message: string,
+): ConvexError<AppErrorData> {
+  return new ConvexError<AppErrorData>({ code: "entitlement", message, feature });
+}
+
+/** Thrown when a record is absent, or is not the caller's to see. */
+export function notFound(message: string): ConvexError<AppErrorData> {
+  return new ConvexError<AppErrorData>({ code: "not_found", message });
+}
+
+/** Thrown when arguments are internally inconsistent. */
+export function invalid(message: string): ConvexError<AppErrorData> {
+  return new ConvexError<AppErrorData>({ code: "invalid", message });
 }
 
 /**
@@ -66,7 +102,7 @@ export async function currentUser(ctx: Ctx): Promise<Doc<"users"> | null> {
 /** The signed-in user's row, or throws. */
 export async function requireUser(ctx: Ctx): Promise<Doc<"users">> {
   const user = await currentUser(ctx);
-  if (!user) throw new UnauthenticatedError();
+  if (!user) throw unauthenticated();
   return user;
 }
 
@@ -138,7 +174,7 @@ export async function requireEntitlement(
   const user = await requireUser(ctx);
   const entitlements = await entitlementsForUser(ctx, user._id);
   if (!can(entitlements, feature)) {
-    throw new EntitlementError(
+    throw entitlementRequired(
       feature,
       `${FEATURE_PROMPTS[feature]} is part of Pro. Upgrade to unlock it.`,
     );
@@ -165,7 +201,7 @@ export async function requireLeagueCapacity(
     .collect();
   if (!canAddLeague(entitlements, existing.length)) {
     const cap = limit(entitlements, "league_count");
-    throw new EntitlementError(
+    throw entitlementRequired(
       "league_count",
       `Your plan includes ${cap} league${cap === 1 ? "" : "s"}. Upgrade to Pro for unlimited leagues.`,
     );

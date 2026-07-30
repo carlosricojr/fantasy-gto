@@ -111,6 +111,14 @@ export default function ProjectionsPage() {
         ))}
       </div>
 
+      {scoringId !== DEFAULT_SCORING.id && (
+        <p className="mb-4 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+          The model&rsquo;s calibration, its floor/ceiling range, and the published accuracy
+          figure were all measured under PPR. For {SCORING_PRESETS.find((p) => p.id === scoringId)?.label},
+          projections are rescaled but that validation does not carry over.
+        </p>
+      )}
+
       {projections === undefined && <p className="text-muted-foreground">Loading…</p>}
 
       {projections !== undefined && projections.length === 0 && (

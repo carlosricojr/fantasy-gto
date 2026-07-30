@@ -70,7 +70,18 @@ export const FEATURES = [
 
 export type FeatureKey = (typeof FEATURES)[number];
 
-/** A boolean capability, or a numeric cap where `Infinity` means unlimited. */
+/**
+ * An unlimited numeric cap.
+ *
+ * Not `Infinity`: entitlements cross the wire as JSON, and `Infinity` serialises to
+ * `null`. A Pro subscriber's client would then read `league_count: null`, and a
+ * client-side `canAddLeague` would compute `count < 0` and tell a paying customer they had
+ * hit their limit. `MAX_SAFE_INTEGER` is unlimited for every practical purpose and
+ * survives serialisation intact.
+ */
+export const UNLIMITED = Number.MAX_SAFE_INTEGER;
+
+/** A boolean capability, or a numeric cap where `UNLIMITED` means no limit. */
 export type EntitlementValue = boolean | number;
 
 export type Entitlements = Readonly<Record<FeatureKey, EntitlementValue>>;
@@ -95,32 +106,50 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
     performance_history: false,
   },
   /**
-   * Four capabilities are deliberately `false` here even though they are Pro features:
-   * `waivers_faab`, `dst_streamer`, `alerts`, and `performance_history` are not built yet.
+   * **Pro's only implemented differentiator today is unlimited leagues.**
    *
-   * Granting access to a feature that does not exist would mean a paying subscriber is
-   * entitled to nothing, and would make this table describe an intention rather than the
-   * product. They flip to `true` in the same change that implements them. The README's
-   * "Known gaps" section and the pricing page must agree with this table.
+   * That is an uncomfortable thing for a paid tier to admit, and it is the truth. Every
+   * other capability in this table is `false` because nothing in the codebase reads it:
+   *
+   * - `accuracy_dashboard` — `/accuracy` is a public marketing page with no gate.
+   * - `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested but no route or
+   *   screen imports it.
+   * - `daily_refresh` — the cron in `convex/crons.ts` rewrites the shared `projections`
+   *   rows, and `projections.forWeek` is a public query with no staleness tier. A free
+   *   visitor sees the identical freshly recomputed rows. Billing for it would be
+   *   charging for a difference that does not exist.
+   * - `waivers_faab`, `dst_streamer`, `alerts`, `performance_history` — not built.
+   *
+   * Each flips to `true` in the same change that implements it, and the pricing page
+   * renders both columns from this table so it cannot claim otherwise.
    */
   pro: {
     start_sit: true,
-    league_count: Number.POSITIVE_INFINITY,
-    daily_refresh: true,
+    league_count: UNLIMITED,
+    daily_refresh: false,
     waivers_faab: false,
     dst_streamer: false,
     alerts: false,
-    accuracy_dashboard: true,
-    import_export: true,
+    accuracy_dashboard: false,
+    import_export: false,
     performance_history: false,
   },
 };
 
-/** Pro capabilities that are not implemented yet. Kept explicit so tests can assert it. */
+/**
+ * Capabilities named in the plan but not implemented.
+ *
+ * A key belongs here when nothing in the codebase reads it — including when the
+ * underlying feature exists but is ungated (`accuracy_dashboard`) or undifferentiated
+ * between tiers (`daily_refresh`). The test suite asserts none of these is granted.
+ */
 export const UNIMPLEMENTED_FEATURES: readonly FeatureKey[] = [
+  "daily_refresh",
   "waivers_faab",
   "dst_streamer",
   "alerts",
+  "accuracy_dashboard",
+  "import_export",
   "performance_history",
 ];
 
@@ -201,6 +230,11 @@ export function limit(entitlements: Entitlements, feature: FeatureKey): number {
 /** True when adding one more league stays within the plan's cap. */
 export function canAddLeague(entitlements: Entitlements, currentCount: number): boolean {
   return currentCount < limit(entitlements, "league_count");
+}
+
+/** True when a numeric cap is effectively unlimited, for interface copy. */
+export function isUnlimited(value: EntitlementValue): boolean {
+  return typeof value === "number" && value >= UNLIMITED;
 }
 
 /**

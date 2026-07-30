@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { EmptyState, PageShell } from "@/components/page-shell";
+import { appErrorMessage } from "@/lib/errors";
 import {
   Dialog,
   DialogContent,
@@ -65,8 +66,9 @@ export default function DashboardPage() {
       });
       setName("");
     } catch (cause) {
-      // Convex surfaces the server-side entitlement message directly.
-      setError(cause instanceof Error ? cause.message : "Could not create that league.");
+      // Read the ConvexError payload. A plain `error.message` would be the redacted
+      // "Server Error" string on a production deployment.
+      setError(appErrorMessage(cause, "Could not create that league."));
     } finally {
       setBusy(false);
     }
@@ -228,9 +230,7 @@ export default function DashboardPage() {
                 try {
                   await removeLeague({ leagueId: target.id });
                 } catch (cause) {
-                  setError(
-                    cause instanceof Error ? cause.message : "Could not delete that league.",
-                  );
+                  setError(appErrorMessage(cause, "Could not delete that league."));
                 }
               }}
             >

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { currentUser, requireLeagueCapacity, requireUser } from "./lib/auth";
+import { currentUser, invalid, notFound, requireLeagueCapacity, requireUser } from "./lib/auth";
 
 /**
  * Leagues and rosters.
@@ -98,7 +98,7 @@ export const remove = mutation({
     const user = await requireUser(ctx);
     const league = await ctx.db.get(leagueId);
     if (!league || league.userId !== user._id) {
-      throw new Error("That league does not exist.");
+      throw notFound("That league does not exist.");
     }
 
     const rosters = await ctx.db
@@ -146,7 +146,7 @@ export const setRoster = mutation({
     const user = await requireUser(ctx);
     const league = await ctx.db.get(leagueId);
     if (!league || league.userId !== user._id) {
-      throw new Error("That league does not exist.");
+      throw notFound("That league does not exist.");
     }
 
     // A player must appear at most once across the whole roster. Checking only
@@ -157,7 +157,7 @@ export const setRoster = mutation({
       .filter((id): id is string => id !== null);
     const everyone = [...assigned, ...bench];
     if (new Set(everyone).size !== everyone.length) {
-      throw new Error("A player can only appear once on a roster.");
+      throw invalid("A player can only appear once on a roster.");
     }
 
     const existing: Doc<"rosters"> | null = await ctx.db

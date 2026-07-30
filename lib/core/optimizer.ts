@@ -2,7 +2,7 @@
  * Optimal lineup assignment.
  *
  * This is the one part of the product whose value is provable rather than statistical.
- * The projection model's measured edge over a strong baseline is about 1.3% (see
+ * The projection model's measured edge over a strong baseline is 2.59% (see
  * `docs/model-validation.md`), which is real but modest. Optimal slot assignment, by
  * contrast, is optimal by construction: given any set of projections, no arrangement
  * scores higher. Naive tools lose points here for free.
@@ -291,33 +291,51 @@ export function startSitAdvice(
     if (player && isStartable(player)) currentTotal += player.projectedPoints;
   }
 
-  // Compare who *plays*, not which slot they occupy. Diffing slot by slot reports a
-  // player who merely shifted from FLEX to RB as someone to bench, which is wrong and
-  // makes the per-swap gains double-count against the true total.
-  const currentStarters = new Set<string>();
+  // Compare who *occupies a slot*, not who scores. Diffing slot by slot would report a
+  // player who merely shifted from FLEX to RB as someone to bench; filtering the two sides
+  // by different availability rules is worse still, because the sets stop being
+  // comparable and the diff between them is what the advice is derived from.
+  //
+  // Both sets therefore use the same rule — is this player in a slot — and availability is
+  // applied afterwards, where it belongs:
+  //
+  //  - a player who cannot score is never *recommended* to start, and
+  //  - a player who cannot score but currently occupies a slot still has to come out, so
+  //    they must be nameable as the player being replaced.
+  const currentOccupants = new Set<string>();
   for (const competitorId of currentLineup.values()) {
     if (!competitorId) continue;
-    const player = byId.get(competitorId);
-    if (player && isStartable(player)) currentStarters.add(competitorId);
+    if (byId.has(competitorId)) currentOccupants.add(competitorId);
   }
 
-  const optimalStarters = new Set<string>();
+  const optimalOccupants = new Set<string>();
   const slotForCompetitor = new Map<string, SlotAssignment>();
   for (const assignment of optimal.assignments) {
     if (!assignment.competitorId) continue;
-    optimalStarters.add(assignment.competitorId);
+    optimalOccupants.add(assignment.competitorId);
     slotForCompetitor.set(assignment.competitorId, assignment);
   }
 
-  const pointsOf = (id: string) => byId.get(id)?.projectedPoints ?? 0;
+  // A player who cannot score contributes nothing, whatever their projection says.
+  const pointsOf = (id: string) => {
+    const player = byId.get(id);
+    return player && isStartable(player) ? player.projectedPoints : 0;
+  };
   const byPointsDescending = (a: string, b: string) =>
     pointsOf(b) - pointsOf(a) || (a < b ? -1 : 1);
 
-  const toStart = [...optimalStarters]
-    .filter((id) => !currentStarters.has(id))
+  const toStart = [...optimalOccupants]
+    .filter((id) => !currentOccupants.has(id))
+    // Never recommend starting somebody who is out or on bye. The solver may still seat a
+    // locked one — their game has begun and they cannot be moved — but that is not advice.
+    .filter((id) => {
+      const player = byId.get(id);
+      return player !== undefined && isStartable(player);
+    })
     .sort(byPointsDescending);
-  const toSit = [...currentStarters]
-    .filter((id) => !optimalStarters.has(id))
+
+  const toSit = [...currentOccupants]
+    .filter((id) => !optimalOccupants.has(id))
     .sort(byPointsDescending);
 
   // Pair each incoming player with the player they displace.

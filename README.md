@@ -27,18 +27,23 @@ A fresh deployment has no data, and both ingest actions are `internal` so no cli
 trigger them. Populate it from the CLI:
 
 ```bash
-npx convex dev --once                                            # push schema + functions
-npx convex run ingest:syncSchedule '{"season":2025}'             # schedule + betting lines
-npx convex run ingest:projectWeek '{"season":2025,"week":10}'    # projections for a week
+npx convex dev --once                                 # push schema + functions
+npx convex run ingest:syncSchedule '{"season":2025}'  # schedule + betting lines
+
+# Projections. Pass every ruleset the interface offers, or the Half PPR and Standard
+# toggles render an empty board — projectWeek defaults to PPR alone.
+npx convex run ingest:projectWeek \
+  '{"season":2025,"week":18,"scoringIds":["ppr","half_ppr","standard"]}'
 ```
 
 Verified against a real deployment: the schedule sync writes 272 contests (a full regular
-season) and the projection run writes 392 rows for week 10 — matching an offline replay of
-the same logic exactly. After that, `convex/crons.ts` keeps both current on its own.
+season) and the projection run writes 1,404 rows across three rulesets for week 18.
 
-The projected week must be one the interface will ask for. `season.current` resolves the
+Project the week the interface will actually ask for. `season.current` resolves the
 displayed week from the schedule, so during the offseason it reports the final week of the
-last completed season rather than an empty future one.
+last completed season — week 18 above — rather than an empty future one. The daily cron in
+`convex/crons.ts` keeps things current once a season is under way, but it deliberately
+does nothing during the offseason, so the first seed has to be run by hand.
 
 ## How it is put together
 
@@ -94,7 +99,7 @@ Every claim the interface makes, and the computation behind it.
 | Claim | Backed by |
 | --- | --- |
 | "2.59% better than a season-average baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
-| Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration. |
+| Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
@@ -120,14 +125,24 @@ state.
 | --- | --- | --- |
 | Projections, lineup optimiser | ✓ (no account needed) | ✓ |
 | Start/sit advice | ✓ | ✓ |
-| Leagues | 3 | unlimited |
-| Daily refresh, accuracy dashboard, import/export | — | ✓ |
-| Waivers, FAAB, D/ST streamer, alerts, history | — | *not built yet* |
+| Leagues | 3 | **unlimited** |
+| Everything else in the plan | — | *not built* |
 
-The last row is `false` in the entitlement table, not `true`. Granting access to a feature
-that does not exist would entitle a paying subscriber to nothing and would make that table
-describe an intention rather than the product. Those flags flip in the same change that
-implements them, and `UNIMPLEMENTED_FEATURES` keeps the list explicit so a test asserts it.
+**Pro's only implemented differentiator today is the league cap.** That is an uncomfortable
+thing for a paid tier to admit, and it is what the code does. Every other capability named
+in the plan is `false` in the entitlement table because nothing reads it:
+
+- `accuracy_dashboard` — `/accuracy` is a public marketing page with no gate.
+- `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested, but no route imports it.
+- `daily_refresh` — the cron rewrites shared projection rows and `projections.forWeek` is a
+  public query with no staleness tier, so a free visitor reads the same fresh data. Billing
+  for it would be charging for a difference that does not exist.
+- `waivers_faab`, `dst_streamer`, `alerts`, `performance_history` — not built.
+
+Each flips to `true` in the same change that implements it. `UNIMPLEMENTED_FEATURES` keeps
+the list explicit, a test asserts none of them is granted, and `/pricing` renders both its
+"included today" and "not built yet" columns from the same table the server authorises
+against — so the page cannot promise more than the code delivers.
 
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
 cannot demonstrate value before asking for payment.
@@ -174,3 +189,7 @@ Stated plainly rather than left to be discovered.
 - **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
   entitlement table and are gated, with no implementation behind them yet.
 - **The model has a known −0.63 point high bias**, disclosed on `/accuracy`.
+- **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
+  Standard projections are rescaled, but that validation does not carry over, and the
+  projections page says so when either is selected.
+- **Pro currently unlocks only the league cap.** See the entitlements section.
