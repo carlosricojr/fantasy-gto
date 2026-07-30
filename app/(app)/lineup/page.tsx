@@ -41,10 +41,25 @@ export default function LineupPage() {
       : "skip",
   );
 
-  const playerIds = useMemo(
-    () => (projections ?? []).map((row) => row.playerId),
-    [projections],
+  // Selected players are fetched by id as well as through the ranked board.
+  //
+  // `forWeek` is capped at 300. Changing ruleset re-ranks everyone, so a player who was
+  // inside the cap under PPR can fall outside it under Standard. Without this the pool
+  // would silently lose them: they would vanish from the optimiser's input while their
+  // roster chip kept rendering a placeholder, and the page would still call the result
+  // the highest-scoring arrangement the roster allows.
+  const selectedProjections = useQuery(
+    api.projections.forPlayers,
+    season && selected.length > 0
+      ? { playerIds: selected, season: season.season, week: season.week, scoringId }
+      : "skip",
   );
+
+  const playerIds = useMemo(() => {
+    const ids = new Set((projections ?? []).map((row) => row.playerId));
+    for (const row of selectedProjections ?? []) ids.add(row.playerId);
+    return [...ids];
+  }, [projections, selectedProjections]);
   const players = useQuery(
     api.projections.playersByIds,
     playerIds.length > 0 ? { externalIds: playerIds } : "skip",
@@ -52,7 +67,13 @@ export default function LineupPage() {
 
   const pool = useMemo(() => {
     const byId = new Map((players ?? []).map((p) => [p.externalId, p]));
-    return (projections ?? []).map((row) => {
+    // Ranked board first, then any selected player it did not include.
+    const rows = [...(projections ?? [])];
+    const present = new Set(rows.map((r) => r.playerId));
+    for (const row of selectedProjections ?? []) {
+      if (!present.has(row.playerId)) rows.push(row);
+    }
+    return rows.map((row) => {
       const player = byId.get(row.playerId);
       return {
         id: row.playerId,
@@ -65,7 +86,7 @@ export default function LineupPage() {
         projectedPoints: row.mean,
       };
     });
-  }, [projections, players]);
+  }, [projections, selectedProjections, players]);
 
   const slots = useMemo(() => slotsForTemplate(templateId), [templateId]);
 

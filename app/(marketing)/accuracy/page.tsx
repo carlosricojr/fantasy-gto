@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import metrics from "@/lib/nfl/model/published-metrics.json";
+
 export const metadata: Metadata = {
   title: "Accuracy — Fantasy GTO",
   description:
@@ -9,9 +11,11 @@ export const metadata: Metadata = {
 /**
  * The published accuracy page.
  *
- * Every figure here comes from `pnpm backtest`, which is checked into the repository and
- * reproducible. The numbers are duplicated from `docs/model-validation.md`, and the two
- * must be updated together with any model change.
+ * Every figure here is imported from `published-metrics.json`, which `pnpm backtest`
+ * writes. Nothing on this page is typed in by hand, so a model change cannot leave the
+ * page asserting something that is no longer true — the previous version transcribed the
+ * numbers, which is the same failure mode as a constant marked "measured" with nothing
+ * producing it.
  *
  * This page exists because the product previously asserted it beat ESPN by 8% with nothing
  * behind the claim. Publishing the real, smaller number — including the residual bias —
@@ -29,7 +33,10 @@ export default function AccuracyPage() {
       </p>
 
       <section className="mt-10">
-        <h2 className="text-lg font-medium">2025, held out — 3,037 player-weeks</h2>
+        <h2 className="text-lg font-medium">
+          {metrics.season}, held out — {metrics.sampleSize.toLocaleString("en-US")}{" "}
+          player-weeks
+        </h2>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -42,26 +49,37 @@ export default function AccuracyPage() {
             <tbody className="divide-y">
               <tr>
                 <td className="py-2 font-medium">Fantasy GTO</td>
-                <td className="py-2 text-right tabular-nums">5.8236</td>
+                <td className="py-2 text-right tabular-nums">
+                  {metrics.modelMae.toFixed(4)}
+                </td>
                 <td className="py-2 text-right text-muted-foreground">&mdash;</td>
               </tr>
               <tr>
                 <td className="py-2">Baseline: mean of all prior games</td>
-                <td className="py-2 text-right tabular-nums">5.9877</td>
-                <td className="py-2 text-right tabular-nums">+2.74%</td>
+                <td className="py-2 text-right tabular-nums">
+                  {metrics.priorGamesMeanMae.toFixed(4)}
+                </td>
+                <td className="py-2 text-right tabular-nums">
+                  +{metrics.edgeVsPriorGamesMean.toFixed(2)}%
+                </td>
               </tr>
               <tr>
                 <td className="py-2">Baseline: last three games</td>
-                <td className="py-2 text-right tabular-nums">6.3618</td>
-                <td className="py-2 text-right tabular-nums">+8.46%</td>
+                <td className="py-2 text-right tabular-nums">
+                  {metrics.lastThreeMae.toFixed(4)}
+                </td>
+                <td className="py-2 text-right tabular-nums">
+                  +{metrics.edgeVsLastThree.toFixed(2)}%
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
-          The number worth quoting is <strong>2.74%</strong>, against the stronger of the
-          two baselines. The 8.46% figure is real but comparing only against the weaker
-          baseline would be cherry-picking.
+          The number worth quoting is{" "}
+          <strong>{metrics.edgeVsPriorGamesMean.toFixed(2)}%</strong>, against the stronger
+          of the two baselines. The {metrics.edgeVsLastThree.toFixed(2)}% figure is real but
+          comparing only against the weaker baseline would be cherry-picking.
         </p>
       </section>
 
@@ -70,19 +88,24 @@ export default function AccuracyPage() {
         <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
           <li>
             <strong className="text-foreground">The edge is small.</strong> A mean absolute
-            error near 5.9 points against a typical score around 12 means error is roughly
+            error near {metrics.modelMae.toFixed(1)} points against a typical score around
+            12 means error is roughly
             half the signal. Weekly fantasy scoring is dominated by variance that no model
             built on public box-score data removes.
           </li>
           <li>
             <strong className="text-foreground">It still projects slightly high.</strong>{" "}
-            Residual bias is −0.57 points even after calibration, because players are
+            Residual bias is {metrics.bias.toFixed(2)} points even after calibration,
+            because players are
             selected into the evaluation by recent production and then regress. This is why
             a range is shown rather than a single number.
           </li>
           <li>
             <strong className="text-foreground">Quarterbacks are hardest.</strong> Position
-            error runs 6.74 for QB, 5.80 RB, 5.66 WR, 5.24 TE.
+            error runs {metrics.perPositionMae.QB.toFixed(2)} for QB,{" "}
+            {metrics.perPositionMae.RB.toFixed(2)} RB,{" "}
+            {metrics.perPositionMae.WR.toFixed(2)} WR,{" "}
+            {metrics.perPositionMae.TE.toFixed(2)} TE.
           </li>
         </ul>
       </section>

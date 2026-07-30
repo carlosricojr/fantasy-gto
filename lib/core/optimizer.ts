@@ -2,10 +2,10 @@
  * Optimal lineup assignment.
  *
  * This is the one part of the product whose value is provable rather than statistical.
- * The projection model's measured edge over a strong baseline is 2.74% (see
- * `docs/model-validation.md`), which is real but modest. Optimal slot assignment, by
- * contrast, is optimal by construction: given any set of projections, no arrangement
- * scores higher. Naive tools lose points here for free.
+ * The projection model's measured edge over a strong baseline is real but modest — see
+ * `docs/model-validation.md`, which is the only place that figure is written down. Optimal
+ * slot assignment, by contrast, is optimal by construction: given any set of projections,
+ * no arrangement scores higher. Naive tools lose points here for free.
  *
  * The problem is maximum-weight bipartite matching between players and roster slots under
  * slot eligibility. Greedy assignment — take the highest projection, drop it in the first

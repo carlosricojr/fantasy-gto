@@ -62,8 +62,11 @@ npx convex run ingest:projectWeek \
   '{"season":2025,"week":18,"scoringIds":["ppr","half_ppr","standard"]}'
 ```
 
-Verified against a real deployment: the schedule sync writes 272 contests (a full regular
-season) and the projection run writes 1,404 rows across three rulesets for week 18.
+Verified against a real Convex deployment on 2026-07-30, by running exactly the commands
+above and counting rows: the schedule sync wrote 272 contests (a full regular season, which
+is 32 teams × 17 games ÷ 2) and the projection run wrote 1,404 rows across three rulesets
+for week 18. These are operational counts, not accuracy claims — re-running the commands on
+a fresh deployment is what checks them.
 
 Project the week the interface will actually ask for. `season.current` resolves the
 displayed week from the schedule, so during the offseason it reports the final week of the
@@ -112,7 +115,9 @@ sport-agnostic: a weighted assignment problem over eligible slots.
 
 ### Why no paid data vendor
 
-The original plan budgeted for OddsAPI ($99/mo) and SportsDataIO ($299/mo). Neither is
+The original plan budgeted for OddsAPI and SportsDataIO — list prices of $99/mo and
+$299/mo respectively at the time `docs/technical-specification.md` was written, which is
+where those figures come from and the only place they are used. Neither vendor is
 needed. nflverse publishes weekly player statistics, and its schedule file carries Vegas
 spread and total lines for future games alongside venue and weather. Everything the model
 consumes is free and public. See [`docs/data-sources.md`](docs/data-sources.md), where every
@@ -124,7 +129,7 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.74% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
+| "2.74% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md), and written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing page render directly rather than restating. `published-metrics.test.ts` asserts the artifact and the document agree. |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |

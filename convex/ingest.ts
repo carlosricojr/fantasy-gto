@@ -423,6 +423,7 @@ export async function runProjectWeek(
       await ctx.runMutation(internal.projections.pruneStale, {
         season,
         week,
+        scoringIds: rulesets.map((r) => r.id),
         computedBefore: writeStartedAt,
       });
 

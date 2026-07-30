@@ -65,7 +65,15 @@ export const forPlayer = query({
   },
 });
 
-/** Projections for a specific set of players, for rendering a roster. */
+/**
+ * Projections for a specific set of players, for rendering a roster.
+ *
+ * The reason this exists rather than reusing `forWeek`: that query is capped by `limit`,
+ * so a page cannot rely on it to contain a player the user has already chosen. Switching
+ * ruleset re-ranks everyone, and a player inside the cap under PPR can fall outside it
+ * under Standard — at which point a lineup built from the capped board would quietly drop
+ * them and still present the result as optimal.
+ */
 export const forPlayers = query({
   args: {
     playerIds: v.array(v.string()),
@@ -102,23 +110,45 @@ export const forPlayers = query({
  * who cannot score, from a solver advertised as provably optimal.
  *
  * Called once per week after a run passes its coverage check, so a failed run never prunes
- * a good board.
+ * a good board, and scoped to the rulesets that run actually rewrote.
  */
 export const pruneStale = internalMutation({
-  args: { season: v.number(), week: v.number(), computedBefore: v.number() },
-  handler: async (ctx, { season, week, computedBefore }) => {
-    // Strictly less-than: rows stamped with this run's own value are the current board.
-    const stale = await ctx.db
-      .query("projections")
-      // Prefix of by_week_scoring, so this covers every ruleset in one scan.
-      .withIndex("by_week_scoring", (q) =>
-        q.eq("sport", "nfl").eq("season", season).eq("week", week),
-      )
-      .filter((q) => q.lt(q.field("computedAt"), computedBefore))
-      .collect();
+  args: {
+    season: v.number(),
+    week: v.number(),
+    /**
+     * Only these rulesets are pruned.
+     *
+     * `projectWeek` defaults to PPR alone, which is also the natural shape of a manual
+     * re-run. Pruning the whole week would delete the Half PPR and Standard boards that
+     * run never rewrote, leaving `forWeek` serving nothing for them until the next full
+     * cron.
+     */
+    scoringIds: v.array(v.string()),
+    computedBefore: v.number(),
+  },
+  handler: async (ctx, { season, week, scoringIds, computedBefore }) => {
+    let deleted = 0;
 
-    for (const row of stale) await ctx.db.delete(row._id);
-    return { deleted: stale.length };
+    for (const scoringId of scoringIds) {
+      // Strictly less-than: rows stamped with this run's own value are the current board.
+      const stale = await ctx.db
+        .query("projections")
+        .withIndex("by_week_scoring", (q) =>
+          q
+            .eq("sport", "nfl")
+            .eq("season", season)
+            .eq("week", week)
+            .eq("scoringId", scoringId),
+        )
+        .filter((q) => q.lt(q.field("computedAt"), computedBefore))
+        .collect();
+
+      for (const row of stale) await ctx.db.delete(row._id);
+      deleted += stale.length;
+    }
+
+    return { deleted };
   },
 });
 

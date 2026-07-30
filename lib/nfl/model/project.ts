@@ -185,7 +185,7 @@ export function projectPlayer(input: ProjectionInput): Projection {
     base,
     history.length > 0
       ? `Weighted average of ${history.length} prior game${history.length === 1 ? "" : "s"}, favouring recent weeks.`
-      : "No prior games; projection falls back to positional expectations.",
+      : "No prior games, so no projection can be formed yet.",
   );
 
   let running = base;
@@ -277,8 +277,13 @@ export function projectPlayer(input: ProjectionInput): Projection {
     period,
     position,
     mean,
-    floor: round2(Math.max(0, mean * band.p10)),
-    ceiling: round2(mean * band.p90),
+    // The band multiplies the mean, so a negative mean would swap the two: the floor
+    // clamps at 0 while the ceiling stays below it, inverting the `floor <= mean <=
+    // ceiling` invariant that `lib/core/domain.ts` documents and the projections page
+    // renders as a range. `scoreOffense` really can go negative — interceptions and lost
+    // fumbles with no production — so this is reachable, not theoretical.
+    floor: round2(Math.min(mean, Math.max(0, mean * band.p10))),
+    ceiling: round2(Math.max(mean, mean * band.p90)),
     contributions,
     modelVersion: MODEL_VERSION,
   };

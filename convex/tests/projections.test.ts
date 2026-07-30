@@ -60,6 +60,7 @@ describe("pruneStale", () => {
     const { deleted } = await t.mutation(internal.projections.pruneStale, {
       season: SEASON,
       week: WEEK,
+      scoringIds: ["ppr"],
       computedBefore: 2_000,
     });
 
@@ -72,20 +73,26 @@ describe("pruneStale", () => {
     expect(served.map((p) => p.playerId)).toEqual(["kept"]);
   });
 
-  it("keeps every ruleset's rows, not just the one that was rewritten", async () => {
-    // `pruneStale` scans on a prefix of by_week_scoring, so it sees all rulesets at once.
-    // The cutoff, not the ruleset, has to be what decides — otherwise a Half PPR board
-    // would be deleted by a PPR run.
+  it("does not touch a ruleset the run did not rewrite", async () => {
+    // `projectWeek` defaults to PPR alone, which is also the natural shape of a manual
+    // re-run. Pruning the whole week would delete the Half PPR board that run never
+    // rewrote, and `forWeek` would serve nothing for it until the next full cron.
     const t = convexTest(schema, modules);
 
     await t.mutation(internal.projections.upsertBatch, {
       rows: [row("a", "KC", "ppr"), row("a", "KC", "half_ppr")],
-      computedAt: 2_000,
+      computedAt: 1_000,
     });
 
+    // A PPR-only run: it rewrites its own row and prunes with its own stamp.
+    await t.mutation(internal.projections.upsertBatch, {
+      rows: [row("a", "KC", "ppr")],
+      computedAt: 2_000,
+    });
     const { deleted } = await t.mutation(internal.projections.pruneStale, {
       season: SEASON,
       week: WEEK,
+      scoringIds: ["ppr"],
       computedBefore: 2_000,
     });
 
@@ -111,6 +118,7 @@ describe("pruneStale", () => {
     await t.mutation(internal.projections.pruneStale, {
       season: SEASON,
       week: WEEK,
+      scoringIds: ["ppr"],
       computedBefore: 2_000,
     });
 

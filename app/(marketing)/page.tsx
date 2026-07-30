@@ -1,14 +1,16 @@
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import metrics from "@/lib/nfl/model/published-metrics.json";
 
 /**
  * Landing page.
  *
  * Every claim here is backed by something checkable. The previous version led with
  * "+8.2 points/week vs platform projections", a number with no computation behind it and
- * one the measured model cannot support: the real edge over a strong baseline is 2.74%
- * (`docs/model-validation.md`). It has been removed rather than softened.
+ * one the measured model cannot support. It has been removed rather than softened. The
+ * real figure is imported from `published-metrics.json`, which `pnpm backtest` writes, so
+ * this page cannot drift out of step with what was actually measured.
  *
  * What is left is what the product can actually defend: an optimal lineup is optimal by
  * construction, projections show their working, and the accuracy figure is published.
@@ -75,7 +77,8 @@ export default function MarketingPage() {
           <h2 className="font-medium">What we don&rsquo;t claim</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Weekly fantasy scoring is mostly variance. Measured on a held-out season, these
-            projections beat a prior-games-average baseline by <strong>2.74%</strong> in mean
+            projections beat a prior-games-average baseline by{" "}
+            <strong>{metrics.edgeVsPriorGamesMean.toFixed(2)}%</strong> in mean
             absolute error. That is a real edge and a small one, and anyone promising far
             more than that is guessing. Where this tool adds more is in the decisions built
             on top: exact lineup optimisation, and a floor and ceiling calibrated from how

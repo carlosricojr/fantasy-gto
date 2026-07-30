@@ -47,7 +47,12 @@ export function resolveSeasonState(
     contests.some((c) => c.period.season === season && c.result !== null),
   );
 
-  // Prefer a season already underway; otherwise the next one scheduled.
+  // Prefer the most recent season with results; otherwise the earliest scheduled.
+  //
+  // The fallback only fires when *no* season anywhere has a result, i.e. a schedule of
+  // future seasons only, where the earliest is the right answer. A stale season whose
+  // results failed to ingest cannot pin the product to itself: any other season with
+  // results wins on the first branch.
   const season = playedSeasons[0] ?? seasons[seasons.length - 1];
   const inSeason = contests.filter((c) => c.period.season === season);
 

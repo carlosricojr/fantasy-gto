@@ -141,7 +141,10 @@ export const deleteFromClerk = internalMutation({
     await ctx.db.insert("audit", {
       kind: "user.deleted",
       userId: null,
-      detail: `Removed account and ${leagues.length} league(s) for ${clerkUserId}`,
+      // Deliberately no Clerk id. `user.deleted` is an erasure request, and an audit row
+      // naming the account would outlive every other trace of it — re-identifying exactly
+      // the person who asked to be forgotten. The counts are what the trail needs.
+      detail: `Removed an account and ${leagues.length} league(s)`,
       at: Date.now(),
     });
 

@@ -64,9 +64,19 @@ describe("normalizeTeam", () => {
 });
 
 describe("isTeam", () => {
+  it("rejects aliases, because the predicate claims membership of CURRENT_TEAMS", () => {
+    // These all normalise to a current team, so `normalizeTeam(x) !== null` would be true
+    // — and would narrow them to `TeamAbbr` despite not being members. A caller trusting
+    // the guard instead of the normalised value would then key on "OAK" or "LAR" and
+    // silently split a franchise across two buckets.
+    for (const alias of ["OAK", "LAR", "WSH", "SD", "STL"]) {
+      expect(isTeam(alias)).toBe(false);
+      expect(normalizeTeam(alias)).not.toBeNull();
+    }
+  });
+
   it("narrows correctly", () => {
     expect(isTeam("KC")).toBe(true);
-    expect(isTeam("OAK")).toBe(true);
     expect(isTeam("ZZZ")).toBe(false);
     expect(isTeam(null)).toBe(false);
   });

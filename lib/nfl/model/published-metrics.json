@@ -1,0 +1,16 @@
+{
+  "season": 2025,
+  "sampleSize": 3037,
+  "modelMae": 5.823552848205465,
+  "priorGamesMeanMae": 5.9877068464428955,
+  "lastThreeMae": 6.361813192843801,
+  "edgeVsPriorGamesMean": 2.741516952102438,
+  "edgeVsLastThree": 8.460800849100812,
+  "bias": -0.572673691142574,
+  "perPositionMae": {
+    "QB": 6.734749999999997,
+    "RB": 5.803328947368416,
+    "WR": 5.6574095394736785,
+    "TE": 5.238982035928148
+  }
+}

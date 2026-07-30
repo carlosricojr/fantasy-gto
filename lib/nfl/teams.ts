@@ -74,9 +74,18 @@ export function normalizeTeam(raw: string | null | undefined): TeamAbbr | null {
   return RELOCATIONS[key] ?? INPUT_ALIASES[key] ?? null;
 }
 
-/** True if the value normalises to a current team. */
+/**
+ * True if the value is already a current team code.
+ *
+ * Deliberately not `normalizeTeam(raw) !== null`. That form returns true for `LAR`, `OAK`,
+ * and `WSH`, which narrows them to `TeamAbbr` even though none is a member of
+ * `CURRENT_TEAMS` — so a caller relying on the guard rather than on `normalizeTeam`'s
+ * return value keeps an un-normalised key, which is the split-franchise bug this module
+ * exists to prevent. Use `normalizeTeam` to accept aliases; use this only to test a value
+ * that should already be canonical.
+ */
 export function isTeam(raw: string | null | undefined): raw is TeamAbbr {
-  return normalizeTeam(raw) !== null;
+  return raw !== null && raw !== undefined && (CURRENT_TEAMS as readonly string[]).includes(raw);
 }
 
 /**

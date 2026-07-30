@@ -239,8 +239,19 @@ const clerkWebhook = httpAction(async (ctx, request) => {
   try {
     if (eventType === "user.created" || eventType === "user.updated") {
       const data = event.data ?? {};
+      // Clerk does not order `email_addresses` by primary status, so position 0 is not
+      // the primary address. It has to be matched by `primary_email_address_id`, or a user
+      // with several addresses gets an arbitrary one recorded — and that address is what
+      // support and billing correspondence would key on.
       const emails = Array.isArray(data.email_addresses) ? data.email_addresses : [];
-      const primary = asRecord(emails[0]);
+      const primaryId = firstString(data.primary_email_address_id);
+      const primary =
+        asRecord(
+          emails.find((entry) => {
+            const record = asRecord(entry);
+            return primaryId !== undefined && record?.id === primaryId;
+          }),
+        ) ?? asRecord(emails[0]);
       const email = firstString(primary?.email_address, data.email_address) ?? "";
       if (clerkUserId) {
         await ctx.runMutation(internal.users.upsertFromClerk, { clerkUserId, email });

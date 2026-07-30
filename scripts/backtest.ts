@@ -46,6 +46,25 @@ import type { PlayerWeek } from "@/lib/nfl/stats/parse";
 
 const TUNING_SEASON = 2024;
 const EVALUATION_SEASON = 2025;
+
+/** Where the published figures are written for the interface to import. */
+const PUBLISHED_METRICS_PATH = join(
+  process.cwd(),
+  "lib/nfl/model/published-metrics.json",
+);
+
+/** The shape `/accuracy` and the landing page consume. */
+interface PublishedMetrics {
+  season: number;
+  sampleSize: number;
+  modelMae: number;
+  priorGamesMeanMae: number;
+  lastThreeMae: number;
+  edgeVsPriorGamesMean: number;
+  edgeVsLastThree: number;
+  bias: number;
+  perPositionMae: Record<string, number>;
+}
 const PRIOR_SEASON = 2023;
 
 const MIN_PRIOR_GAMES = 4;
@@ -277,15 +296,34 @@ async function main(): Promise<void> {
    */
   function reportLeagueMeanImpliedTotal(): void {
     const all = [...teamTotals.values()].flat();
-    const mean = all.reduce((sum, e) => sum + e.impliedTotal, 0) / all.length;
+    if (all.length === 0) {
+      // Printing NaN next to the frozen constant is the worst possible failure for the
+      // number the honesty ledger is checked against — it reads as a mismatch.
+      process.stdout.write(
+        `\n  league mean implied team total: no market lines loaded, not computed\n`,
+      );
+      return;
+    }
+    const measured = mean(all.map((e) => e.impliedTotal));
     process.stdout.write(
       `\n  league mean implied team total\n` +
-        `  across ${all.length} team-games: ${mean.toFixed(3)}\n` +
+        `  across ${all.length} team-games: ${measured.toFixed(3)}\n` +
         `  (frozen in config.ts as ${LEAGUE_MEAN_IMPLIED_TEAM_TOTAL})\n`,
     );
   }
 
   const positions: Position[] = ["QB", "RB", "WR", "TE"];
+
+  /**
+   * The figures the marketing pages render, captured during the evaluation run.
+   *
+   * Written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing
+   * page import. They previously transcribed these numbers into JSX by hand, which is the
+   * same failure mode as a constant marked "measured" with nothing producing it: the
+   * moment the model changes, the page states something no longer true and nothing
+   * detects it.
+   */
+  let publishedMetrics: PublishedMetrics | null = null;
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
@@ -326,7 +364,22 @@ async function main(): Promise<void> {
       `  vs last 3 games: ${(((lastMae - modelMae) / lastMae) * 100).toFixed(2)}%\n`,
     );
 
-    if (season === EVALUATION_SEASON) reportQuantiles(model);
+    if (season === EVALUATION_SEASON) {
+      reportQuantiles(model);
+      publishedMetrics = {
+        season,
+        sampleSize: model.length,
+        modelMae,
+        priorGamesMeanMae: baseMae,
+        lastThreeMae: lastMae,
+        edgeVsPriorGamesMean: ((baseMae - modelMae) / baseMae) * 100,
+        edgeVsLastThree: ((lastMae - modelMae) / lastMae) * 100,
+        bias: bias(model),
+        perPositionMae: Object.fromEntries(
+          positions.map((p) => [p, mae(model, p)]),
+        ) as Record<string, number>,
+      };
+    }
   }
 
   /**
@@ -441,6 +494,15 @@ async function main(): Promise<void> {
 
   reportCalibration();
   reportLeagueMeanImpliedTotal();
+
+  if (publishedMetrics === null) throw new Error("evaluation season produced no metrics");
+  writeFileSync(
+    PUBLISHED_METRICS_PATH,
+    `${JSON.stringify(publishedMetrics, null, 2)}\n`,
+  );
+  process.stdout.write(
+    `\n  wrote ${PUBLISHED_METRICS_PATH.replace(`${process.cwd()}/`, "")}\n`,
+  );
 
   process.stdout.write(
     "\nThe out-of-sample figure is the only one the product may quote.\n" +
