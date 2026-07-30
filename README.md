@@ -1,51 +1,135 @@
-# Welcome to your Convex + Next.js + Clerk app
+# Fantasy GTO
 
-This is a [Convex](https://convex.dev/) project created with [`npm create convex`](https://www.npmjs.com/package/create-convex).
+Fantasy football projections that show their working, and lineups that are provably
+optimal.
 
-After the initial setup (<2 minutes) you'll have a working full-stack app using:
+The projection model is backtested and its real accuracy is published, including where it
+is weak. The lineup optimiser solves slot assignment exactly, so no legal arrangement of a
+roster scores higher.
 
-- Convex as your backend (database, server logic)
-- [React](https://react.dev/) as your frontend (web page interactivity)
-- [Next.js](https://nextjs.org/) for optimized web hosting and page routing
-- [Tailwind](https://tailwindcss.com/) for building great looking accessible UI
-- [Clerk](https://clerk.com/) for authentication
+## Quick start
 
-## Get started
-
-If you just cloned this codebase and didn't use `npm create convex`, run:
-
-```
-npm install
-npm run dev
+```bash
+pnpm install
+pnpm verify        # typecheck, lint, tests
+pnpm backtest      # reproduce the published accuracy figures
+pnpm dev           # Next.js + Convex
 ```
 
-If you're reading this README on GitHub and want to use this template, run:
+`pnpm dev` needs a Convex deployment and Clerk keys in `.env.local`. `pnpm verify` and
+`pnpm backtest` need neither — the domain core has no infrastructure dependencies, which
+is deliberate.
+
+## How it is put together
+
+The organising rule is that **domain logic is pure and I/O lives at the edges**. Every
+projection, score, and lineup decision is computed by a plain TypeScript function with no
+network, database, clock, or framework dependency. That is what makes the model
+backtestable against three seasons of real data and the optimiser exhaustively testable.
 
 ```
-npm create convex@latest -- -t nextjs-clerk
+lib/core/            Sport-agnostic. Domain vocabulary, provider seams, lineup optimiser.
+lib/nfl/             The NFL adapter: CSV parsing, teams, scoring, model, season logic.
+lib/billing/         Entitlement derivation. Pure; no Convex or Clerk imports.
+convex/              Thin orchestration over the pure core. Schema, queries, ingest, webhook.
+app/                 Next.js App Router.
+scripts/backtest.ts  The authority for every accuracy claim.
+docs/                Verified data sources and model validation.
 ```
 
-Then:
+### Adapter seams
 
-1. Open your app. There should be a "Claim your application" button from Clerk in the bottom right of your app.
-2. Follow the steps to claim your application and link it to this app.
-3. Follow step 3 in the [Convex Clerk onboarding guide](https://docs.convex.dev/auth/clerk#get-started) to create a Convex JWT template.
-4. Uncomment the Clerk provider in `convex/auth.config.ts`
-5. Paste the Issuer URL as `CLERK_JWT_ISSUER_DOMAIN` to your dev deployment environment variable settings on the Convex dashboard (see [docs](https://docs.convex.dev/auth/clerk#configuring-dev-and-prod-instances))
+Three provider interfaces mark boundaries where a second implementation is genuinely
+foreseeable — another sport's statistics, another fantasy platform, another source of
+market prices. Each has exactly one implementation today. The value is in the seam being in
+the right place, not in generic machinery built ahead of a second caller.
 
-If you want to sync Clerk user data via webhooks, check out this [example repo](https://github.com/thomasballinger/convex-clerk-users-table/).
+- `StatsProvider<TStatLine>` — historical production. The stat shape is a type parameter,
+  so adding a sport cannot force edits to another sport's types.
+- `MarketProvider` — schedule and betting lines. Already needed, since the model consumes
+  the implied team total. This is also the seam a betting feature would plug into.
+- `LeagueProvider` — a user's league and roster. Needed now, because ESPN's league API has
+  no working host and CSV/manual entry has to carry the product.
 
-## Learn more
+The lineup optimiser lives in `lib/core` rather than under NFL because it is genuinely
+sport-agnostic: a weighted assignment problem over eligible slots.
 
-To learn more about developing your project with Convex, check out:
+### Why no paid data vendor
 
-- The [Tour of Convex](https://docs.convex.dev/get-started) for a thorough introduction to Convex principles.
-- The rest of [Convex docs](https://docs.convex.dev/) to learn about all Convex features.
-- [Stack](https://stack.convex.dev/) for in-depth articles on advanced topics.
+The original plan budgeted for OddsAPI ($99/mo) and SportsDataIO ($299/mo). Neither is
+needed. nflverse publishes weekly player statistics, and its schedule file carries Vegas
+spread and total lines for future games alongside venue and weather. Everything the model
+consumes is free and public. See [`docs/data-sources.md`](docs/data-sources.md), where every
+endpoint was verified by direct request.
 
-## Join the community
+## Honesty ledger
 
-Join thousands of developers building full-stack apps with Convex:
+Every claim the interface makes, and the computation behind it.
 
-- Join the [Convex Discord community](https://convex.dev/community) to get help in real-time.
-- Follow [Convex on GitHub](https://github.com/get-convex/), star and contribute to the open-source implementation of Convex.
+| Claim | Backed by |
+| --- | --- |
+| "2.29% better than a season-average baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
+| Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration. |
+| Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
+| "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
+| Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
+| Residual bias of −0.59 points | Published on `/accuracy` rather than hidden. |
+
+**Removed.** The previous version claimed "+8.2 points/week vs platform projections" and
+"beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model
+cannot support them — the real edge over a strong baseline is 2.29%. Weekly fantasy scoring
+is dominated by variance that no model built on public box-score data removes. The claims
+were deleted rather than softened.
+
+Any change to the model must re-run `pnpm backtest` and update `docs/model-validation.md`
+in the same commit. A number that is not in that document may not appear in the interface.
+
+## Entitlements
+
+Access is a pure function of `(plan, subscription status, clock)`. There is no exported way
+to grant a capability directly, so there is nothing for a client to call and nothing to
+forge. Persisted rows are a read cache; privileged paths re-derive from stored subscription
+state.
+
+| | Free | Pro |
+| --- | --- | --- |
+| Projections, lineup optimiser | ✓ (no account needed) | ✓ |
+| Start/sit advice | ✓ | ✓ |
+| Leagues | 3 | unlimited |
+| Waivers, FAAB, D/ST streamer | — | ✓ |
+| Accuracy dashboard, import/export, history, alerts | — | ✓ |
+
+Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
+cannot demonstrate value before asking for payment.
+
+A failed payment keeps Pro for a 3-day grace period. A cancellation runs to the end of the
+period already paid for. Unknown Clerk plan keys and statuses fail closed to free.
+
+## Testing
+
+```bash
+pnpm test          # watch
+pnpm test:run      # once
+pnpm test:coverage
+```
+
+Tests are colocated with the code they cover. Fixtures under `tests/fixtures/` are
+byte-exact slices of real upstream data, pinned with `.gitattributes` so line endings stay
+stable across platforms and the parser's behaviour stays reproducible.
+
+The suite deliberately contains no mocks of our own modules. The domain core is pure, so it
+is tested with real values; the provider seams take an injectable fetcher, so adapters are
+tested against fixtures rather than the network.
+
+## Known gaps
+
+Stated plainly rather than left to be discovered.
+
+- **ESPN league import is not functional.** No working host exists — `lm.espn.com` and
+  `lm-api-reads.espn.com` are NXDOMAIN on public DNS. The `LeagueProvider` seam is in place
+  and CSV/manual entry works.
+- **D/ST and kicker projections are not computed.** Scoring for both is implemented and
+  tested; the model currently projects skill positions only.
+- **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
+  entitlement table and are gated, with no implementation behind them yet.
+- **The model has a known −0.59 point high bias**, disclosed on `/accuracy`.
