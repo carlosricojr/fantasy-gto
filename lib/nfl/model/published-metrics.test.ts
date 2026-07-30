@@ -64,10 +64,15 @@ describe("published metrics", () => {
     expect(validation).toContain(metrics.bias.toFixed(3).replace("-", "−"));
   });
 
-  it("measures calibration on the tuning season, not the evaluation season", () => {
-    // Calibration factors are fitted on the tuning season, so its effect has to be
-    // reported there. Measuring it on the evaluation season would be reporting the size of
-    // a correction against the data it was already applied to.
+  it("labels the calibration figure with the season it was measured on", () => {
+    // This one is in-sample and the page says so. The factors are fitted on the tuning
+    // season, so measuring the on/off difference there flatters the effect — it is the
+    // season the correction was derived from. It is reported because it is the figure the
+    // sweeps table carries and it isolates calibration from every other term; the
+    // out-of-sample counterpart is in docs/model-validation.md, where syncing the factors
+    // moved 2025 MAE from 5.8324 to 5.8236.
+    //
+    // What must hold is that it is never presented as the evaluation result.
     expect(metrics.calibration.season).toBeLessThan(metrics.season);
     expect(metrics.calibration.onMae).toBeLessThan(metrics.calibration.offMae);
     expect(validation).toContain(metrics.calibration.onMae.toFixed(4));

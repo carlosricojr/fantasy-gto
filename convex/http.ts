@@ -140,6 +140,14 @@ function extractClerkUserId(event: ClerkEvent): string | null {
  *
  * Deliberately a whitelist: an unfamiliar status is treated as not-live, so an unknown
  * spelling of "scheduled" cannot be mistaken for the active plan.
+ *
+ * `canceled` belongs here. It is tempting to read it as finished, but this codebase
+ * defines a cancellation as running to the end of the period already paid for —
+ * `effectivePlan` keeps a canceled subscription entitled until `currentPeriodEnd`, and the
+ * README promises exactly that. Excluding it would make cancel-at-period-end the one case
+ * this function still gets wrong: the in-period Pro item would be rejected as not-live and
+ * a status-less or upcoming free item chosen instead, revoking the paid remainder. The
+ * genuinely finished spellings are `ended` and `expired`, which stay out.
  */
 const LIVE_ITEM_STATUSES: ReadonlySet<string> = new Set([
   "active",
@@ -147,26 +155,44 @@ const LIVE_ITEM_STATUSES: ReadonlySet<string> = new Set([
   "trial",
   "past_due",
   "unpaid",
+  "canceled",
+  "cancelled",
 ]);
 
-function extractPlanKey(event: ClerkEvent): string | null {
+function extractPlanKey(event: ClerkEvent, now: number): string | null {
   const data = event.data ?? {};
   const plan = asRecord(data.plan);
 
-  // Prefer an item that describes the subscription *now*.
+  // Prefer the item that describes the subscription *now*, by period first and status
+  // second.
   //
-  // `items[0]` is not guaranteed to be the active one. Clerk represents a scheduled plan
+  // `items[0]` is not guaranteed to be the current one: Clerk represents a scheduled plan
   // change as an additional item on the same subscription, so taking the first blindly can
-  // read the plan a subscriber is moving *to* as the plan they are on — and if the parent
-  // event's own status is `active`, the uninformative-event guard in `billing.ts` does not
-  // fire, and the future plan is written as current. Where an item carries a status, only
-  // a live one is considered; otherwise the previous behaviour stands.
+  // read the plan a subscriber is moving *to* as the plan they are on. If the parent
+  // event's status is `active`, the uninformative-event guard in `billing.ts` does not fire
+  // and the future plan is written as current, revoking a paid period.
+  //
+  // Status alone cannot settle it. A `canceled` item may be the one still entitled — a
+  // cancellation runs to the end of the period already paid for — or it may be a finished
+  // item sitting beside a current free one, and the two payloads look identical. The period
+  // is what actually distinguishes them, so it is checked first; status is the fallback for
+  // payloads that omit period bounds, and `items[0]` the fallback for those that omit both.
   const items = Array.isArray(data.items) ? data.items.map(asRecord) : [];
+  const coversNow = (entry: Record<string, unknown> | null): boolean => {
+    if (entry === null) return false;
+    const start = toEpochMillis(entry.period_start ?? entry.current_period_start);
+    const end = toEpochMillis(entry.period_end ?? entry.current_period_end);
+    if (start === null && end === null) return false;
+    return (start === null || start <= now) && (end === null || end > now);
+  };
   const isLiveItem = (entry: Record<string, unknown> | null): boolean => {
-    const status = firstString(entry?.status);
+    // A non-object entry describes nothing, so it must not win the search — otherwise a
+    // malformed first element would be selected over a real current item behind it.
+    if (entry === null) return false;
+    const status = firstString(entry.status);
     return status === null || LIVE_ITEM_STATUSES.has(status.trim().toLowerCase());
   };
-  const item = items.find(isLiveItem) ?? items[0] ?? null;
+  const item = items.find(coversNow) ?? items.find(isLiveItem) ?? items[0] ?? null;
   const itemPlan = item ? asRecord(item.plan) : null;
 
   return firstString(
@@ -217,7 +243,17 @@ function extractEventAt(event: ClerkEvent, svixTimestamp: string): number {
  */
 function extractPeriodEnd(event: ClerkEvent): number | null {
   const data = event.data ?? {};
-  const candidate = data.period_end ?? data.current_period_end;
+  return toEpochMillis(data.period_end ?? data.current_period_end);
+}
+
+/**
+ * Coerces a Clerk timestamp to epoch milliseconds.
+ *
+ * Clerk sends seconds in some places and milliseconds in others. The 1e11 threshold splits
+ * them: as seconds that is the year 5138, and as milliseconds it is 1973 — no real
+ * subscription timestamp falls between.
+ */
+function toEpochMillis(candidate: unknown): number | null {
   const numeric =
     typeof candidate === "number"
       ? candidate
@@ -297,7 +333,7 @@ const clerkWebhook = httpAction(async (ctx, request) => {
     await ctx.runMutation(internal.billing.applyClerkEvent, {
       eventType,
       clerkUserId,
-      planKey: extractPlanKey(event),
+      planKey: extractPlanKey(event, Date.now()),
       status: firstString(data.status),
       subscriptionId: firstString(data.id, data.subscription_id),
       currentPeriodEnd: extractPeriodEnd(event),

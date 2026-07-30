@@ -138,7 +138,8 @@ export default function AccuracyPage() {
             measured tendency to over-project improved error from{" "}
             {metrics.calibration.offMae.toFixed(4)} to{" "}
             {metrics.calibration.onMae.toFixed(4)} on the {metrics.calibration.season}{" "}
-            tuning season. It contributes more than the usage, betting-line, and matchup
+            tuning season — in-sample, since that is the season the correction is derived
+            from. It contributes more than the usage, betting-line, and matchup
             terms combined.
           </li>
         </ul>
