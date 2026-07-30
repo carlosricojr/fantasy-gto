@@ -9,6 +9,7 @@ import {
   isFantasyWeek,
   latestCompletedSeason,
   resolveSeasonState,
+  weeksBetween,
 } from "./season";
 
 const NOW = Date.parse("2026-07-30T12:00:00Z");
@@ -188,5 +189,35 @@ describe("labels", () => {
     expect(
       describeSeasonState({ season: 2025, week: 7, phase: "regular", isComplete: false }),
     ).toBe("2025 Week 7");
+  });
+});
+
+describe("weeksBetween", () => {
+  const at = (season: number, index: number) => ({ season, index });
+
+  it("counts within a season", () => {
+    expect(weeksBetween(at(2025, 3), at(2025, 7))).toBe(4);
+  });
+
+  it("counts across one season boundary", () => {
+    // Week 17 of 2024 to week 1 of 2025 is two weeks of football apart.
+    expect(weeksBetween(at(2024, 17), at(2025, 1))).toBe(2);
+  });
+
+  it("multiplies the season gap out rather than assuming one season", () => {
+    // The regression this exists for. A player whose last appearance was week 17 of 2023
+    // and who missed all of 2024 is a year and a half stale at week 1 of 2025. Treating
+    // the gap as a single season reads it as 2 weeks — inside INACTIVITY_WEEKS — and
+    // projects them confidently from form over a year old.
+    expect(weeksBetween(at(2023, 17), at(2025, 1))).toBe(20);
+    expect(weeksBetween(at(2023, 17), at(2025, 1))).toBeGreaterThan(
+      weeksBetween(at(2024, 17), at(2025, 1)),
+    );
+  });
+
+  it("is negative when the earlier period is actually later", () => {
+    // Callers compare against a staleness threshold, so a negative reads as recent, which
+    // is right: the appearance is in the future relative to the week being projected.
+    expect(weeksBetween(at(2025, 7), at(2025, 3))).toBe(-4);
   });
 });

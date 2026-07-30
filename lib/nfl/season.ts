@@ -151,3 +151,20 @@ export function describeSeasonState(state: SeasonState): string {
       return `${state.season} Week ${state.week}`;
   }
 }
+
+/**
+ * How many weeks separate two periods, counting across season boundaries.
+ *
+ * Used to decide whether a player's last appearance is recent enough to project from. The
+ * season gap has to be multiplied out: assuming the earlier period is always in the season
+ * immediately before understates a two-season absence by roughly a full year, so a player
+ * who missed all of last season would read as a few weeks idle and keep producing a
+ * confident projection from form that is over a year old.
+ *
+ * Returns a negative number if `from` is after `to`; callers comparing against a threshold
+ * treat that as recent, which is correct — it means the appearance is in the future
+ * relative to the week being projected, and no staleness rule should fire on it.
+ */
+export function weeksBetween(from: Period, to: Period): number {
+  return (to.season - from.season) * NFL_REGULAR_SEASON_WEEKS + (to.index - from.index);
+}

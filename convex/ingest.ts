@@ -16,7 +16,7 @@ import {
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import { NflverseProvider } from "../lib/sources/nflverse";
-import { NFL_REGULAR_SEASON_WEEKS } from "../lib/nfl/season";
+import { weeksBetween } from "../lib/nfl/season";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -292,10 +292,12 @@ export async function runProjectWeek(
           // week the staleness check was skipped.
           const lastPlayed = latest.period;
           if (week > 1 && lastPlayed.season !== season) continue;
-          const weeksSincePlayed =
-            lastPlayed.season === season
-              ? week - lastPlayed.index
-              : NFL_REGULAR_SEASON_WEEKS - lastPlayed.index + week;
+          // Counted across season boundaries, multiplying the season gap out. Treating
+          // the last appearance as always being in the immediately preceding season
+          // understates a two-season absence by roughly a year — history spans three
+          // seasons, so a player who missed all of last season would read as a couple of
+          // weeks idle and keep producing a confident projection from year-old form.
+          const weeksSincePlayed = weeksBetween(lastPlayed, { season, index: week });
           if (weeksSincePlayed > INACTIVITY_WEEKS) continue;
 
           // Never fall back to `latest.competitor.team`: at week 1 that is last season's

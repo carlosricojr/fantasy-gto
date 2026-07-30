@@ -17,11 +17,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-dvh flex-col">
       <EnsureUser />
       <header className="border-b">
-        {/*
-          The nav wraps to its own row below `sm` rather than being hidden.
-          Hiding it left a phone with no navigation at all except the brand link, on a
-          product whose primary surface is a phone.
-        */}
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0">
           <Link href="/" className="font-semibold">
             Fantasy GTO
