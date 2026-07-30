@@ -12,8 +12,13 @@ import {
 /**
  * Ensures a row exists for the signed-in Clerk user.
  *
- * Idempotent, and safe to race with the Clerk webhook creating the same user: both paths
- * look up by `clerkUserId` first and the unique index makes a duplicate impossible.
+ * Idempotent. Two paths can create the same user — this mutation and the Clerk webhook —
+ * and both check `by_clerk_id` before inserting. Convex indexes are **not** unique
+ * constraints, so the safety here comes from mutations being serialisable: a concurrent
+ * pair is ordered, and the second sees the first's row.
+ *
+ * Reads use `.first()` rather than `.unique()` so that if a duplicate ever did appear it
+ * degrades instead of throwing on every subsequent request. See `convex/lib/auth.ts`.
  */
 export const ensure = mutation({
   args: {},
@@ -24,7 +29,7 @@ export const ensure = mutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", identity.subject))
-      .unique();
+      .first();
     if (existing) return existing._id;
 
     return await ctx.db.insert("users", {
@@ -83,7 +88,7 @@ export const upsertFromClerk = internalMutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", clerkUserId))
-      .unique();
+      .first();
 
     if (existing) {
       if (email !== "" && existing.email !== email) {
@@ -112,7 +117,7 @@ export const deleteFromClerk = internalMutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", clerkUserId))
-      .unique();
+      .first();
     if (!user) return;
 
     const rosters = await ctx.db
@@ -130,7 +135,7 @@ export const deleteFromClerk = internalMutation({
     const subscription = await ctx.db
       .query("subscriptions")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+      .first();
     if (subscription) await ctx.db.delete(subscription._id);
 
     await ctx.db.insert("audit", {

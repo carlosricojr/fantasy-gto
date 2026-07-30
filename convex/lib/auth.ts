@@ -43,14 +43,23 @@ export class EntitlementError extends Error {
   }
 }
 
-/** The signed-in user's row, or null when anonymous. */
+/**
+ * The signed-in user's row, or null when anonymous.
+ *
+ * Uses `.first()` rather than `.first()` deliberately. Two paths create users — an
+ * authenticated request and the Clerk webhook — and while Convex's serialisable mutations
+ * should prevent a duplicate, `.first()` *throws* when it finds one. That would turn a
+ * rare, recoverable data anomaly into a hard failure on every subsequent request from that
+ * account. Reading the first row degrades instead, and the duplicate can be reconciled
+ * out of band.
+ */
 export async function currentUser(ctx: Ctx): Promise<Doc<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   return await ctx.db
     .query("users")
     .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", identity.subject))
-    .unique();
+    .first();
 }
 
 /** The signed-in user's row, or throws. */
@@ -74,7 +83,7 @@ export async function subscriptionFor(
   const row = await ctx.db
     .query("subscriptions")
     .withIndex("by_user", (q) => q.eq("userId", userId))
-    .unique();
+    .first();
   if (!row) return FREE_SUBSCRIPTION;
   return {
     planId: row.planId,

@@ -60,7 +60,7 @@ export const forPlayer = query({
       .withIndex("by_player_week_scoring", (q) =>
         q.eq("playerId", playerId).eq("season", season).eq("week", week).eq("scoringId", scoringId),
       )
-      .unique();
+      .first();
   },
 });
 
@@ -84,7 +84,7 @@ export const forPlayers = query({
             .eq("week", week)
             .eq("scoringId", scoringId),
         )
-        .unique();
+        .first();
       if (row) results.push(row);
     }
     return results;
@@ -130,7 +130,7 @@ export const upsertBatch = internalMutation({
             .eq("week", row.week)
             .eq("scoringId", row.scoringId),
         )
-        .unique();
+        .first();
 
       const doc = { sport: "nfl", ...row, computedAt: now };
       if (existing) {
@@ -164,7 +164,7 @@ export const upsertPlayers = internalMutation({
       const existing = await ctx.db
         .query("players")
         .withIndex("by_external_id", (q) => q.eq("externalId", player.externalId))
-        .unique();
+        .first();
       const doc = { sport: "nfl", ...player, updatedAt: now };
       if (existing) {
         await ctx.db.patch(existing._id, doc);
@@ -185,7 +185,7 @@ export const playersByIds = query({
       const row = await ctx.db
         .query("players")
         .withIndex("by_external_id", (q) => q.eq("externalId", externalId))
-        .unique();
+        .first();
       if (row) results.push(row);
     }
     return results;

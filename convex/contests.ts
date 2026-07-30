@@ -58,7 +58,7 @@ export const upsertBatch = internalMutation({
       const existing = await ctx.db
         .query("contests")
         .withIndex("by_external_id", (q) => q.eq("externalId", row.externalId))
-        .unique();
+        .first();
       const doc = { sport: "nfl", ...row, updatedAt: now };
       if (existing) {
         await ctx.db.patch(existing._id, doc);

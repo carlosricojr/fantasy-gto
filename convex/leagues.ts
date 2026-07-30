@@ -60,7 +60,7 @@ export const create = mutation({
             .eq("platform", args.platform)
             .eq("externalId", args.externalId),
         )
-        .unique();
+        .first();
       if (existing) return existing._id;
     }
 

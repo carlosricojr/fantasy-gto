@@ -51,7 +51,7 @@ export const setSubscription = internalMutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", args.clerkUserId))
-      .unique();
+      .first();
 
     // A subscription event can arrive before the user-created event. Dropping it would
     // lose a paid upgrade, so record the gap loudly instead of failing silently.
@@ -68,7 +68,7 @@ export const setSubscription = internalMutation({
     const existing = await ctx.db
       .query("subscriptions")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+      .first();
 
     const now = Date.now();
     const pastDueSince =
@@ -157,7 +157,7 @@ export const applyClerkEvent = internalMutation({
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", args.clerkUserId!))
-      .unique();
+      .first();
     if (!user) {
       await ctx.db.insert("audit", {
         kind: "billing.orphan_event",
@@ -171,7 +171,7 @@ export const applyClerkEvent = internalMutation({
     const existing = await ctx.db
       .query("subscriptions")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+      .first();
 
     // An unrecognised price key resolves to free, which would silently downgrade a paying
     // customer. Record it so the misconfiguration is visible rather than mysterious.

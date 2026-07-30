@@ -45,6 +45,54 @@ export const httpTextFetcher: TextFetcher = async (url) => {
   return response.text();
 };
 
+/**
+ * Converts an nflverse kickoff to a UTC instant.
+ *
+ * Upstream records `gameday` and `gametime` as US Eastern wall-clock, with no offset.
+ * Appending `Z` and calling it UTC — which is what this used to do — shifts every kickoff
+ * by four or five hours, enough to move a Sunday night game onto Monday and to misjudge
+ * whether a season has started.
+ *
+ * The offset cannot be hardcoded: the NFL season spans the DST changeover, so September is
+ * UTC-4 and January is UTC-5. This resolves the real offset by formatting a provisional
+ * instant in `America/New_York` and correcting by the difference, which handles both.
+ *
+ * Returns `null` for an unparseable input rather than a wrong instant.
+ */
+export function easternWallClockToUtcIso(day: string, time: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const clock = /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
+
+  // Provisional instant, read as if the wall clock were UTC.
+  const provisional = Date.parse(`${day}T${clock}:00Z`);
+  if (Number.isNaN(provisional)) return null;
+
+  // What that instant actually reads as in New York.
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(provisional));
+
+  const field = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
+  const asNewYork = Date.UTC(
+    field("year"),
+    field("month") - 1,
+    field("day"),
+    field("hour") % 24,
+    field("minute"),
+    field("second"),
+  );
+
+  // The gap between the two is the zone's offset at that moment.
+  return new Date(provisional + (provisional - asNewYork)).toISOString();
+}
+
 /** Parses the schedules file into contests. */
 export function parseContests(rows: readonly CsvRow[]): Contest[] {
   const contests: Contest[] = [];
@@ -64,7 +112,7 @@ export function parseContests(rows: readonly CsvRow[]): Contest[] {
       period: { season: num(row, "season"), index: num(row, "week") },
       homeTeam: home,
       awayTeam: away,
-      startsAt: day === "" ? null : `${day}T${time === "" ? "00:00" : time}:00Z`,
+      startsAt: day === "" ? null : easternWallClockToUtcIso(day, time),
       result:
         homeScore === null || awayScore === null
           ? null
