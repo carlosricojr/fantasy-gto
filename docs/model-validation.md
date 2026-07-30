@@ -159,10 +159,10 @@ previous pipeline instead of being re-measured. They are now all from one run.
 earlier pipeline; syncing them to what the script actually derives improved out-of-sample
 MAE from 5.8324 to 5.8236 and cut bias from −0.627 to −0.573.
 
-Two things are worth reading off that table. The league-referenced Vegas sweep is
-monotonically worse past its first step and never beats leaving the term out entirely,
-while the team-referenced sweep has a genuine interior optimum. And calibration moves the
-metric further than the usage, Vegas, and matchup terms combined.
+Two things are worth reading off that table. The league-referenced Vegas sweep buys a
+little at 0.25 and then degrades steeply, ending worse than leaving the term out, while the
+team-referenced sweep has a genuine interior optimum that is better at every weight tried.
+And calibration moves the metric further than the usage, Vegas, and matchup terms combined.
 
 ### Implementation agreement
 

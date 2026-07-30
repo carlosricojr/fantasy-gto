@@ -157,28 +157,33 @@ describe("projectWeek team coverage", () => {
     expect(finishes(calls)[0].args.status).toBe("succeeded");
   });
 
-  it("orders every projection write after the coverage decision", async () => {
-    // The regression guard. Coverage passes here, so rows are written — what matters is
-    // that none of them was attempted before the run had enough evidence to decide, which
-    // is what made the failing case silently serve a partial board.
+  // The threshold itself, pinned from both sides. 90% of 32 teams is 28.8, so 29 covered
+  // teams is the first passing count. Stating it as a test means a change to
+  // MIN_TEAM_COVERAGE has to be deliberate rather than incidental.
+  it("passes at the first count that clears the threshold", async () => {
     const { ctx, calls } = recordingCtx();
-    await runProjectWeek(ctx, { season: SEASON, week: TARGET_WEEK }, providerFor(TEAMS.length));
-
-    const writes = projectionWrites(calls);
-    expect(writes.length).toBeGreaterThan(0);
-
-    // Every projection write carries rows for the target week only, and the first of them
-    // comes after all stats have been consumed. Asserting the count matches the reported
-    // total proves nothing was flushed early and then re-counted.
-    const written = writes.reduce(
-      (sum, c) => sum + (c.args.rows as unknown[]).length,
-      0,
-    );
     const result = await runProjectWeek(
-      recordingCtx().ctx,
+      ctx,
       { season: SEASON, week: TARGET_WEEK },
-      providerFor(TEAMS.length),
+      providerFor(29),
     );
-    expect(written).toBe(result.projections);
+
+    expect(result.projections).toBeGreaterThan(0);
+    expect(finishes(calls)[0].args.status).toBe("succeeded");
+  });
+
+  it("fails at the last count that does not", async () => {
+    const { ctx, calls } = recordingCtx();
+    const result = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      providerFor(28),
+    );
+
+    // 28/32 = 0.875. Close enough to full coverage to look healthy in a dashboard, which
+    // is exactly why the board must not be published from it.
+    expect(result.projections).toBe(0);
+    expect(projectionWrites(calls)).toHaveLength(0);
+    expect(finishes(calls)[0].args.status).toBe("failed");
   });
 });

@@ -366,6 +366,10 @@ export async function runProjectWeek(
           });
         }
 
+        // Scaling one ruleset's row count by the ruleset count is only a stable
+        // denominator because the eligibility filters are ruleset-independent, so every
+        // ruleset yields the same number of rows. `Math.max` keeps progress monotonic if
+        // that ever stops holding.
         totalExpected = Math.max(totalExpected, rows.length * rulesets.length);
         pending.push(rows);
       }
@@ -398,11 +402,6 @@ export async function runProjectWeek(
         for (const batch of chunk(rows, WRITE_BATCH)) {
           await ctx.runMutation(internal.projections.upsertBatch, { rows: batch });
           written += batch.length;
-          // `rows.length` is this ruleset's count, so multiplying it by the ruleset
-          // count only gives a stable total when every ruleset produces the same number
-          // of rows. It does — the eligibility filters are ruleset-independent — but
-          // deriving the total from the eligible-player count states that directly
-          // instead of relying on the coincidence.
           await ctx.runMutation(internal.jobs.progress, {
             jobId,
             processed: written,

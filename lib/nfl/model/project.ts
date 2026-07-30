@@ -63,9 +63,11 @@ export interface GameContext {
    * This team's own average implied total across the weeks **already played**.
    *
    * The Vegas adjustment is measured against this rather than the league average.
-   * Sweeping proved league-relative scaling makes the model monotonically worse: a player
-   * on a strong offence already carries that strength in their own scoring history, so
-   * scaling by team quality again counts it twice.
+   * Sweeping showed league-relative scaling is worth almost nothing at its best weight and
+   * degrades steeply beyond it, ending worse than omitting the term, while the
+   * team-relative form has a clear optimum: a player on a strong offence already carries
+   * that strength in their own scoring history, so scaling by team quality again counts it
+   * twice. See `docs/model-validation.md`.
    *
    * It must exclude the week being projected and everything after it — see
    * `meanImpliedTotalBefore`. Averaging the whole season is lookahead bias, and it
