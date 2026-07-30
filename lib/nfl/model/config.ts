@@ -120,8 +120,9 @@ export interface QuantileBand {
 /**
  * Quantiles of actual/projected, used to turn a point estimate into a floor and ceiling.
  *
- * QB, RB, WR, and TE were measured out-of-sample on 2025 after calibration, **under PPR
- * scoring**. Applied to another ruleset they are an approximation, not a measurement. The spread is
+ * QB, RB, WR, and TE are measured out-of-sample on 2025 after calibration, **under PPR
+ * scoring**, and `pnpm backtest` prints them — these values are copied from its output, not
+ * from memory. Applied to another ruleset they are an approximation, not a measurement. The spread is
  * enormous — a tenth-percentile outcome is around a fifth of the projection and a
  * ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
  * the week-to-week variance of fantasy football, and showing it honestly is more useful
@@ -132,10 +133,10 @@ export interface QuantileBand {
  * the table is total, not because they are evidence.
  */
 export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
-  QB: { p10: 0.165, p90: 1.751, provenance: "measured" },
-  RB: { p10: 0.264, p90: 1.892, provenance: "measured" },
-  WR: { p10: 0.189, p90: 1.775, provenance: "measured" },
-  TE: { p10: 0.212, p90: 1.949, provenance: "measured" },
+  QB: { p10: 0.17, p90: 1.759, provenance: "measured" },
+  RB: { p10: 0.268, p90: 1.892, provenance: "measured" },
+  WR: { p10: 0.185, p90: 1.802, provenance: "measured" },
+  TE: { p10: 0.216, p90: 1.949, provenance: "measured" },
   K: { p10: 0.25, p90: 1.85, provenance: "placeholder" },
   DST: { p10: 0.2, p90: 2.0, provenance: "placeholder" },
 };

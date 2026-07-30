@@ -147,6 +147,12 @@ against — so the page cannot promise more than the code delivers.
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
 cannot demonstrate value before asking for payment.
 
+To be precise about what that means today: start/sit is delivered by `/lineup`, which takes
+the players you select and returns the highest-scoring legal arrangement. The narrower
+`startSitAdvice` function — which diffs a *saved* league roster against the optimum and
+says "start X over Y" — is implemented and tested but has no screen wired to it. See the
+known gaps.
+
 A failed payment keeps Pro for a 3-day grace period. A cancellation runs to the end of the
 period already paid for. Unknown Clerk plan keys and statuses fail closed to free.
 
@@ -193,6 +199,10 @@ Stated plainly rather than left to be discovered.
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.
 - **Pro currently unlocks only the league cap.** See the entitlements section.
+- **Saved-roster start/sit is not wired to a screen.** `startSitAdvice` in
+  `lib/core/optimizer.ts` is implemented and tested, but no page calls it — a league
+  currently records scoring and roster format, and start/sit is delivered through
+  `/lineup` instead.
 - **Week 1 of a season projects nobody.** A player's team is taken from a current-season
   appearance, and before any game is played there is none. Projecting from last season's
   team would attribute a player to the wrong game entirely, so they are skipped and the

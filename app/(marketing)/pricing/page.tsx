@@ -33,10 +33,14 @@ export default function PricingPage() {
   // Read the cap from the entitlement table rather than writing a number in prose. A
   // hard-coded "3" would keep claiming three the day the table changes.
   const freeLeagues = limit(planCapabilities("free"), "league_count");
-  const included = Object.keys(FEATURE_LABELS).filter(
+  // What Pro adds *over free*. Filtering on `pro[key] === true` alone would list
+  // start/sit, which the free tier grants too — that is not something Pro includes.
+  const free = planCapabilities("free");
+  const proOnly = Object.keys(FEATURE_LABELS).filter(
     (key) =>
       key !== "league_count" &&
-      pro[key as keyof typeof pro] === true,
+      pro[key as keyof typeof pro] === true &&
+      free[key as keyof typeof free] !== true,
   );
 
   return (
@@ -53,26 +57,33 @@ export default function PricingPage() {
 
       <section className="mt-12 grid gap-8 sm:grid-cols-2">
         <div>
-          <h2 className="font-medium">What Pro includes today</h2>
+          <h2 className="font-medium">What Pro adds today</h2>
           <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
             <li>Unlimited leagues (free includes {freeLeagues})</li>
-            {included.map((key) => (
+            {proOnly.map((key) => (
               <li key={key}>{FEATURE_LABELS[key]}</li>
             ))}
           </ul>
+          {proOnly.length === 0 && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              That is the whole list. Unlimited leagues is currently the only thing a Pro
+              subscription unlocks. Everything else on the roadmap is below.
+            </p>
+          )}
         </div>
 
         <div>
-          <h2 className="font-medium">Not built yet</h2>
+          <h2 className="font-medium">Not a Pro feature yet</h2>
           <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
             {UNIMPLEMENTED_FEATURES.map((key) => (
               <li key={key}>{FEATURE_LABELS[key]}</li>
             ))}
           </ul>
           <p className="mt-3 text-sm text-muted-foreground">
-            These are planned but not implemented, so a Pro subscription does not unlock
-            them today. They are listed here rather than omitted, because charging for
-            something that does not exist is worse than admitting it is not ready.
+            Some of these do not exist yet; others exist but are free to everyone — the
+            accuracy dashboard is a public page, and projections are refreshed daily for
+            all users. Either way a Pro subscription does not unlock them, which is the
+            part that matters when deciding whether to pay.
           </p>
         </div>
       </section>

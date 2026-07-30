@@ -120,7 +120,7 @@ export default function DashboardPage() {
       {leaguesKnown && leagues.length === 0 && (
         <EmptyState
           title="No leagues yet"
-          body="Create a league to save a roster and get start/sit advice for it. You can also use the optimiser without one."
+          body="Create a league to record its scoring and roster format. Start/sit today lives in the optimiser, which works without a league."
           action={
             <Button asChild variant="outline" size="sm">
               <Link href="/lineup">Open the optimiser</Link>

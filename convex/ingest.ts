@@ -326,10 +326,18 @@ export const projectWeek = internalAction({
         }
       }
 
+      // A run that writes nothing is a failure, not a success. Week 1 is the live case:
+      // a player's team comes from a current-season appearance, and before any game is
+      // played there is none — so every player is skipped. Reporting "succeeded" there
+      // would leave an operator with a green job and users with an empty board, which is
+      // exactly the silent-failure mode the job records exist to prevent.
+      const wroteNothing = written === 0;
       await ctx.runMutation(internal.jobs.finish, {
         jobId,
-        status: "succeeded",
-        error: null,
+        status: wroteNothing ? "failed" : "succeeded",
+        error: wroteNothing
+          ? `No projections written. ${unknownTeam} player(s) had no current-season appearance establishing their team, which is expected before week 1 has been played.`
+          : null,
       });
 
       return { projections: written, players: identities.size, unknownTeam };

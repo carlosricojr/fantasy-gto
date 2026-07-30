@@ -231,6 +231,41 @@ async function main(): Promise<void> {
     return mean(rows.map((r) => r.actual - r.predicted));
   }
 
+  /** Linear-interpolated quantile of a sorted copy. */
+  function quantile(values: readonly number[], q: number): number {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const at = (sorted.length - 1) * q;
+    const lower = Math.floor(at);
+    const upper = Math.min(lower + 1, sorted.length - 1);
+    return sorted[lower] + (at - lower) * (sorted[upper] - sorted[lower]);
+  }
+
+  /**
+   * The outcome quantiles behind every floor and ceiling shown in the interface.
+   *
+   * These were previously constants in `config.ts` marked as measured, with nothing
+   * checked in that produced them — the exact failure the honesty rule exists to prevent.
+   * They are now computed here, on the evaluation season, from the same predictions the
+   * MAE table is built from.
+   */
+  function reportQuantiles(rows: readonly Evaluation[]): void {
+    process.stdout.write(
+      `\n  outcome quantiles (actual / predicted), for floor and ceiling\n` +
+        `  ${"position".padEnd(10)}${"n".padStart(6)}${"p10".padStart(9)}${"p90".padStart(9)}\n`,
+    );
+    for (const position of positions) {
+      const ratios = rows
+        .filter((r) => r.position === position && r.predicted > 0)
+        .map((r) => r.actual / r.predicted);
+      process.stdout.write(
+        `  ${position.padEnd(10)}${String(ratios.length).padStart(6)}` +
+          `${quantile(ratios, 0.1).toFixed(3).padStart(9)}` +
+          `${quantile(ratios, 0.9).toFixed(3).padStart(9)}\n`,
+      );
+    }
+  }
+
   const positions: Position[] = ["QB", "RB", "WR", "TE"];
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
@@ -271,6 +306,8 @@ async function main(): Promise<void> {
     process.stdout.write(
       `  vs last 3 games: ${(((lastMae - modelMae) / lastMae) * 100).toFixed(2)}%\n`,
     );
+
+    if (season === EVALUATION_SEASON) reportQuantiles(model);
   }
 
   // Sweeps are opt-in because they re-evaluate the whole tuning season many times over.

@@ -100,6 +100,27 @@ on the tuning season: the corrected sweep prefers 0.5 over 0.25. That re-selecti
 A regression test in `project.test.ts` asserts that a later week cannot change an earlier
 projection's baseline.
 
+### Outcome quantiles
+
+Every floor and ceiling shown in the interface is `mean × p10` and `mean × p90` from this
+table. `pnpm backtest` prints it on the evaluation season, from the same predictions the
+MAE table is built from, and `OUTCOME_QUANTILES` in `lib/nfl/model/config.ts` is copied
+from that output.
+
+| Position | n | p10 | p90 |
+| --- | --- | --- | --- |
+| QB | 560 | 0.170 | 1.759 |
+| RB | 760 | 0.268 | 1.892 |
+| WR | 1,216 | 0.185 | 1.802 |
+| TE | 501 | 0.216 | 1.949 |
+
+The spread is enormous — a tenth-percentile outcome is around a fifth of the projection and
+a ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
+the week-to-week variance of fantasy football.
+
+K and DST carry `provenance: "placeholder"` in the same table. The model does not project
+those positions, so there is no backtest behind their bands and the type says so.
+
 ### Reproducing the sweeps
 
 `pnpm backtest -- --sweeps` re-runs every parameter sweep on the tuning season and prints
