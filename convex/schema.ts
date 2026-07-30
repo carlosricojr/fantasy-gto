@@ -205,7 +205,7 @@ export default defineSchema({
     startedAt: v.number(),
     finishedAt: v.union(v.number(), v.null()),
   })
-    // Latest run of a kind, for the admin view and to avoid concurrent duplicates.
+    // Latest run of a kind, for the admin view and for listing a kind's runs newest-first.
     .index("by_kind_started", ["kind", "startedAt"]),
 
   /**

@@ -34,11 +34,16 @@ export default function LineupPage() {
 
   const season = useQuery(api.season.current, {});
 
+  // Deliberately unlimited.
+  //
+  // A ranked board can be capped; a roster picker cannot. With `limit: 300` against a week
+  // of ~468 projected players, roughly 168 real players could not be added at all, and
+  // searching for one rendered "No players match that search" — which reads as "this
+  // player does not exist" on the path the README calls the working one. A single week of
+  // a single ruleset is a few hundred rows.
   const projections = useQuery(
     api.projections.forWeek,
-    season
-      ? { season: season.season, week: season.week, scoringId, limit: 300 }
-      : "skip",
+    season ? { season: season.season, week: season.week, scoringId } : "skip",
   );
 
   // Selected players are fetched by id as well as through the ranked board.

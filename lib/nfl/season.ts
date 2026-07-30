@@ -47,13 +47,31 @@ export function resolveSeasonState(
     contests.some((c) => c.period.season === season && c.result !== null),
   );
 
-  // Prefer the most recent season with results; otherwise the earliest scheduled.
+  // Prefer the most recent season with results. Otherwise pick the earliest season that
+  // has not kicked off yet.
   //
-  // The fallback only fires when *no* season anywhere has a result, i.e. a schedule of
-  // future seasons only, where the earliest is the right answer. A stale season whose
-  // results failed to ingest cannot pin the product to itself: any other season with
-  // results wins on the first branch.
-  const season = playedSeasons[0] ?? seasons[seasons.length - 1];
+  // "No results" does not mean "in the future". If a season's schedule was ingested but its
+  // results never were, it is indistinguishable from an upcoming season by result alone —
+  // and taking the oldest unplayed season would pin the product to that dead season
+  // permanently, reporting it as `regular` because its kickoff is in the past. Requiring a
+  // future kickoff is what separates the two. If nothing is upcoming either, the most
+  // recent season is the least wrong answer.
+  const firstKickoff = (season: number): number | null => {
+    const times = contests
+      .filter((c) => c.period.season === season && c.startsAt !== null)
+      .map((c) => Date.parse(c.startsAt as string))
+      .filter((t) => Number.isFinite(t));
+    return times.length === 0 ? null : Math.min(...times);
+  };
+
+  const upcoming = seasons
+    .filter((s) => {
+      const kickoff = firstKickoff(s);
+      return kickoff !== null && kickoff > now;
+    })
+    .sort((a, b) => a - b);
+
+  const season = playedSeasons[0] ?? upcoming[0] ?? seasons[0];
   const inSeason = contests.filter((c) => c.period.season === season);
 
   const unplayed = inSeason

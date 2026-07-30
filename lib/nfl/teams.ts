@@ -2,9 +2,9 @@
  * NFL team identity.
  *
  * Every abbreviation here was enumerated directly from the upstream `games.csv`
- * (seasons 1999–2026) rather than recalled. That file contains exactly 34 distinct
- * abbreviations: the 32 current teams plus three retired ones for relocated franchises,
- * with Houston absent before its 2002 expansion.
+ * (seasons 1999–2026) rather than recalled. That file contains exactly 35 distinct
+ * abbreviations: the 32 current teams plus three retired ones for relocated franchises
+ * (`OAK`, `SD`, `STL`), with Houston absent before its 2002 expansion.
  *
  * Getting this wrong is not cosmetic. A team code that fails to normalise silently
  * splits one franchise's history into two, which corrupts every opponent adjustment and

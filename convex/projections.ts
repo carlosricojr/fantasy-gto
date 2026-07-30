@@ -180,15 +180,15 @@ export const upsertBatch = internalMutation({
     /**
      * The stamp every row in this run carries.
      *
-     * Supplied by the caller rather than read from the clock here, because a run spans
-     * many transactions and `pruneStale` distinguishes this run's rows from an earlier
-     * run's by exact comparison against it. Reading `Date.now()` per batch would make
-     * that boundary depend on how the batches happened to fall across milliseconds.
+     * Required, not defaulted. A run spans many transactions and `pruneStale` separates
+     * this run's rows from an earlier run's by exact comparison against this value, so a
+     * caller that let it default to a per-batch `Date.now()` would stamp its own earlier
+     * batches below the cutoff and then delete them.
      */
-    computedAt: v.optional(v.number()),
+    computedAt: v.number(),
   },
   handler: async (ctx, { rows, computedAt }) => {
-    const now = computedAt ?? Date.now();
+    const now = computedAt;
     let inserted = 0;
     let updated = 0;
 

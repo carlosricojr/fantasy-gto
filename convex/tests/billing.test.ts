@@ -407,6 +407,61 @@ describe("applyClerkEvent", () => {
     expect(audits.some((a) => a.kind === "billing.unknown_status")).toBe(true);
   });
 
+  it("does not apply a scheduled downgrade before it takes effect", async () => {
+    // Clerk represents a cancel-at-period-end or a scheduled plan change as an *upcoming*
+    // item carrying the FUTURE plan key. Preserving the status but applying the plan from
+    // that event writes {planId: "free", status: "active"}, and `effectivePlan`
+    // short-circuits on a free plan — so the subscriber loses the period they have already
+    // paid for, weeks early, while the audit row claims the status was kept.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u_down").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_down",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    const result = await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscriptionItem.updated",
+      clerkUserId: "u_down",
+      planKey: "free",
+      status: "upcoming",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect(result.applied).toBe(false);
+    expect((await asUser(t, "u_down").query(api.users.me, {})).plan).toBe("pro");
+  });
+
+  it("does not treat a subscription event with no status as a cancellation", async () => {
+    // `statusFromClerk(null)` is "none", which reads as free. An event that omits the
+    // status says nothing about whether the subscription is live, so it must not be the
+    // thing that ends it — and the old path wrote no audit row either.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u_nostatus").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_nostatus",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_nostatus",
+      planKey: "pro",
+      status: null,
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u_nostatus").query(api.users.me, {})).plan).toBe("pro");
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.unknown_status")).toBe(true);
+  });
+
   it("still ends a subscription on a terminal status", async () => {
     // The counterpart: "ended" is modelled, so it must revoke rather than be preserved.
     const t = convexTest(schema, modules);

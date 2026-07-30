@@ -187,7 +187,16 @@ says "start X over Y" — is implemented and tested but has no screen wired to i
 known gaps.
 
 A failed payment keeps Pro for a 3-day grace period. A cancellation runs to the end of the
-period already paid for. Unknown Clerk plan keys and statuses fail closed to free.
+period already paid for.
+
+An event that does not describe the subscription's current state — an unrecognised or
+absent status, or a scheduled change Clerk sends ahead of time — writes nothing and is
+audited. That is deliberately biased towards the subscriber: a payer is never dropped by an
+event we do not understand. The cost is that a *terminal* status Clerk spells in a way this
+code does not model would leave Pro in force indefinitely, because nothing polls Clerk to
+reconcile and no alert reads the audit table. `canceled`, `cancelled`, `ended`, and
+`expired` are modelled, so ordinary endings revoke normally. Unknown *plan keys* still
+resolve to free, and are audited.
 
 ## Testing
 

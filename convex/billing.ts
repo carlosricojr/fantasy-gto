@@ -51,36 +51,30 @@ export const setSubscription = internalMutation({
     eventAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", args.clerkUserId))
       .first();
 
-    // A subscription event can arrive before the user-created event. Dropping it would
-    // lose a paid upgrade, so record the gap loudly instead of failing silently.
-    if (!user) {
-      await ctx.db.insert("audit", {
-        kind: "billing.orphan_event",
-        userId: null,
-        detail: `Subscription event for unknown Clerk user ${args.clerkUserId}`,
-        at: Date.now(),
-      });
-      return;
-    }
+    // Same reasoning as `applyClerkEvent`: a subscription event can arrive before the
+    // user-created event, and auditing then dropping it loses the paid upgrade for good.
+    // Provisioning keeps both writers consistent, so this one cannot quietly regress to
+    // the lossy behaviour while the other is correct.
+    const resolved =
+      user ?? (await provisionUser(ctx, args.clerkUserId, "setSubscription", now));
 
     const existing = await ctx.db
       .query("subscriptions")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_user", (q) => q.eq("userId", resolved._id))
       .first();
-
-    const now = Date.now();
     const pastDueSince =
       args.status === "past_due"
         ? (existing?.pastDueSince ?? now)
         : null;
 
     const next = {
-      userId: user._id,
+      userId: resolved._id,
       planId: args.planId as PlanId,
       status: args.status as SubscriptionStatus,
       pastDueSince,
@@ -98,7 +92,7 @@ export const setSubscription = internalMutation({
 
     await ctx.db.insert("audit", {
       kind: "billing.subscription_changed",
-      userId: user._id,
+      userId: resolved._id,
       detail: `plan=${args.planId} status=${args.status}`,
       at: now,
     });
@@ -252,17 +246,39 @@ export const applyClerkEvent = internalMutation({
     // change, among others — so without this an active subscriber scheduling a change
     // drops to free mid-period. The plan-key path above already reasons this way; the
     // status path did not, and unlike the plan key it left no audit row to diagnose from.
-    const statusUnrecognised =
-      !isPaymentFailure && !isKnownSubscriptionStatus(args.status);
-    if (statusUnrecognised) {
+    // Absent counts as uninformative too, on a subscription event.
+    //
+    // A subscription event with no status tells us nothing about whether the subscription
+    // is live, yet `statusFromClerk(null)` returns "none" and `effectivePlan` reads that as
+    // free — the same silent revocation, with no audit row at all. The plan-key path
+    // already treats absence as "the event tells us nothing"; this now matches it.
+    const rawStatusValue = (args.status ?? "").trim();
+    const statusUninformative =
+      !isPaymentFailure &&
+      (rawStatusValue === "" || !isKnownSubscriptionStatus(args.status));
+
+    // An event that does not describe the subscription's current state must not write any
+    // of it.
+    //
+    // Gating only `status` is not enough, and gets the mirror image of the bug wrong:
+    // Clerk represents a scheduled downgrade or cancel-at-period-end as an *upcoming* item
+    // carrying the future plan key. Applying `planId` from that while preserving `status`
+    // writes {planId: "free", status: "active"}, and `effectivePlan` short-circuits on a
+    // free plan — so the subscriber loses the period they have already paid for, while the
+    // audit row says "keeping status=active". `currentPeriodEnd` and the subscription id
+    // describe the future item too. So the whole write is skipped rather than merged
+    // field by field.
+    if (statusUninformative) {
       await ctx.db.insert("audit", {
         kind: "billing.unknown_status",
         userId: user._id,
         detail:
-          `${args.eventType} carried unrecognised status "${args.status}"; ` +
-          `keeping status=${existing?.status ?? "none"}`,
+          `${args.eventType} carried ${rawStatusValue === "" ? "no status" : `unrecognised status "${args.status}"`}; ` +
+          `no subscription state written (plan=${existing?.planId ?? "free"}, ` +
+          `status=${existing?.status ?? "none"} preserved)`,
         at: now,
       });
+      return { applied: false };
     }
 
     // An unrecognised (as opposed to absent) price key resolves to free, which would
@@ -286,9 +302,7 @@ export const applyClerkEvent = internalMutation({
 
     const status: SubscriptionStatus = isPaymentFailure
       ? "past_due"
-      : statusUnrecognised
-        ? (existing?.status ?? "none")
-        : statusFromClerk(args.status);
+      : statusFromClerk(args.status);
 
     const pastDueSince = status === "past_due" ? (existing?.pastDueSince ?? now) : null;
 

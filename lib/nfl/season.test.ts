@@ -34,6 +34,42 @@ describe("resolveSeasonState", () => {
     expect(resolveSeasonState([], NOW)).toBeNull();
   });
 
+  it("does not pin to a season whose results were never ingested", () => {
+    // Both seasons are unplayed by result alone: 2025's schedule was ingested but its
+    // results never were. Choosing the oldest unplayed season would settle on 2025 and,
+    // because its kickoff is in the past, report it as an in-progress regular season —
+    // permanently, since no later result can ever arrive to move it on.
+    const contests = [
+      contest(2025, 1, false, "2025-09-04T20:20:00Z"),
+      contest(2025, 2, false, "2025-09-11T20:20:00Z"),
+      contest(2026, 1, false, "2026-09-10T20:20:00Z"),
+    ];
+
+    const state = resolveSeasonState(contests, NOW);
+    expect(state?.season).toBe(2026);
+    expect(state?.phase).toBe("preseason");
+  });
+
+  it("still prefers the earliest upcoming season when several are scheduled", () => {
+    const contests = [
+      contest(2026, 1, false, "2026-09-10T20:20:00Z"),
+      contest(2027, 1, false, "2027-09-09T20:20:00Z"),
+    ];
+
+    expect(resolveSeasonState(contests, NOW)?.season).toBe(2026);
+  });
+
+  it("falls back to the most recent season when nothing is upcoming or played", () => {
+    // Every kickoff is in the past and nothing has a result — a schedule that stopped
+    // being updated. The most recent season is the least wrong answer.
+    const contests = [
+      contest(2024, 1, false, "2024-09-05T20:20:00Z"),
+      contest(2025, 1, false, "2025-09-04T20:20:00Z"),
+    ];
+
+    expect(resolveSeasonState(contests, NOW)?.season).toBe(2025);
+  });
+
   it("reports the current week as the earliest unplayed one", () => {
     const contests = [
       contest(2025, 1, true),
