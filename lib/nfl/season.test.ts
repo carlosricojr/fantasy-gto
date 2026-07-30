@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Contest } from "@/lib/core/domain";
+import type { Contest } from "../core/domain";
 
 import {
   completedPeriods,

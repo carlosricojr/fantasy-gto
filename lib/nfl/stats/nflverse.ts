@@ -1,13 +1,13 @@
-import type { Contest, MarketLine, Period, SportId } from "@/lib/core/domain";
+import type { Contest, MarketLine, Period, SportId } from "../../core/domain";
 import {
   type MarketProvider,
   type ProviderResult,
   type StatsProvider,
   failed,
   ok,
-} from "@/lib/core/providers";
-import { type CsvRow, num, numOrNull, parseCsv, str } from "@/lib/nfl/csv";
-import { normalizeTeam } from "@/lib/nfl/teams";
+} from "../../core/providers";
+import { type CsvRow, num, numOrNull, parseCsv, str } from "../csv";
+import { normalizeTeam } from "../teams";
 
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "./parse";
 

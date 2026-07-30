@@ -1,7 +1,7 @@
-import type { Contribution, Period, Projection } from "@/lib/core/domain";
-import { round2, scoreOffense } from "@/lib/nfl/scoring/score";
-import type { Position, ScoringRules } from "@/lib/nfl/scoring/types";
-import type { PlayerWeek } from "@/lib/nfl/stats/parse";
+import type { Contribution, Period, Projection } from "../../core/domain";
+import { round2, scoreOffense } from "../scoring/score";
+import type { Position, ScoringRules } from "../scoring/types";
+import type { PlayerWeek } from "../stats/parse";
 
 import {
   CALIBRATION,

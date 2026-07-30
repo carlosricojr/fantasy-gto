@@ -1,4 +1,4 @@
-import type { RosterSlot } from "@/lib/core/optimizer";
+import type { RosterSlot } from "../core/optimizer";
 
 import type { Position } from "./scoring/types";
 

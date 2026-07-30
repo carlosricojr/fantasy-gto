@@ -1,4 +1,4 @@
-import type { TeamAbbr } from "@/lib/nfl/teams";
+import type { TeamAbbr } from "../teams";
 
 /** Roster positions the product scores and projects. */
 export const POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;

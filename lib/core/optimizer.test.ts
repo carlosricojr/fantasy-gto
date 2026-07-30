@@ -246,6 +246,137 @@ describe("solveLineup — correctness", () => {
   });
 });
 
+/**
+ * Cross-checks the solver against an exhaustive search.
+ *
+ * The Hungarian implementation forbids ineligible pairings with a large sentinel cost and
+ * relies on one dummy column per slot to keep the problem feasible. That is the part of
+ * the design most worth doubting: if the sentinel were ever selected, or if it perturbed
+ * the potentials, results would be silently wrong rather than obviously broken. Brute
+ * force over small rosters settles it by construction.
+ */
+describe("optimality, verified against brute force", () => {
+  /** Deterministic generator; no reliance on Math.random. */
+  function rng(seed: number) {
+    let state = seed >>> 0;
+    return () => (state = (state * 1664525 + 1013904223) >>> 0) / 4294967296;
+  }
+
+  /** Exhaustive best total, allowing slots to be left empty. */
+  function bruteForce(
+    slots: readonly RosterSlot[],
+    roster: readonly OptimizableCompetitor[],
+  ): number {
+    let best = 0;
+    const used = new Array(roster.length).fill(false);
+    const recurse = (index: number, total: number) => {
+      if (index === slots.length) {
+        best = Math.max(best, total);
+        return;
+      }
+      recurse(index + 1, total); // leave this slot empty
+      for (let j = 0; j < roster.length; j += 1) {
+        if (used[j]) continue;
+        if (roster[j].availability !== "active") continue;
+        if (!slots[index].eligiblePositions.includes(roster[j].position)) continue;
+        used[j] = true;
+        recurse(index + 1, total + roster[j].projectedPoints);
+        used[j] = false;
+      }
+    };
+    recurse(0, 0);
+    return Math.round(best * 100) / 100;
+  }
+
+  it("matches the exhaustive optimum on 300 random rosters", () => {
+    const random = rng(12345);
+    const positions = ["QB", "RB", "WR", "TE"];
+
+    for (let trial = 0; trial < 300; trial += 1) {
+      const slotCount = 1 + Math.floor(random() * 4);
+      const slots: RosterSlot[] = Array.from({ length: slotCount }, (_, i) => {
+        const kind = Math.floor(random() * 3);
+        const eligible =
+          kind === 0
+            ? [positions[Math.floor(random() * positions.length)]]
+            : kind === 1
+              ? ["RB", "WR", "TE"]
+              : ["QB", "RB", "WR", "TE"];
+        return { id: `s${i}`, label: `S${i}`, eligiblePositions: eligible };
+      });
+
+      const roster = Array.from({ length: 1 + Math.floor(random() * 6) }, (_, i) =>
+        player(
+          `p${i}`,
+          positions[Math.floor(random() * positions.length)],
+          Math.round(random() * 3000) / 100,
+        ),
+      );
+
+      expect(solveLineup(slots, roster).totalPoints, `trial ${trial}`).toBeCloseTo(
+        bruteForce(slots, roster),
+        2,
+      );
+    }
+  });
+
+  it("stays finite when every player is ineligible for every slot", () => {
+    const slots: RosterSlot[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i}`,
+      label: `S${i}`,
+      eligiblePositions: [`POS${i}`],
+    }));
+    const roster = Array.from({ length: 30 }, (_, i) => player(`p${i}`, "NONE", 20 + i));
+
+    const solution = solveLineup(slots, roster);
+    expect(Number.isFinite(solution.totalPoints)).toBe(true);
+    expect(solution.totalPoints).toBe(0);
+    expect(solution.assignments.every((a) => a.competitorId === null)).toBe(true);
+  });
+
+  it("ignores high-scoring ineligible players entirely", () => {
+    const slots: RosterSlot[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i}`,
+      label: `S${i}`,
+      eligiblePositions: [`P${i}`],
+    }));
+    const roster = [
+      ...Array.from({ length: 12 }, (_, i) => player(`fit${i}`, `P${i}`, 10 + i)),
+      ...Array.from({ length: 30 }, (_, i) => player(`junk${i}`, "NONE", 99)),
+    ];
+    // Only the twelve eligible players may be seated: 10 + 11 + … + 21.
+    expect(solveLineup(slots, roster).totalPoints).toBe(186);
+  });
+
+  it("never seats an ineligible player on a large roster", () => {
+    const random = rng(999);
+    const slots: RosterSlot[] = [
+      QB,
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: `f${i}`,
+        label: "FLEX",
+        eligiblePositions: ["RB", "WR", "TE"],
+      })),
+    ];
+    const roster = Array.from({ length: 200 }, (_, i) =>
+      player(
+        `p${i}`,
+        ["QB", "RB", "WR", "TE", "DST"][Math.floor(random() * 5)],
+        Math.round(random() * 4000) / 100,
+      ),
+    );
+
+    const solution = solveLineup(slots, roster);
+    expect(Number.isFinite(solution.totalPoints)).toBe(true);
+    for (const assignment of solution.assignments) {
+      if (!assignment.competitorId) continue;
+      const seated = roster.find((p) => p.id === assignment.competitorId)!;
+      const slot = slots.find((s) => s.id === assignment.slotId)!;
+      expect(slot.eligiblePositions).toContain(seated.position);
+    }
+  });
+});
+
 describe("startSitAdvice", () => {
   const slots = [RB1, FLEX];
 

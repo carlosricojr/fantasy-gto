@@ -1,4 +1,4 @@
-import type { Contest, Period } from "@/lib/core/domain";
+import type { Contest, Period } from "../core/domain";
 
 /**
  * Season and week resolution.

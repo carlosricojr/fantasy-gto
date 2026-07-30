@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { num, parseCsv } from "@/lib/nfl/csv";
-import { toRegularSeasonPlayerWeeks } from "@/lib/nfl/stats/parse";
+import { num, parseCsv } from "../csv";
+import { toRegularSeasonPlayerWeeks } from "../stats/parse";
 
 import { HALF_PPR, PPR, STANDARD, scoringPresetById } from "./presets";
 import { resolveTier, round2, scoreDefense, scoreKicker, scoreOffense } from "./score";

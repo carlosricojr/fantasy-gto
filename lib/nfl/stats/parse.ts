@@ -1,7 +1,7 @@
-import type { Competitor, Period } from "@/lib/core/domain";
-import { type CsvRow, num, str } from "@/lib/nfl/csv";
-import { normalizeTeam } from "@/lib/nfl/teams";
-import type { KickerStatLine, Position, StatLine } from "@/lib/nfl/scoring/types";
+import type { Competitor, Period } from "../../core/domain";
+import { type CsvRow, num, str } from "../csv";
+import { normalizeTeam } from "../teams";
+import type { KickerStatLine, Position, StatLine } from "../scoring/types";
 
 /**
  * Pure mapping from an nflverse `stats_player_week` row to domain types.

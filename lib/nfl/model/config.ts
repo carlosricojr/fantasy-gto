@@ -1,4 +1,4 @@
-import type { Position } from "@/lib/nfl/scoring/types";
+import type { Position } from "../scoring/types";
 
 /**
  * Frozen model constants.

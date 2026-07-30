@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { parseCsv } from "@/lib/nfl/csv";
-import { PPR, STANDARD } from "@/lib/nfl/scoring/presets";
-import { round2 } from "@/lib/nfl/scoring/score";
-import type { Position } from "@/lib/nfl/scoring/types";
-import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "@/lib/nfl/stats/parse";
+import { parseCsv } from "../csv";
+import { PPR, STANDARD } from "../scoring/presets";
+import { round2 } from "../scoring/score";
+import type { Position } from "../scoring/types";
+import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../stats/parse";
 
 import { CALIBRATION, MODEL_VERSION, OUTCOME_QUANTILES } from "./config";
 import {
