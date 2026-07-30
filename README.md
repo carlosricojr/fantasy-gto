@@ -21,6 +21,25 @@ pnpm dev                   # Next.js + Convex
 `pnpm backtest` need neither — the domain core has no infrastructure dependencies, which
 is deliberate.
 
+### Seeding a deployment
+
+A fresh deployment has no data, and both ingest actions are `internal` so no client can
+trigger them. Populate it from the CLI:
+
+```bash
+npx convex dev --once                                            # push schema + functions
+npx convex run ingest:syncSchedule '{"season":2025}'             # schedule + betting lines
+npx convex run ingest:projectWeek '{"season":2025,"week":10}'    # projections for a week
+```
+
+Verified against a real deployment: the schedule sync writes 272 contests (a full regular
+season) and the projection run writes 392 rows for week 10 — matching an offline replay of
+the same logic exactly. After that, `convex/crons.ts` keeps both current on its own.
+
+The projected week must be one the interface will ask for. `season.current` resolves the
+displayed week from the schedule, so during the offseason it reports the final week of the
+last completed season rather than an empty future one.
+
 ## How it is put together
 
 The organising rule is that **domain logic is pure and I/O lives at the edges**. Every
