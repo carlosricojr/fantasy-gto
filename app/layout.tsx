@@ -7,7 +7,6 @@ import { dark } from "@clerk/themes";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
-import BillingSync from "@/components/BillingSync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,7 +53,6 @@ export default function RootLayout({
             >
               {children}
               <Toaster />
-              <BillingSync />
             </ThemeProvider>
           </ConvexClientProvider>
         </ClerkProvider>

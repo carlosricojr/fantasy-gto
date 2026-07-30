@@ -37,8 +37,12 @@ jobs:
       # Build last: it is the slowest gate and the least likely to catch what the
       # cheaper gates miss. Placeholder credentials keep the build hermetic — no
       # network calls to Convex or Clerk happen at build time.
+      #
+      # The Clerk key must be structurally valid, not merely non-empty: the SDK
+      # decodes it at prerender time and rejects anything malformed, which fails
+      # the build. This one decodes to "example.clerk.accounts.dev$".
       - name: Build
         run: pnpm build
         env:
           NEXT_PUBLIC_CONVEX_URL: https://example-convex-deployment.convex.cloud
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci-placeholder-not-a-real-key
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk

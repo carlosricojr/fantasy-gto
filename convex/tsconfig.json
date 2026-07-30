@@ -12,6 +12,15 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
 
+    /* Convex functions deliberately import the shared domain core from `lib/`, so the
+     * `@/` alias must resolve here exactly as it does in the Next.js app. Without this,
+     * every shared type silently degrades to `{}` and the typecheck reports errors that
+     * look like defects in the domain code rather than a missing path mapping. */
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./*"]
+    },
+
     /* These compiler options are required by Convex */
     "target": "ESNext",
     "lib": ["ES2021", "dom"],
