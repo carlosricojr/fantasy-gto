@@ -4,6 +4,8 @@ import {
   FEATURES,
   FREE_SUBSCRIPTION,
   GRACE_PERIOD_MS,
+  PRO_PLAN_KEYS,
+  UNIMPLEMENTED_FEATURES,
   type Subscription,
   can,
   canAddLeague,
@@ -12,6 +14,7 @@ import {
   entitlementsForPlan,
   graceRemainingMs,
   isInGracePeriod,
+  isKnownPlanKey,
   limit,
   planFromClerkKey,
   statusFromClerk,
@@ -67,11 +70,23 @@ describe("entitlement table", () => {
     }
   });
 
-  it("grants every capability on Pro", () => {
+  it("grants every implemented capability on Pro", () => {
     const pro = entitlementsForPlan("pro");
     for (const feature of FEATURES) {
       if (feature === "league_count") continue;
+      if (UNIMPLEMENTED_FEATURES.includes(feature)) continue;
       expect(can(pro, feature), `pro must grant ${feature}`).toBe(true);
+    }
+  });
+
+  it("withholds capabilities that are not built yet, even on Pro", () => {
+    // Granting access to a feature that does not exist would entitle a paying subscriber
+    // to nothing. These flip to true in the same change that implements them.
+    const pro = entitlementsForPlan("pro");
+    for (const feature of UNIMPLEMENTED_FEATURES) {
+      expect(can(pro, feature), `${feature} is not implemented and must not be granted`).toBe(
+        false,
+      );
     }
   });
 
@@ -132,6 +147,15 @@ describe("effectivePlan", () => {
       expect(isInGracePeriod(subscription(), NOW)).toBe(false);
       expect(graceRemainingMs(subscription(), NOW)).toBeNull();
     });
+
+    it("fails closed when past_due carries no start timestamp", () => {
+      // Without a start the window can never expire, so granting Pro would be an
+      // unbounded free ride on a failed payment.
+      const sub = subscription({ status: "past_due", pastDueSince: null });
+      expect(effectivePlan(sub, NOW)).toBe("free");
+      expect(isInGracePeriod(sub, NOW)).toBe(false);
+      expect(graceRemainingMs(sub, NOW)).toBeNull();
+    });
   });
 
   describe("cancellation", () => {
@@ -183,9 +207,27 @@ describe("Clerk mapping", () => {
     }
   });
 
-  it("accepts any pro_-prefixed price so new Pro prices work without a code change", () => {
-    expect(planFromClerkKey("pro_quarterly")).toBe("pro");
-    expect(planFromClerkKey("  pro_2027  ")).toBe("pro");
+  it("grants Pro only for allowlisted price keys", () => {
+    for (const key of PRO_PLAN_KEYS) {
+      expect(planFromClerkKey(key)).toBe("pro");
+      expect(planFromClerkKey(` ${key.toUpperCase()} `)).toBe("pro");
+    }
+  });
+
+  it("does not grant Pro to an unlisted pro_-prefixed price", () => {
+    // A prefix match would fail open within its own namespace: a price added later as a
+    // cheaper tier would silently grant full Pro.
+    expect(planFromClerkKey("pro_lite")).toBe("free");
+    expect(planFromClerkKey("pro_trial_free")).toBe("free");
+    expect(planFromClerkKey("pro_quarterly")).toBe("free");
+  });
+
+  it("distinguishes an unrecognised key from a deliberate free plan", () => {
+    expect(isKnownPlanKey("free")).toBe(true);
+    expect(isKnownPlanKey("pro_annual")).toBe(true);
+    expect(isKnownPlanKey(null)).toBe(true);
+    expect(isKnownPlanKey("pro_lite")).toBe(false);
+    expect(isKnownPlanKey("mystery")).toBe(false);
   });
 
   it("maps subscription statuses and fails closed on the unknown", () => {
@@ -207,7 +249,16 @@ describe("regression guards for the original defects", () => {
     // bug structurally impossible rather than merely fixed.
     const free = entitlementsFor(FREE_SUBSCRIPTION, NOW);
     expect(limit(free, "league_count")).toBe(3);
-    expect(Object.isFrozen(free) || Object.isExtensible(free)).toBeDefined();
+  });
+
+  it("returns frozen records so a caller cannot widen its own access", () => {
+    // The same object is handed out by reference on every check.
+    const free = entitlementsForPlan("free");
+    expect(Object.isFrozen(free)).toBe(true);
+    expect(() => {
+      (free as unknown as Record<string, unknown>).waivers_faab = true;
+    }).toThrow();
+    expect(can(entitlementsForPlan("free"), "waivers_faab")).toBe(false);
   });
 
   it("a free user never receives unlimited leagues under any status or clock", () => {

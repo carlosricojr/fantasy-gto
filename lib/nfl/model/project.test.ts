@@ -14,6 +14,7 @@ import {
   buildDefenseFactors,
   ema,
   impliedTeamTotal,
+  meanImpliedTotalBefore,
   projectPlayer,
 } from "./project";
 
@@ -107,6 +108,43 @@ describe("impliedTeamTotal", () => {
     expect(impliedTeamTotal(null, 3, "SF", "SF", "SEA")).toBeNull();
     expect(impliedTeamTotal(0, 3, "SF", "SF", "SEA")).toBeNull();
     expect(impliedTeamTotal(45, 3, "DAL", "SF", "SEA")).toBeNull();
+  });
+});
+
+describe("meanImpliedTotalBefore", () => {
+  const entries = [
+    { week: 1, impliedTotal: 20 },
+    { week: 2, impliedTotal: 24 },
+    { week: 3, impliedTotal: 28 },
+  ];
+
+  it("averages only weeks strictly before the target", () => {
+    expect(meanImpliedTotalBefore(entries, 3)).toBe(22);
+    expect(meanImpliedTotalBefore(entries, 2)).toBe(20);
+    expect(meanImpliedTotalBefore(entries, 4)).toBe(24);
+  });
+
+  it("never includes the target week itself", () => {
+    // Including it would use the very line being adjusted as its own baseline.
+    expect(meanImpliedTotalBefore([{ week: 5, impliedTotal: 30 }], 5)).toBeNull();
+  });
+
+  it("returns null with no prior week so the caller falls back to the league mean", () => {
+    expect(meanImpliedTotalBefore(entries, 1)).toBeNull();
+    expect(meanImpliedTotalBefore([], 9)).toBeNull();
+  });
+
+  it("is order independent", () => {
+    expect(meanImpliedTotalBefore([...entries].reverse(), 3)).toBe(22);
+  });
+
+  it("never lets a later week influence an earlier projection", () => {
+    // The regression this guards: averaging the whole season leaked future form into a
+    // past projection and inflated the reported accuracy.
+    const withFuture = [...entries, { week: 17, impliedTotal: 99 }];
+    expect(meanImpliedTotalBefore(withFuture, 3)).toBe(
+      meanImpliedTotalBefore(entries, 3),
+    );
   });
 });
 

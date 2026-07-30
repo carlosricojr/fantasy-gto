@@ -94,18 +94,41 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
     import_export: false,
     performance_history: false,
   },
+  /**
+   * Four capabilities are deliberately `false` here even though they are Pro features:
+   * `waivers_faab`, `dst_streamer`, `alerts`, and `performance_history` are not built yet.
+   *
+   * Granting access to a feature that does not exist would mean a paying subscriber is
+   * entitled to nothing, and would make this table describe an intention rather than the
+   * product. They flip to `true` in the same change that implements them. The README's
+   * "Known gaps" section and the pricing page must agree with this table.
+   */
   pro: {
     start_sit: true,
     league_count: Number.POSITIVE_INFINITY,
     daily_refresh: true,
-    waivers_faab: true,
-    dst_streamer: true,
-    alerts: true,
+    waivers_faab: false,
+    dst_streamer: false,
+    alerts: false,
     accuracy_dashboard: true,
     import_export: true,
-    performance_history: true,
+    performance_history: false,
   },
 };
+
+/** Pro capabilities that are not implemented yet. Kept explicit so tests can assert it. */
+export const UNIMPLEMENTED_FEATURES: readonly FeatureKey[] = [
+  "waivers_faab",
+  "dst_streamer",
+  "alerts",
+  "performance_history",
+];
+
+// Entitlement records are handed out by reference on every check. Freezing them means a
+// caller cannot widen its own access by mutating the shared object.
+Object.freeze(ENTITLEMENTS.free);
+Object.freeze(ENTITLEMENTS.pro);
+Object.freeze(ENTITLEMENTS);
 
 /**
  * Resolves which plan's entitlements actually apply right now.
@@ -124,7 +147,12 @@ export function effectivePlan(subscription: Subscription, now: number): PlanId {
 
     case "past_due": {
       // Keep Pro during the grace window, then fall back.
-      if (subscription.pastDueSince === null) return "pro";
+      //
+      // A missing `pastDueSince` means the grace window has no start, so it can never
+      // expire. Granting Pro there would be an unbounded free ride on a failed payment,
+      // so an absent timestamp fails closed. The writer always sets it (see
+      // convex/billing.ts), which makes this defence in depth rather than a live path.
+      if (subscription.pastDueSince === null) return "free";
       return now - subscription.pastDueSince < GRACE_PERIOD_MS ? "pro" : "free";
     }
 
@@ -186,16 +214,45 @@ export function graceRemainingMs(subscription: Subscription, now: number): numbe
 }
 
 /**
+ * Clerk price keys that grant Pro.
+ *
+ * An explicit allowlist rather than a `pro_` prefix match. A prefix match fails *open*
+ * within its namespace: a price added later as `pro_lite` or `pro_trial`, intended as a
+ * cheaper tier, would silently grant full Pro. Adding a price to this set is a deliberate
+ * code change, which is the point.
+ */
+export const PRO_PLAN_KEYS: ReadonlySet<string> = new Set([
+  "pro",
+  "pro_monthly",
+  "pro_annual",
+  "pro_seasonal",
+]);
+
+/**
  * Maps a Clerk plan identifier to ours.
  *
- * Unknown identifiers resolve to `free`. Failing closed matters: a renamed price in the
- * billing dashboard must never silently hand out Pro.
+ * Anything not on the allowlist resolves to `free`. Failing closed matters: a renamed or
+ * newly added price in the billing dashboard must never silently hand out Pro.
+ *
+ * A new Pro price therefore requires adding its key here. That is intentional — see
+ * `isKnownPlanKey`, which lets the webhook record an unrecognised key so the
+ * misconfiguration is visible rather than silently downgrading a paying customer.
  */
 export function planFromClerkKey(key: string | null | undefined): PlanId {
   if (!key) return "free";
+  return PRO_PLAN_KEYS.has(key.trim().toLowerCase()) ? "pro" : "free";
+}
+
+/**
+ * True when a plan key is one we recognise.
+ *
+ * Distinguishes "deliberately free" from "unrecognised", so an unknown key can be audited
+ * instead of quietly treated as a downgrade.
+ */
+export function isKnownPlanKey(key: string | null | undefined): boolean {
+  if (!key) return true; // absent means free, which is a known state
   const normalized = key.trim().toLowerCase();
-  if (normalized === "pro" || normalized.startsWith("pro_")) return "pro";
-  return "free";
+  return normalized === "free" || PRO_PLAN_KEYS.has(normalized);
 }
 
 /**

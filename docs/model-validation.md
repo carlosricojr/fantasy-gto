@@ -51,26 +51,45 @@ Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-
 
 | Model | MAE | FGTO edge |
 | --- | --- | --- |
-| **FGTO model (frozen)** | **5.8507** | — |
-| Baseline: season-to-date mean | 5.9877 | **+2.29%** |
-| Baseline: last-3-game mean | 6.3618 | +8.03% |
+| **FGTO model (frozen)** | **5.8365** | — |
+| Baseline: season-to-date mean | 5.9877 | **+2.53%** |
+| Baseline: last-3-game mean | 6.3618 | +8.26% |
 
-Per position (MAE): QB 6.791, RB 5.829, WR 5.674, TE 5.261.
+Per position (MAE): QB 6.756, RB 5.821, WR 5.665, TE 5.250.
 
-Residual bias is −0.592 points: the model still projects slightly high even after
+Residual bias is −0.595 points: the model still projects slightly high even after
 calibration, because the evaluation population is selected for recent production and
 regresses. This is disclosed rather than hidden, and it is why the interface leads with a
 range rather than a single number.
 
 ### 2024 — in-sample, n = 2,963
 
-MAE 5.8596 against a season-mean baseline of 6.0009, a 2.36% edge. That this is nearly
+MAE 5.8464 against a season-mean baseline of 6.0009, a 2.57% edge. That this is nearly
 identical to the out-of-sample figure is the useful signal here: the model is not
 overfitted to its tuning season.
 
-**The headline number the product may state is 2.29%**, measured against the strongest
-baseline. The 8.03% figure against a last-3-game baseline is real, but quoting it while
+**The headline number the product may state is 2.53%**, measured against the strongest
+baseline. The 8.26% figure against a last-3-game baseline is real, but quoting it while
 omitting the stronger baseline would be cherry-picking.
+
+### Correction: lookahead bias, found in review and removed
+
+An earlier run of this backtest reported **2.29%**. That figure was contaminated.
+
+The Vegas term compares a game's implied team total against the team's own norm. That norm
+was being computed as the team's average implied total across the *entire season*,
+including weeks after the one being projected — so a team's later form informed an earlier
+projection. It was caught by a reviewer, confirmed against `scripts/backtest.ts`, and fixed
+by `meanImpliedTotalBefore`, which averages only weeks strictly before the target.
+
+Removing the leakage moved the result from 5.8507 to **5.8365**, i.e. it got slightly
+*better*. That is not paradoxical: with no prior week the reference falls back to the
+league mean, which damps a weakly-helpful adjustment early in the season when it is least
+informative. The point is that the current number is methodologically valid and the
+previous one was not, regardless of which is larger.
+
+A regression test in `project.test.ts` asserts that a later week cannot change an earlier
+projection's baseline.
 
 ### The calibration step earns its place
 

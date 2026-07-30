@@ -1,15 +1,15 @@
-import type { Contest, MarketLine, Period, SportId } from "../../core/domain";
+import type { Contest, MarketLine, Period, SportId } from "../core/domain";
 import {
   type MarketProvider,
   type ProviderResult,
   type StatsProvider,
   failed,
   ok,
-} from "../../core/providers";
-import { type CsvRow, num, numOrNull, parseCsv, str } from "../csv";
-import { normalizeTeam } from "../teams";
+} from "../core/providers";
+import { type CsvRow, num, numOrNull, parseCsv, str } from "../nfl/csv";
+import { normalizeTeam } from "../nfl/teams";
 
-import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "./parse";
+import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
  * nflverse adapter.

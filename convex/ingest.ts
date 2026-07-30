@@ -7,12 +7,14 @@ import { internalAction } from "./_generated/server";
 
 import { DVP_SHRINKAGE } from "../lib/nfl/model/config";
 import {
+  type ImpliedTotalEntry,
   buildDefenseFactors,
   impliedTeamTotal,
+  meanImpliedTotalBefore,
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
-import { NflverseProvider } from "../lib/nfl/stats/nflverse";
+import { NflverseProvider } from "../lib/sources/nflverse";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -76,9 +78,11 @@ export const projectWeek = internalAction({
 
       const lineByContest = new Map(linesResult.data.map((l) => [l.contestId, l]));
 
-      // Each team's own average implied total for the season, the reference the Vegas
-      // term is measured against.
-      const teamTotals = new Map<string, number[]>();
+      // Each team's implied total per week, kept as a series. The Vegas term compares this
+      // week against the team's own norm, and that norm is computed only from weeks
+      // already played — collapsing the whole season to one average would let later form
+      // inform an earlier projection.
+      const teamTotals = new Map<string, ImpliedTotalEntry[]>();
       const weekContestByTeam = new Map<string, (typeof contestsResult.data)[number]>();
       for (const contest of contestsResult.data) {
         if (contest.period.season !== season) continue;
@@ -98,13 +102,9 @@ export const projectWeek = internalAction({
           );
           if (implied === null) continue;
           const bucket = teamTotals.get(team) ?? [];
-          bucket.push(implied);
+          bucket.push({ week: contest.period.index, impliedTotal: implied });
           teamTotals.set(team, bucket);
         }
-      }
-      const teamMean = new Map<string, number>();
-      for (const [team, values] of teamTotals) {
-        teamMean.set(team, values.reduce((s, v) => s + v, 0) / values.length);
       }
 
       // History strictly before the target week.
@@ -181,7 +181,9 @@ export const projectWeek = internalAction({
                       contest.awayTeam,
                     )
                   : null,
-              teamMeanImpliedTotal: team ? (teamMean.get(team) ?? null) : null,
+              teamMeanImpliedTotal: team
+                ? meanImpliedTotalBefore(teamTotals.get(team) ?? [], week)
+                : null,
             },
             scoring,
             defenseFactors,

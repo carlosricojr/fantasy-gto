@@ -28,7 +28,7 @@ import {
   meanImpliedTotalBefore,
   projectPlayer,
 } from "@/lib/nfl/model/project";
-import { DVP_SHRINKAGE } from "@/lib/nfl/model/config";
+import { DVP_SHRINKAGE, CALIBRATION } from "@/lib/nfl/model/config";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { scoreOffense } from "@/lib/nfl/scoring/score";
 import type { Position } from "@/lib/nfl/scoring/types";
@@ -152,8 +152,10 @@ async function main(): Promise<void> {
     model: Evaluation[];
     seasonMean: Evaluation[];
     lastThree: Evaluation[];
+    uncal: Evaluation[];
   } {
     const model: Evaluation[] = [];
+    const uncal: Evaluation[] = [];
     const seasonMean: Evaluation[] = [];
     const lastThree: Evaluation[] = [];
     const factors = defenseFactors.get(season);
@@ -203,11 +205,12 @@ async function main(): Promise<void> {
         });
 
         model.push({ position, predicted: projection.mean, actual });
+        uncal.push({ position, predicted: projection.mean / CALIBRATION[position], actual });
         seasonMean.push({ position, predicted: mean(priorPoints), actual });
         lastThree.push({ position, predicted: mean(priorPoints.slice(-3)), actual });
       }
     }
-    return { model, seasonMean, lastThree };
+    return { model, seasonMean, lastThree, uncal };
   }
 
   function mae(rows: readonly Evaluation[], position?: Position): number {
@@ -224,7 +227,7 @@ async function main(): Promise<void> {
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
       season === TUNING_SEASON ? "TUNING (in-sample)" : "EVALUATION (out-of-sample)";
-    const { model, seasonMean, lastThree } = evaluate(season);
+    const { model, seasonMean, lastThree, uncal } = evaluate(season);
 
     process.stdout.write(`\n${season} — ${label}    n = ${model.length}\n`);
     process.stdout.write(
@@ -245,6 +248,26 @@ async function main(): Promise<void> {
           .map((p) => mae(data, p).toFixed(3).padStart(8))
           .join("")}\n`,
       );
+    }
+
+    // INSTRUMENTATION
+    {
+      const actuals = model.map((r) => r.actual).sort((a, b) => a - b);
+      const meanActual = mean(actuals);
+      const median = actuals[Math.floor(actuals.length / 2)];
+      const p25 = actuals[Math.floor(actuals.length * 0.25)];
+      const p75 = actuals[Math.floor(actuals.length * 0.75)];
+      const meanPred = mean(model.map((r) => r.predicted));
+      process.stdout.write(`  INSTR UNCALIBRATED mae=${mae(uncal).toFixed(4)} bias=${bias(uncal).toFixed(4)}\n`);
+      process.stdout.write(
+        `  INSTR season=${season} n=${actuals.length} meanActual=${meanActual.toFixed(4)} medianActual=${median.toFixed(4)} p25=${p25.toFixed(2)} p75=${p75.toFixed(2)} meanPredicted=${meanPred.toFixed(4)}\n`,
+      );
+      for (const p of positions) {
+        const sub = model.filter((r) => r.position === p).map((r) => r.actual);
+        process.stdout.write(
+          `  INSTR ${p}: n=${sub.length} meanActual=${mean(sub).toFixed(3)}\n`,
+        );
+      }
     }
 
     const modelMae = mae(model);

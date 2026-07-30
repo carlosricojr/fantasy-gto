@@ -14,7 +14,7 @@ file records the rules for changing it.
 **Never state a number the code cannot produce.** Every user-visible claim maps to a row in
 the README's honesty ledger. If you cannot point at the computation, delete the claim
 rather than soften it. This project previously advertised "+8.2 points/week" and "beats
-ESPN by ≥8%" with nothing behind either; the measured edge is 2.29%.
+ESPN by ≥8%" with nothing behind either; the measured edge is 2.53%.
 
 **Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
 same commit.** Hyperparameters in `lib/nfl/model/config.ts` were chosen on 2024 and frozen
@@ -22,8 +22,9 @@ before evaluating on 2025. Retuning them against 2025 destroys that property and
 published figure meaningless.
 
 **Keep the domain core pure.** Nothing in `lib/core`, `lib/nfl`, or `lib/billing` may
-import Convex, Clerk, React, or call `fetch` or `Date.now()`. Pass the clock in. This is
-what makes the model backtestable and the entitlement logic testable.
+import Convex, Clerk, React, or call `fetch`, `Date.now()`, or `Math.random()`. Pass the
+clock in. This is what makes the model backtestable and the entitlement logic testable, and
+`lib/purity.test.ts` enforces it. I/O adapters go in `lib/sources/`, which is exempt.
 
 **Never grant an entitlement directly.** Access is derived from subscription state by a
 pure function. If you find yourself writing a mutation that sets a capability, the design
@@ -56,8 +57,9 @@ pnpm dev        # frontend + Convex
 
 ```
 lib/core/       Sport-agnostic: domain types, provider seams, lineup optimiser
-lib/nfl/        NFL adapter: csv, teams, season, scoring/, model/, stats/
+lib/nfl/        NFL domain: csv, teams, season, scoring/, model/, stats/ (pure)
 lib/billing/    Entitlement derivation (pure)
+lib/sources/    Adapter layer — the only part of lib/ allowed to do I/O
 convex/         Thin orchestration; schema, queries, ingest, http webhook
 app/            App Router; (marketing) is public, (app) is mixed
 scripts/        backtest.ts

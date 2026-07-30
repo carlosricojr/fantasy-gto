@@ -5,6 +5,7 @@ import { internalMutation } from "./_generated/server";
 import {
   type PlanId,
   type SubscriptionStatus,
+  isKnownPlanKey,
   planFromClerkKey,
   statusFromClerk,
 } from "../lib/billing/entitlements";
@@ -129,11 +130,19 @@ export const applyClerkEvent = internalMutation({
       return { applied: false };
     }
 
+    // Clerk spells billing events in camelCase (`paymentAttempt.updated`,
+    // `subscriptionItem.active`), so matching is done on a lowercased form and covers both
+    // conventions. A payment attempt is only a *failure* when its status says so —
+    // treating every attempt as one would push healthy accounts into the grace path.
     const type = args.eventType.toLowerCase();
-    const isSubscriptionEvent =
-      type.includes("subscription") || type.includes("subscriptionitem");
+    const isSubscriptionEvent = type.includes("subscription");
+    const isPaymentAttempt =
+      type.includes("paymentattempt") || type.includes("payment_attempt");
+    const rawStatus = (args.status ?? "").trim().toLowerCase();
     const isPaymentFailure =
-      type.includes("payment_failed") || type.includes("payment_attempt.failed");
+      type.includes("payment_failed") ||
+      type.includes("payment.failed") ||
+      (isPaymentAttempt && (rawStatus === "failed" || rawStatus === "unpaid"));
 
     if (!isSubscriptionEvent && !isPaymentFailure) {
       await ctx.db.insert("audit", {
@@ -164,9 +173,22 @@ export const applyClerkEvent = internalMutation({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .unique();
 
-    // A payment failure carries no plan; keep whatever plan is already recorded.
+    // An unrecognised price key resolves to free, which would silently downgrade a paying
+    // customer. Record it so the misconfiguration is visible rather than mysterious.
+    if (!isPaymentFailure && !isKnownPlanKey(args.planKey)) {
+      await ctx.db.insert("audit", {
+        kind: "billing.unknown_plan_key",
+        userId: user._id,
+        detail: `${args.eventType} carried unrecognised plan key "${args.planKey}"; treated as free`,
+        at: now,
+      });
+    }
+
+    // A payment failure carries no plan, so the recorded one is kept. With no recorded
+    // subscription there is nothing to keep, and defaulting to Pro would grant a paid plan
+    // off the back of a *failed* payment — so it falls back to free.
     const planId: PlanId = isPaymentFailure
-      ? (existing?.planId ?? "pro")
+      ? (existing?.planId ?? "free")
       : planFromClerkKey(args.planKey);
 
     const status: SubscriptionStatus = isPaymentFailure
@@ -180,8 +202,11 @@ export const applyClerkEvent = internalMutation({
       planId,
       status,
       pastDueSince,
-      currentPeriodEnd: args.currentPeriodEnd,
-      clerkSubscriptionId: args.subscriptionId,
+      // A payload that omits these carries no information about them. Overwriting with
+      // null would erase a known period end and revoke a cancelled-but-paid customer's
+      // remaining access.
+      currentPeriodEnd: args.currentPeriodEnd ?? existing?.currentPeriodEnd ?? null,
+      clerkSubscriptionId: args.subscriptionId ?? existing?.clerkSubscriptionId ?? null,
       updatedAt: now,
     };
 

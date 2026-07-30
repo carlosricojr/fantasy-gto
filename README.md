@@ -29,13 +29,18 @@ backtestable against three seasons of real data and the optimiser exhaustively t
 
 ```
 lib/core/            Sport-agnostic. Domain vocabulary, provider seams, lineup optimiser.
-lib/nfl/             The NFL adapter: CSV parsing, teams, scoring, model, season logic.
-lib/billing/         Entitlement derivation. Pure; no Convex or Clerk imports.
+lib/nfl/             NFL domain: CSV parsing, teams, scoring, model, season logic.
+lib/billing/         Entitlement derivation.
+lib/sources/         The adapter layer. The only place in lib/ that performs I/O.
 convex/              Thin orchestration over the pure core. Schema, queries, ingest, webhook.
 app/                 Next.js App Router.
 scripts/backtest.ts  The authority for every accuracy claim.
 docs/                Verified data sources and model validation.
 ```
+
+`lib/core`, `lib/nfl`, and `lib/billing` are pure — no `fetch`, no clock, no randomness, no
+framework imports. That is not a convention; `lib/purity.test.ts` enforces it by scanning
+the source. `lib/sources` is exempt because performing I/O is its entire job.
 
 ### Adapter seams
 
@@ -68,16 +73,16 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.29% better than a season-average baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
+| "2.53% better than a season-average baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md). |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
-| Residual bias of −0.59 points | Published on `/accuracy` rather than hidden. |
+| Residual bias of −0.60 points | Published on `/accuracy` rather than hidden. |
 
 **Removed.** The previous version claimed "+8.2 points/week vs platform projections" and
 "beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model
-cannot support them — the real edge over a strong baseline is 2.29%. Weekly fantasy scoring
+cannot support them — the real edge over a strong baseline is 2.53%. Weekly fantasy scoring
 is dominated by variance that no model built on public box-score data removes. The claims
 were deleted rather than softened.
 
@@ -96,8 +101,13 @@ state.
 | Projections, lineup optimiser | ✓ (no account needed) | ✓ |
 | Start/sit advice | ✓ | ✓ |
 | Leagues | 3 | unlimited |
-| Waivers, FAAB, D/ST streamer | — | ✓ |
-| Accuracy dashboard, import/export, history, alerts | — | ✓ |
+| Daily refresh, accuracy dashboard, import/export | — | ✓ |
+| Waivers, FAAB, D/ST streamer, alerts, history | — | *not built yet* |
+
+The last row is `false` in the entitlement table, not `true`. Granting access to a feature
+that does not exist would entitle a paying subscriber to nothing and would make that table
+describe an intention rather than the product. Those flags flip in the same change that
+implements them, and `UNIMPLEMENTED_FEATURES` keeps the list explicit so a test asserts it.
 
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
 cannot demonstrate value before asking for payment.
@@ -132,4 +142,4 @@ Stated plainly rather than left to be discovered.
   tested; the model currently projects skill positions only.
 - **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
   entitlement table and are gated, with no implementation behind them yet.
-- **The model has a known −0.59 point high bias**, disclosed on `/accuracy`.
+- **The model has a known −0.60 point high bias**, disclosed on `/accuracy`.

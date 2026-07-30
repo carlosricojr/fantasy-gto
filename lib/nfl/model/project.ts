@@ -325,6 +325,37 @@ export function buildDefenseFactors(
   return factors;
 }
 
+/** A team's market-implied points for one week, used to build its own baseline. */
+export interface ImpliedTotalEntry {
+  week: number;
+  impliedTotal: number;
+}
+
+/**
+ * A team's average implied total over the weeks *before* the one being projected.
+ *
+ * The Vegas adjustment measures this week's implied total against the team's own norm.
+ * That norm has to be computed from weeks already played: averaging the whole season would
+ * let a team's later form leak into an earlier projection, which inflates backtest accuracy
+ * by using information that did not exist at prediction time.
+ *
+ * Returns `null` when there is no prior week, so the caller falls back to the league mean
+ * rather than silently comparing a team against itself with a sample of one.
+ */
+export function meanImpliedTotalBefore(
+  entries: readonly ImpliedTotalEntry[],
+  week: number,
+): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const entry of entries) {
+    if (entry.week >= week) continue;
+    sum += entry.impliedTotal;
+    count += 1;
+  }
+  return count === 0 ? null : sum / count;
+}
+
 /**
  * Derives a team's implied points from a market line.
  *
