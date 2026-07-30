@@ -47,9 +47,9 @@ export class EntitlementError extends Error {
 /**
  * The signed-in user's row, or null when anonymous.
  *
- * Uses `.first()` rather than `.first()` deliberately. Two paths create users — an
+ * Uses `.first()` rather than `.unique()` deliberately. Two paths create users — an
  * authenticated request and the Clerk webhook — and while Convex's serialisable mutations
- * should prevent a duplicate, `.first()` *throws* when it finds one. That would turn a
+ * should prevent a duplicate, `.unique()` *throws* when it finds one. That would turn a
  * rare, recoverable data anomaly into a hard failure on every subsequent request from that
  * account. Reading the first row degrades instead, and the duplicate can be reconciled
  * out of band.

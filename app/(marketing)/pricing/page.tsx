@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PricingTable } from "@clerk/nextjs";
 
-import { UNIMPLEMENTED_FEATURES, planCapabilities } from "@/lib/billing/entitlements";
+import { UNIMPLEMENTED_FEATURES, limit, planCapabilities } from "@/lib/billing/entitlements";
 
 /**
  * Pricing.
@@ -30,6 +30,9 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function PricingPage() {
   const pro = planCapabilities("pro");
+  // Read the cap from the entitlement table rather than writing a number in prose. A
+  // hard-coded "3" would keep claiming three the day the table changes.
+  const freeLeagues = limit(planCapabilities("free"), "league_count");
   const included = Object.keys(FEATURE_LABELS).filter(
     (key) =>
       key !== "league_count" &&
@@ -41,7 +44,7 @@ export default function PricingPage() {
       <h1 className="text-3xl font-semibold tracking-tight">Choose your plan</h1>
       <p className="mt-3 text-muted-foreground">
         Projections and the lineup optimiser are free and need no account. Pro removes the
-        three-league limit and adds the tools below.
+        {" "}{freeLeagues}-league limit and adds the tools below.
       </p>
 
       <div className="mt-10">
@@ -52,7 +55,7 @@ export default function PricingPage() {
         <div>
           <h2 className="font-medium">What Pro includes today</h2>
           <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-            <li>Unlimited leagues (free includes 3)</li>
+            <li>Unlimited leagues (free includes {freeLeagues})</li>
             {included.map((key) => (
               <li key={key}>{FEATURE_LABELS[key]}</li>
             ))}
