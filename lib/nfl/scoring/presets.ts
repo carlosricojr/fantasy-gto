@@ -11,8 +11,10 @@ import type {
  *
  * **Offensive values are verified.** They match the formula behind nflverse's
  * `fantasy_points` / `fantasy_points_ppr` columns, derived empirically rather than
- * recalled: across 6,020 real 2025 player-weeks they reproduce both columns exactly, and
- * `score.test.ts` asserts that agreement so a regression fails loudly.
+ * recalled: a one-off run over 6,020 real 2025 player-weeks reproduced both columns
+ * exactly. What the suite guards continuously is narrower — `score.test.ts` re-checks that
+ * agreement on every offensive row of the checked-in fixture — so a regression fails
+ * loudly, but against roughly a hundred rows rather than the original six thousand.
  *
  * **Kicker and D/ST values are not.** No upstream column scores them, so there is nothing
  * to reproduce and nothing in the suite checks them against an external source. They are

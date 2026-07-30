@@ -68,11 +68,11 @@ export const forPlayer = query({
 /**
  * Projections for a specific set of players, for rendering a roster.
  *
- * The reason this exists rather than reusing `forWeek`: that query is capped by `limit`,
- * so a page cannot rely on it to contain a player the user has already chosen. Switching
- * ruleset re-ranks everyone, and a player inside the cap under PPR can fall outside it
- * under Standard — at which point a lineup built from the capped board would quietly drop
- * them and still present the result as optimal.
+ * The reason this exists rather than reusing `forWeek`: a caller that passes `limit` gets
+ * a ranked slice, which cannot be relied on to contain a player the user has already
+ * chosen. `/lineup` no longer caps its board, so it uses this as a safeguard rather than a
+ * necessity — the failure it prevents is a chosen player silently missing from the
+ * optimiser's input while the page still calls the answer optimal.
  */
 export const forPlayers = query({
   args: {

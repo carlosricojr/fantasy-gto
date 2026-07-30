@@ -135,10 +135,38 @@ function extractClerkUserId(event: ClerkEvent): string | null {
   );
 }
 
+/**
+ * Subscription-item statuses that describe the current period rather than a future one.
+ *
+ * Deliberately a whitelist: an unfamiliar status is treated as not-live, so an unknown
+ * spelling of "scheduled" cannot be mistaken for the active plan.
+ */
+const LIVE_ITEM_STATUSES: ReadonlySet<string> = new Set([
+  "active",
+  "trialing",
+  "trial",
+  "past_due",
+  "unpaid",
+]);
+
 function extractPlanKey(event: ClerkEvent): string | null {
   const data = event.data ?? {};
   const plan = asRecord(data.plan);
-  const item = Array.isArray(data.items) ? asRecord(data.items[0]) : null;
+
+  // Prefer an item that describes the subscription *now*.
+  //
+  // `items[0]` is not guaranteed to be the active one. Clerk represents a scheduled plan
+  // change as an additional item on the same subscription, so taking the first blindly can
+  // read the plan a subscriber is moving *to* as the plan they are on — and if the parent
+  // event's own status is `active`, the uninformative-event guard in `billing.ts` does not
+  // fire, and the future plan is written as current. Where an item carries a status, only
+  // a live one is considered; otherwise the previous behaviour stands.
+  const items = Array.isArray(data.items) ? data.items.map(asRecord) : [];
+  const isLiveItem = (entry: Record<string, unknown> | null): boolean => {
+    const status = firstString(entry?.status);
+    return status === null || LIVE_ITEM_STATUSES.has(status.trim().toLowerCase());
+  };
+  const item = items.find(isLiveItem) ?? items[0] ?? null;
   const itemPlan = item ? asRecord(item.plan) : null;
 
   return firstString(
@@ -246,12 +274,11 @@ const clerkWebhook = httpAction(async (ctx, request) => {
       const emails = Array.isArray(data.email_addresses) ? data.email_addresses : [];
       const primaryId = firstString(data.primary_email_address_id);
       const primary =
-        asRecord(
-          emails.find((entry) => {
-            const record = asRecord(entry);
-            return primaryId !== undefined && record?.id === primaryId;
-          }),
-        ) ?? asRecord(emails[0]);
+        (primaryId === null
+          ? null
+          : asRecord(
+              emails.find((entry) => asRecord(entry)?.id === primaryId),
+            )) ?? asRecord(emails[0]);
       const email = firstString(primary?.email_address, data.email_address) ?? "";
       if (clerkUserId) {
         await ctx.runMutation(internal.users.upsertFromClerk, { clerkUserId, email });
@@ -296,4 +323,9 @@ http.route({
 export default http;
 
 // Exported for unit testing; not part of the HTTP surface.
-export const __testing = { verifySvixSignature, extractClerkUserId, extractPeriodEnd };
+export const __testing = {
+  verifySvixSignature,
+  extractClerkUserId,
+  extractPeriodEnd,
+  extractPlanKey,
+};

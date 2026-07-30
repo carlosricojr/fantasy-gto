@@ -102,10 +102,11 @@ export const setSubscription = internalMutation({
 /**
  * Creates a minimal user row for a Clerk id seen first on a billing event.
  *
- * Deliberately not exported. The only caller is the orphan-event path below, and the row
- * carries an empty email until a `user.*` event supplies one — a user who has paid but
- * whose profile has not arrived yet is a real state, and it is better represented than
- * discarded.
+ * Deliberately not exported. Both callers are orphan-event paths — `setSubscription` above
+ * and `applyClerkEvent` below — and they share this so the two cannot diverge into a lossy
+ * version and a correct one. The row carries an empty email until a `user.*` event supplies
+ * one; a user who has paid but whose profile has not arrived yet is a real state, and it is
+ * better represented than discarded.
  */
 async function provisionUser(
   ctx: MutationCtx,

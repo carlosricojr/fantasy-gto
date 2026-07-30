@@ -46,13 +46,14 @@ export default function LineupPage() {
     season ? { season: season.season, week: season.week, scoringId } : "skip",
   );
 
-  // Selected players are fetched by id as well as through the ranked board.
+  // Selected players are fetched by id as well as through the board.
   //
-  // `forWeek` is capped at 300. Changing ruleset re-ranks everyone, so a player who was
-  // inside the cap under PPR can fall outside it under Standard. Without this the pool
-  // would silently lose them: they would vanish from the optimiser's input while their
-  // roster chip kept rendering a placeholder, and the page would still call the result
-  // the highest-scoring arrangement the roster allows.
+  // With `forWeek` uncapped this is belt-and-braces rather than load-bearing: the board
+  // already contains every row for the week and ruleset. It stays because the failure it
+  // prevents is silent and severe — a selected player missing from the pool disappears
+  // from the optimiser's input while their roster chip keeps rendering a placeholder, and
+  // the page still calls the answer the best arrangement the roster allows. Anything that
+  // reintroduces a cap on the board should not also be able to reintroduce that.
   const selectedProjections = useQuery(
     api.projections.forPlayers,
     season && selected.length > 0

@@ -11,11 +11,14 @@ export const metadata: Metadata = {
 /**
  * The published accuracy page.
  *
- * Every figure here is imported from `published-metrics.json`, which `pnpm backtest`
- * writes. Nothing on this page is typed in by hand, so a model change cannot leave the
- * page asserting something that is no longer true — the previous version transcribed the
- * numbers, which is the same failure mode as a constant marked "measured" with nothing
- * producing it.
+ * Every measured figure here is imported from `published-metrics.json`, which
+ * `pnpm backtest` writes, so a model change cannot leave the page asserting something no
+ * longer true. The previous version transcribed the numbers by hand, which is the same
+ * failure mode as a constant marked "measured" with nothing producing it.
+ *
+ * The one number still written literally is the "around 12" typical weekly score used to
+ * give the error a sense of scale. It is deliberately rounded and illustrative rather than
+ * a measurement, and it is not a claim about the model.
  *
  * This page exists because the product previously asserted it beat ESPN by 8% with nothing
  * behind the claim. Publishing the real, smaller number — including the residual bias —
@@ -132,7 +135,9 @@ export default function AccuracyPage() {
           </li>
           <li>
             <strong className="text-foreground">Calibration.</strong> Correcting the
-            measured tendency to over-project improved error from 5.8821 to 5.8346 on the
+            measured tendency to over-project improved error from{" "}
+            {metrics.calibration.offMae.toFixed(4)} to{" "}
+            {metrics.calibration.onMae.toFixed(4)} on the {metrics.calibration.season}{" "}
             tuning season. It contributes more than the usage, betting-line, and matchup
             terms combined.
           </li>

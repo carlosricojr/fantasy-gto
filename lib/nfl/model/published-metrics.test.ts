@@ -64,6 +64,16 @@ describe("published metrics", () => {
     expect(validation).toContain(metrics.bias.toFixed(3).replace("-", "−"));
   });
 
+  it("measures calibration on the tuning season, not the evaluation season", () => {
+    // Calibration factors are fitted on the tuning season, so its effect has to be
+    // reported there. Measuring it on the evaluation season would be reporting the size of
+    // a correction against the data it was already applied to.
+    expect(metrics.calibration.season).toBeLessThan(metrics.season);
+    expect(metrics.calibration.onMae).toBeLessThan(metrics.calibration.offMae);
+    expect(validation).toContain(metrics.calibration.onMae.toFixed(4));
+    expect(validation).toContain(metrics.calibration.offMae.toFixed(4));
+  });
+
   it("covers every position the interface names", () => {
     for (const position of ["QB", "RB", "WR", "TE"]) {
       expect(metrics.perPositionMae[position as "QB"]).toBeGreaterThan(0);

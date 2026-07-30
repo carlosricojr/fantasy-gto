@@ -64,6 +64,8 @@ interface PublishedMetrics {
   edgeVsLastThree: number;
   bias: number;
   perPositionMae: Record<string, number>;
+  /** Measured on the tuning season, which is where calibration is fitted. */
+  calibration: { season: number; onMae: number; offMae: number };
 }
 const PRIOR_SEASON = 2023;
 
@@ -323,7 +325,8 @@ async function main(): Promise<void> {
    * moment the model changes, the page states something no longer true and nothing
    * detects it.
    */
-  let publishedMetrics: PublishedMetrics | null = null;
+  let publishedMetrics: Omit<PublishedMetrics, "calibration"> | null = null;
+  let calibrationEffect: PublishedMetrics["calibration"] | null = null;
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
@@ -416,6 +419,14 @@ async function main(): Promise<void> {
     process.stdout.write(
       "  These are the values in CALIBRATION (lib/nfl/model/config.ts).\n",
     );
+
+    // Both sides of the calibration comparison, so `/accuracy` can render the effect
+    // instead of transcribing it from the sweeps table.
+    calibrationEffect = {
+      season: TUNING_SEASON,
+      offMae: mae(uncalibrated),
+      onMae: mae(evaluate(TUNING_SEASON).model),
+    };
   }
 
   // Sweeps are opt-in because they re-evaluate the whole tuning season many times over.
@@ -496,9 +507,10 @@ async function main(): Promise<void> {
   reportLeagueMeanImpliedTotal();
 
   if (publishedMetrics === null) throw new Error("evaluation season produced no metrics");
+  if (calibrationEffect === null) throw new Error("calibration effect not measured");
   writeFileSync(
     PUBLISHED_METRICS_PATH,
-    `${JSON.stringify(publishedMetrics, null, 2)}\n`,
+    `${JSON.stringify({ ...publishedMetrics, calibration: calibrationEffect }, null, 2)}\n`,
   );
   process.stdout.write(
     `\n  wrote ${PUBLISHED_METRICS_PATH.replace(`${process.cwd()}/`, "")}\n`,
