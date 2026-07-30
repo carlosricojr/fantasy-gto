@@ -126,7 +126,9 @@ export default function ProjectionsPage() {
           return (
             <ProjectionCard
               key={row._id}
-              name={player?.name ?? row.playerId}
+              // Names arrive from a second query. Falling back to the upstream id would
+              // render "00-0036900" as a player's name on every load and filter change.
+              name={player?.name ?? null}
               position={row.position}
               team={row.team}
               subtitle={`vs ${row.opponent}`}

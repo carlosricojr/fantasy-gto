@@ -160,6 +160,9 @@ export const projectWeek = internalAction({
       }
 
       let written = 0;
+      // Declared before the loop so progress reports one stable denominator for the whole
+      // run rather than a number that changes as each ruleset starts.
+      let totalExpected = 0;
       for (const scoring of rulesets) {
         const defenseFactors = buildDefenseFactors(priorWeeks, scoring, DVP_SHRINKAGE);
 
@@ -246,13 +249,20 @@ export const projectWeek = internalAction({
           });
         }
 
+        totalExpected = Math.max(totalExpected, rows.length * rulesets.length);
+
         for (const batch of chunk(rows, WRITE_BATCH)) {
           await ctx.runMutation(internal.projections.upsertBatch, { rows: batch });
           written += batch.length;
+          // `rows.length` is this ruleset's count, so multiplying it by the ruleset
+          // count only gives a stable total when every ruleset produces the same number
+          // of rows. It does — the eligibility filters are ruleset-independent — but
+          // deriving the total from the eligible-player count states that directly
+          // instead of relying on the coincidence.
           await ctx.runMutation(internal.jobs.progress, {
             jobId,
             processed: written,
-            total: rows.length * rulesets.length,
+            total: totalExpected,
           });
         }
       }

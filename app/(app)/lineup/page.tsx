@@ -56,7 +56,7 @@ export default function LineupPage() {
       const player = byId.get(row.playerId);
       return {
         id: row.playerId,
-        name: player?.name ?? row.playerId,
+        name: player?.name ?? null,
         position: row.position,
         // The projection's own team, not the player record's: a mid-season trade would
         // make the two disagree, and the projection was computed for the former.
@@ -75,7 +75,7 @@ export default function LineupPage() {
         .filter((p) => selected.includes(p.id))
         .map((p) => ({
           id: p.id,
-          name: p.name,
+          name: p.name ?? p.id,
           position: p.position,
           projectedPoints: p.projectedPoints,
           // Safe to hardcode: a projection is only written for a player whose team plays
@@ -114,7 +114,7 @@ export default function LineupPage() {
     const term = search.trim().toLowerCase();
     return pool
       .filter((p) => !selected.includes(p.id))
-      .filter((p) => term === "" || p.name.toLowerCase().includes(term))
+      .filter((p) => term === "" || (p.name ?? "").toLowerCase().includes(term))
       .slice(0, 40);
   }, [pool, selected, search]);
 
@@ -201,7 +201,7 @@ export default function LineupPage() {
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                   {assignment.competitorId
-                    ? (nameById.get(assignment.competitorId) ?? assignment.competitorId)
+                    ? (nameById.get(assignment.competitorId) ?? "\u2026")
                     : <span className="text-muted-foreground">empty</span>}
                 </span>
                 <span className="shrink-0 tabular-nums">
@@ -216,7 +216,7 @@ export default function LineupPage() {
               <p className="text-xs font-medium text-muted-foreground">Bench</p>
               <p className="mt-1 text-sm">
                 {solution.benchedIds
-                  .map((id) => nameById.get(id) ?? id)
+                  .map((id) => nameById.get(id) ?? "\u2026")
                   .join(", ")}
               </p>
             </footer>
@@ -250,7 +250,7 @@ export default function LineupPage() {
                   variant="secondary"
                   onClick={() => setSelected((ids) => ids.filter((x) => x !== id))}
                 >
-                  {nameById.get(id) ?? id} ✕
+                  {nameById.get(id) ?? "\u2026"} ✕
                 </Button>
               </li>
             ))}
@@ -272,7 +272,9 @@ export default function LineupPage() {
                 <span className="w-10 shrink-0 text-xs font-medium text-muted-foreground">
                   {player.position}
                 </span>
-                <span className="min-w-0 flex-1 truncate">{player.name}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {player.name ?? <span className="inline-block h-3 w-28 animate-pulse rounded bg-muted align-middle" />}
+                </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {player.team} vs {player.opponent}
                 </span>

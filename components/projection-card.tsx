@@ -20,7 +20,8 @@ export interface ProjectionContribution {
 }
 
 export interface ProjectionCardProps {
-  name: string;
+  /** `null` while the name query is still resolving; never the raw upstream id. */
+  name: string | null;
   position: string;
   team: string | null;
   mean: number;
@@ -65,7 +66,14 @@ export function ProjectionCard({
         </span>
 
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium">{name}</span>
+          <span className="block truncate font-medium">
+            {name ?? (
+              <span
+                className="inline-block h-4 w-32 animate-pulse rounded bg-muted align-middle"
+                aria-label="Loading player name"
+              />
+            )}
+          </span>
           <span className="block truncate text-xs text-muted-foreground">
             {[team, subtitle].filter(Boolean).join(" · ") || "Free agent"}
           </span>
