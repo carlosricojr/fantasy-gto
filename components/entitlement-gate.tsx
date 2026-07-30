@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,13 @@ interface EntitlementGateProps {
 }
 
 export function EntitlementGate({ feature, benefit, children }: EntitlementGateProps) {
+  const { isLoading: authLoading } = useConvexAuth();
   const me = useQuery(api.users.me, {});
 
-  // Undefined means the query is still loading. Rendering the upgrade prompt here would
-  // flash a paywall at subscribers on every page load.
-  if (me === undefined) {
+  // `me === undefined` alone is not enough. Convex answers before Clerk's token arrives,
+  // and an unauthenticated `users.me` resolves to the anonymous free-tier shape — so a
+  // subscriber would be shown the upgrade prompt until clerk-js finished loading.
+  if (authLoading || me === undefined) {
     return <div className="h-24 animate-pulse rounded-lg bg-muted" aria-hidden />;
   }
 
@@ -56,8 +58,14 @@ export function UpgradePrompt({ benefit }: { benefit: string }) {
   );
 }
 
-/** Reads the caller's entitlements. Returns undefined while loading. */
+/**
+ * Reads the caller's entitlements, or `undefined` until authentication has settled.
+ *
+ * Returning `undefined` while `authLoading` matters: without it the hook briefly reports
+ * the anonymous free tier for a signed-in subscriber.
+ */
 export function useEntitlements() {
+  const { isLoading: authLoading } = useConvexAuth();
   const me = useQuery(api.users.me, {});
-  return me?.entitlements;
+  return authLoading ? undefined : me?.entitlements;
 }

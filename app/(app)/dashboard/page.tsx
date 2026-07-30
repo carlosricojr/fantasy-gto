@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -28,6 +28,12 @@ import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
  * could be bypassed.
  */
 export default function DashboardPage() {
+  // Convex answers queries before Clerk's token arrives, and an unauthenticated
+  // `users.me` resolves to the anonymous free-tier shape rather than staying undefined.
+  // Checking `me !== undefined` alone therefore cannot tell "still loading" from
+  // "answered as anonymous", and a Pro subscriber would be shown "Free — up to 3 leagues"
+  // and "No leagues yet" for as long as clerk-js takes to load.
+  const { isLoading: authLoading } = useConvexAuth();
   const leagues = useQuery(api.leagues.list, {});
   const season = useQuery(api.season.current, {});
   const me = useQuery(api.users.me, {});
@@ -74,9 +80,8 @@ export default function DashboardPage() {
     }
   }
 
-  // `me` is undefined until the query resolves. Treating that as "free" would flash the
-  // free-tier limit at a subscriber on every page load.
-  const planKnown = me !== undefined;
+  const planKnown = !authLoading && me !== undefined;
+  const leaguesKnown = !authLoading && leagues !== undefined;
   const atFreeLimit = planKnown && me.plan === "free" && (leagues?.length ?? 0) >= 3;
 
   const subtitle = !planKnown
@@ -98,9 +103,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {leagues === undefined && <p className="text-muted-foreground">Loading…</p>}
+      {error && (
+        <p className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
-      {leagues?.length === 0 && (
+      {!leaguesKnown && <p className="text-muted-foreground">Loading…</p>}
+
+      {leaguesKnown && leagues.length === 0 && (
         <EmptyState
           title="No leagues yet"
           body="Create a league to save a roster and get start/sit advice for it. You can also use the optimiser without one."
@@ -112,7 +123,7 @@ export default function DashboardPage() {
         />
       )}
 
-      {leagues !== undefined && leagues.length > 0 && (
+      {leaguesKnown && leagues.length > 0 && (
         <ul className="divide-y rounded-lg border">
           {leagues.map((league) => (
             <li key={league._id} className="flex items-center gap-3 p-4">
@@ -195,7 +206,12 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {!season && (
+              <p className="text-sm text-muted-foreground">
+                No NFL schedule has been ingested yet, so a league cannot be created. See
+                the seeding steps in the README.
+              </p>
+            )}
 
             <Button type="submit" disabled={busy || !season}>
               {busy ? "Creating…" : "Create league"}
