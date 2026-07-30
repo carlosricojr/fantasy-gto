@@ -218,9 +218,6 @@ describe("projectWeek team coverage", () => {
     expect(finishes(calls)[0].args.status).toBe("succeeded");
   });
 
-  // The threshold itself, pinned from both sides. 90% of 32 teams is 28.8, so 29 covered
-  // teams is the first passing count. Stating it as a test means a change to
-  // MIN_TEAM_COVERAGE has to be deliberate rather than incidental.
   it("writes a week-1 board once most of week 1 has been played", async () => {
     // Week 1 is not permanently unprojectable. Before kickoff no team resolves and the
     // coverage check keeps the board unpublished, but once the games are in the stats
@@ -245,6 +242,9 @@ describe("projectWeek team coverage", () => {
     expect(oneSeason.has("stale")).toBe(true);
   });
 
+  // The threshold itself, pinned from both sides. 90% of 32 teams is 28.8, so 29 covered
+  // teams is the first passing count. Stating it as a test means a change to
+  // MIN_TEAM_COVERAGE has to be deliberate rather than incidental.
   it("passes at the first count that clears the threshold", async () => {
     const { ctx, calls } = recordingCtx();
     const result = await runProjectWeek(

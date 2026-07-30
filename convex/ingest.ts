@@ -77,9 +77,11 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * Computes and stores projections for a week.
  *
  * `season`/`week` identify the week being projected. History is drawn from the same season
- * plus the two before it — the same window `scripts/backtest.ts` uses, so the published
- * accuracy figure describes this pipeline. Defense-vs-position factors come from the
- * immediately prior season only, so no future information reaches a projection.
+ * plus the two before it, matching the window `scripts/backtest.ts` feeds the model — the
+ * populations still differ, since the backtest filters on prior-game counts and the ingest
+ * on staleness, team resolution, and byes, but the model sees the same depth of history in
+ * both. Defense-vs-position factors come from the immediately prior season only, so no
+ * future information reaches a projection.
  */
 export const projectWeek = internalAction({
   args: {
