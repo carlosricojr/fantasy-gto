@@ -42,25 +42,25 @@ export default function AccuracyPage() {
             <tbody className="divide-y">
               <tr>
                 <td className="py-2 font-medium">Fantasy GTO</td>
-                <td className="py-2 text-right tabular-nums">5.8365</td>
+                <td className="py-2 text-right tabular-nums">5.8324</td>
                 <td className="py-2 text-right text-muted-foreground">&mdash;</td>
               </tr>
               <tr>
                 <td className="py-2">Baseline: season-to-date average</td>
                 <td className="py-2 text-right tabular-nums">5.9877</td>
-                <td className="py-2 text-right tabular-nums">+2.53%</td>
+                <td className="py-2 text-right tabular-nums">+2.59%</td>
               </tr>
               <tr>
                 <td className="py-2">Baseline: last three games</td>
                 <td className="py-2 text-right tabular-nums">6.3618</td>
-                <td className="py-2 text-right tabular-nums">+8.26%</td>
+                <td className="py-2 text-right tabular-nums">+8.32%</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
-          The number worth quoting is <strong>2.53%</strong>, against the stronger of the
-          two baselines. The 8.26% figure is real but comparing only against the weaker
+          The number worth quoting is <strong>2.59%</strong>, against the stronger of the
+          two baselines. The 8.32% figure is real but comparing only against the weaker
           baseline would be cherry-picking.
         </p>
       </section>
@@ -76,13 +76,13 @@ export default function AccuracyPage() {
           </li>
           <li>
             <strong className="text-foreground">It still projects slightly high.</strong>{" "}
-            Residual bias is −0.60 points even after calibration, because players are
+            Residual bias is −0.63 points even after calibration, because players are
             selected into the evaluation by recent production and then regress. This is why
             a range is shown rather than a single number.
           </li>
           <li>
             <strong className="text-foreground">Quarterbacks are hardest.</strong> Position
-            error runs 6.76 for QB, 5.82 RB, 5.67 WR, 5.25 TE.
+            error runs 6.74 for QB, 5.82 RB, 5.67 WR, 5.25 TE.
           </li>
         </ul>
       </section>
@@ -106,9 +106,9 @@ export default function AccuracyPage() {
           </li>
           <li>
             <strong className="text-foreground">Calibration.</strong> Correcting the
-            measured tendency to over-project improved error from 5.8946 to 5.8365
-            out-of-sample, and cut bias from −0.87 to −0.60. It contributes more than the
-            usage, betting-line, and matchup terms combined.
+            measured tendency to over-project improved error from 5.8821 to 5.8406 on the
+            tuning season. It contributes more than the usage, betting-line, and matchup
+            terms combined.
           </li>
         </ul>
       </section>

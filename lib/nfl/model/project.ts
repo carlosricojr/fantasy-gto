@@ -5,6 +5,7 @@ import type { PlayerWeek } from "../stats/parse";
 
 import {
   CALIBRATION,
+  DEFAULT_MODEL_CONFIG,
   DVP_FACTOR_MAX,
   DVP_FACTOR_MIN,
   DVP_WEIGHT,
@@ -13,6 +14,7 @@ import {
   EMA_ALPHA,
   LEAGUE_MEAN_IMPLIED_TEAM_TOTAL,
   MODEL_VERSION,
+  type ModelConfig,
   OUTCOME_QUANTILES,
   USAGE_WEIGHT_CAP,
   VEGAS_RATIO_MAX,
@@ -91,6 +93,11 @@ export interface ProjectionInput {
    * A missing entry is treated as neutral.
    */
   defenseFactors?: ReadonlyMap<string, number>;
+  /**
+   * Parameter overrides. Only the backtest's sweep mode supplies this; application code
+   * must not, because the published accuracy figure belongs to the default configuration.
+   */
+  config?: ModelConfig;
 }
 
 /** Opportunity units that drive scoring, by position. */
@@ -122,12 +129,13 @@ function usageImpliedPoints(
   history: readonly PlayerWeek[],
   position: Position,
   scoring: ScoringRules,
+  alpha: number,
 ): number | null {
   const prior = EFFICIENCY_PRIOR[position];
   if (prior === 0 || history.length === 0) return null;
 
   const opportunities = history.map((week) => opportunityFor(week, position));
-  const expectedOpportunity = ema(opportunities, EMA_ALPHA);
+  const expectedOpportunity = ema(opportunities, alpha);
   if (expectedOpportunity <= 0) return null;
 
   const observed: number[] = [];
@@ -166,10 +174,11 @@ function pushContribution(
  */
 export function projectPlayer(input: ProjectionInput): Projection {
   const { competitorId, position, period, history, game, scoring } = input;
+  const config = input.config ?? DEFAULT_MODEL_CONFIG;
   const contributions: Contribution[] = [];
 
   const points = history.map((week) => scoreOffense(week.stats, scoring).total);
-  const base = ema(points, EMA_ALPHA);
+  const base = ema(points, config.emaAlpha);
 
   pushContribution(
     contributions,
@@ -184,9 +193,9 @@ export function projectPlayer(input: ProjectionInput): Projection {
   let running = base;
 
   // Usage: blend toward an opportunity-derived estimate as history accumulates.
-  const usagePoints = usageImpliedPoints(history, position, scoring);
+  const usagePoints = usageImpliedPoints(history, position, scoring, config.emaAlpha);
   if (usagePoints !== null) {
-    const weight = Math.min(USAGE_WEIGHT_CAP, 0.15 * history.length);
+    const weight = Math.min(config.usageWeightCap, 0.15 * history.length);
     const blended = (1 - weight) * running + weight * usagePoints;
     const delta = blended - running;
     pushContribution(
@@ -202,16 +211,18 @@ export function projectPlayer(input: ProjectionInput): Projection {
   }
 
   // Vegas: scale by how this game's implied total compares to the team's own norm.
-  if (game?.impliedTeamTotal != null) {
+  if (game?.impliedTeamTotal != null && config.vegasWeight !== 0) {
     const reference =
-      game.teamMeanImpliedTotal ?? LEAGUE_MEAN_IMPLIED_TEAM_TOTAL;
+      config.vegasReference === "league"
+        ? LEAGUE_MEAN_IMPLIED_TEAM_TOTAL
+        : (game.teamMeanImpliedTotal ?? LEAGUE_MEAN_IMPLIED_TEAM_TOTAL);
     if (reference > 0) {
       const ratio = clamp(
         game.impliedTeamTotal / reference,
         VEGAS_RATIO_MIN,
         VEGAS_RATIO_MAX,
       );
-      const adjusted = running * (1 + VEGAS_WEIGHT * (ratio - 1));
+      const adjusted = running * (1 + config.vegasWeight * (ratio - 1));
       const delta = adjusted - running;
       pushContribution(
         contributions,
@@ -227,11 +238,11 @@ export function projectPlayer(input: ProjectionInput): Projection {
   }
 
   // Opponent: shrunk defense-vs-position factor.
-  if (game?.opponent && input.defenseFactors) {
+  if (game?.opponent && input.defenseFactors && config.dvpWeight !== 0) {
     const raw = input.defenseFactors.get(`${game.opponent}:${position}`);
     if (raw !== undefined) {
       const factor = clamp(raw, DVP_FACTOR_MIN, DVP_FACTOR_MAX);
-      const adjusted = running * (1 + DVP_WEIGHT * (factor - 1));
+      const adjusted = running * (1 + config.dvpWeight * (factor - 1));
       const delta = adjusted - running;
       pushContribution(
         contributions,
@@ -247,7 +258,7 @@ export function projectPlayer(input: ProjectionInput): Projection {
   }
 
   // Calibration: correct the model's known tendency to project high.
-  const calibration = CALIBRATION[position];
+  const calibration = config.calibrate ? CALIBRATION[position] : 1;
   if (calibration !== 1) {
     const adjusted = running * calibration;
     pushContribution(

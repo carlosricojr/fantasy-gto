@@ -28,7 +28,11 @@ import {
   meanImpliedTotalBefore,
   projectPlayer,
 } from "@/lib/nfl/model/project";
-import { DVP_SHRINKAGE } from "@/lib/nfl/model/config";
+import {
+  DEFAULT_MODEL_CONFIG,
+  DVP_SHRINKAGE,
+  type ModelConfig,
+} from "@/lib/nfl/model/config";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { scoreOffense } from "@/lib/nfl/scoring/score";
 import type { Position } from "@/lib/nfl/scoring/types";
@@ -148,7 +152,10 @@ async function main(): Promise<void> {
     );
   }
 
-  function evaluate(season: number): {
+  function evaluate(
+    season: number,
+    config: ModelConfig = DEFAULT_MODEL_CONFIG,
+  ): {
     model: Evaluation[];
     seasonMean: Evaluation[];
     lastThree: Evaluation[];
@@ -200,6 +207,7 @@ async function main(): Promise<void> {
           },
           scoring: PPR,
           defenseFactors: factors,
+          config,
         });
 
         model.push({ position, predicted: projection.mean, actual });
@@ -261,9 +269,84 @@ async function main(): Promise<void> {
     );
   }
 
+  // Sweeps are opt-in because they re-evaluate the whole tuning season many times over.
+  // They exist so every claim in docs/model-validation.md is reproducible rather than
+  // merely asserted — the project's rule is that a number the code cannot produce may not
+  // be published.
+  if (process.argv.includes("--sweeps")) {
+    process.stdout.write(
+      `\n\n${"=".repeat(69)}\nPARAMETER SWEEPS on ${TUNING_SEASON} (the tuning season)\n` +
+        `${"=".repeat(69)}\n` +
+        "Each row varies one parameter with the others at their frozen values.\n" +
+        "This is how the frozen configuration was chosen.\n",
+    );
+
+    const sweep = (
+      label: string,
+      variants: Array<{ name: string; config: ModelConfig }>,
+    ) => {
+      process.stdout.write(`\n${label}\n${"-".repeat(69)}\n`);
+      let best = { name: "", mae: Number.POSITIVE_INFINITY };
+      for (const variant of variants) {
+        const result = mae(evaluate(TUNING_SEASON, variant.config).model);
+        if (result < best.mae) best = { name: variant.name, mae: result };
+        process.stdout.write(`  ${variant.name.padEnd(34)}${result.toFixed(4)}\n`);
+      }
+      process.stdout.write(`  -> best: ${best.name} (${best.mae.toFixed(4)})\n`);
+    };
+
+    const base = DEFAULT_MODEL_CONFIG;
+
+    sweep(
+      "EMA alpha (lower = longer memory)",
+      [0.05, 0.1, 0.15, 0.2, 0.3, 0.4].map((emaAlpha) => ({
+        name: `alpha=${emaAlpha}`,
+        config: { ...base, emaAlpha },
+      })),
+    );
+
+    sweep(
+      "Usage blend weight cap",
+      [0, 0.2, 0.4, 0.6, 0.8].map((usageWeightCap) => ({
+        name: `usageCap=${usageWeightCap}`,
+        config: { ...base, usageWeightCap },
+      })),
+    );
+
+    sweep(
+      "Vegas weight, measured against the team's own prior weeks",
+      [0, 0.25, 0.5, 0.75, 1].map((vegasWeight) => ({
+        name: `team, w=${vegasWeight}`,
+        config: { ...base, vegasWeight, vegasReference: "team" as const },
+      })),
+    );
+
+    sweep(
+      "Vegas weight, measured against the league average (the wrong reference)",
+      [0, 0.25, 0.5, 0.75, 1].map((vegasWeight) => ({
+        name: `league, w=${vegasWeight}`,
+        config: { ...base, vegasWeight, vegasReference: "league" as const },
+      })),
+    );
+
+    sweep(
+      "Opponent defense-vs-position weight",
+      [0, 0.25, 0.5, 0.75, 1].map((dvpWeight) => ({
+        name: `dvp=${dvpWeight}`,
+        config: { ...base, dvpWeight },
+      })),
+    );
+
+    sweep("Calibration", [
+      { name: "calibrated", config: base },
+      { name: "uncalibrated", config: { ...base, calibrate: false } },
+    ]);
+  }
+
   process.stdout.write(
     "\nThe out-of-sample figure is the only one the product may quote.\n" +
-      "Update docs/model-validation.md in the same commit as any model change.\n",
+      "Update docs/model-validation.md in the same commit as any model change.\n" +
+      "Run with --sweeps to reproduce how the frozen parameters were chosen.\n",
   );
 }
 

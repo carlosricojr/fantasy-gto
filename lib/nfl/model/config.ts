@@ -33,8 +33,15 @@ export const USAGE_WEIGHT_CAP = 0.2;
 /** Weight applied to the shrunk opponent defense-vs-position factor. */
 export const DVP_WEIGHT = 0.25;
 
-/** Weight applied to the Vegas adjustment. */
-export const VEGAS_WEIGHT = 0.25;
+/**
+ * Weight applied to the Vegas adjustment.
+ *
+ * Selected by sweeping on the tuning season (`pnpm backtest -- --sweeps`). The value was
+ * 0.25 until the lookahead-bias fix changed what the reference baseline contains; the
+ * corrected sweep prefers 0.5. Re-selecting on the tuning season is legitimate — that is
+ * what it is for — and the evaluation season remains untouched.
+ */
+export const VEGAS_WEIGHT = 0.5;
 
 /**
  * Clamps on the multiplicative adjustments.
@@ -78,9 +85,10 @@ export const EFFICIENCY_PRIOR: Readonly<Record<Position, number>> = {
  * Per-position multiplicative bias correction.
  *
  * The uncorrected model projects high — it is fitted on players selected for recent
- * production, who regress. These factors were computed on 2024 and, applied unchanged to
- * 2025, reduced mean bias from -0.87 to -0.59 points and improved MAE from 5.9095 to
- * 5.8512. That is a genuine out-of-sample gain, not a curve fit.
+ * production, who regress. These factors were computed on 2024 and applied unchanged to
+ * 2025. On the tuning season, disabling them moves MAE from 5.8406 to 5.8821, a larger
+ * effect than the usage, Vegas, and matchup terms combined. Reproduce with
+ * `pnpm backtest -- --sweeps`.
  */
 export const CALIBRATION: Readonly<Record<Position, number>> = {
   QB: 0.9839,
@@ -136,3 +144,38 @@ export const LEAGUE_MEAN_IMPLIED_TEAM_TOTAL = 21.745;
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+/**
+ * The tunable parameters, bundled so they can be varied.
+ *
+ * The model reads `DEFAULT_MODEL_CONFIG` unless a caller supplies an override. Only the
+ * backtest's sweep mode does, which is what makes the claims in
+ * `docs/model-validation.md` reproducible instead of merely asserted — the project's own
+ * rule is that a number the code cannot produce may not be published.
+ *
+ * Application code must never pass an override. The published accuracy figure belongs to
+ * the default configuration.
+ */
+export interface ModelConfig {
+  emaAlpha: number;
+  usageWeightCap: number;
+  dvpWeight: number;
+  vegasWeight: number;
+  /** When false, the per-position bias correction is skipped. */
+  calibrate: boolean;
+  /**
+   * Reference for the Vegas adjustment. `team` compares this game's implied total against
+   * the team's own prior weeks; `league` compares it against the league average, which
+   * sweeping showed to be actively harmful.
+   */
+  vegasReference: "team" | "league";
+}
+
+export const DEFAULT_MODEL_CONFIG: ModelConfig = {
+  emaAlpha: EMA_ALPHA,
+  usageWeightCap: USAGE_WEIGHT_CAP,
+  dvpWeight: DVP_WEIGHT,
+  vegasWeight: VEGAS_WEIGHT,
+  calibrate: true,
+  vegasReference: "team",
+};

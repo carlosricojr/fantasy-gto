@@ -52,3 +52,7 @@ package-lock.json
 
 # local data cache for the backtest
 /.cache/
+
+# agent/tooling scratch files — must never be committed
+scripts/__tmp_*
+**/__proto/

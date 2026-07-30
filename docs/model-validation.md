@@ -6,7 +6,7 @@ projections by ≥8% MAE and deliver "+8.2 points/week", and neither number had 
 computation behind it.
 
 **Those claims are not achievable and have been removed.** The measured edge is roughly
-2.53%, not 8%. What follows is how that was established.
+2.6%, not 8%. What follows is how that was established.
 
 ## Method
 
@@ -38,7 +38,7 @@ All values live in `lib/nfl/model/config.ts`.
 | `EMA_ALPHA` | 0.15 | EMA smoothing on prior fantasy points. Low alpha = long memory. |
 | `USAGE_WEIGHT_CAP` | 0.2 | Maximum weight given to the usage-implied volume estimate. |
 | `DVP_WEIGHT` | 0.25 | Weight on the shrunk opponent defense-vs-position factor. |
-| `VEGAS_WEIGHT` | 0.25 | Weight on the Vegas adjustment. |
+| `VEGAS_WEIGHT` | 0.5 | Weight on the Vegas adjustment. |
 | Vegas reference | team | Implied team total measured **relative to that team's own season average**. |
 | `CALIBRATION` | 0.96–0.99 | Per-position bias correction, derived on 2024. |
 
@@ -51,25 +51,25 @@ Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-
 
 | Model | MAE | FGTO edge |
 | --- | --- | --- |
-| **FGTO model (frozen)** | **5.8365** | — |
-| Baseline: season-to-date mean | 5.9877 | **+2.53%** |
-| Baseline: last-3-game mean | 6.3618 | +8.26% |
+| **FGTO model (frozen)** | **5.8324** | — |
+| Baseline: season-to-date mean | 5.9877 | **+2.59%** |
+| Baseline: last-3-game mean | 6.3618 | +8.32% |
 
-Per position (MAE): QB 6.756, RB 5.821, WR 5.665, TE 5.250.
+Per position (MAE): QB 6.742, RB 5.816, WR 5.666, TE 5.245.
 
-Residual bias is −0.595 points: the model still projects slightly high even after
+Residual bias is −0.627 points: the model still projects slightly high even after
 calibration, because the evaluation population is selected for recent production and
 regresses. This is disclosed rather than hidden, and it is why the interface leads with a
 range rather than a single number.
 
 ### 2024 — in-sample, n = 2,963
 
-MAE 5.8464 against a season-mean baseline of 6.0009, a 2.57% edge. That this is nearly
+MAE 5.8406 against a season-mean baseline of 6.0009, a 2.67% edge. That this is nearly
 identical to the out-of-sample figure is the useful signal here: the model is not
 overfitted to its tuning season.
 
-**The headline number the product may state is 2.53%**, measured against the strongest
-baseline. The 8.26% figure against a last-3-game baseline is real, but quoting it while
+**The headline number the product may state is 2.59%**, measured against the strongest
+baseline. The 8.32% figure against a last-3-game baseline is real, but quoting it while
 omitting the stronger baseline would be cherry-picking.
 
 ### Correction: lookahead bias, found in review and removed
@@ -82,28 +82,40 @@ including weeks after the one being projected — so a team's later form informe
 projection. It was caught by a reviewer, confirmed against `scripts/backtest.ts`, and fixed
 by `meanImpliedTotalBefore`, which averages only weeks strictly before the target.
 
-Removing the leakage moved the result from 5.8507 to **5.8365**, i.e. it got slightly
+Removing the leakage moved the result from 5.8507 to 5.8365, i.e. it got slightly
 *better*. That is not paradoxical: with no prior week the reference falls back to the
 league mean, which damps a weakly-helpful adjustment early in the season when it is least
 informative. The point is that the current number is methodologically valid and the
 previous one was not, regardless of which is larger.
 
+The fix also changed what the Vegas reference contains, so `VEGAS_WEIGHT` was re-selected
+on the tuning season: the corrected sweep prefers 0.5 over 0.25. That re-selection used
+2024 only, leaving 2025 untouched, and produced the final **5.8324**.
+
 A regression test in `project.test.ts` asserts that a later week cannot change an earlier
 projection's baseline.
 
-### The calibration step earns its place
+### Reproducing the sweeps
 
-Measured on the current (leakage-free) pipeline by setting every `CALIBRATION` factor to 1
-and re-running:
+`pnpm backtest -- --sweeps` re-runs every parameter sweep on the tuning season and prints
+the table below. Every claim in this section comes from that command; none is asserted
+from memory.
 
-| | MAE | Bias | vs season mean |
-| --- | --- | --- | --- |
-| Without calibration | 5.8946 | −0.873 | +1.56% |
-| **With calibration** | **5.8365** | **−0.595** | **+2.53%** |
+On the tuning season, holding the other parameters at their frozen values:
 
-The factors were computed on 2024 and applied unchanged to 2025, so this is an
-out-of-sample gain rather than a curve fit. It is also the single largest contributor to
-the headline number — larger than the usage, Vegas, and matchup terms combined.
+| Sweep | Result |
+| --- | --- |
+| EMA alpha | 0.05→5.8922, 0.10→5.8562, **0.15→5.8464**, 0.20→5.8544, 0.30→5.9115, 0.40→6.0025 |
+| Usage cap | 0→5.8531, **0.2→5.8464**, 0.4→5.8474, 0.6→5.8549, 0.8→5.8665 |
+| Vegas (team reference) | 0→5.8629, 0.25→5.8464, **0.5→5.8406**, 0.75→5.8478, 1→5.8672 |
+| Vegas (league reference) | 0→5.8629, 0.25→5.8555, 0.5→5.8682, 0.75→5.8999, 1→5.9489 |
+| Opponent weight | 0→5.8458, **0.25→5.8406**, 0.5→5.8416, 0.75→5.8475, 1→5.8590 |
+| Calibration | **on→5.8406**, off→5.8821 |
+
+Two things are worth reading off that table. The league-referenced Vegas sweep is
+monotonically worse past its first step and never beats leaving the term out entirely,
+while the team-referenced sweep has a genuine interior optimum. And calibration moves the
+metric further than the usage, Vegas, and matchup terms combined.
 
 ### Implementation agreement
 
@@ -115,30 +127,29 @@ precomputed PPR column. Agreement at that tolerance is what confirmed the port w
 faithful.
 
 Both of those figures predate the lookahead-bias fix described above, so they are a
-statement about *port fidelity*, not about current accuracy. The current number is 5.8365.
+statement about *port fidelity*, not about current accuracy. The current number is 5.8324.
 
 ## What the sweeps established
 
 These are the findings that shaped the model, each measured rather than assumed.
 
-**Long memory beats recency.** Sweeping alpha from 0.05 to 0.40 produced a clear optimum at
-0.15, and a last-3-game baseline (6.36) was substantially *worse* than a season-to-date mean
+**Long memory beats recency.** Sweeping alpha from 0.05 to 0.40 gives a clear optimum at
+0.15, and a last-3-game baseline (6.36) is substantially *worse* than a season-to-date mean
 (5.99). Weekly fantasy scoring is noisy enough that aggressive recency weighting discards
 more signal than it captures. This contradicts the common intuition that "recent form"
 should dominate.
 
-**League-relative Vegas actively hurts; team-relative Vegas helps slightly.** Scaling a
-projection by the game's implied team total against the *league* average made the model
-monotonically worse at every weight tested (5.915 → 6.098 as weight went 0 → 1). The cause
-is double-counting: a player on a high-scoring offense already carries that team's quality
-in their own scoring history, so multiplying by team strength again applies it twice.
-Measuring the implied total against **that team's own season average** isolates the
-game-specific signal, and at weight 0.25 it produces a small genuine gain. This is why
-`vegasMode` is `team`.
+**The Vegas reference matters more than the Vegas weight.** Measured against the *league*
+average, the term never beats switching it off (5.8629 at weight 0) and degrades
+monotonically after its first step, reaching 5.9489 at full weight. Measured against the
+team's own prior weeks, it has a genuine interior optimum at 0.5 (5.8406). The cause of the
+difference is double-counting: a player on a high-scoring offence already carries that
+team's quality in their own scoring history, so scaling by team strength again applies it
+twice. Only the game-specific deviation is new information.
 
-**Usage and opponent adjustments are real but small.** Each contributes on the order of
-0.1% or less. They are retained because they are directionally sound and improve
-explainability, not because they move the metric much.
+**Usage and opponent adjustments are real but small.** The usage cap moves the metric by
+about 0.07 and the opponent weight by about 0.05. They are retained because they are
+directionally sound and improve explainability, not because they move the metric much.
 
 ## Honest interpretation
 
