@@ -20,18 +20,21 @@ import { api } from "@/convex/_generated/api";
  * loses nothing, and one who does not will retry on their next navigation.
  */
 export function EnsureUser() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId } = useAuth();
   const ensure = useMutation(api.users.ensure);
-  const done = useRef(false);
+  // Latched against the user id rather than a boolean: signing out and back in as someone
+  // else would otherwise leave the flag set and skip provisioning the second account.
+  const provisionedFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || done.current) return;
-    done.current = true;
+    if (!isLoaded || !isSignedIn || !userId) return;
+    if (provisionedFor.current === userId) return;
+    provisionedFor.current = userId;
     void ensure({}).catch(() => {
-      // Allow a retry on the next mount rather than leaving the flag latched.
-      done.current = false;
+      // Clear the latch so the next navigation retries.
+      if (provisionedFor.current === userId) provisionedFor.current = null;
     });
-  }, [isLoaded, isSignedIn, ensure]);
+  }, [isLoaded, isSignedIn, userId, ensure]);
 
   return null;
 }

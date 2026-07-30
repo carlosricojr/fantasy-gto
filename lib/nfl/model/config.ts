@@ -100,8 +100,8 @@ export const CALIBRATION: Readonly<Record<Position, number>> = {
 };
 
 export interface QuantileBand {
-  p10: number;
-  p90: number;
+  readonly p10: number;
+  readonly p90: number;
   /**
    * Whether these numbers were measured or assumed.
    *
@@ -157,25 +157,36 @@ export function clamp(value: number, min: number, max: number): number {
  * the default configuration.
  */
 export interface ModelConfig {
-  emaAlpha: number;
-  usageWeightCap: number;
-  dvpWeight: number;
-  vegasWeight: number;
+  readonly emaAlpha: number;
+  readonly usageWeightCap: number;
+  readonly dvpWeight: number;
+  readonly vegasWeight: number;
   /** When false, the per-position bias correction is skipped. */
-  calibrate: boolean;
+  readonly calibrate: boolean;
   /**
    * Reference for the Vegas adjustment. `team` compares this game's implied total against
    * the team's own prior weeks; `league` compares it against the league average, which
    * sweeping showed to be actively harmful.
    */
-  vegasReference: "team" | "league";
+  readonly vegasReference: "team" | "league";
 }
 
-export const DEFAULT_MODEL_CONFIG: ModelConfig = {
+export const DEFAULT_MODEL_CONFIG: Readonly<ModelConfig> = Object.freeze({
   emaAlpha: EMA_ALPHA,
   usageWeightCap: USAGE_WEIGHT_CAP,
   dvpWeight: DVP_WEIGHT,
   vegasWeight: VEGAS_WEIGHT,
   calibrate: true,
   vegasReference: "team",
-};
+});
+
+/*
+ * The configuration objects above are exported by reference and read on every projection.
+ * Freezing them means a caller cannot quietly retune the model at runtime — which would
+ * detach the output from the published accuracy figure without changing a single line of
+ * committed code. `readonly` alone only stops TypeScript; the freeze stops JavaScript.
+ */
+Object.freeze(EFFICIENCY_PRIOR);
+Object.freeze(CALIBRATION);
+for (const band of Object.values(OUTCOME_QUANTILES)) Object.freeze(band);
+Object.freeze(OUTCOME_QUANTILES);

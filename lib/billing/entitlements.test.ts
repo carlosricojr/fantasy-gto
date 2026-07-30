@@ -148,6 +148,42 @@ describe("effectivePlan", () => {
       expect(graceRemainingMs(subscription(), NOW)).toBeNull();
     });
 
+    it("does not report grace for a free plan carrying a past_due status", () => {
+      // A free row has no Pro access to lose. Reporting grace would warn the user about
+      // losing something they never had, and would disagree with effectivePlan.
+      const sub: Subscription = {
+        planId: "free",
+        status: "past_due",
+        pastDueSince: NOW - 1000,
+        currentPeriodEnd: null,
+      };
+      expect(effectivePlan(sub, NOW)).toBe("free");
+      expect(isInGracePeriod(sub, NOW)).toBe(false);
+      expect(graceRemainingMs(sub, NOW)).toBeNull();
+    });
+
+    it("grace state always agrees with effective access", () => {
+      const clocks = [NOW - GRACE_PERIOD_MS, NOW, NOW + GRACE_PERIOD_MS];
+      const plans = ["free", "pro"] as const;
+      const statuses = ["none", "active", "trialing", "past_due", "canceled"] as const;
+      for (const planId of plans) {
+        for (const status of statuses) {
+          for (const clock of clocks) {
+            const sub: Subscription = {
+              planId,
+              status,
+              pastDueSince: NOW - 1000,
+              currentPeriodEnd: null,
+            };
+            // Being in grace implies Pro access; the converse need not hold.
+            if (isInGracePeriod(sub, clock)) {
+              expect(effectivePlan(sub, clock)).toBe("pro");
+            }
+          }
+        }
+      }
+    });
+
     it("fails closed when past_due carries no start timestamp", () => {
       // Without a start the window can never expire, so granting Pro would be an
       // unbounded free ride on a failed payment.

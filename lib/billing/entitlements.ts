@@ -197,10 +197,13 @@ export function canAddLeague(entitlements: Entitlements, currentCount: number): 
  * True when a user is in the post-failure grace window.
  *
  * The interface uses this to warn before access is lost, which is the only reason the
- * grace period is worth having.
+ * grace period is worth having — so it must agree with `effectivePlan`. A free-plan row
+ * carrying a `past_due` status has no Pro access to lose, and reporting it as "in grace"
+ * would warn the user about losing something they never had.
  */
 export function isInGracePeriod(subscription: Subscription, now: number): boolean {
   return (
+    subscription.planId === "pro" &&
     subscription.status === "past_due" &&
     subscription.pastDueSince !== null &&
     now - subscription.pastDueSince < GRACE_PERIOD_MS

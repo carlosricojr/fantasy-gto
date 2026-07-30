@@ -111,6 +111,20 @@ describe("impliedTeamTotal", () => {
   });
 });
 
+describe("frozen configuration", () => {
+  it("cannot be retuned at runtime", () => {
+    // These objects are read on every projection. A caller mutating one would detach the
+    // model's output from the published accuracy figure without changing committed code.
+    expect(Object.isFrozen(CALIBRATION)).toBe(true);
+    expect(Object.isFrozen(OUTCOME_QUANTILES)).toBe(true);
+    expect(Object.isFrozen(OUTCOME_QUANTILES.WR)).toBe(true);
+    expect(() => {
+      (CALIBRATION as unknown as Record<string, number>).WR = 2;
+    }).toThrow();
+    expect(CALIBRATION.WR).toBeLessThan(1);
+  });
+});
+
 describe("meanImpliedTotalBefore", () => {
   const entries = [
     { week: 1, impliedTotal: 20 },
