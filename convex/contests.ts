@@ -20,23 +20,17 @@ export const forWeek = query({
 /**
  * Every contest in a season.
  *
- * Bounded by construction — a season is 272 regular-season games — so collecting the
- * index range is appropriate here rather than a full table scan.
+ * A single range scan over the (sport, season) prefix of the compound index. Bounded by
+ * construction — a season is 272 regular-season games — so collecting the range is
+ * appropriate, and constraining week as well would turn one query into eighteen.
  */
 export const forSeason = query({
   args: { season: v.number() },
   handler: async (ctx, { season }) => {
-    const weeks = [];
-    for (let week = 1; week <= 18; week += 1) {
-      const rows = await ctx.db
-        .query("contests")
-        .withIndex("by_sport_season_week", (q) =>
-          q.eq("sport", "nfl").eq("season", season).eq("week", week),
-        )
-        .collect();
-      weeks.push(...rows);
-    }
-    return weeks;
+    return await ctx.db
+      .query("contests")
+      .withIndex("by_sport_season_week", (q) => q.eq("sport", "nfl").eq("season", season))
+      .collect();
   },
 });
 

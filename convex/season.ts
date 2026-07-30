@@ -16,32 +16,33 @@ import { resolveSeasonState } from "../lib/nfl/season";
 export const current = query({
   args: {},
   handler: async (ctx) => {
-    // Bounded scan: a handful of seasons at 18 weeks each. Each week uses the index.
     const contests: Contest[] = [];
     const thisYear = new Date().getUTCFullYear();
 
+    // One range scan per season, not one per week. `by_sport_season_week` is a compound
+    // index, so constraining only its (sport, season) prefix reads the whole season in a
+    // single query. Constraining week as well would issue 18 queries per season — 72 in
+    // total on a query that runs on every page load.
     for (let season = thisYear - 2; season <= thisYear + 1; season += 1) {
-      for (let week = 1; week <= 18; week += 1) {
-        const rows = await ctx.db
-          .query("contests")
-          .withIndex("by_sport_season_week", (q) =>
-            q.eq("sport", "nfl").eq("season", season).eq("week", week),
-          )
-          .collect();
+      const rows = await ctx.db
+        .query("contests")
+        .withIndex("by_sport_season_week", (q) =>
+          q.eq("sport", "nfl").eq("season", season),
+        )
+        .collect();
 
-        for (const row of rows) {
-          contests.push({
-            id: row.externalId,
-            period: { season: row.season, index: row.week },
-            homeTeam: row.homeTeam,
-            awayTeam: row.awayTeam,
-            startsAt: row.startsAt,
-            result:
-              row.homeScore === null || row.awayScore === null
-                ? null
-                : { homeScore: row.homeScore, awayScore: row.awayScore },
-          });
-        }
+      for (const row of rows) {
+        contests.push({
+          id: row.externalId,
+          period: { season: row.season, index: row.week },
+          homeTeam: row.homeTeam,
+          awayTeam: row.awayTeam,
+          startsAt: row.startsAt,
+          result:
+            row.homeScore === null || row.awayScore === null
+              ? null
+              : { homeScore: row.homeScore, awayScore: row.awayScore },
+        });
       }
     }
 
