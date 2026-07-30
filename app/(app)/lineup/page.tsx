@@ -144,6 +144,7 @@ export default function LineupPage() {
             key={template.id}
             size="sm"
             variant={template.id === templateId ? "default" : "outline"}
+            aria-pressed={template.id === templateId}
             onClick={() => setTemplateId(template.id)}
             title={template.description}
           >
@@ -156,6 +157,7 @@ export default function LineupPage() {
             key={preset.id}
             size="sm"
             variant={preset.id === scoringId ? "secondary" : "ghost"}
+            aria-pressed={preset.id === scoringId}
             onClick={() => setScoringId(preset.id)}
           >
             {preset.label}
@@ -163,7 +165,11 @@ export default function LineupPage() {
         ))}
       </div>
 
-      {roster.length === 0 ? (
+      {roster.length === 0 && selected.length > 0 && projections === undefined ? (
+        <div className="rounded-lg border p-8 text-center text-sm text-muted-foreground">
+          Recalculating for the new ruleset&hellip;
+        </div>
+      ) : roster.length === 0 ? (
         <EmptyState
           title="Add players to get started"
           body="Pick the players on your roster below. The optimal lineup is calculated as you go — no account needed."

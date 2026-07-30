@@ -491,4 +491,61 @@ describe("startSitAdvice", () => {
     const result = startSitAdvice([RB1], roster, current);
     expect(result.advice).toEqual([]);
   });
+
+  it("does not tell the user to bench a player who only changes slot", () => {
+    // wr1 moves FLEX -> WR and rb-good enters at FLEX. Diffing slot by slot would report
+    // "start rb-good, sit wr1" even though wr1 is still in the lineup.
+    const slots = [WR1, FLEX];
+    const roster = [
+      player("wr1", "WR", 18),
+      player("rb-good", "RB", 16),
+      player("rb-bad", "RB", 3),
+    ];
+    const current = new Map([
+      ["wr1", "rb-bad"],
+      ["flex", "wr1"],
+    ]);
+    const result = startSitAdvice(slots, roster, current);
+
+    expect(result.advice).toHaveLength(1);
+    expect(result.advice[0].startCompetitorId).toBe("rb-good");
+    expect(result.advice[0].sitCompetitorId).toBe("rb-bad");
+    // wr1 must never be named as someone to bench.
+    expect(result.advice.map((a) => a.sitCompetitorId)).not.toContain("wr1");
+  });
+
+  it("advice gains sum exactly to the reported total", () => {
+    const slots = [RB1, RB2, FLEX];
+    const roster = [
+      player("a", "RB", 21),
+      player("b", "RB", 17),
+      player("c", "WR", 14),
+      player("d", "RB", 4),
+      player("e", "WR", 2),
+    ];
+    const current = new Map([
+      ["rb1", "d"],
+      ["rb2", "b"],
+      ["flex", "e"],
+    ]);
+    const result = startSitAdvice(slots, roster, current);
+    const summed = result.advice.reduce((total, item) => total + item.pointsGained, 0);
+    expect(Math.round(summed * 100) / 100).toBe(result.pointsGained);
+  });
+
+  it("reports a fill for an empty slot with no player to bench", () => {
+    const slots = [RB1, FLEX];
+    const roster = [player("rb1", "RB", 12), player("wr1", "WR", 9)];
+    const current = new Map<string, string | null>([
+      ["rb1", "rb1"],
+      ["flex", null],
+    ]);
+    const result = startSitAdvice(slots, roster, current);
+    expect(result.advice).toHaveLength(1);
+    expect(result.advice[0]).toMatchObject({
+      startCompetitorId: "wr1",
+      sitCompetitorId: "",
+      pointsGained: 9,
+    });
+  });
 });

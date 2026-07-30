@@ -165,6 +165,7 @@ export default function DashboardPage() {
                     type="button"
                     size="sm"
                     variant={template.id === templateId ? "default" : "outline"}
+                    aria-pressed={template.id === templateId}
                     onClick={() => setTemplateId(template.id)}
                     title={template.description}
                   >
@@ -183,6 +184,7 @@ export default function DashboardPage() {
                     type="button"
                     size="sm"
                     variant={preset.id === scoringId ? "default" : "outline"}
+                    aria-pressed={preset.id === scoringId}
                     onClick={() => setScoringId(preset.id)}
                   >
                     {preset.label}

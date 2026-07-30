@@ -249,9 +249,19 @@ export function solveLineup(
   };
 }
 
-/** A single actionable swap: start one player in place of another. */
+/**
+ * A single actionable swap: start one player in place of another.
+ *
+ * `sitCompetitorId` is only ever a player who leaves the lineup entirely. A player who
+ * merely moves between slots is not a start/sit decision, and reporting them as one would
+ * tell the user to bench somebody the optimal lineup still starts.
+ *
+ * Gains across the returned advice sum exactly to `pointsGained`, because a player started
+ * in both lineups contributes identically to each regardless of which slot they occupy.
+ */
 export interface StartSitAdvice {
   startCompetitorId: string;
+  /** Empty when the incoming player fills a slot that was empty. */
   sitCompetitorId: string;
   slotId: string;
   slotLabel: string;
@@ -281,25 +291,67 @@ export function startSitAdvice(
     if (player && isStartable(player)) currentTotal += player.projectedPoints;
   }
 
-  const advice: StartSitAdvice[] = [];
-  for (const assignment of optimal.assignments) {
-    const currentId = currentLineup.get(assignment.slotId) ?? null;
-    const optimalId = assignment.competitorId;
-    if (!optimalId || optimalId === currentId) continue;
+  // Compare who *plays*, not which slot they occupy. Diffing slot by slot reports a
+  // player who merely shifted from FLEX to RB as someone to bench, which is wrong and
+  // makes the per-swap gains double-count against the true total.
+  const currentStarters = new Set<string>();
+  for (const competitorId of currentLineup.values()) {
+    if (!competitorId) continue;
+    const player = byId.get(competitorId);
+    if (player && isStartable(player)) currentStarters.add(competitorId);
+  }
 
-    const incoming = byId.get(optimalId);
-    if (!incoming) continue;
-    const outgoing = currentId ? byId.get(currentId) : undefined;
-    const outgoingPoints = outgoing && isStartable(outgoing) ? outgoing.projectedPoints : 0;
-    const gained = round2(incoming.projectedPoints - outgoingPoints);
-    if (gained <= 0) continue;
+  const optimalStarters = new Set<string>();
+  const slotForCompetitor = new Map<string, SlotAssignment>();
+  for (const assignment of optimal.assignments) {
+    if (!assignment.competitorId) continue;
+    optimalStarters.add(assignment.competitorId);
+    slotForCompetitor.set(assignment.competitorId, assignment);
+  }
+
+  const pointsOf = (id: string) => byId.get(id)?.projectedPoints ?? 0;
+  const byPointsDescending = (a: string, b: string) =>
+    pointsOf(b) - pointsOf(a) || (a < b ? -1 : 1);
+
+  const toStart = [...optimalStarters]
+    .filter((id) => !currentStarters.has(id))
+    .sort(byPointsDescending);
+  const toSit = [...currentStarters]
+    .filter((id) => !optimalStarters.has(id))
+    .sort(byPointsDescending);
+
+  // Pair each incoming player with the player they displace.
+  //
+  // Preference goes to whoever currently occupies the slot the incoming player will take,
+  // because "start A over B at RB" is the sentence a user can act on. When that occupant
+  // is not actually being dropped — they moved slots — fall back to the next unpaired
+  // player who is.
+  //
+  // The pairing is presentational. What matters is that the summed gains reconcile with
+  // the lineup total, and they do: every player common to both lineups cancels, so the
+  // sum is always (points added) − (points removed).
+  const unpaired = new Set(toSit);
+  const advice: StartSitAdvice[] = [];
+
+  for (const startId of toStart) {
+    const assignment = slotForCompetitor.get(startId);
+    if (!assignment) continue;
+
+    const occupant = currentLineup.get(assignment.slotId) ?? null;
+    let sitId: string | null =
+      occupant !== null && unpaired.has(occupant) ? occupant : null;
+
+    if (sitId === null) {
+      sitId = toSit.find((id) => unpaired.has(id)) ?? null;
+    }
+    if (sitId !== null) unpaired.delete(sitId);
 
     advice.push({
-      startCompetitorId: optimalId,
-      sitCompetitorId: currentId ?? "",
+      startCompetitorId: startId,
+      sitCompetitorId: sitId ?? "",
       slotId: assignment.slotId,
       slotLabel: assignment.slotLabel,
-      pointsGained: gained,
+      pointsGained: round2(pointsOf(startId) - (sitId ? pointsOf(sitId) : 0)),
     });
   }
 

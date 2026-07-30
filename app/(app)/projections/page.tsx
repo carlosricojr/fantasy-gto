@@ -81,6 +81,7 @@ export default function ProjectionsPage() {
             key={preset.id}
             size="sm"
             variant={preset.id === scoringId ? "default" : "outline"}
+            aria-pressed={preset.id === scoringId}
             onClick={() => setScoringId(preset.id)}
           >
             {preset.label}
@@ -92,6 +93,7 @@ export default function ProjectionsPage() {
         <Button
           size="sm"
           variant={position === null ? "secondary" : "ghost"}
+          aria-pressed={position === null}
           onClick={() => setPosition(null)}
         >
           All
@@ -101,6 +103,7 @@ export default function ProjectionsPage() {
             key={code}
             size="sm"
             variant={position === code ? "secondary" : "ghost"}
+            aria-pressed={position === code}
             onClick={() => setPosition(code)}
           >
             {code}
