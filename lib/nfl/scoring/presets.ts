@@ -9,13 +9,19 @@ import type {
 /**
  * Scoring presets.
  *
- * The offensive values match the formula used by nflverse's `fantasy_points` /
- * `fantasy_points_ppr` columns, which was derived empirically rather than recalled:
- * across 6,020 real 2025 player-weeks, these values reproduce both columns exactly.
- * That agreement is asserted in `score.test.ts`, so a regression here fails loudly.
+ * **Offensive values are verified.** They match the formula behind nflverse's
+ * `fantasy_points` / `fantasy_points_ppr` columns, derived empirically rather than
+ * recalled: across 6,020 real 2025 player-weeks they reproduce both columns exactly, and
+ * `score.test.ts` asserts that agreement so a regression fails loudly.
  *
- * The same values are the long-standing ESPN defaults, which is why one table serves as
- * both our canonical scoring and the baseline we validate against.
+ * **Kicker and D/ST values are not.** No upstream column scores them, so there is nothing
+ * to reproduce and nothing in the suite checks them against an external source. They are
+ * the conventional ladder used by mainstream platforms, and they should be read as a
+ * reasonable default rather than a verified one. Both are implemented and unit-tested for
+ * internal consistency — the tiers tile the range without overlap or gaps — but neither
+ * position is projected today (see the known gaps in the README), so nothing the product
+ * shows depends on them yet. Wiring either into projections means validating these tiers
+ * against the specific platform being mirrored first.
  */
 
 const BASE_OFFENSE: OffenseScoringRules = {
@@ -47,8 +53,11 @@ const KICKER: KickerScoringRules = {
 };
 
 /**
- * The standard points-allowed ladder. Bands are inclusive of `min` and exclusive of
+ * The conventional points-allowed ladder. Bands are inclusive of `min` and exclusive of
  * `max`, so they tile the whole range without overlap or gaps.
+ *
+ * Not validated against any external source — see the module header. Platforms differ on
+ * these tiers and commissioners routinely change them.
  */
 const POINTS_ALLOWED_TIERS: readonly ScoringTier[] = [
   { min: 0, max: 1, points: 10 },
