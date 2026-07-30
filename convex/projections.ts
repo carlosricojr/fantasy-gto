@@ -107,6 +107,8 @@ export const upsertBatch = internalMutation({
         playerId: v.string(),
         position: v.string(),
         scoringId: v.string(),
+        team: v.string(),
+        opponent: v.string(),
         mean: v.number(),
         floor: v.number(),
         ceiling: v.number(),

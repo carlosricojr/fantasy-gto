@@ -128,6 +128,16 @@ export default defineSchema({
     playerId: v.string(),
     position: v.string(),
     scoringId: v.string(),
+    /**
+     * The player's team and that week's opponent.
+     *
+     * Both are non-nullable, and that is the point. A projection only exists for a player
+     * whose team actually plays that week — a player on a bye will score zero, so ingest
+     * skips them. Making these required means a bye-week row cannot be written at all,
+     * rather than relying on every caller to remember to check.
+     */
+    team: v.string(),
+    opponent: v.string(),
     mean: v.number(),
     floor: v.number(),
     ceiling: v.number(),

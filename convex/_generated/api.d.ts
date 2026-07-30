@@ -15,6 +15,7 @@ import type {
 } from "convex/server";
 import type * as billing from "../billing.js";
 import type * as contests from "../contests.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as jobs from "../jobs.js";
@@ -35,6 +36,7 @@ import type * as users from "../users.js";
 declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   contests: typeof contests;
+  crons: typeof crons;
   http: typeof http;
   ingest: typeof ingest;
   jobs: typeof jobs;

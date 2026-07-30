@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
 import { DVP_SHRINKAGE } from "../lib/nfl/model/config";
@@ -31,6 +31,15 @@ import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
+
+/**
+ * How many weeks a player may go without appearing before they stop being projected.
+ *
+ * Four covers a bye plus a short-term injury. Beyond that the absence is more likely to be
+ * injured reserve, a release, or retirement, and projecting stale form as a confident
+ * number is worse than projecting nothing.
+ */
+const INACTIVITY_WEEKS = 4;
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -160,14 +169,39 @@ export const projectWeek = internalAction({
           const position = latest.competitor.position;
           if (position === "DST") continue;
 
+          // Only project players who are plausibly still active.
+          //
+          // History spans two seasons, so without this a player who retired, was released,
+          // or has been on injured reserve since September keeps producing a confident
+          // projection from stale form — and `mean <= 0` never catches them, because their
+          // old form was good. Two rules, both derived from what the data can actually
+          // tell us:
+          //
+          //  - after week 1, they must have played at least once in the current season;
+          //  - and their last appearance must be recent, which is what distinguishes a
+          //    bye or a one-week knock from a season-ending absence.
+          const lastPlayed = latest.period;
+          if (week > 1 && lastPlayed.season !== season) continue;
+          if (lastPlayed.season === season && week - lastPlayed.index > INACTIVITY_WEEKS) {
+            continue;
+          }
+
           const team = latest.competitor.team;
           const contest = team ? weekContestByTeam.get(team) : undefined;
-          const line = contest ? lineByContest.get(contest.id) : undefined;
-          const opponent = contest
-            ? contest.homeTeam === team
-              ? contest.awayTeam
-              : contest.homeTeam
-            : null;
+
+          // No contest this week means the team is on bye (or the player has no team).
+          // Such a player will score exactly zero, so they must not be projected at all.
+          //
+          // Without this the model happily returns their normal projection — the Vegas and
+          // matchup terms are *skipped* when there is no game, not zeroed — and the lineup
+          // solver, which is advertised as provably optimal, would start them. Verified on
+          // 2025 week 10: four teams are on bye, and Ja'Marr Chase and Patrick Mahomes
+          // ranked 4th and 8th on a board they should not have appeared on at all.
+          if (!contest || !team) continue;
+
+          const line = lineByContest.get(contest.id);
+          const opponent =
+            contest.homeTeam === team ? contest.awayTeam : contest.homeTeam;
 
           const projection = projectPlayer({
             competitorId: playerId,
@@ -176,16 +210,15 @@ export const projectWeek = internalAction({
             history: bucket,
             game: {
               opponent,
-              impliedTeamTotal:
-                contest && line && team
-                  ? impliedTeamTotal(
-                      line.total,
-                      line.spread,
-                      team,
-                      contest.homeTeam,
-                      contest.awayTeam,
-                    )
-                  : null,
+              impliedTeamTotal: line
+                ? impliedTeamTotal(
+                    line.total,
+                    line.spread,
+                    team,
+                    contest.homeTeam,
+                    contest.awayTeam,
+                  )
+                : null,
               teamMeanImpliedTotal: team
                 ? meanImpliedTotalBefore(teamTotals.get(team) ?? [], week)
                 : null,
@@ -203,6 +236,8 @@ export const projectWeek = internalAction({
             playerId,
             position,
             scoringId: scoring.id,
+            team,
+            opponent,
             mean: projection.mean,
             floor: projection.floor,
             ceiling: projection.ceiling,
@@ -239,6 +274,44 @@ export const projectWeek = internalAction({
     } finally {
       void startedAt;
     }
+  },
+});
+
+/**
+ * Resolves the live season and week, then recomputes projections for it.
+ *
+ * The entry point for the daily cron. It derives the week from the schedule rather than
+ * the clock, for the same reason the interface does: during the offseason the calendar
+ * year and the season with data disagree.
+ *
+ * Returns rather than throws when there is nothing to do, so a quiet offseason does not
+ * fill the job log with failures.
+ */
+export const refreshCurrentWeek = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ skipped: boolean; season?: number; week?: number }> => {
+    const state = await ctx.runQuery(api.season.current, {});
+    if (!state || state.isComplete) return { skipped: true };
+
+    await ctx.runAction(internal.ingest.projectWeek, {
+      season: state.season,
+      week: state.week,
+      scoringIds: SCORING_PRESETS.map((preset) => preset.id),
+    });
+    return { skipped: false, season: state.season, week: state.week };
+  },
+});
+
+/** Refreshes the schedule and lines for whichever season is live. */
+export const refreshCurrentSchedule = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ skipped: boolean; contests?: number }> => {
+    const state = await ctx.runQuery(api.season.current, {});
+    if (!state) return { skipped: true };
+    const result = await ctx.runAction(internal.ingest.syncSchedule, {
+      season: state.season,
+    });
+    return { skipped: false, contests: result.contests };
   },
 });
 

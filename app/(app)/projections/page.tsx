@@ -125,7 +125,8 @@ export default function ProjectionsPage() {
               key={row._id}
               name={player?.name ?? row.playerId}
               position={row.position}
-              team={player?.team ?? null}
+              team={row.team}
+              subtitle={`vs ${row.opponent}`}
               mean={row.mean}
               floor={row.floor}
               ceiling={row.ceiling}

@@ -20,7 +20,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Fantasy GTO",
-  description: "+8.2 points/week vs platform projections",
+  description:
+    "Fantasy football projections that show their working, and provably optimal lineups.",
   icons: {
     icon: "/icons/web-app-manifest-192x192.png",
   },

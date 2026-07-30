@@ -58,7 +58,10 @@ export default function LineupPage() {
         id: row.playerId,
         name: player?.name ?? row.playerId,
         position: row.position,
-        team: player?.team ?? null,
+        // The projection's own team, not the player record's: a mid-season trade would
+        // make the two disagree, and the projection was computed for the former.
+        team: row.team,
+        opponent: row.opponent,
         projectedPoints: row.mean,
       };
     });
@@ -75,6 +78,9 @@ export default function LineupPage() {
           name: p.name,
           position: p.position,
           projectedPoints: p.projectedPoints,
+          // Safe to hardcode: a projection is only written for a player whose team plays
+          // that week, so everyone in this pool has a game. Bye-week players are absent
+          // from `projections` entirely rather than being filtered here.
           availability: "active" as const,
         })),
     [pool, selected],
@@ -262,7 +268,7 @@ export default function LineupPage() {
                 </span>
                 <span className="min-w-0 flex-1 truncate">{player.name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {player.team ?? "FA"}
+                  {player.team} vs {player.opponent}
                 </span>
                 <span className="w-12 shrink-0 text-right tabular-nums">
                   {player.projectedPoints.toFixed(1)}

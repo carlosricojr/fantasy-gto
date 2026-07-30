@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
 import { Button } from "@/components/ui/button";
+import { EnsureUser } from "@/components/ensure-user";
 import { ModeToggle } from "@/components/ui/theme-toggle";
 
 /**
@@ -14,6 +15,7 @@ import { ModeToggle } from "@/components/ui/theme-toggle";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
+      <EnsureUser />
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex items-center gap-4">

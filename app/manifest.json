@@ -1,7 +1,7 @@
 {
   "name": "FantasyGTO",
   "short_name": "FanGTO",
-  "description": "+8.2 points/week vs platform projections",
+  "description": "Fantasy football projections that show their working, and provably optimal lineups.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
