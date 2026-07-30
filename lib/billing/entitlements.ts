@@ -172,8 +172,18 @@ export function entitlementsFor(subscription: Subscription, now: number): Entitl
   return ENTITLEMENTS[effectivePlan(subscription, now)];
 }
 
-/** The entitlements a plan grants, independent of any subscription state. */
-export function entitlementsForPlan(planId: PlanId): Entitlements {
+/**
+ * What a plan grants in the abstract, ignoring subscription state.
+ *
+ * **Not an authorization API.** Deliberately named so that reaching for it in an access
+ * check looks wrong: it cannot see whether the subscription is active, past due, or
+ * cancelled, so it would happily report Pro capabilities for a lapsed account. Every
+ * access decision must go through `entitlementsFor(subscription, now)`.
+ *
+ * It exists for describing plans — a pricing table — and for tests that assert the shape
+ * of the table itself.
+ */
+export function planCapabilities(planId: PlanId): Entitlements {
   return ENTITLEMENTS[planId];
 }
 

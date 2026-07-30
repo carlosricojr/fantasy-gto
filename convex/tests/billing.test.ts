@@ -1,0 +1,321 @@
+import { convexTest } from "convex-test";
+import { describe, expect, it } from "vitest";
+
+import { api, internal } from "../_generated/api";
+import schema from "../schema";
+import { GRACE_PERIOD_MS } from "../../lib/billing/entitlements";
+
+/**
+ * Billing event handling.
+ *
+ * The original implementation resolved the acting user through
+ * `ctx.auth.getUserIdentity()` inside a webhook, where there is no identity, so every
+ * billing event was silently discarded — subscriptions never applied and cancellations
+ * never took effect. That defect is invisible to a unit test of the entitlement resolver,
+ * which is why these exercise the Convex mutations directly.
+ */
+const modules = import.meta.glob([
+  "../**/*.ts",
+  "../**/*.js",
+  "!../**/*.d.ts",
+  "!../**/*.test.ts",
+  "!../tests/**",
+]);
+
+function asUser(t: ReturnType<typeof convexTest>, subject: string) {
+  return t.withIdentity({ subject, issuer: "https://clerk.test" });
+}
+
+const NO_EVENT_EXTRAS = {
+  subscriptionId: null,
+  currentPeriodEnd: null,
+};
+
+describe("applyClerkEvent", () => {
+  it("upgrades a user on a subscription event", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u1").mutation(api.users.ensure, {});
+
+    const result = await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u1",
+      planKey: "pro_monthly",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect(result.applied).toBe(true);
+    const me = await asUser(t, "u1").query(api.users.me, {});
+    expect(me.plan).toBe("pro");
+  });
+
+  it("downgrades on cancellation once the paid period has ended", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u2").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u2",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u2",
+      planKey: "pro",
+      status: "canceled",
+      subscriptionId: null,
+      currentPeriodEnd: Date.now() - 1000,
+    });
+
+    expect((await asUser(t, "u2").query(api.users.me, {})).plan).toBe("free");
+  });
+
+  it("honours the remainder of an already-paid period after cancellation", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u3").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u3",
+      planKey: "pro",
+      status: "canceled",
+      subscriptionId: null,
+      currentPeriodEnd: Date.now() + 60_000,
+    });
+
+    expect((await asUser(t, "u3").query(api.users.me, {})).plan).toBe("pro");
+  });
+
+  it("fails closed on an unrecognised plan key and records why", async () => {
+    // A renamed price in the billing dashboard must never silently grant Pro, and the
+    // resulting downgrade must be diagnosable rather than mysterious.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u4").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u4",
+      planKey: "pro_lite",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u4").query(api.users.me, {})).plan).toBe("free");
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.unknown_plan_key")).toBe(true);
+  });
+
+  it("keeps Pro during the grace window after a failed payment", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u5").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u5",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "paymentAttempt.updated",
+      clerkUserId: "u5",
+      planKey: null,
+      status: "failed",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    const me = await asUser(t, "u5").query(api.users.me, {});
+    expect(me.plan).toBe("pro");
+    expect(me.graceRemainingMs).not.toBeNull();
+    expect(me.graceRemainingMs!).toBeLessThanOrEqual(GRACE_PERIOD_MS);
+  });
+
+  it("does not treat a successful payment attempt as a failure", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u6").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u6",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "paymentAttempt.updated",
+      clerkUserId: "u6",
+      planKey: null,
+      status: "paid",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    const me = await asUser(t, "u6").query(api.users.me, {});
+    expect(me.plan).toBe("pro");
+    expect(me.graceRemainingMs).toBeNull();
+  });
+
+  it("does not grant Pro from a payment failure for an unknown subscription", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u7").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "paymentAttempt.updated",
+      clerkUserId: "u7",
+      planKey: null,
+      status: "failed",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u7").query(api.users.me, {})).plan).toBe("free");
+  });
+
+  it("does not restart the grace clock on a repeated failure", async () => {
+    // A dunning system retrying daily must not extend the window indefinitely.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u8").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u8",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "paymentAttempt.updated",
+      clerkUserId: "u8",
+      planKey: null,
+      status: "failed",
+      ...NO_EVENT_EXTRAS,
+    });
+    const first = await t.run(async (ctx) =>
+      (await ctx.db.query("subscriptions").first())?.pastDueSince,
+    );
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "paymentAttempt.updated",
+      clerkUserId: "u8",
+      planKey: null,
+      status: "failed",
+      ...NO_EVENT_EXTRAS,
+    });
+    const second = await t.run(async (ctx) =>
+      (await ctx.db.query("subscriptions").first())?.pastDueSince,
+    );
+
+    expect(second).toBe(first);
+  });
+
+  it("audits an event that carries no Clerk user id instead of guessing", async () => {
+    const t = convexTest(schema, modules);
+    const result = await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: null,
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect(result.applied).toBe(false);
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.unresolvable_event")).toBe(true);
+  });
+
+  it("records a subscription event for a user it has never seen", async () => {
+    const t = convexTest(schema, modules);
+    const result = await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "never_seen",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect(result.applied).toBe(false);
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.orphan_event")).toBe(true);
+  });
+
+  it("ignores an unrelated event without changing access", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u9").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "session.created",
+      clerkUserId: "u9",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u9").query(api.users.me, {})).plan).toBe("free");
+  });
+
+  it("preserves a known period end when a later payload omits it", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "u10").mutation(api.users.ensure, {});
+    const periodEnd = Date.now() + 86_400_000;
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u10",
+      planKey: "pro",
+      status: "active",
+      subscriptionId: "sub_x",
+      currentPeriodEnd: periodEnd,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u10",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    const stored = await t.run(async (ctx) => await ctx.db.query("subscriptions").first());
+    expect(stored?.currentPeriodEnd).toBe(periodEnd);
+    expect(stored?.clerkSubscriptionId).toBe("sub_x");
+  });
+});
+
+describe("user lifecycle", () => {
+  it("provisions idempotently", async () => {
+    const t = convexTest(schema, modules);
+    const first = await asUser(t, "dup").mutation(api.users.ensure, {});
+    const second = await asUser(t, "dup").mutation(api.users.ensure, {});
+    expect(second).toBe(first);
+
+    const users = await t.run(async (ctx) => await ctx.db.query("users").collect());
+    expect(users).toHaveLength(1);
+  });
+
+  it("does not race with the webhook creating the same user", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.users.upsertFromClerk, {
+      clerkUserId: "race",
+      email: "race@example.com",
+    });
+    await asUser(t, "race").mutation(api.users.ensure, {});
+
+    const users = await t.run(async (ctx) => await ctx.db.query("users").collect());
+    expect(users).toHaveLength(1);
+    expect(users[0].email).toBe("race@example.com");
+  });
+
+  it("cascades a deletion so no orphaned league survives", async () => {
+    const t = convexTest(schema, modules);
+    await asUser(t, "gone").mutation(api.users.ensure, {});
+    await asUser(t, "gone").mutation(api.leagues.create, {
+      name: "Doomed",
+      season: 2025,
+      platform: "manual",
+      externalId: null,
+      scoringId: "ppr",
+      slots: [],
+    });
+
+    await t.mutation(internal.users.deleteFromClerk, { clerkUserId: "gone" });
+
+    const remaining = await t.run(async (ctx) => ({
+      users: await ctx.db.query("users").collect(),
+      leagues: await ctx.db.query("leagues").collect(),
+      rosters: await ctx.db.query("rosters").collect(),
+    }));
+    expect(remaining.users).toHaveLength(0);
+    expect(remaining.leagues).toHaveLength(0);
+    expect(remaining.rosters).toHaveLength(0);
+  });
+});

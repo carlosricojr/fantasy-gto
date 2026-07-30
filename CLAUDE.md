@@ -47,7 +47,7 @@ and nothing used it. nflverse supplies statistics, schedule, and Vegas lines for
 ## Commands
 
 ```bash
-pnpm verify     # typecheck, lint, tests — run before every commit
+pnpm verify     # typecheck, lint, tests (both projects) — run before every commit
 pnpm test       # watch mode
 pnpm backtest   # reproduce accuracy figures (add -- --sweeps for parameter sweeps)
 pnpm dev        # frontend + Convex

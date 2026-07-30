@@ -11,7 +11,7 @@ import {
   canAddLeague,
   effectivePlan,
   entitlementsFor,
-  entitlementsForPlan,
+  planCapabilities,
   graceRemainingMs,
   isInGracePeriod,
   isKnownPlanKey,
@@ -35,7 +35,7 @@ function subscription(overrides: Partial<Subscription> = {}): Subscription {
 describe("entitlement table", () => {
   it("defines every feature for every plan", () => {
     for (const plan of ["free", "pro"] as const) {
-      const entitlements = entitlementsForPlan(plan);
+      const entitlements = planCapabilities(plan);
       for (const feature of FEATURES) {
         expect(entitlements[feature], `${plan} is missing ${feature}`).toBeDefined();
       }
@@ -45,18 +45,18 @@ describe("entitlement table", () => {
   it("grants start/sit on the free tier", () => {
     // The product's argument is that value precedes payment. A free tier that cannot
     // answer "who do I start?" demonstrates nothing.
-    expect(can(entitlementsForPlan("free"), "start_sit")).toBe(true);
+    expect(can(planCapabilities("free"), "start_sit")).toBe(true);
   });
 
   it("caps free leagues at three and makes Pro unlimited", () => {
-    expect(limit(entitlementsForPlan("free"), "league_count")).toBe(3);
-    expect(limit(entitlementsForPlan("pro"), "league_count")).toBe(
+    expect(limit(planCapabilities("free"), "league_count")).toBe(3);
+    expect(limit(planCapabilities("pro"), "league_count")).toBe(
       Number.POSITIVE_INFINITY,
     );
   });
 
   it("withholds every paid capability on the free tier", () => {
-    const free = entitlementsForPlan("free");
+    const free = planCapabilities("free");
     for (const feature of [
       "daily_refresh",
       "waivers_faab",
@@ -71,7 +71,7 @@ describe("entitlement table", () => {
   });
 
   it("grants every implemented capability on Pro", () => {
-    const pro = entitlementsForPlan("pro");
+    const pro = planCapabilities("pro");
     for (const feature of FEATURES) {
       if (feature === "league_count") continue;
       if (UNIMPLEMENTED_FEATURES.includes(feature)) continue;
@@ -82,7 +82,7 @@ describe("entitlement table", () => {
   it("withholds capabilities that are not built yet, even on Pro", () => {
     // Granting access to a feature that does not exist would entitle a paying subscriber
     // to nothing. These flip to true in the same change that implements them.
-    const pro = entitlementsForPlan("pro");
+    const pro = planCapabilities("pro");
     for (const feature of UNIMPLEMENTED_FEATURES) {
       expect(can(pro, feature), `${feature} is not implemented and must not be granted`).toBe(
         false,
@@ -91,8 +91,8 @@ describe("entitlement table", () => {
   });
 
   it("never reports a numeric entitlement as a boolean capability", () => {
-    expect(can(entitlementsForPlan("pro"), "league_count")).toBe(false);
-    expect(limit(entitlementsForPlan("pro"), "start_sit")).toBe(0);
+    expect(can(planCapabilities("pro"), "league_count")).toBe(false);
+    expect(limit(planCapabilities("pro"), "start_sit")).toBe(0);
   });
 });
 
@@ -289,12 +289,12 @@ describe("regression guards for the original defects", () => {
 
   it("returns frozen records so a caller cannot widen its own access", () => {
     // The same object is handed out by reference on every check.
-    const free = entitlementsForPlan("free");
+    const free = planCapabilities("free");
     expect(Object.isFrozen(free)).toBe(true);
     expect(() => {
       (free as unknown as Record<string, unknown>).waivers_faab = true;
     }).toThrow();
-    expect(can(entitlementsForPlan("free"), "waivers_faab")).toBe(false);
+    expect(can(planCapabilities("free"), "waivers_faab")).toBe(false);
   });
 
   it("a free user never receives unlimited leagues under any status or clock", () => {

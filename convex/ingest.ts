@@ -15,6 +15,7 @@ import {
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import { NflverseProvider } from "../lib/sources/nflverse";
+import { NFL_REGULAR_SEASON_WEEKS } from "../lib/nfl/season";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -183,11 +184,18 @@ export const projectWeek = internalAction({
           //  - after week 1, they must have played at least once in the current season;
           //  - and their last appearance must be recent, which is what distinguishes a
           //    bye or a one-week knock from a season-ending absence.
+          //
+          // The recency test spans the season boundary, so a player who was hurt in week 3
+          // of last season and never returned is excluded from week 1 of this one. Without
+          // that, the only week where the current-season rule cannot apply is exactly the
+          // week the staleness check was skipped.
           const lastPlayed = latest.period;
           if (week > 1 && lastPlayed.season !== season) continue;
-          if (lastPlayed.season === season && week - lastPlayed.index > INACTIVITY_WEEKS) {
-            continue;
-          }
+          const weeksSincePlayed =
+            lastPlayed.season === season
+              ? week - lastPlayed.index
+              : NFL_REGULAR_SEASON_WEEKS - lastPlayed.index + week;
+          if (weeksSincePlayed > INACTIVITY_WEEKS) continue;
 
           const team = latest.competitor.team;
           const contest = team ? weekContestByTeam.get(team) : undefined;
