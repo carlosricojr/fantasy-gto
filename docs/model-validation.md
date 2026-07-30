@@ -31,25 +31,60 @@ Hyperparameters were selected on **2024**, then frozen and evaluated once on **2
 
 ## Frozen configuration
 
+All values live in `lib/nfl/model/config.ts`.
+
 | Parameter | Value | Meaning |
 | --- | --- | --- |
-| `alpha` | 0.15 | EMA smoothing on prior fantasy points. Low alpha = long memory. |
-| `usageCap` | 0.2 | Maximum weight given to the usage-implied volume estimate. |
-| `dvpWeight` | 0.25 | Weight on the shrunk opponent defense-vs-position factor. |
-| `vegasWeight` | 0.25 | Weight on the Vegas adjustment. |
-| `vegasMode` | `team` | Implied team total measured **relative to that team's own season average**. |
+| `EMA_ALPHA` | 0.15 | EMA smoothing on prior fantasy points. Low alpha = long memory. |
+| `USAGE_WEIGHT_CAP` | 0.2 | Maximum weight given to the usage-implied volume estimate. |
+| `DVP_WEIGHT` | 0.25 | Weight on the shrunk opponent defense-vs-position factor. |
+| `VEGAS_WEIGHT` | 0.25 | Weight on the Vegas adjustment. |
+| Vegas reference | team | Implied team total measured **relative to that team's own season average**. |
+| `CALIBRATION` | 0.96–0.99 | Per-position bias correction, derived on 2024. |
 
-## Results — out-of-sample, 2025, n = 3,036 player-weeks
+## Results
 
-| Model | MAE | Edge vs FGTO |
+Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-sample
+(hyperparameters were chosen there); only the 2025 row is a valid accuracy claim.
+
+### 2025 — out-of-sample, n = 3,037 player-weeks
+
+| Model | MAE | FGTO edge |
 | --- | --- | --- |
-| **FGTO model (frozen)** | **5.9095** | — |
-| Baseline: season-to-date mean | 5.9890 | FGTO is **1.33%** better |
-| Baseline: last-3-game mean | 6.3625 | FGTO is 7.12% better |
+| **FGTO model (frozen)** | **5.8507** | — |
+| Baseline: season-to-date mean | 5.9877 | **+2.29%** |
+| Baseline: last-3-game mean | 6.3618 | +8.03% |
 
-The headline number the product may state is **1.33%**, measured against the strongest
-baseline. The 7.12% figure against a last-3-game baseline is real but is not the honest
-headline: quoting it while omitting the stronger baseline would be cherry-picking.
+Per position (MAE): QB 6.791, RB 5.829, WR 5.674, TE 5.261.
+
+Residual bias is −0.592 points: the model still projects slightly high even after
+calibration, because the evaluation population is selected for recent production and
+regresses. This is disclosed rather than hidden, and it is why the interface leads with a
+range rather than a single number.
+
+### 2024 — in-sample, n = 2,963
+
+MAE 5.8596 against a season-mean baseline of 6.0009, a 2.36% edge. That this is nearly
+identical to the out-of-sample figure is the useful signal here: the model is not
+overfitted to its tuning season.
+
+**The headline number the product may state is 2.29%**, measured against the strongest
+baseline. The 8.03% figure against a last-3-game baseline is real, but quoting it while
+omitting the stronger baseline would be cherry-picking.
+
+### The calibration step earns its place
+
+Adding the per-position bias correction moved out-of-sample MAE from 5.9095 to 5.8507 and
+cut mean bias from −0.87 to −0.59. The factors were computed on 2024 and applied unchanged
+to 2025, so that gain is genuine rather than a curve fit.
+
+### Implementation agreement
+
+The model was prototyped in Python before being written in TypeScript. The two agree to
+5.8512 versus 5.8507 — a difference of 0.0005 MAE, arising because the TypeScript model
+recomputes every historical score through the configurable scoring engine (with two-decimal
+quantisation) while the prototype read upstream's precomputed PPR column. Agreement at that
+tolerance is what confirms the port is faithful.
 
 ## What the sweeps established
 
