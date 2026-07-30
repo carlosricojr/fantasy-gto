@@ -255,7 +255,11 @@ Stated plainly rather than left to be discovered.
   `lib/core/optimizer.ts` is implemented and tested, but no page calls it — a league
   currently records scoring and roster format, and start/sit is delivered through
   `/lineup` instead.
-- **Week 1 of a season projects nobody.** A player's team is taken from a current-season
-  appearance, and before any game is played there is none. Projecting from last season's
-  team would attribute a player to the wrong game entirely, so they are skipped and the
-  count is reported. Wiring nflverse's `weekly_rosters` release would close this.
+- **Week 1 projects nobody until that week's games have been played.** A player's team is
+  taken from a current-season appearance, and before any game is played there is none.
+  Projecting from last season's team would attribute a player to the wrong game entirely, so
+  they are skipped and the count is reported — and with almost every team uncovered, the
+  run fails its coverage check and writes nothing rather than publishing a board of the two
+  Thursday teams. Once most of week 1 has been played the check passes and the board is
+  written normally. Wiring nflverse's `weekly_rosters` release would close the gap for the
+  days before kickoff.

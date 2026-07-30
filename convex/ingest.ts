@@ -77,8 +77,9 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * Computes and stores projections for a week.
  *
  * `season`/`week` identify the week being projected. History is drawn from the same season
- * plus the prior one, and defense-vs-position factors always come from the prior season so
- * no future information reaches a projection.
+ * plus the two before it — the same window `scripts/backtest.ts` uses, so the published
+ * accuracy figure describes this pipeline. Defense-vs-position factors come from the
+ * immediately prior season only, so no future information reaches a projection.
  */
 export const projectWeek = internalAction({
   args: {
@@ -276,7 +277,7 @@ export async function runProjectWeek(
 
           // Only project players who are plausibly still active.
           //
-          // History spans two seasons, so without this a player who retired, was released,
+          // History spans three seasons, so without this a player who retired, was released,
           // or has been on injured reserve since September keeps producing a confident
           // projection from stale form — and `mean <= 0` never catches them, because their
           // old form was good. Two rules, both derived from what the data can actually

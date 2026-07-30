@@ -93,6 +93,67 @@ function providerFor(teamCount: number): NflverseProvider {
   });
 }
 
+/**
+ * A week-1 provider: current-season week-1 rows establish teams, and history comes from a
+ * prior season.
+ *
+ * `staleSeasonsBack` places the stale player's only appearance that many seasons before the
+ * one being projected. Everyone else has history in `SEASON - 1`.
+ */
+function week1Provider(staleSeasonsBack: number): NflverseProvider {
+  const header = [
+    "player_id", "player_name", "player_display_name", "position", "season", "week",
+    "season_type", "team", "opponent_team",
+    "receptions", "targets", "receiving_yards", "receiving_tds",
+  ];
+  const rows: string[][] = [];
+  const line = (id: string, season: number, week: number, team: string, opp: string) => [
+    id, `P ${id}`, `P ${id}`, "WR", String(season), String(week), "REG", team, opp,
+    "5", "8", "60", "0",
+  ];
+
+  // 30 of 32 teams have a healthy player: prior-season form plus a week-1 appearance.
+  for (let t = 0; t < 30; t += 1) {
+    const team = TEAMS[t];
+    const opp = TEAMS[t % 2 === 0 ? t + 1 : t - 1];
+    for (let w = 14; w <= 17; w += 1) rows.push(line(`ok${t}`, SEASON - 1, w, team, opp));
+    rows.push(line(`ok${t}`, SEASON, 1, team, opp));
+  }
+
+  // The player under test: last seen `staleSeasonsBack` seasons ago, but present in this
+  // week's stats file, so his team resolves and only the staleness rule can exclude him.
+  rows.push(line("stale", SEASON - staleSeasonsBack, 17, TEAMS[0], TEAMS[1]));
+  rows.push(line("stale", SEASON, 1, TEAMS[0], TEAMS[1]));
+
+  const bySeason = new Map<number, string[][]>();
+  for (const r of rows) {
+    const season = Number(r[4]);
+    bySeason.set(season, [...(bySeason.get(season) ?? []), r]);
+  }
+  const csv = (season: number) =>
+    [header.join(","), ...(bySeason.get(season) ?? []).map((r) => r.join(","))].join("\n");
+
+  const games = gamesCsv();
+  return new NflverseProvider(async (url) => {
+    if (url === schedulesUrl()) return games;
+    for (const season of bySeason.keys()) {
+      if (url === weeklyStatsUrl(season)) return csv(season);
+    }
+    throw new Error(`${url} responded 404`);
+  });
+}
+
+/** Ids written for a run, across every batch. */
+async function projectedIds(provider: NflverseProvider, week: number) {
+  const { ctx, calls } = recordingCtx();
+  await runProjectWeek(ctx, { season: SEASON, week }, provider);
+  return new Set(
+    projectionWrites(calls).flatMap((c) =>
+      (c.args.rows as { playerId: string }[]).map((r) => r.playerId),
+    ),
+  );
+}
+
 interface Recorded {
   fn: string;
   args: Record<string, unknown>;
@@ -160,6 +221,30 @@ describe("projectWeek team coverage", () => {
   // The threshold itself, pinned from both sides. 90% of 32 teams is 28.8, so 29 covered
   // teams is the first passing count. Stating it as a test means a change to
   // MIN_TEAM_COVERAGE has to be deliberate rather than incidental.
+  it("writes a week-1 board once most of week 1 has been played", async () => {
+    // Week 1 is not permanently unprojectable. Before kickoff no team resolves and the
+    // coverage check keeps the board unpublished, but once the games are in the stats
+    // file, teams resolve from current-season appearances and the run proceeds normally.
+    const ids = await projectedIds(week1Provider(1), 1);
+    expect(ids.size).toBeGreaterThan(0);
+  });
+
+  it("does not project a player who has been absent for a whole season", async () => {
+    // The cross-season staleness rule, exercised through the real call site — which is the
+    // only place the argument order of `weeksBetween` is observable. Reversing it makes
+    // every gap negative and admits every stale player.
+    //
+    // `stale` last appeared in week 17 two seasons ago. Measured properly that is 20 weeks,
+    // well past INACTIVITY_WEEKS; measured as though it were the immediately prior season
+    // it is 2, and he is projected from form over a year old.
+    const twoSeasons = await projectedIds(week1Provider(2), 1);
+    expect(twoSeasons.has("stale")).toBe(false);
+
+    // The control: the same player, same week of the *previous* season, is recent enough.
+    const oneSeason = await projectedIds(week1Provider(1), 1);
+    expect(oneSeason.has("stale")).toBe(true);
+  });
+
   it("passes at the first count that clears the threshold", async () => {
     const { ctx, calls } = recordingCtx();
     const result = await runProjectWeek(
