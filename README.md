@@ -132,6 +132,16 @@ The suite deliberately contains no mocks of our own modules. The domain core is 
 is tested with real values; the provider seams take an injectable fetcher, so adapters are
 tested against fixtures rather than the network.
 
+**Where the tests are, and are not.** Roughly 2,300 of the ~2,900 lines under `lib/` are
+covered by unit tests, concentrated where the risk is: the scoring engine, the projection
+model, the optimiser, entitlement derivation, and the parsers.
+
+`convex/` has **no tests**. That is a real gap, mitigated but not closed by the fact that it
+is deliberately thin — every decision it makes (what a plan entitles, what a player is
+projected at, which lineup is optimal) is delegated to a pure function that *is* tested, so
+the untested code is mostly argument validation and indexed reads. Closing it properly means
+adding `convex-test`; it is the first thing worth doing next.
+
 ## Known gaps
 
 Stated plainly rather than left to be discovered.
