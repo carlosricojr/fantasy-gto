@@ -303,6 +303,33 @@ export function isKnownPlanKey(key: string | null | undefined): boolean {
 }
 
 /**
+ * Whether a Clerk status is one `statusFromClerk` actually recognises.
+ *
+ * Needed because `statusFromClerk` maps the unrecognised and the genuinely-ended to the
+ * same `"none"`. Those must be handled differently: ending a subscription should revoke
+ * access, whereas a status we simply do not model tells us nothing and must not.
+ */
+export function isKnownSubscriptionStatus(raw: string | null | undefined): boolean {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  if (normalized === "") return true; // absent is a known state: no subscription
+  return KNOWN_CLERK_STATUSES.has(normalized);
+}
+
+const KNOWN_CLERK_STATUSES: ReadonlySet<string> = new Set([
+  "active",
+  "trialing",
+  "trial",
+  "past_due",
+  "unpaid",
+  "canceled",
+  "cancelled",
+  // Clerk's terminal spellings. These do mean "no longer entitled", so they map to
+  // "none" deliberately rather than by falling through.
+  "ended",
+  "expired",
+]);
+
+/**
  * Maps a Clerk subscription status to ours, failing closed on anything unrecognised.
  */
 export function statusFromClerk(raw: string | null | undefined): SubscriptionStatus {
@@ -318,6 +345,9 @@ export function statusFromClerk(raw: string | null | undefined): SubscriptionSta
     case "canceled":
     case "cancelled":
       return "canceled";
+    case "ended":
+    case "expired":
+      return "none";
     default:
       return "none";
   }

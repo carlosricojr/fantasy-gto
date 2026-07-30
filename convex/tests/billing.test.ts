@@ -351,7 +351,11 @@ describe("applyClerkEvent", () => {
     expect(audits.some((a) => a.kind === "billing.unresolvable_event")).toBe(true);
   });
 
-  it("records a subscription event for a user it has never seen", async () => {
+  it("applies a subscription event that arrives before the user exists", async () => {
+    // Clerk does not guarantee that `user.created` is delivered before the subscription
+    // event for the same checkout. Dropping the event loses the upgrade permanently: the
+    // webhook returns 200 so there is no retry, and nothing replays it later. The
+    // subscriber has paid, so the account is created and the plan applied.
     const t = convexTest(schema, modules);
     const result = await t.mutation(internal.billing.applyClerkEvent, {
       eventType: "subscription.updated",
@@ -361,9 +365,68 @@ describe("applyClerkEvent", () => {
       ...NO_EVENT_EXTRAS,
     });
 
-    expect(result.applied).toBe(false);
+    expect(result.applied).toBe(true);
     const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
-    expect(audits.some((a) => a.kind === "billing.orphan_event")).toBe(true);
+    expect(audits.some((a) => a.kind === "billing.provisioned_user")).toBe(true);
+
+    // The provisional row is adopted by the real user, not duplicated, and the plan they
+    // paid for is in force by the time they first sign in.
+    await asUser(t, "never_seen").mutation(api.users.ensure, {});
+    const users = await t.run(async (ctx) => await ctx.db.query("users").collect());
+    expect(users.filter((u) => u.clerkUserId === "never_seen")).toHaveLength(1);
+    expect((await asUser(t, "never_seen").query(api.users.me, {})).plan).toBe("pro");
+  });
+
+  it("does not end a subscription on a status it does not model", async () => {
+    // Clerk emits statuses this code does not map — `upcoming` on a scheduled plan
+    // change, among others. `statusFromClerk` collapses those to "none", which
+    // `effectivePlan` reads as free regardless of the period already paid for, so an
+    // active subscriber would be downgraded mid-period by an event that says nothing
+    // about whether they are still subscribed.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u_sched").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_sched",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    expect((await asUser(t, "u_sched").query(api.users.me, {})).plan).toBe("pro");
+
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscriptionItem.updated",
+      clerkUserId: "u_sched",
+      planKey: "pro",
+      status: "upcoming",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u_sched").query(api.users.me, {})).plan).toBe("pro");
+    const audits = await t.run(async (ctx) => await ctx.db.query("audit").collect());
+    expect(audits.some((a) => a.kind === "billing.unknown_status")).toBe(true);
+  });
+
+  it("still ends a subscription on a terminal status", async () => {
+    // The counterpart: "ended" is modelled, so it must revoke rather than be preserved.
+    const t = convexTest(schema, modules);
+    await asUser(t, "u_end").mutation(api.users.ensure, {});
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_end",
+      planKey: "pro",
+      status: "active",
+      ...NO_EVENT_EXTRAS,
+    });
+    await t.mutation(internal.billing.applyClerkEvent, {
+      eventType: "subscription.updated",
+      clerkUserId: "u_end",
+      planKey: "pro",
+      status: "ended",
+      ...NO_EVENT_EXTRAS,
+    });
+
+    expect((await asUser(t, "u_end").query(api.users.me, {})).plan).toBe("free");
   });
 
   it("ignores an unrelated event without changing access", async () => {

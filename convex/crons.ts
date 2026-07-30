@@ -5,10 +5,11 @@ import { internal } from "./_generated/api";
 /**
  * Scheduled refreshes.
  *
- * This file exists because the entitlement table sells `daily_refresh`. Without a
- * scheduler nothing ever recomputed a projection, so that capability would have been sold
- * against a job that never ran — the same class of defect as granting a feature that does
- * not exist.
+ * These keep the projection board current for everyone. `daily_refresh` appears in the
+ * entitlement table but is `false` on both plans and listed in `UNIMPLEMENTED_FEATURES`,
+ * precisely because these jobs rewrite shared rows that `projections.forWeek` serves to
+ * free and Pro alike — there is no difference to sell. If refresh frequency is ever tiered,
+ * that has to be built here and in the read path, not by flipping the flag.
  *
  * Two jobs, deliberately separate:
  *

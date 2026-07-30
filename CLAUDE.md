@@ -72,7 +72,9 @@ Adding a sport means adding an adapter under `lib/<sport>/` that implements the 
 
 - **ESPN's fantasy league API has no working host.** `lm.espn.com` and
   `lm-api-reads.espn.com` are NXDOMAIN on public DNS. "ESPN-first" is no longer the
-  strategy and cannot be. CSV and manual entry are the guaranteed roster paths.
+  strategy and cannot be. CSV parsing and `leagues.setRoster` are
+  implemented and tested, but no screen calls either yet — `/lineup` is the working path
+  and needs no saved roster.
 - **It is currently the offseason.** Resolve the season from data availability, never from
   `new Date().getFullYear()` — see `lib/nfl/season.ts`.
 - **nflverse CSVs contain quoted fields with commas.** Use `lib/nfl/csv.ts`, never

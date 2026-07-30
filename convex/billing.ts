@@ -1,11 +1,13 @@
 import { v } from "convex/values";
 
-import { internalMutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { type MutationCtx, internalMutation } from "./_generated/server";
 
 import {
   type PlanId,
   type SubscriptionStatus,
   isKnownPlanKey,
+  isKnownSubscriptionStatus,
   planFromClerkKey,
   statusFromClerk,
 } from "../lib/billing/entitlements";
@@ -104,6 +106,36 @@ export const setSubscription = internalMutation({
 });
 
 /**
+ * Creates a minimal user row for a Clerk id seen first on a billing event.
+ *
+ * Deliberately not exported. The only caller is the orphan-event path below, and the row
+ * carries an empty email until a `user.*` event supplies one — a user who has paid but
+ * whose profile has not arrived yet is a real state, and it is better represented than
+ * discarded.
+ */
+async function provisionUser(
+  ctx: MutationCtx,
+  clerkUserId: string,
+  eventType: string,
+  now: number,
+): Promise<Doc<"users">> {
+  const userId = await ctx.db.insert("users", {
+    clerkUserId,
+    email: "",
+    createdAt: now,
+  });
+  await ctx.db.insert("audit", {
+    kind: "billing.provisioned_user",
+    userId,
+    detail: `${eventType} arrived before any user event for ${clerkUserId}; account created`,
+    at: now,
+  });
+  const created = await ctx.db.get(userId);
+  if (created === null) throw new Error("provisioned user vanished");
+  return created;
+}
+
+/**
  * Applies a Clerk webhook event.
  *
  * Event names vary across Clerk's billing surface, so this matches on substrings rather
@@ -158,19 +190,20 @@ export const applyClerkEvent = internalMutation({
       return { applied: false };
     }
 
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", args.clerkUserId!))
-      .first();
-    if (!user) {
-      await ctx.db.insert("audit", {
-        kind: "billing.orphan_event",
-        userId: null,
-        detail: `${args.eventType} for unknown Clerk user ${args.clerkUserId}`,
-        at: now,
-      });
-      return { applied: false };
-    }
+    // A subscription event can arrive before `user.created`. Auditing and dropping it
+    // loses the upgrade permanently: the handler returns 200 so Svix never retries, and
+    // nothing replays the audit row when the user later appears — the subscriber has paid
+    // and is entitled to nothing. So the account is provisioned here instead.
+    //
+    // The email is filled in by whichever `user.*` event or first sign-in arrives next;
+    // `upsertFromClerk` patches it, and `users.ensure` matches on the Clerk id, so the row
+    // is adopted rather than duplicated.
+    const user =
+      (await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkUserId", args.clerkUserId!))
+        .first()) ??
+      (await provisionUser(ctx, args.clerkUserId, args.eventType, now));
 
     const existing = await ctx.db
       .query("subscriptions")
@@ -210,6 +243,28 @@ export const applyClerkEvent = internalMutation({
       });
     }
 
+    // An unrecognised status is not evidence of anything, and must not be read as the
+    // end of a subscription.
+    //
+    // `statusFromClerk` collapses "not modelled" and "ended" into the same `"none"`, and
+    // `effectivePlan` treats `"none"` as free regardless of the period already paid for.
+    // Clerk emits statuses this code does not model — `upcoming` on a scheduled plan
+    // change, among others — so without this an active subscriber scheduling a change
+    // drops to free mid-period. The plan-key path above already reasons this way; the
+    // status path did not, and unlike the plan key it left no audit row to diagnose from.
+    const statusUnrecognised =
+      !isPaymentFailure && !isKnownSubscriptionStatus(args.status);
+    if (statusUnrecognised) {
+      await ctx.db.insert("audit", {
+        kind: "billing.unknown_status",
+        userId: user._id,
+        detail:
+          `${args.eventType} carried unrecognised status "${args.status}"; ` +
+          `keeping status=${existing?.status ?? "none"}`,
+        at: now,
+      });
+    }
+
     // An unrecognised (as opposed to absent) price key resolves to free, which would
     // silently downgrade a paying customer. Record it so the misconfiguration is visible.
     if (!isPaymentFailure && !planUnresolved && !isKnownPlanKey(args.planKey)) {
@@ -231,7 +286,9 @@ export const applyClerkEvent = internalMutation({
 
     const status: SubscriptionStatus = isPaymentFailure
       ? "past_due"
-      : statusFromClerk(args.status);
+      : statusUnrecognised
+        ? (existing?.status ?? "none")
+        : statusFromClerk(args.status);
 
     const pastDueSince = status === "past_due" ? (existing?.pastDueSince ?? now) : null;
 

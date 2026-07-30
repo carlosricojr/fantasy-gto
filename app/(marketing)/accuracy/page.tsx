@@ -92,8 +92,9 @@ export default function AccuracyPage() {
         <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
           <li>
             <strong className="text-foreground">Long memory, not recency.</strong> A
-            last-three-games average is clearly worse than a season average. Weighting
-            recent form heavily discards more signal than it captures.
+            last-three-games average is clearly worse than the average of every prior game
+            a player has. Weighting recent form heavily discards more signal than it
+            captures.
           </li>
           <li>
             <strong className="text-foreground">

@@ -3,9 +3,17 @@ import type { Position } from "../scoring/types";
 /**
  * Frozen model constants.
  *
- * Every number here was selected by sweeping on the 2024 season and then evaluated once,
- * unchanged, on 2025. None of them were chosen by intuition. `docs/model-validation.md`
- * records the sweeps, and `backtest.ts` reproduces them.
+ * The five parameters the model is actually sensitive to — `EMA_ALPHA`,
+ * `USAGE_WEIGHT_CAP`, `DVP_WEIGHT`, `VEGAS_WEIGHT`, and the calibration toggle — were
+ * selected by sweeping on the 2024 season and then evaluated once, unchanged, on 2025.
+ * `CALIBRATION`, `OUTCOME_QUANTILES`, and `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` are measured
+ * rather than swept, and `pnpm backtest` prints each of them so the checked-in value can be
+ * compared against what the data currently says.
+ *
+ * The remaining constants — the clamp bounds, the shrinkage strengths, and
+ * `EFFICIENCY_PRIOR` — are judgement, not measurement. They are documented individually as
+ * such. Do not read this file as claiming every number in it was derived.
+ * `docs/model-validation.md` records the sweeps.
  *
  * Changing a value here without re-running the backtest and updating that document is a
  * defect, because the product's published accuracy figure is derived from this exact
@@ -17,16 +25,21 @@ export const MODEL_VERSION = "fgto-1.0.0";
 /**
  * EMA smoothing on prior fantasy points.
  *
- * Low, meaning long memory. This was the most consequential finding of the sweep: a
- * last-3-game average scores MAE 6.36 while a season-to-date mean scores 5.99, so
- * aggressive recency weighting actively destroys signal. Weekly fantasy scoring is noisy
- * enough that older games remain informative.
+ * Low, meaning long memory. This was the most consequential finding of the sweep, and the
+ * baseline comparison makes the point most directly: on 2025 a last-3-game average scores
+ * MAE 6.36 against 5.99 for the mean of every prior game the player has (across up to three
+ * seasons — deliberately not a season-to-date mean, which would be a weaker baseline and
+ * would flatter the model). Aggressive recency weighting destroys signal. Weekly fantasy
+ * scoring is noisy enough that older games remain informative.
  */
 export const EMA_ALPHA = 0.15;
 
 /**
  * Ceiling on how much weight the usage-implied volume estimate may take from the
- * points EMA. Ramps in at 0.15 per prior game, so a player with one game barely uses it.
+ * points EMA. Ramps in at 0.15 per prior game, so it saturates after two games and a
+ * player with a single game already carries three quarters of the cap. The ramp only
+ * matters in production: the backtest requires four prior games, so every measured run has
+ * the weight pinned at the cap.
  */
 export const USAGE_WEIGHT_CAP = 0.2;
 
@@ -120,9 +133,11 @@ export interface QuantileBand {
 /**
  * Quantiles of actual/projected, used to turn a point estimate into a floor and ceiling.
  *
- * QB, RB, WR, and TE are measured out-of-sample on 2025 after calibration, **under PPR
- * scoring**, and `pnpm backtest` prints them — these values are copied from its output, not
- * from memory. Applied to another ruleset they are an approximation, not a measurement. The spread is
+ * QB, RB, WR, and TE are measured on 2025 after calibration, **under PPR scoring**, and
+ * `pnpm backtest` prints them — these values are copied from its output, not from memory.
+ * Note that these bands are fitted on the same predictions the evaluation MAE is computed
+ * from, so unlike that MAE they are an in-sample description of the spread, not an
+ * out-of-sample claim about it. Applied to another ruleset they are an approximation, not a measurement. The spread is
  * enormous — a tenth-percentile outcome is around a fifth of the projection and a
  * ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
  * the week-to-week variance of fantasy football, and showing it honestly is more useful
@@ -143,7 +158,10 @@ export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
 
 /**
  * League-average implied team total, used only as a fallback when a team has no
- * season history of its own to compare against. Measured across 14,036 team-games.
+ * season history of its own to compare against.
+ *
+ * Measured across 14,036 team-games and reproduced by `pnpm backtest`, which prints it
+ * alongside the checked-in value.
  */
 export const LEAGUE_MEAN_IMPLIED_TEAM_TOTAL = 21.745;
 
@@ -172,7 +190,9 @@ export interface ModelConfig {
   /**
    * Reference for the Vegas adjustment. `team` compares this game's implied total against
    * the team's own prior weeks; `league` compares it against the league average, which
-   * sweeping showed to be actively harmful.
+   * sweeping showed to be worth very little at its best weight and harmful beyond it —
+   * worse at full weight than omitting the term. `team` is better at every weight above
+   * zero. See the sweeps table in `docs/model-validation.md`.
    */
   readonly vegasReference: "team" | "league";
 }

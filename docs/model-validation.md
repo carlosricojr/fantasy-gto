@@ -161,7 +161,8 @@ MAE from 5.8324 to 5.8236 and cut bias from −0.627 to −0.573.
 
 Two things are worth reading off that table. The league-referenced Vegas sweep buys a
 little at 0.25 and then degrades steeply, ending worse than leaving the term out, while the
-team-referenced sweep has a genuine interior optimum that is better at every weight tried.
+team-referenced sweep has a genuine interior optimum, and beats the league reference at
+every weight above zero — the two are identical at zero, where the term is skipped.
 And calibration moves the metric further than the usage, Vegas, and matchup terms combined.
 
 ### Implementation agreement
@@ -206,7 +207,7 @@ more than both combined — which is the honest ordering of what actually matter
 
 Weekly fantasy football scoring is dominated by irreducible variance. An MAE near 5.9
 points against a mean around 12 means the error is roughly half the signal, and no amount of
-feature engineering on public box-score data closes that. A ~2.5% edge over a strong
+feature engineering on public box-score data closes that. A 2.74% edge over a strong
 baseline is a real but modest result, and it is the truthful characterization of this model.
 
 The product's defensible value is therefore **not** projection supremacy. It is:

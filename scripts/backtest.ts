@@ -31,6 +31,7 @@ import {
 import {
   DEFAULT_MODEL_CONFIG,
   DVP_SHRINKAGE,
+  LEAGUE_MEAN_IMPLIED_TEAM_TOTAL,
   type ModelConfig,
 } from "@/lib/nfl/model/config";
 import { PPR } from "@/lib/nfl/scoring/presets";
@@ -266,6 +267,24 @@ async function main(): Promise<void> {
     }
   }
 
+  /**
+   * The league mean implied team total, which `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` freezes.
+   *
+   * Reported for the same reason the quantiles and calibration factors are: it was a
+   * constant in `config.ts` marked as measured with nothing checked in that produced it,
+   * and it is load-bearing — `project.ts` uses it as the Vegas reference for any team with
+   * no prior week of its own.
+   */
+  function reportLeagueMeanImpliedTotal(): void {
+    const all = [...teamTotals.values()].flat();
+    const mean = all.reduce((sum, e) => sum + e.impliedTotal, 0) / all.length;
+    process.stdout.write(
+      `\n  league mean implied team total\n` +
+        `  across ${all.length} team-games: ${mean.toFixed(3)}\n` +
+        `  (frozen in config.ts as ${LEAGUE_MEAN_IMPLIED_TEAM_TOTAL})\n`,
+    );
+  }
+
   const positions: Position[] = ["QB", "RB", "WR", "TE"];
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
@@ -421,6 +440,7 @@ async function main(): Promise<void> {
   }
 
   reportCalibration();
+  reportLeagueMeanImpliedTotal();
 
   process.stdout.write(
     "\nThe out-of-sample figure is the only one the product may quote.\n" +

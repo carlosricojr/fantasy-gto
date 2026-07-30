@@ -114,11 +114,14 @@ This is a hard constraint on the product, not a temporary outage.
 The previous implementation targeted `lm.espn.com`, a host that does not resolve, so its
 league import could never have worked.
 
-**Design consequence.** ESPN league import cannot be the guaranteed onboarding path. It is
-implemented as an optional adapter behind an interface, with a configurable base URL so it
-can be pointed at a working host or proxy if one becomes available, and it must degrade to
-a clear "unavailable" state rather than throwing. The guaranteed roster-input paths are CSV
-upload and manual entry, and the projections product works with no league connected at all.
+**Design consequence.** ESPN league import cannot be the guaranteed onboarding path. The
+`LeagueProvider` seam in `lib/core/providers.ts` is where such an adapter would go, and it
+carries an `isAvailable()` so a provider can report "unavailable" rather than throw — but
+**no ESPN adapter is implemented**, because there is no host to point one at. The
+projections product works with no league connected at all, which is what makes that
+acceptable. Roster input is covered by `lib/nfl/lineup-csv.ts` and `leagues.setRoster`,
+both implemented and tested, though neither is wired to a screen yet — see the known gaps
+in the README.
 
 ## 4. Seasonal state
 

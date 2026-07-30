@@ -398,9 +398,16 @@ export async function runProjectWeek(
         return { projections: 0, players: identities.size, unknownTeam };
       }
 
+      // One stamp for the whole run. Every row this run writes carries it, so the prune
+      // below identifies an earlier run's leftovers by exact comparison rather than by
+      // where batch boundaries happened to fall in time.
+      const writeStartedAt = Date.now();
       for (const rows of pending) {
         for (const batch of chunk(rows, WRITE_BATCH)) {
-          await ctx.runMutation(internal.projections.upsertBatch, { rows: batch });
+          await ctx.runMutation(internal.projections.upsertBatch, {
+            rows: batch,
+            computedAt: writeStartedAt,
+          });
           written += batch.length;
           await ctx.runMutation(internal.jobs.progress, {
             jobId,
@@ -409,6 +416,15 @@ export async function runProjectWeek(
           });
         }
       }
+
+      // Anything left from an earlier run that this one did not rewrite is stale — a
+      // player who has since been traded, benched, or put on a bye. Pruned only after the
+      // coverage check passed, so a failed run cannot empty a good board.
+      await ctx.runMutation(internal.projections.pruneStale, {
+        season,
+        week,
+        computedBefore: writeStartedAt,
+      });
 
       await ctx.runMutation(internal.jobs.finish, {
         jobId,

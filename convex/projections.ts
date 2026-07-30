@@ -21,8 +21,9 @@ const contributionValidator = v.object({
  * Projections for a week, ranked by mean.
  *
  * `limit` is applied after sorting so the caller always receives the top players rather
- * than an arbitrary page. Position filtering happens in the database predicate where
- * possible and in memory only across the already-narrow week slice.
+ * than an arbitrary page. Position is filtered in memory: `by_week_scoring` carries no
+ * position component, and adding one to narrow a slice that is already a single week of a
+ * single ruleset would not pay for itself.
  */
 export const forWeek = query({
   args: {
@@ -92,6 +93,36 @@ export const forPlayers = query({
 });
 
 /**
+ * Deletes rows for a week that the run which just completed did not rewrite.
+ *
+ * Upserts alone leave a stale board. A player projected on Tuesday who is then traded to a
+ * team on bye is simply skipped by Wednesday's run — no row is written for them and no row
+ * is removed, so the Tuesday row keeps being served with its old team and old opponent.
+ * `forWeek` filters on neither freshness nor job status, so `/lineup` would start a player
+ * who cannot score, from a solver advertised as provably optimal.
+ *
+ * Called once per week after a run passes its coverage check, so a failed run never prunes
+ * a good board.
+ */
+export const pruneStale = internalMutation({
+  args: { season: v.number(), week: v.number(), computedBefore: v.number() },
+  handler: async (ctx, { season, week, computedBefore }) => {
+    // Strictly less-than: rows stamped with this run's own value are the current board.
+    const stale = await ctx.db
+      .query("projections")
+      // Prefix of by_week_scoring, so this covers every ruleset in one scan.
+      .withIndex("by_week_scoring", (q) =>
+        q.eq("sport", "nfl").eq("season", season).eq("week", week),
+      )
+      .filter((q) => q.lt(q.field("computedAt"), computedBefore))
+      .collect();
+
+    for (const row of stale) await ctx.db.delete(row._id);
+    return { deleted: stale.length };
+  },
+});
+
+/**
  * Writes a batch of projections.
  *
  * Internal-only and idempotent: a re-run patches the existing row for a
@@ -116,9 +147,18 @@ export const upsertBatch = internalMutation({
         modelVersion: v.string(),
       }),
     ),
+    /**
+     * The stamp every row in this run carries.
+     *
+     * Supplied by the caller rather than read from the clock here, because a run spans
+     * many transactions and `pruneStale` distinguishes this run's rows from an earlier
+     * run's by exact comparison against it. Reading `Date.now()` per batch would make
+     * that boundary depend on how the batches happened to fall across milliseconds.
+     */
+    computedAt: v.optional(v.number()),
   },
-  handler: async (ctx, { rows }) => {
-    const now = Date.now();
+  handler: async (ctx, { rows, computedAt }) => {
+    const now = computedAt ?? Date.now();
     let inserted = 0;
     let updated = 0;
 

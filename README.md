@@ -131,11 +131,13 @@ Every claim the interface makes, and the computation behind it.
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
 | Residual bias of −0.57 points | Published on `/accuracy` rather than hidden. |
 
-**Removed.** The previous version claimed "+8.2 points/week vs platform projections" and
+**Withdrawn.** The original plan claimed "+8.2 points/week vs platform projections" and
 "beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model
-cannot support them — the real edge over the strongest baseline tried is 2.74%. Weekly fantasy scoring
-is dominated by variance that no model built on public box-score data removes. The claims
-were deleted rather than softened.
+cannot support them — the real edge over the strongest baseline tried is 2.74%. Weekly
+fantasy scoring is dominated by variance that no model built on public box-score data
+removes. Neither claim appears anywhere in the product. Both are struck through in
+`docs/technical-specification.md`, which is retained only as the record of original intent
+and is marked superseded at the top.
 
 Any change to the model must re-run `pnpm backtest` and update `docs/model-validation.md`
 in the same commit. A number that is not in that document may not appear in the interface.
@@ -213,9 +215,12 @@ real Convex functions with a real identity.
 
 Stated plainly rather than left to be discovered.
 
-- **ESPN league import is not functional.** No working host exists — `lm.espn.com` and
-  `lm-api-reads.espn.com` are NXDOMAIN on public DNS. The `LeagueProvider` seam is in place
-  and CSV/manual entry works.
+- **No league import exists, and no screen writes a roster.** ESPN has no working host —
+  `lm.espn.com` and `lm-api-reads.espn.com` are both NXDOMAIN on public DNS — so no adapter
+  is implemented behind the `LeagueProvider` seam. CSV parsing (`lib/nfl/lineup-csv.ts`)
+  and roster storage (`leagues.setRoster`) are implemented and tested, but nothing in `app/`
+  calls either, so today a league can be created and never populated. `/lineup` is the
+  working path: it takes the players you pick and returns the optimal arrangement.
 - **D/ST and kicker projections are not computed.** Scoring for both is implemented and
   tested; the model currently projects skill positions only.
 - **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
