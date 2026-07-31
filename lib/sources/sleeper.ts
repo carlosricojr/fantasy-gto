@@ -132,10 +132,16 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
     const name = `${first} ${last}`.trim();
     if (name === "") continue;
 
+    // A pick whose seat is unknown cannot be attributed to a team, and defaulting it to
+    // zero silently files it under a manager who did not make it — which is worse than
+    // dropping it, because the roster it corrupts is then used to compute odds.
+    const draftSlot = toInt(row.draft_slot);
+    if (draftSlot === null) continue;
+
     picks.push({
       overall,
       round: toInt(row.round) ?? 0,
-      draftSlot: toInt(row.draft_slot) ?? 0,
+      draftSlot,
       playerName: name,
       position:
         typeof metadata.position === "string" ? metadata.position.toUpperCase() : null,

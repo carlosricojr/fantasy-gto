@@ -351,7 +351,9 @@ async function main(): Promise<void> {
     );
   }
 
-  const edge = ((blended - adpOnly) / adpOnly) * 100;
+  // A zero correlation for the market would make the edge infinite or NaN, and it would
+  // be printed next to real figures as though it meant something.
+  const edge = adpOnly === 0 ? Number.NaN : ((blended - adpOnly) / adpOnly) * 100;
   const top24 = {
     market: topN(evaluation, evaluation.market, 24),
     blended: topN(evaluation, blendValues, 24),

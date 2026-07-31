@@ -809,7 +809,7 @@ export async function runBuildDraftBoard(
         name: entry.name,
         position: entry.position,
         team: entry.team,
-        modelPoints: modelPoints ?? 0,
+        modelPoints,
         marketPoints,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: market?.adp ?? null,
@@ -837,7 +837,7 @@ export async function runBuildDraftBoard(
         name: entry.name,
         position: "DST",
         team: entry.team,
-        modelPoints: 0,
+        modelPoints: null,
         marketPoints,
         blendedPoints: blendedSeasonValue(null, marketPoints),
         adp: entry.adp,
@@ -914,6 +914,9 @@ export const refreshDraftBoards = internalAction({
     const target = season === null ? null : season.isComplete ? season.season + 1 : null;
     if (target === null) return { rebuilt: 0, failed: [] };
 
+    // One provider for the whole run. `seasonRoster` and `playerWeeks` fetch and parse on
+    // every call, so a fresh provider per shape re-downloaded three multi-megabyte CSVs
+    // twelve times inside a single action.
     const provider = new NflverseProvider();
     const adpProvider = new AdpProvider();
 

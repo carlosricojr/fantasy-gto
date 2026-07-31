@@ -16,7 +16,7 @@ const boardRowValidator = v.object({
   name: v.string(),
   position: v.string(),
   team: v.union(v.string(), v.null()),
-  modelPoints: v.number(),
+  modelPoints: v.union(v.number(), v.null()),
   marketPoints: v.union(v.number(), v.null()),
   blendedPoints: v.number(),
   adp: v.union(v.number(), v.null()),

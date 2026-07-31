@@ -143,6 +143,21 @@ export function simulateLeague(
   const requiredRounds = bracketRoundsRequired(
     Math.min(config.playoffTeams, teamCount),
   );
+  // Every team must carry a score for every week the simulation will read. Indexing past
+  // the end yields `undefined`, which compares false against everything and propagates as
+  // NaN through the point totals — a silently wrong standings table rather than an error.
+  const weeksNeeded = regularWeeks + config.playoffWeeks.length;
+  for (const [team, scenarios] of teamScores.entries()) {
+    for (const weekly of scenarios) {
+      if (weekly.length < weeksNeeded) {
+        throw new Error(
+          `Team ${team} has scores for ${weekly.length} week(s) but the season needs ` +
+            `${weeksNeeded}. Sample with the same config the league is simulated with.`,
+        );
+      }
+    }
+  }
+
   if (config.playoffWeeks.length < requiredRounds) {
     throw new Error(
       `A ${config.playoffTeams}-team bracket needs ${requiredRounds} playoff week(s), ` +

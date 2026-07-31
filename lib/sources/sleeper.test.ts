@@ -89,16 +89,32 @@ describe("parsePicks", () => {
 
   it("skips a pick with no usable name rather than inventing one", () => {
     const picks = parsePicks([
-      { pick_no: 1, metadata: {} },
-      { pick_no: 2, metadata: { first_name: "Real", last_name: "Player" } },
+      { pick_no: 1, draft_slot: 1, metadata: {} },
+      { pick_no: 2, draft_slot: 2, metadata: { first_name: "Real", last_name: "Player" } },
     ]);
     expect(picks).toHaveLength(1);
     expect(picks[0].playerName).toBe("Real Player");
   });
 
+  it("drops a pick whose seat is unknown rather than attributing it to seat zero", () => {
+    // The seat decides which manager owns the pick. Defaulting it files the player under
+    // somebody who did not take him, and that roster is what the odds are computed from —
+    // strictly worse than not recording the pick at all.
+    expect(
+      parsePicks([{ pick_no: 1, metadata: { first_name: "A", last_name: "B" } }]),
+    ).toEqual([]);
+    expect(
+      parsePicks([
+        { pick_no: 1, draft_slot: "not a number", metadata: { first_name: "A", last_name: "B" } },
+      ]),
+    ).toEqual([]);
+  });
+
   it("skips a pick with no overall number", () => {
     // Without it the pick cannot be placed in the draft at all.
-    expect(parsePicks([{ metadata: { first_name: "A", last_name: "B" } }])).toEqual([]);
+    expect(
+      parsePicks([{ draft_slot: 1, metadata: { first_name: "A", last_name: "B" } }]),
+    ).toEqual([]);
   });
 
   it("survives junk entries", () => {
@@ -108,7 +124,7 @@ describe("parsePicks", () => {
 
   it("handles a single-name player", () => {
     const picks = parsePicks([
-      { pick_no: 5, metadata: { first_name: "", last_name: "Ogunbowale" } },
+      { pick_no: 5, draft_slot: 3, metadata: { first_name: "", last_name: "Ogunbowale" } },
     ]);
     expect(picks[0].playerName).toBe("Ogunbowale");
   });

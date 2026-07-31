@@ -278,10 +278,16 @@ export function recommendByChampionship(
   if (state.available.length === 0) return [];
 
   // Narrow the field cheaply, then judge what is left properly.
+  // The roster's own lineup value does not depend on the candidate, so it is solved once
+  // rather than once per player on a board of several hundred.
+  const rosterBaseline = solveLineup(
+    config.slots,
+    me.roster.map(toCompetitor),
+  ).totalPoints;
   const shortlist = [...state.available]
     .map((player) => ({
       player,
-      filter: prefilterValue(me.roster, player, config.slots),
+      filter: prefilterValue(me.roster, player, config.slots, rosterBaseline),
     }))
     .sort((a, b) => b.filter - a.filter)
     .slice(0, Math.max(candidateLimit, 1))

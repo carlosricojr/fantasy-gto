@@ -79,6 +79,28 @@ export function canonicalizeState(state: DraftPolicyState): CanonicalState {
  * truncated — truncation collides systematically, a hash does not.
  */
 export function digestIds(ids: readonly string[]): string {
+  return digestStrings(ids);
+}
+
+/**
+ * Digest of a player's identity *and* the numbers the simulation reads from him.
+ *
+ * Keying a memo on ids alone is not enough: the board is rebuilt twice a day through the
+ * preseason, and a rebuild that moves a player's price, variance, availability or ADP
+ * without changing who is on the board produces an identical key. The cached answer is
+ * then served for a board that no longer exists, labelled as cached.
+ */
+export function digestPlayers(players: readonly PlayerRisk[]): string {
+  return digestStrings(
+    players.map(
+      (p) =>
+        `${p.id}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:${p.byeWeek ?? "-"}:` +
+        `${p.availability.toFixed(4)}:${p.adp ?? "-"}:${p.adpStdev ?? "-"}`,
+    ),
+  );
+}
+
+function digestStrings(ids: readonly string[]): string {
   let hash = 0x811c9dc5;
   for (const id of [...ids].sort()) {
     for (let i = 0; i < id.length; i += 1) {
@@ -112,7 +134,7 @@ export function stateSignature(state: CanonicalState): string {
       return `${index}:${ids}|${picks}`;
     })
     .join(";");
-  const pool = digestIds(state.available.map((p) => p.id));
+  const pool = digestPlayers(state.available);
   return `me=${state.myTeamIndex};size=${state.rosterSize};pool=${pool};${teams}`;
 }
 

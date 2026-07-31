@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
-import { EmptyState, PageShell } from "@/components/page-shell";
+import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { snakePicks } from "@/lib/core/draft";
@@ -14,6 +14,7 @@ import type { LeagueConfig } from "@/lib/core/season-sim";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
+import { GAMES_IN_SEASON } from "@/lib/nfl/draft/config";
 import { useRecommendations } from "./use-recommendations";
 
 /**
@@ -30,8 +31,18 @@ import { useRecommendations } from "./use-recommendations";
  * likely to win.
  */
 
-const SEASON = 2026;
 const SEED = 20260731;
+
+/**
+ * League sizes a board is built for.
+ *
+ * ADP is published per league size, so a board is not transferable and offering a size
+ * that was never built is a dead end on the first screen. Mirrors
+ * `DRAFT_BOARD_LEAGUE_SIZES` in `convex/ingest.ts`.
+ */
+const LEAGUE_SIZES = [8, 10, 12, 14] as const;
+
+const PLAYOFF_FIELDS = [4, 6] as const;
 
 /** Scenarios per recommendation. 600 resolves the ordering; 300 leaves the top few tied. */
 const SCENARIOS = 600;
@@ -63,14 +74,40 @@ export default function DraftPage() {
   /** Overall pick number to the team index that made it. Index 0 is always the user. */
   const [picks, setPicks] = useState<Record<number, string>>({});
 
-  const board = useQuery(api.draft.board, { season: SEASON, scoringId, teams });
-  const freshness = useQuery(api.draft.boardFreshness, {
-    season: SEASON,
-    scoringId,
-    teams,
-  });
+  const [playoffTeams, setPlayoffTeams] = useState<number>(6);
+
+  // The season being drafted is the one after the last completed one, resolved from the
+  // schedule rather than hardcoded — a literal year silently serves last season's board
+  // once the calendar rolls over.
+  const seasonState = useQuery(api.season.current, {});
+  const season =
+    seasonState === undefined
+      ? null
+      : seasonState === null
+        ? null
+        : seasonState.isComplete
+          ? seasonState.season + 1
+          : seasonState.season;
+
+  const board = useQuery(
+    api.draft.board,
+    season === null ? "skip" : { season, scoringId, teams },
+  );
+  const freshness = useQuery(
+    api.draft.boardFreshness,
+    season === null ? "skip" : { season, scoringId, teams },
+  );
 
   const recommender = useRecommendations();
+
+  // Lowering the league size after choosing a slot left `slot > teams`, and `snakePicks`
+  // then produced the pick set of a different seat. Because the owner map is written
+  // team-0-first and last write wins, that other team overwrote every one of the user's
+  // picks: they owned nothing for the whole draft, "Your roster" never filled, and every
+  // recommendation was computed for a team that could not pick. Nothing said so.
+  useEffect(() => {
+    if (slot > teams) setSlot(teams);
+  }, [slot, teams]);
 
   const starters = useMemo(() => slotsForTemplate(templateId), [templateId]);
 
@@ -80,8 +117,16 @@ export default function DraftPage() {
         id: row.playerId,
         name: row.name,
         position: row.position,
-        // The board carries a season total; the simulation works per week.
-        weeklyMean: row.blendedPoints / 17,
+        // Points per game *played*, which is what `PlayerRisk.weeklyMean` means.
+        //
+        // `blendedPoints` is an expected season total and already carries the injury
+        // discount: the model half multiplies by expected games, and the market half is
+        // fitted against actual season points, which include the games players missed.
+        // Dividing by a full season and then letting the simulator drop weeks for
+        // availability applies that discount twice — a player at 0.50 availability
+        // realised half his already-discounted value, so a 300-point season came out at
+        // 150. Dividing by expected games played undoes it exactly once.
+        weeklyMean: row.blendedPoints / (GAMES_IN_SEASON * Math.max(row.availability, 0.05)),
         p10: row.p10,
         p90: row.p90,
         byeWeek: row.byeWeek,
@@ -116,6 +161,18 @@ export default function DraftPage() {
 
   const onTheClock = pickOwners.get(currentPick) === 0;
 
+  /** The seat a team index actually occupies, so nobody is announced by the wrong number. */
+  const seatOf = (index: number): number =>
+    index === 0 ? slot : index < slot ? index : index + 1;
+
+  const clockOwner = pickOwners.get(currentPick);
+  const clockLabel =
+    clockOwner === undefined
+      ? "Nobody"
+      : clockOwner === 0
+        ? "You"
+        : `Seat ${seatOf(clockOwner)}`;
+
   const draftState = useMemo<DraftPolicyState | null>(() => {
     if (pool.length === 0) return null;
     const rosters: PlayerRisk[][] = Array.from({ length: teams }, () => []);
@@ -130,7 +187,7 @@ export default function DraftPage() {
 
     const draftTeams: DraftTeam[] = rosters.map((roster, index) => ({
       id: `t${index}`,
-      name: index === 0 ? "You" : `Team ${index + 1}`,
+      name: index === 0 ? "You" : `Seat ${index < slot ? index : index + 1}`,
       roster,
       remainingPicks: [...pickOwners.entries()]
         .filter(([pick, team]) => team === index && pick >= currentPick)
@@ -144,18 +201,18 @@ export default function DraftPage() {
       available: pool.filter((p) => !taken.has(p.id)),
       rosterSize: rounds,
     };
-  }, [pool, picks, pickOwners, byId, teams, rounds, currentPick]);
+  }, [pool, picks, pickOwners, byId, teams, rounds, currentPick, slot]);
 
   const config = useMemo<LeagueConfig>(
     () => ({
       slots: starters,
       weeks: Array.from({ length: 14 }, (_, i) => i + 1),
       playoffWeeks: [15, 16, 17],
-      playoffTeams: 6,
+      playoffTeams,
       scenarios: SCENARIOS,
       meanAbsenceWeeks: 3,
     }),
-    [starters],
+    [starters, playoffTeams],
   );
 
   // Recompute whenever the board changes, including while opponents are picking — the
@@ -182,7 +239,15 @@ export default function DraftPage() {
     return prefix.slice(0, 8);
   }, [search, draftState]);
 
+  const drafted = useMemo(() => new Set(Object.values(picks)), [picks]);
+
   function record(playerId: string): void {
+    // A stale recommendation panel keeps a live Pick button next to a player who has just
+    // been taken, and a double tap on a phone is the ordinary way to hit it twice. Without
+    // this the same player lands on two rosters and is scored twice, while the player
+    // actually taken at that pick is never recorded and stays on the board.
+    if (drafted.has(playerId)) return;
+    if (currentPick > totalPicks) return;
     setPicks((previous) => ({ ...previous, [currentPick]: playerId }));
     setSearch("");
   }
@@ -195,21 +260,10 @@ export default function DraftPage() {
     });
   }
 
-  if (board === undefined) {
+  if (season === null || board === undefined) {
     return (
       <PageShell title="Draft" subtitle="Loading the board…">
         <div className="h-40 animate-pulse rounded-lg bg-muted" aria-hidden />
-      </PageShell>
-    );
-  }
-
-  if (board.length === 0) {
-    return (
-      <PageShell title="Draft" subtitle="No board for this league shape.">
-        <EmptyState
-          title="Nothing to draft from yet"
-          body={`No ${SEASON} board has been built for ${teams}-team ${scoringId.replace("_", " ")}. Seed one with "npx convex run ingest:buildDraftBoard".`}
-        />
       </PageShell>
     );
   }
@@ -223,13 +277,46 @@ export default function DraftPage() {
         <section className="rounded-lg border p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Teams">
-              <NumberPicker value={teams} onChange={setTeams} min={4} max={16} />
+              <div className="flex flex-wrap gap-2" role="group" aria-label="League size">
+                {LEAGUE_SIZES.map((size) => (
+                  <Button
+                    key={size}
+                    size="sm"
+                    variant={size === teams ? "default" : "outline"}
+                    aria-pressed={size === teams}
+                    onClick={() => setTeams(size)}
+                  >
+                    {size}
+                  </Button>
+                ))}
+              </div>
             </Field>
             <Field label="Rounds">
-              <NumberPicker value={rounds} onChange={setRounds} min={1} max={30} />
+              <NumberPicker label="Rounds" value={rounds} onChange={setRounds} min={1} max={30} />
             </Field>
             <Field label="Your draft slot">
-              <NumberPicker value={slot} onChange={setSlot} min={1} max={teams} />
+              <NumberPicker
+                label="Your draft slot"
+                value={slot}
+                onChange={setSlot}
+                min={1}
+                max={teams}
+              />
+            </Field>
+            <Field label="Playoff teams">
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Playoff teams">
+                {PLAYOFF_FIELDS.filter((field) => field < teams).map((field) => (
+                  <Button
+                    key={field}
+                    size="sm"
+                    variant={field === playoffTeams ? "default" : "outline"}
+                    aria-pressed={field === playoffTeams}
+                    onClick={() => setPlayoffTeams(field)}
+                  >
+                    {field}
+                  </Button>
+                ))}
+              </div>
             </Field>
             <Field label="Scoring">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Scoring">
@@ -272,9 +359,20 @@ export default function DraftPage() {
             {rounds > 6 ? "…" : ""}
           </p>
 
-          <Button className="mt-6" onClick={() => setStarted(true)}>
-            Start draft
-          </Button>
+          {board.length === 0 ? (
+            // Deliberately inside the form rather than replacing it. Unmounting the setup
+            // screen took the Teams control away with it, leaving no way back except a
+            // full reload — and told an end user to run an internal CLI command.
+            <p className="mt-6 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+              No {season} board has been built for {teams}-team{" "}
+              {scoringId.replace("_", " ")} yet. Pick another size or scoring format above;
+              boards exist for {LEAGUE_SIZES.join(", ")}-team leagues.
+            </p>
+          ) : (
+            <Button className="mt-6" onClick={() => setStarted(true)}>
+              Start draft
+            </Button>
+          )}
         </section>
 
         <Caveat freshness={freshness ?? null} boardSize={board.length} />
@@ -290,7 +388,7 @@ export default function DraftPage() {
           ? "Draft complete."
           : onTheClock
             ? `Pick ${currentPick} — you are on the clock.`
-            : `Pick ${currentPick} — Team ${(pickOwners.get(currentPick) ?? 0) + 1}.`
+            : `Pick ${currentPick} — ${clockLabel}.`
       }
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -308,12 +406,20 @@ export default function DraftPage() {
             </p>
           ) : null}
 
-          <Recommendations state={recommender} onPick={record} onTheClock={onTheClock} />
+          <Recommendations
+            state={recommender}
+            onPick={record}
+            onTheClock={onTheClock}
+            clockLabel={clockLabel}
+          />
 
           <section className="mt-6">
-            <h2 className="text-sm font-medium">Record a pick</h2>
+            <h2 className="text-sm font-medium">
+              Record pick {currentPick} &mdash; {clockLabel}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Every pick, not only yours — opponents&rsquo; rosters decide the odds.
+              Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
+              missing one makes every number after it wrong.
             </p>
             <Input
               className="mt-3"
@@ -380,10 +486,12 @@ function Recommendations({
   state,
   onPick,
   onTheClock,
+  clockLabel,
 }: {
   state: ReturnType<typeof useRecommendations>;
   onPick: (id: string) => void;
   onTheClock: boolean;
+  clockLabel: string;
 }) {
   if (state.loading) {
     return <div className="h-32 animate-pulse rounded-lg bg-muted" aria-hidden />;
@@ -429,9 +537,22 @@ function Recommendations({
                   : ""}
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => onPick(rec.player.id)}>
-              Pick
-            </Button>
+            {/*
+              The button only records *your* pick, and only when the pick belongs to you.
+              It used to render regardless: during an opponent's turn the panel says "if
+              the board holds, take X", and tapping it wrote X as that opponent's pick —
+              so you did not get the player, and whoever they really took stayed on the
+              board and kept being recommended.
+            */}
+            {onTheClock ? (
+              <Button size="sm" variant="outline" onClick={() => onPick(rec.player.id)}>
+                Draft
+              </Button>
+            ) : (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {clockLabel} picks next
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -488,10 +609,12 @@ function Caveat({
       {freshness === null
         ? "Freshness unknown."
         : `Board built ${new Date(freshness.computedAt).toLocaleString()}.`}{" "}
-      Player values blend the market&rsquo;s price with our own projection; measured
-      out-of-sample, the market ranks players better than our model does and no edge over it
-      is claimed. Kickers and defences carry the market&rsquo;s price alone. Scoring is
-      limited to PPR, half PPR and standard.
+      Odds assume a 14-week regular season and a three-week bracket. Player values blend
+      the market&rsquo;s price with our own projection; measured out-of-sample, the market
+      ranks players better than our model does and no edge over it is claimed. Kickers and
+      defences carry the market&rsquo;s price alone. Scoring is limited to PPR, half PPR and
+      standard. Opponents&rsquo; unfilled roster spots are completed by a simple
+      best-available rule, so early-round odds lean on that assumption more than late ones.
     </p>
   );
 }
@@ -506,11 +629,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function NumberPicker({
+  label,
   value,
   onChange,
   min,
   max,
 }: {
+  label: string;
   value: number;
   onChange: (next: number) => void;
   min: number;
@@ -519,6 +644,7 @@ function NumberPicker({
   return (
     <Input
       type="number"
+      aria-label={label}
       value={value}
       min={min}
       max={max}

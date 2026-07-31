@@ -147,8 +147,13 @@ export default defineSchema({
     name: v.string(),
     position: v.string(),
     team: v.union(v.string(), v.null()),
-    /** Our own season projection. */
-    modelPoints: v.number(),
+    /**
+     * Our own season projection, or `null` where the model has no opinion — a rookie with
+     * no prior games, a kicker, a defence. Stored as null rather than zero so the
+     * interface can tell "we project nothing" from "we have nothing to say", which is the
+     * distinction the blend itself turns on.
+     */
+    modelPoints: v.union(v.number(), v.null()),
     /** The market's implied points for this draft slot, or null if it has no opinion. */
     marketPoints: v.union(v.number(), v.null()),
     /** What the board ranks on. */

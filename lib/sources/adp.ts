@@ -120,8 +120,9 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
       position: typeof row.position === "string" ? row.position.toUpperCase() : "",
       team: typeof row.team === "string" && row.team.trim() !== "" ? row.team.trim() : null,
       adp,
-      // A zero or missing spread would make ADP a hard deadline. Falling back to a
-      // positive default keeps the survival curve a curve.
+      // Kept as published, including a zero. The survival model owns the decision about
+      // what a missing spread means, and defaulting it here would hide which players had
+      // no dispersion at all — see `DEFAULT_ADP_STDEV`.
       stdev: toNumber(row.stdev) ?? 0,
       timesDrafted: toNumber(row.times_drafted),
       bye: toNumber(row.bye),

@@ -272,7 +272,19 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   }
 
   /** All regular-season player-weeks for a season. */
+  private readonly weeksCache = new Map<number, ProviderResult<PlayerWeek[]>>();
+
   async playerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
+    // Same reasoning as the roster cache: one action builds many boards from the same two
+    // seasons of statistics, and these are the largest files the project touches.
+    const cached = this.weeksCache.get(season);
+    if (cached !== undefined) return cached;
+    const result = await this.fetchPlayerWeeks(season);
+    this.weeksCache.set(season, result);
+    return result;
+  }
+
+  private async fetchPlayerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     try {
       const text = await this.fetchText(weeklyStatsUrl(season));
       return ok(toRegularSeasonPlayerWeeks(parseCsv(text)));
@@ -291,10 +303,32 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * with a `status` other than `ACT`, and a draft board that offered them would be
    * recommending players who will not take a snap.
    */
+  private readonly rosterCache = new Map<number, ProviderResult<RosterEntry[]>>();
+
   async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
+    // Cached for the provider's lifetime. A single action builds a board for every scoring
+    // format and league size, and each one needs the same roster file; without this it is
+    // fetched and parsed once per shape.
+    const cached = this.rosterCache.get(season);
+    if (cached !== undefined) return cached;
+    const result = await this.fetchSeasonRoster(season);
+    this.rosterCache.set(season, result);
+    return result;
+  }
+
+  private async fetchSeasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
     try {
       const text = await this.fetchText(seasonRosterUrl(season));
-      return ok(parseSeasonRoster(parseCsv(text)));
+      const entries = parseSeasonRoster(parseCsv(text));
+      // An empty file parses cleanly and would report success, leaving every downstream
+      // caller to conclude the league has no players rather than that the fetch was bad.
+      if (entries.length === 0) {
+        return failed(
+          `Rosters for ${season} parsed to no active players. The release is probably a ` +
+            `placeholder that has not been populated yet.`,
+        );
+      }
+      return ok(entries);
     } catch (cause) {
       return failed(
         `Rosters for ${season} are unavailable. They are usually published well before ` +

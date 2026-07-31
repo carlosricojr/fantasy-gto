@@ -165,8 +165,21 @@ function simulateAvailability(
 ): boolean[] {
   const availability = Math.min(Math.max(player.availability, 0), 1);
   const r = 1 / Math.max(meanAbsenceWeeks, 1);
-  // Steady state of the chain is r / (q + r); solve for q to hit the target rate.
-  const q = availability >= 1 ? 0 : (r * (1 - availability)) / availability;
+
+  // A player who never plays is a fixed state, not a chain — solving for `q` divides by
+  // zero and yields Infinity.
+  if (availability <= 0) return weeks.map(() => false);
+  if (availability >= 1) {
+    return weeks.map((week) => week !== player.byeWeek);
+  }
+
+  // Steady state of the chain is r / (q + r); solve for q to hit the target rate. Clamped
+  // because `q` is a probability: below roughly a quarter the unclamped solution exceeds
+  // one, at which point `rng.next() >= q` is never true, the player goes down every week
+  // regardless, and the realised rate stops matching the target it was solved for. The
+  // board does not currently produce a value that low — `shrunkAvailability` floors near
+  // 0.31 — but this is a public function and the invariant should hold for any caller.
+  const q = Math.min((r * (1 - availability)) / availability, 1);
 
   const out: boolean[] = [];
   let healthy = rng.next() < availability;
