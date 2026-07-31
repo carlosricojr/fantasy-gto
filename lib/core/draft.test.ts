@@ -10,6 +10,8 @@ import {
   normalCdf,
   recommendDraftPicks,
   rosterValue,
+  pickOwnership,
+  seatForTeamIndex,
   snakePicks,
   survivalProbability,
 } from "./draft";
@@ -355,5 +357,75 @@ describe("snakePicks", () => {
       .flat()
       .sort((a, b) => a - b);
     expect(all).toEqual(Array.from({ length: teams * rounds }, (_, i) => i + 1));
+  });
+});
+
+describe("pick ownership", () => {
+  /** Every league shape the interface can produce, plus a few beyond it. */
+  const shapes: Array<[number, number]> = [];
+  for (const teams of [4, 6, 8, 10, 11, 12, 14, 16]) {
+    for (let slot = 1; slot <= teams; slot += 1) shapes.push([teams, slot]);
+  }
+
+  it("gives every pick in the draft exactly one owner, for every shape", () => {
+    // The invariant that matters. Three separate defects hid behind an ownership map that
+    // rendered fine and was silently wrong: one seat overwrote another's picks, some picks
+    // ended up owned by nobody, and a player recorded against an unowned pick was never
+    // marked as taken and kept being recommended after he was gone.
+    const rounds = 15;
+    for (const [teams, slot] of shapes) {
+      const owners = pickOwnership(teams, slot, rounds);
+      expect(owners.size).toBe(teams * rounds);
+      for (let pick = 1; pick <= teams * rounds; pick += 1) {
+        expect(owners.get(pick)).toBeDefined();
+      }
+    }
+  });
+
+  it("gives every team the same number of picks", () => {
+    const rounds = 12;
+    for (const [teams, slot] of shapes) {
+      const counts = new Array<number>(teams).fill(0);
+      for (const team of pickOwnership(teams, slot, rounds).values()) counts[team] += 1;
+      for (const count of counts) expect(count).toBe(rounds);
+    }
+  });
+
+  it("puts the user at index 0 owning exactly their own slot's picks", () => {
+    for (const [teams, slot] of shapes) {
+      const owners = pickOwnership(teams, slot, 10);
+      const mine = [...owners.entries()]
+        .filter(([, team]) => team === 0)
+        .map(([pick]) => pick)
+        .sort((a, b) => a - b);
+      expect(mine).toEqual(snakePicks(slot, teams, 10).sort((a, b) => a - b));
+    }
+  });
+
+  it("maps team indices onto distinct seats", () => {
+    for (const [teams, slot] of shapes) {
+      const seats = Array.from({ length: teams }, (_, i) => seatForTeamIndex(i, slot));
+      expect(new Set(seats).size).toBe(teams);
+      expect(seats.every((seat) => seat >= 1 && seat <= teams)).toBe(true);
+      expect(seatForTeamIndex(0, slot)).toBe(slot);
+    }
+  });
+
+  it("refuses a slot outside the league instead of producing another seat's picks", () => {
+    // The failure this prevents was silent: a slot of 12 in a ten-team league returns the
+    // pick set of seat 9, and every number in it looks perfectly ordinary.
+    expect(() => snakePicks(12, 10, 15)).toThrow(/outside a 10-team league/);
+    expect(() => snakePicks(0, 10, 15)).toThrow();
+    expect(() => snakePicks(-1, 10, 15)).toThrow();
+    expect(() => snakePicks(1.5, 10, 15)).toThrow();
+    expect(() => pickOwnership(10, 12, 15)).toThrow();
+  });
+
+  it("still reverses each round, and gives the turn manager back-to-back picks", () => {
+    const owners = pickOwnership(12, 1, 4);
+    // Seat 1 picks first in odd rounds and last in even ones.
+    expect(owners.get(1)).toBe(0);
+    expect(owners.get(24)).toBe(0);
+    expect(owners.get(25)).toBe(0);
   });
 });

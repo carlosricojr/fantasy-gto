@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { blendedSeasonValue, expectedGames, seasonProjection } from "./value";
+import {
+  MIN_AVAILABILITY_FOR_RATE,
+  blendedSeasonValue,
+  expectedGames,
+  perGameRate,
+  seasonProjection,
+} from "./value";
 import { MODEL_BLEND_WEIGHT } from "./config";
 
 /**
@@ -64,5 +70,50 @@ describe("seasonProjection", () => {
   it("never projects more games than a season has", () => {
     expect(expectedGames(40)).toBeLessThanOrEqual(17);
     expect(expectedGames(-5)).toBeGreaterThan(0);
+  });
+});
+
+describe("perGameRate", () => {
+  const GAMES = 17;
+
+  it("round-trips: the simulator realises the season total it was given", () => {
+    // The property the whole conversion exists for. A season total goes in, the simulator
+    // plays the player in `availability` of his games, and what comes out must be the
+    // total we started with — otherwise the discount has been applied a different number
+    // of times than once.
+    for (const availability of [0.3, 0.5, 0.75, 0.94, 1]) {
+      for (const seasonPoints of [80, 210, 300]) {
+        const rate = perGameRate(seasonPoints, availability, GAMES);
+        const realised = rate * availability * GAMES;
+        expect(realised).toBeCloseTo(seasonPoints, 6);
+      }
+    }
+  });
+
+  it("charges the fragile player nothing extra, which the naive conversion did not", () => {
+    // Dividing by a full season and letting the simulator discount again cost a player at
+    // 0.50 availability half his value — 150 points of an intended 300 — while barely
+    // touching an ironman. The error was entirely differential.
+    const naive = (season: number) => season / GAMES;
+    const fragile = 0.5;
+    expect(naive(300) * fragile * GAMES).toBeCloseTo(150, 6);
+    expect(perGameRate(300, fragile, GAMES) * fragile * GAMES).toBeCloseTo(300, 6);
+  });
+
+  it("gives a fragile player a higher per-game rate than a durable one at equal totals", () => {
+    // He has to score more in each game he plays to reach the same season total.
+    expect(perGameRate(300, 0.5, GAMES)).toBeGreaterThan(perGameRate(300, 1, GAMES));
+  });
+
+  it("does not divide by zero or explode at no recorded availability", () => {
+    const rate = perGameRate(200, 0, GAMES);
+    expect(Number.isFinite(rate)).toBe(true);
+    expect(rate).toBe(perGameRate(200, MIN_AVAILABILITY_FOR_RATE, GAMES));
+  });
+
+  it("is zero for a player worth nothing, whatever his availability", () => {
+    for (const availability of [0, 0.5, 1]) {
+      expect(perGameRate(0, availability, GAMES)).toBe(0);
+    }
   });
 });

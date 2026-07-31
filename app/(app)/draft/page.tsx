@@ -7,14 +7,14 @@ import { api } from "@/convex/_generated/api";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { snakePicks } from "@/lib/core/draft";
+import { pickOwnership, seatForTeamIndex, snakePicks } from "@/lib/core/draft";
 import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
-import { GAMES_IN_SEASON } from "@/lib/nfl/draft/config";
+import { perGameRate } from "@/lib/nfl/draft/value";
 import { useRecommendations } from "./use-recommendations";
 
 /**
@@ -117,16 +117,9 @@ export default function DraftPage() {
         id: row.playerId,
         name: row.name,
         position: row.position,
-        // Points per game *played*, which is what `PlayerRisk.weeklyMean` means.
-        //
-        // `blendedPoints` is an expected season total and already carries the injury
-        // discount: the model half multiplies by expected games, and the market half is
-        // fitted against actual season points, which include the games players missed.
-        // Dividing by a full season and then letting the simulator drop weeks for
-        // availability applies that discount twice — a player at 0.50 availability
-        // realised half his already-discounted value, so a 300-point season came out at
-        // 150. Dividing by expected games played undoes it exactly once.
-        weeklyMean: row.blendedPoints / (GAMES_IN_SEASON * Math.max(row.availability, 0.05)),
+        // Points per game *played*, which is what `PlayerRisk.weeklyMean` means. See
+        // `perGameRate` for why dividing by a full season here discounted twice.
+        weeklyMean: perGameRate(row.blendedPoints, row.availability),
         p10: row.p10,
         p90: row.p90,
         byeWeek: row.byeWeek,
@@ -139,17 +132,15 @@ export default function DraftPage() {
 
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
 
-  /** Every pick in the draft, in order, with the team that owns it. */
-  const pickOwners = useMemo(() => {
-    const owners = new Map<number, number>();
-    for (let team = 0; team < teams; team += 1) {
-      // The user is team index 0 regardless of their draft slot, which is what lets the
-      // simulation always evaluate "us" first.
-      const seat = team === 0 ? slot : team < slot ? team : team + 1;
-      for (const pick of snakePicks(seat, teams, rounds)) owners.set(pick, team);
-    }
-    return owners;
-  }, [teams, rounds, slot]);
+  // Ownership comes from `lib/core/draft.ts`, where it is tested against the invariant
+  // that every pick in the draft has exactly one owner, for every league shape. It was
+  // inlined here once and silently gave one seat's picks to another.
+  const pickOwners = useMemo(
+    // `slot` is clamped above, but a render can happen between the state update and the
+    // effect, so an out-of-range slot must not throw the page down.
+    () => (slot > teams ? new Map<number, number>() : pickOwnership(teams, slot, rounds)),
+    [teams, rounds, slot],
+  );
 
   const totalPicks = teams * rounds;
   const currentPick = useMemo(() => {
@@ -161,17 +152,13 @@ export default function DraftPage() {
 
   const onTheClock = pickOwners.get(currentPick) === 0;
 
-  /** The seat a team index actually occupies, so nobody is announced by the wrong number. */
-  const seatOf = (index: number): number =>
-    index === 0 ? slot : index < slot ? index : index + 1;
-
   const clockOwner = pickOwners.get(currentPick);
   const clockLabel =
     clockOwner === undefined
       ? "Nobody"
       : clockOwner === 0
         ? "You"
-        : `Seat ${seatOf(clockOwner)}`;
+        : `Seat ${seatForTeamIndex(clockOwner, slot)}`;
 
   const draftState = useMemo<DraftPolicyState | null>(() => {
     if (pool.length === 0) return null;
@@ -187,7 +174,7 @@ export default function DraftPage() {
 
     const draftTeams: DraftTeam[] = rosters.map((roster, index) => ({
       id: `t${index}`,
-      name: index === 0 ? "You" : `Seat ${index < slot ? index : index + 1}`,
+      name: index === 0 ? "You" : `Seat ${seatForTeamIndex(index, slot)}`,
       roster,
       remainingPicks: [...pickOwners.entries()]
         .filter(([pick, team]) => team === index && pick >= currentPick)
@@ -355,7 +342,7 @@ export default function DraftPage() {
 
           <p className="mt-4 text-sm text-muted-foreground">
             Your picks:{" "}
-            {snakePicks(slot, teams, rounds).slice(0, 6).join(", ")}
+            {slot <= teams ? snakePicks(slot, teams, rounds).slice(0, 6).join(", ") : "—"}
             {rounds > 6 ? "…" : ""}
           </p>
 

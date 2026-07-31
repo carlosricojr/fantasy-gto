@@ -211,3 +211,31 @@ export function blendedSeasonValue(
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+/**
+ * Converts an expected season total into points per game *played*.
+ *
+ * The simulator wants what a player scores in a week he suits up, and then decides
+ * separately how often that happens. A season total is not that number: it already carries
+ * the injury discount, because the model half multiplies by expected games and the market
+ * half is fitted against actual season points, which include the games players missed.
+ *
+ * Handing the simulator `seasonPoints / games` and an availability alongside it therefore
+ * discounted twice. Measured on the shipped board, a player at 0.50 availability realised
+ * 150 points of an intended 300 — and an ironman was barely touched, so the error fell
+ * entirely on the injury-prone, who are exactly the players the market has already priced
+ * for it.
+ *
+ * The floor stops a player with no recorded availability from dividing the total up to
+ * nothing; below it the season estimate is too thin to rescale meaningfully anyway.
+ */
+export const MIN_AVAILABILITY_FOR_RATE = 0.05;
+
+export function perGameRate(
+  seasonPoints: number,
+  availability: number,
+  gamesInSeason: number = GAMES_IN_SEASON,
+): number {
+  const usable = Math.max(availability, MIN_AVAILABILITY_FOR_RATE);
+  return seasonPoints / (gamesInSeason * usable);
+}

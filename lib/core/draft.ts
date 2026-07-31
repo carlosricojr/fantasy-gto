@@ -436,18 +436,73 @@ export function recommendDraftPicks(
   );
 }
 
-/** Picks a manager owns in a snake draft, as overall pick numbers. */
+/**
+ * Picks a manager owns in a snake draft, as overall pick numbers.
+ *
+ * `slot` must be within the league. Outside it the arithmetic still produces numbers — a
+ * slot of 12 in a ten-team league yields the pick set of seat 9 — and those numbers look
+ * entirely plausible, which is how an out-of-range slot silently handed a manager's whole
+ * draft to somebody else. Rejecting it here is the only place that cannot be forgotten.
+ */
 export function snakePicks(
   slot: number,
   teams: number,
   rounds: number,
 ): number[] {
+  if (!Number.isInteger(slot) || slot < 1 || slot > teams) {
+    throw new Error(
+      `Draft slot ${slot} is outside a ${teams}-team league. The pick numbers this ` +
+        `produces belong to a different seat.`,
+    );
+  }
+
   const picks: number[] = [];
   for (let round = 1; round <= rounds; round += 1) {
     const positionInRound = round % 2 === 1 ? slot : teams - slot + 1;
     picks.push((round - 1) * teams + positionInRound);
   }
   return picks;
+}
+
+/**
+ * Which team owns each pick, with the manager being advised always at index 0.
+ *
+ * Index 0 is not a cosmetic convention — `championshipProbability` evaluates the first team
+ * in the array, so "us" has to be first, and every other manager shifts up one. Getting
+ * that mapping wrong is invisible: the board still renders, picks still land somewhere, and
+ * the only symptom is that the advice is computed for the wrong roster.
+ *
+ * It threw away the user's entire draft once. With `slot` left above `teams`, the snake
+ * arithmetic produced another seat's pick numbers, and because the map is written index-0
+ * first with last-write-wins, that seat overwrote all of them — the user owned nothing, was
+ * never on the clock, and every recommendation was computed for a team that could not pick.
+ * The invariant worth asserting is not "it looks right" but that **every pick in the draft
+ * is owned by exactly one team**.
+ */
+export function pickOwnership(
+  teams: number,
+  slot: number,
+  rounds: number,
+): Map<number, number> {
+  const owners = new Map<number, number>();
+  for (let index = 0; index < teams; index += 1) {
+    for (const pick of snakePicks(seatForTeamIndex(index, slot), teams, rounds)) {
+      owners.set(pick, index);
+    }
+  }
+  return owners;
+}
+
+/**
+ * The seat a team index occupies.
+ *
+ * Index 0 is the user, sitting at their chosen slot; everyone else fills the remaining
+ * seats in order. Announcing a manager by their array index instead named every seat below
+ * the user's one higher than it really is.
+ */
+export function seatForTeamIndex(index: number, slot: number): number {
+  if (index === 0) return slot;
+  return index < slot ? index : index + 1;
 }
 
 function maxAdp(players: readonly DraftableCompetitor[]): number {
