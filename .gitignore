@@ -57,3 +57,6 @@ package-lock.json
 # agent/tooling scratch files — must never be committed
 scripts/__tmp_*
 **/__proto/
+
+# Left only if a mutation run is killed mid-test; the next run cleans it up.
+*.mutate-backup

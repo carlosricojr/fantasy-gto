@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -241,6 +241,33 @@ function listTestFiles(): string[] {
 }
 
 /** The whole domain project, used once to establish the baseline. */
+/**
+ * Where a file's pristine contents are parked while it carries a mutant.
+ *
+ * Signal handlers are not enough on their own. The run spends nearly all of its time
+ * blocked inside a synchronous child process, and Node cannot execute a handler while the
+ * event loop is blocked — so a Ctrl-C during a test run, or any hard kill, leaves the
+ * mutant on disk. A file on disk survives what a handler cannot, and the next run cleans
+ * up after the last one.
+ */
+function backupPathFor(path: string): string {
+  return `${path}.mutate-backup`;
+}
+
+/** Undoes a run that was killed before it could restore. */
+function recoverAbandonedMutants(files: readonly string[]): string[] {
+  const recovered: string[] = [];
+  for (const file of files) {
+    const path = join(process.cwd(), file);
+    const backup = backupPathFor(path);
+    if (!existsSync(backup)) continue;
+    writeFileSync(path, readFileSync(backup, "utf8"));
+    rmSync(backup, { force: true });
+    recovered.push(file);
+  }
+  return recovered;
+}
+
 function runAll(): boolean {
   try {
     execFileSync(VITEST, ["run", "--project", "domain", "--silent=true"], {
@@ -285,6 +312,14 @@ async function main(): Promise<void> {
   const targets = args.filter((a) => a.endsWith(".ts"));
   const files = targets.length > 0 ? targets : DEFAULT_TARGETS;
 
+  const recovered = recoverAbandonedMutants(files);
+  if (recovered.length > 0) {
+    process.stdout.write(
+      `\nRecovered ${recovered.length} file(s) left mutated by an earlier run: ` +
+        `${recovered.join(", ")}\n`,
+    );
+  }
+
   const allTests = listTestFiles();
   process.stdout.write("\nBaseline: the suite must be green before mutating.\n");
   if (!runAll()) {
@@ -313,6 +348,25 @@ async function main(): Promise<void> {
   let killed = 0;
   let tested = 0;
 
+  // The file currently carrying a mutant, so an interrupt restores that one and only that
+  // one. The handlers are installed once.
+  let inFlight: { path: string; original: string } | null = null;
+  const restoreInFlight = (): void => {
+    if (inFlight !== null) {
+      writeFileSync(inFlight.path, inFlight.original);
+      rmSync(backupPathFor(inFlight.path), { force: true });
+    }
+    inFlight = null;
+  };
+  process.on("SIGINT", () => {
+    restoreInFlight();
+    process.exit(130);
+  });
+  process.on("uncaughtException", (error) => {
+    restoreInFlight();
+    throw error;
+  });
+
   for (const file of files) {
     const path = join(process.cwd(), file);
     const original = readFileSync(path, "utf8");
@@ -328,26 +382,29 @@ async function main(): Promise<void> {
     // The file on disk is deliberately corrupted between these two writes, so an
     // interrupt in the wrong millisecond would leave a mutant committed. Restoring from a
     // handler as well as a `finally` covers Ctrl-C and an unexpected throw alike.
-    const restore = (): void => writeFileSync(path, original);
-    process.once("SIGINT", () => {
-      restore();
-      process.exit(130);
-    });
-    process.once("uncaughtException", (error) => {
-      restore();
-      throw error;
-    });
+    // Registered once for the whole run, not once per file. Adding a handler per file
+    // accumulated them — the warning about eleven SIGINT listeners was the symptom — and
+    // because `process.once` fires them all, an interrupt restored every file the run had
+    // touched using whichever `original` each closure had captured. Correct by accident
+    // for finished files, and wrong for the one actually being mutated if the order ever
+    // changed. A single mutable pointer to the file in flight cannot get that wrong.
 
     for (const mutant of mutants) {
       const lines = original.split("\n");
       lines[mutant.line - 1] = mutant.after;
       let green = false;
       try {
+        // Set immediately before the write and cleared by the restore, so the pointer is
+        // non-null for exactly the window in which a file on disk is corrupted.
+        // Backup first, mutate second. Between these two writes the file on disk is
+        // wrong, and that is the only window a hard kill can land in.
+        writeFileSync(backupPathFor(path), original);
+        inFlight = { path, original };
         writeFileSync(path, lines.join("\n"));
         tested += 1;
         green = runTests(tests);
       } finally {
-        restore();
+        restoreInFlight();
       }
 
       if (green) {

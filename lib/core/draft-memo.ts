@@ -55,7 +55,11 @@ export function leagueFingerprint(
     .sort()
     .join(",");
   return [
-    `slots=${digestIds([slots])}`,
+    // Embedded rather than digested. `digestIds` is a 32-bit hash, and a collision here is
+    // exactly the failure this fingerprint exists to prevent — a superflex answer served
+    // to a single-quarterback league. The pool is digested because it is hundreds of ids
+    // long; a slot list is a few dozen characters and saves nothing worth that risk.
+    `slots=${slots}`,
     // Which weeks, not how many. A bye lands inside one league's schedule and outside
     // another's, and that is exactly the collision the objective exists to price — two
     // leagues with playoffs in weeks 15-17 and 14-16 are both "3" but are not the same
