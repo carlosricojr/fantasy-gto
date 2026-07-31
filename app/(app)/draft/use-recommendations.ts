@@ -1,0 +1,139 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import type { ChampionshipRecommendation, DraftPolicyState } from "@/lib/core/draft-policy";
+import type { LeagueConfig } from "@/lib/core/season-sim";
+import type { RecommendRequest, RecommendResponse } from "./recommend.worker";
+
+/**
+ * Recommendations from the worker, with the staleness made visible.
+ *
+ * The board changes faster than the simulation finishes — a pick lands, then another
+ * before the first reply arrives. Two things follow, and both matter more than they
+ * sound:
+ *
+ * Replies are matched by request id and anything older is dropped. Without that, a slow
+ * answer for a two-picks-ago board arrives last and overwrites the current one, and the
+ * user is looking at advice for a position that no longer exists.
+ *
+ * And while a request is outstanding the previous answer stays on screen, marked stale
+ * rather than blanked. A draft board that empties every time somebody picks is unusable,
+ * but so is one that presents an old answer as current.
+ */
+
+export interface RecommendationState {
+  recommendations: ChampionshipRecommendation[];
+  /** True while a newer request is outstanding, so what is shown is out of date. */
+  stale: boolean;
+  /** True before the first answer has ever arrived. */
+  loading: boolean;
+  error: string | null;
+  lastElapsedMs: number | null;
+  lastFromCache: boolean;
+}
+
+const IDLE: RecommendationState = {
+  recommendations: [],
+  stale: false,
+  loading: false,
+  error: null,
+  lastElapsedMs: null,
+  lastFromCache: false,
+};
+
+export function useRecommendations(): RecommendationState & {
+  request: (
+    state: DraftPolicyState,
+    config: LeagueConfig,
+    seed: number,
+    candidateLimit?: number,
+  ) => void;
+  supported: boolean;
+} {
+  const workerRef = useRef<Worker | null>(null);
+  const nextId = useRef(0);
+  const latestSent = useRef(-1);
+  const latestApplied = useRef(-1);
+  const [supported, setSupported] = useState(true);
+  const [state, setState] = useState<RecommendationState>(IDLE);
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      setSupported(false);
+      return;
+    }
+
+    const worker = new Worker(new URL("./recommend.worker.ts", import.meta.url), {
+      type: "module",
+    });
+    workerRef.current = worker;
+
+    worker.addEventListener("message", (event: MessageEvent<RecommendResponse>) => {
+      const reply = event.data;
+      // Out-of-order replies are discarded rather than rendered. A slow answer for an
+      // older board must never overwrite a newer one.
+      if (reply.id < latestApplied.current) return;
+      latestApplied.current = reply.id;
+
+      setState({
+        recommendations: reply.error === undefined ? reply.recommendations : [],
+        stale: reply.id < latestSent.current,
+        loading: false,
+        error: reply.error ?? null,
+        lastElapsedMs: reply.elapsedMs,
+        lastFromCache: reply.cached,
+      });
+    });
+
+    worker.addEventListener("error", (event) => {
+      setState((previous) => ({
+        ...previous,
+        loading: false,
+        stale: false,
+        error: event.message || "The recommendation worker failed.",
+      }));
+    });
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
+
+  const request = useCallback(
+    (
+      draftState: DraftPolicyState,
+      config: LeagueConfig,
+      seed: number,
+      candidateLimit?: number,
+    ) => {
+      const worker = workerRef.current;
+      if (worker === null) return;
+
+      const id = nextId.current;
+      nextId.current += 1;
+      latestSent.current = id;
+
+      setState((previous) => ({
+        ...previous,
+        // Keep the previous answer on screen, but say it is out of date.
+        stale: previous.recommendations.length > 0,
+        loading: previous.recommendations.length === 0,
+        error: null,
+      }));
+
+      const message: RecommendRequest = {
+        id,
+        state: draftState,
+        config,
+        seed,
+        candidateLimit,
+      };
+      worker.postMessage(message);
+    },
+    [],
+  );
+
+  return { ...state, request, supported };
+}

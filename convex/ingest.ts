@@ -100,6 +100,15 @@ function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): numb
   return (played + prior) / (GAMES_IN_SEASON + AVAILABILITY_PRIOR_GAMES);
 }
 
+/**
+ * League sizes a draft board is built for.
+ *
+ * ADP is published per league size and genuinely differs between them, so a board is not
+ * transferable. These are the sizes that cover almost every real league; an unusual one
+ * has to be built by hand.
+ */
+const DRAFT_BOARD_LEAGUE_SIZES = [8, 10, 12, 14] as const;
+
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
 
@@ -883,3 +892,52 @@ export async function runBuildDraftBoard(
     throw error;
   }
 }
+
+/**
+ * Rebuilds the draft boards the interface offers.
+ *
+ * Separate from the weekly refresh because it tracks a different clock. A projection moves
+ * when games are played; a draft board moves when the *market* does, which is continuous
+ * through the preseason and then stops mattering entirely once drafts are over.
+ *
+ * Every league shape is rebuilt, because the board is keyed on scoring and league size —
+ * ADP genuinely differs between them, and a shape that is never rebuilt would serve a
+ * board that quietly ages out.
+ */
+export const refreshDraftBoards = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ rebuilt: number; failed: string[] }> => {
+    const season = await ctx.runQuery(api.season.current, {});
+    // Drafts happen for the season about to start. During the season the board is stale by
+    // definition and nobody is drafting from it, so this becomes a no-op rather than an
+    // expensive daily rebuild of something nobody reads.
+    const target = season === null ? null : season.isComplete ? season.season + 1 : null;
+    if (target === null) return { rebuilt: 0, failed: [] };
+
+    const provider = new NflverseProvider();
+    const adpProvider = new AdpProvider();
+
+    let rebuilt = 0;
+    const failed: string[] = [];
+    for (const scoringId of SCORING_PRESETS.map((preset) => preset.id)) {
+      for (const teams of DRAFT_BOARD_LEAGUE_SIZES) {
+        try {
+          await runBuildDraftBoard(
+            ctx,
+            { season: target, scoringId, teams },
+            provider,
+            adpProvider,
+          );
+          rebuilt += 1;
+        } catch (error) {
+          // One shape failing must not stop the rest: a market board can be missing for an
+          // unusual league size while the common ones are fine.
+          failed.push(
+            `${scoringId}/${teams}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+    return { rebuilt, failed };
+  },
+});

@@ -40,4 +40,14 @@ crons.cron(
   {},
 );
 
+// Twice a day through the preseason. The market moves continuously as camp news lands,
+// and a board built yesterday misprices exactly the players whose value just changed.
+// Outside the preseason this exits immediately, so it costs nothing in season.
+crons.cron(
+  "rebuild draft boards",
+  "0 11,23 * * *",
+  internal.ingest.refreshDraftBoards,
+  {},
+);
+
 export default crons;

@@ -1,0 +1,385 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Mutation testing.
+ *
+ * A passing test suite proves the tests agree with the code, not that either is right.
+ * Mutation testing asks the sharper question: if the code were wrong, would anything
+ * notice? Each mutant is a small deliberate defect — a comparison flipped, a constant
+ * moved, a branch inverted — and a mutant that survives the suite is a defect the suite
+ * cannot see.
+ *
+ * This exists because two tests in this repository were found passing for the wrong
+ * reason: one asserted an inequality on a fixture where the mechanism could not occur, and
+ * one claimed to separate two league formats but was satisfied by an unrelated string
+ * differing. Both survived review and both looked convincing. Neither would have survived
+ * this.
+ *
+ * Usage:
+ *   pnpm mutate                 # the core logic files
+ *   pnpm mutate lib/core/optimizer.ts
+ *   pnpm mutate -- --limit 40   # cap mutants per file while iterating
+ */
+
+interface MutationSite {
+  index: number;
+  from: string;
+  to: string;
+}
+
+interface Mutator {
+  name: string;
+  /**
+   * Where this mutator could fire on a line.
+   *
+   * Given the line with string and template literals blanked out, so a swap can never
+   * land inside a message. Positions are returned rather than mutated text, and the
+   * replacement is applied to the untouched line at the same offset — the blanking
+   * preserves length precisely so those offsets line up.
+   */
+  sites(masked: string): MutationSite[];
+}
+
+/** A textual swap, guarded so it cannot fire on a longer operator that contains it. */
+function operator(
+  name: string,
+  from: string,
+  to: string,
+  forbidden: string[] = [],
+): Mutator {
+  return {
+    name,
+    sites(masked) {
+      const out: MutationSite[] = [];
+      let index = masked.indexOf(from);
+      while (index !== -1) {
+        // A guard token overlapping this position means the match is part of something
+        // longer — `<` inside `<=`, or `>` inside the arrow of a lambda.
+        const overlaps = forbidden.some((token) => {
+          const window = masked.slice(
+            Math.max(0, index - token.length + 1),
+            index + token.length,
+          );
+          return window.includes(token);
+        });
+        if (!overlaps) out.push({ index, from, to });
+        index = masked.indexOf(from, index + 1);
+      }
+      return out;
+    },
+  };
+}
+
+/** Perturbs a numeric literal, which catches constants nothing actually depends on. */
+const numericLiteral: Mutator = {
+  name: "number",
+  sites(masked) {
+    const out: MutationSite[] = [];
+    for (const match of masked.matchAll(/(?<![\w.$])\d+(?:\.\d+)?(?![\w.])/g)) {
+      if (match.index === undefined) continue;
+      const value = Number(match[0]);
+      // A distinctly different value rather than an increment: an off-by-one in a
+      // tolerance is often invisible, while doubling it is not.
+      const to = value === 0 ? "1" : value === 1 ? "0" : String(value * 2);
+      out.push({ index: match.index, from: match[0], to });
+    }
+    return out;
+  },
+};
+
+const MUTATORS: Mutator[] = [
+  operator("lt->lte", "<", "<=", ["<=", "<<"]),
+  operator("gt->gte", ">", ">=", [">=", "=>", ">>"]),
+  operator("gte->gt", ">=", ">"),
+  operator("lte->lt", "<=", "<"),
+  operator("eq->neq", "===", "!=="),
+  operator("neq->eq", "!==", "==="),
+  operator("and->or", "&&", "||"),
+  operator("or->and", "||", "&&"),
+  operator("plus->minus", " + ", " - "),
+  operator("minus->plus", " - ", " + "),
+  operator("times->div", " * ", " / "),
+  operator("max->min", "Math.max", "Math.min"),
+  operator("min->max", "Math.min", "Math.max"),
+  operator("true->false", "true", "false"),
+  operator("false->true", "false", "true"),
+  operator("nullish->or", " ?? ", " || "),
+  numericLiteral,
+];
+
+/**
+ * The vitest binary, invoked directly.
+ *
+ * Going through `npx` costs seconds of resolution *per invocation*, and a mutation run
+ * makes thousands of them — it turned a sub-second test file into eighteen seconds and put
+ * a full run out of reach.
+ */
+const VITEST = join(process.cwd(), "node_modules", ".bin", "vitest");
+
+/** Files whose logic is worth this. Tests, generated code, and adapters are excluded. */
+const DEFAULT_TARGETS = [
+  "lib/core/optimizer.ts",
+  "lib/core/draft.ts",
+  "lib/core/roster-utility.ts",
+  "lib/core/season-sim.ts",
+  "lib/core/draft-policy.ts",
+  "lib/core/draft-speculation.ts",
+  "lib/core/draft-memo.ts",
+  "lib/core/rng.ts",
+  "lib/nfl/model/project.ts",
+  "lib/nfl/scoring/score.ts",
+  "lib/nfl/season.ts",
+  "lib/nfl/teams.ts",
+  "lib/nfl/csv.ts",
+  "lib/nfl/roster.ts",
+  "lib/nfl/draft/value.ts",
+  "lib/nfl/draft/match.ts",
+  "lib/billing/entitlements.ts",
+];
+
+/**
+ * Lines that must not be mutated.
+ *
+ * Comments are the obvious case. Import lines matter too: mutating one produces a module
+ * that cannot load, which the suite reports as a failure — a kill that proves nothing
+ * about the tests.
+ */
+function isMutableLine(line: string, inBlockComment: boolean): boolean {
+  const trimmed = line.trim();
+  if (inBlockComment) return false;
+  if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
+  if (trimmed.startsWith("/*")) return false;
+  if (trimmed.startsWith("import ") || trimmed.startsWith("export {")) return false;
+  if (trimmed.startsWith("export type") || trimmed.startsWith("export interface")) {
+    return false;
+  }
+  return true;
+}
+
+interface Mutant {
+  file: string;
+  line: number;
+  mutator: string;
+  before: string;
+  after: string;
+}
+
+function mutantsFor(file: string, source: string): Mutant[] {
+  const lines = source.split("\n");
+  const out: Mutant[] = [];
+  let inBlockComment = false;
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    const opensBlock = trimmed.startsWith("/*");
+    const mutable = isMutableLine(line, inBlockComment || opensBlock);
+    if (opensBlock && !trimmed.includes("*/")) inBlockComment = true;
+    if (trimmed.includes("*/")) inBlockComment = false;
+    if (!mutable) return;
+
+    // Blanked to the same length, so offsets found here are valid in the real line.
+    const masked = line.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, (m) => " ".repeat(m.length));
+
+    for (const mutator of MUTATORS) {
+      for (const site of mutator.sites(masked)) {
+        const after =
+          line.slice(0, site.index) + site.to + line.slice(site.index + site.from.length);
+        if (after === line) continue;
+        out.push({ file, line: index + 1, mutator: mutator.name, before: line, after });
+      }
+    }
+  });
+  return out;
+}
+
+/**
+ * Test files that could possibly detect a change to this module.
+ *
+ * Running the whole suite for every mutant is the obvious approach and far too slow — most
+ * of it cannot observe the file being mutated, and the simulation-heavy tests dominate the
+ * clock. Selecting by import closure keeps every test that *can* see the change and drops
+ * the ones that cannot, which is exactly the set whose silence is meaningful.
+ *
+ * A module's own test is always included, even when it imports through a barrel.
+ *
+ * `--own` restricts the set to that one file. The resulting score answers a narrower and
+ * more useful question — does *this module's* suite pin its behaviour? — and is a lower
+ * bound on the true score, because a mutant reported as surviving may still be caught by
+ * another module's tests. It is also dramatically faster: the simulation-heavy suites take
+ * seconds each, and running them for every mutant of an unrelated file dominated the clock
+ * to the point of being unusable.
+ */
+function coveringTests(
+  file: string,
+  allTests: readonly string[],
+  ownOnly: boolean,
+): string[] {
+  const moduleName = file.replace(/^.*\//, "").replace(/\.ts$/, "");
+  const own = file.replace(/\.ts$/, ".test.ts");
+
+  const covering = new Set<string>();
+  if (allTests.includes(own)) covering.add(own);
+  if (ownOnly) return [...covering];
+
+  for (const test of allTests) {
+    const source = readFileSync(join(process.cwd(), test), "utf8");
+    // Any import whose path ends in this module's name, however it is spelled relatively.
+    if (new RegExp(`from "[^"]*\\b${moduleName}"`).test(source)) covering.add(test);
+  }
+  return [...covering];
+}
+
+function listTestFiles(): string[] {
+  const out = execFileSync(
+    "git",
+    ["ls-files", "lib/**/*.test.ts", "lib/*.test.ts"],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+  return out.split("\n").filter((line) => line.endsWith(".test.ts"));
+}
+
+/** The whole domain project, used once to establish the baseline. */
+function runAll(): boolean {
+  try {
+    execFileSync(VITEST, ["run", "--project", "domain", "--silent=true"], {
+      cwd: process.cwd(),
+      stdio: "pipe",
+      timeout: 300_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Runs the given test files, returning whether they passed.
+ *
+ * `--silent=true` rather than `--silent`, and the distinction is not cosmetic: vitest
+ * parses a bare `--silent` followed by a positional argument as *the flag's value*, so
+ * `--silent path/to.test.ts` crashes on startup. Every invocation then exits non-zero,
+ * every mutant looks killed, and the run reports a perfect score having tested nothing.
+ * It did exactly that for 1,287 mutants before this was noticed.
+ */
+function runTests(files: readonly string[]): boolean {
+  if (files.length === 0) return true;
+  try {
+    execFileSync(VITEST, ["run", "--project", "domain", "--silent=true", ...files], {
+      cwd: process.cwd(),
+      stdio: "pipe",
+      timeout: 180_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2).filter((a) => a !== "--");
+  const limitIndex = args.indexOf("--limit");
+  const limit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : Infinity;
+  const ownOnly = args.includes("--own");
+  const targets = args.filter((a) => a.endsWith(".ts"));
+  const files = targets.length > 0 ? targets : DEFAULT_TARGETS;
+
+  const allTests = listTestFiles();
+  process.stdout.write("\nBaseline: the suite must be green before mutating.\n");
+  if (!runAll()) {
+    process.stdout.write("  suite is already failing — fix that first.\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  // The same invocation the mutants use, on unmutated source. Without this the baseline
+  // proves only that *some* way of running the tests works, and a broken per-mutant
+  // command reports every mutant killed and a flawless score.
+  const probe = files
+    .map((file) => coveringTests(file, allTests, ownOnly))
+    .find((tests) => tests.length > 0);
+  if (probe !== undefined && !runTests(probe)) {
+    process.stdout.write(
+      `  the per-mutant command fails on unmutated source: ${probe.join(" ")}\n` +
+        "  every mutant would report as killed. Fix the invocation.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write("  green, and the per-mutant command agrees.\n");
+
+  const survivors: Mutant[] = [];
+  let killed = 0;
+  let tested = 0;
+
+  for (const file of files) {
+    const path = join(process.cwd(), file);
+    const original = readFileSync(path, "utf8");
+    const mutants = mutantsFor(file, original).slice(0, limit);
+    const tests = coveringTests(file, allTests, ownOnly);
+    process.stdout.write(
+      `\n${file}  (${mutants.length} mutants, ${tests.length} covering test file(s))\n`,
+    );
+    if (tests.length === 0) {
+      process.stdout.write("  no test imports this module — every mutant would survive\n");
+    }
+
+    // The file on disk is deliberately corrupted between these two writes, so an
+    // interrupt in the wrong millisecond would leave a mutant committed. Restoring from a
+    // handler as well as a `finally` covers Ctrl-C and an unexpected throw alike.
+    const restore = (): void => writeFileSync(path, original);
+    process.once("SIGINT", () => {
+      restore();
+      process.exit(130);
+    });
+    process.once("uncaughtException", (error) => {
+      restore();
+      throw error;
+    });
+
+    for (const mutant of mutants) {
+      const lines = original.split("\n");
+      lines[mutant.line - 1] = mutant.after;
+      let green = false;
+      try {
+        writeFileSync(path, lines.join("\n"));
+        tested += 1;
+        green = runTests(tests);
+      } finally {
+        restore();
+      }
+
+      if (green) {
+        survivors.push(mutant);
+        process.stdout.write(`  SURVIVED  :${mutant.line} ${mutant.mutator}\n`);
+        process.stdout.write(`            ${mutant.before.trim().slice(0, 96)}\n`);
+        process.stdout.write(`         -> ${mutant.after.trim().slice(0, 96)}\n`);
+      } else {
+        killed += 1;
+        process.stdout.write(".");
+      }
+    }
+    process.stdout.write("\n");
+  }
+
+  const score = tested === 0 ? 0 : (killed / tested) * 100;
+  process.stdout.write(
+    `\n${"=".repeat(70)}\n` +
+      `mutants ${tested}   killed ${killed}   survived ${survivors.length}   ` +
+      `score ${score.toFixed(1)}%\n${"=".repeat(70)}\n`,
+  );
+
+  if (survivors.length > 0) {
+    process.stdout.write("\nSurvivors, by file:\n");
+    for (const s of survivors) {
+      process.stdout.write(`  ${s.file}:${s.line}  ${s.mutator}\n`);
+    }
+    process.stdout.write(
+      "\nA survivor is a change to the code that no test objected to. Some are\n" +
+        "equivalent mutants that cannot change behaviour; the rest are gaps.\n",
+    );
+  }
+}
+
+void main();
