@@ -5,7 +5,7 @@ import {
   type DraftPolicyState,
   recommendByChampionship,
 } from "./draft-policy";
-import { canonicalizeState, digestIds, stateSignature } from "./draft-speculation";
+import { canonicalizeState, stateSignature } from "./draft-speculation";
 
 /**
  * Remembering positions that have already been solved.

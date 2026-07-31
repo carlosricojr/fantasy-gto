@@ -107,6 +107,7 @@ export default function DraftPage() {
   // recommendation was computed for a team that could not pick. Nothing said so.
   useEffect(() => {
     if (slot > teams) setSlot(teams);
+    else if (!Number.isInteger(slot) || slot < 1) setSlot(1);
   }, [slot, teams]);
 
   const starters = useMemo(() => slotsForTemplate(templateId), [templateId]);
@@ -138,7 +139,10 @@ export default function DraftPage() {
   const pickOwners = useMemo(
     // `slot` is clamped above, but a render can happen between the state update and the
     // effect, so an out-of-range slot must not throw the page down.
-    () => (slot > teams ? new Map<number, number>() : pickOwnership(teams, slot, rounds)),
+    () =>
+      Number.isInteger(slot) && slot >= 1 && slot <= teams
+        ? pickOwnership(teams, slot, rounds)
+        : new Map<number, number>(),
     [teams, rounds, slot],
   );
 
@@ -342,7 +346,9 @@ export default function DraftPage() {
 
           <p className="mt-4 text-sm text-muted-foreground">
             Your picks:{" "}
-            {slot <= teams ? snakePicks(slot, teams, rounds).slice(0, 6).join(", ") : "—"}
+            {Number.isInteger(slot) && slot >= 1 && slot <= teams
+              ? snakePicks(slot, teams, rounds).slice(0, 6).join(", ")
+              : "—"}
             {rounds > 6 ? "…" : ""}
           </p>
 
@@ -636,7 +642,12 @@ function NumberPicker({
       min={min}
       max={max}
       onChange={(event) => {
-        const next = Number(event.target.value);
+        // Rounded, not merely clamped. `<input type="number">` happily yields "1.5", and
+        // every consumer here counts seats and rounds — whole things. A fractional slot
+        // used to produce odd pick numbers; since `snakePicks` started rejecting one it
+        // throws during render instead, and there is no error boundary under `app/`, so
+        // the setup screen is replaced by a crash page that only a reload clears.
+        const next = Math.round(Number(event.target.value));
         if (Number.isFinite(next)) onChange(Math.min(Math.max(next, min), max));
       }}
     />

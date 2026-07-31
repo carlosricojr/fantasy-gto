@@ -8,6 +8,7 @@ import {
   seasonProjection,
 } from "./value";
 import { MODEL_BLEND_WEIGHT } from "./config";
+import { rosterUtility } from "../../core/roster-utility";
 
 /**
  * Season valuation.
@@ -115,5 +116,66 @@ describe("perGameRate", () => {
     for (const availability of [0, 0.5, 1]) {
       expect(perGameRate(0, availability, GAMES)).toBe(0);
     }
+  });
+});
+
+describe("perGameRate against the real simulator", () => {
+  /**
+   * The earlier round-trip test is algebra.
+   *
+   * `rate × availability × games === seasonPoints` reduces to `x/(G·a)·a·G === x` and holds
+   * for any implementation of that shape, never touching the simulator it exists to feed.
+   * It does catch the specific regression it was written for — reintroducing the naive
+   * conversion fails it — but it cannot see the discount coming back anywhere else.
+   *
+   * This drives the actual simulation instead, and asserts the property that matters: two
+   * players with the same expected season total contribute the same amount, however
+   * durable they are. The absolute total is *not* asserted, because it should not match —
+   * a fantasy season is 17 scoring weeks minus a bye, not 17 games — and pinning a number
+   * the model does not claim would be worse than pinning none.
+   */
+  const SLOTS = [{ id: "wr1", label: "WR", eligiblePositions: ["WR"] }];
+  const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
+  const CONFIG = { weeks: WEEKS, scenarios: 600, meanAbsenceWeeks: 3 };
+
+  const seasonPlayer = (id: string, seasonPoints: number, availability: number) => ({
+    id,
+    name: id,
+    position: "WR",
+    weeklyMean: perGameRate(seasonPoints, availability),
+    p10: 0.186,
+    p90: 1.808,
+    byeWeek: null,
+    availability,
+  });
+
+  it("gives equal season totals equal value, however durable the player", () => {
+    // The differential error the fix was about. Before it, the fragile player realised
+    // roughly half the durable one's total from the same season projection.
+    const durable = rosterUtility([seasonPlayer("d", 240, 0.95)], SLOTS, CONFIG, 11);
+    const fragile = rosterUtility([seasonPlayer("f", 240, 0.55)], SLOTS, CONFIG, 11);
+
+    const ratio = fragile.expectedPoints / durable.expectedPoints;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it("catches the naive conversion, which the algebraic test cannot do alone", () => {
+    // Same two players, converted the old way: divide by a full season and let the
+    // simulator discount again. The gap that opens up is the bug.
+    const naive = (id: string, seasonPoints: number, availability: number) => ({
+      ...seasonPlayer(id, seasonPoints, availability),
+      weeklyMean: seasonPoints / 17,
+    });
+    const durable = rosterUtility([naive("d", 240, 0.95)], SLOTS, CONFIG, 11);
+    const fragile = rosterUtility([naive("f", 240, 0.55)], SLOTS, CONFIG, 11);
+
+    expect(fragile.expectedPoints / durable.expectedPoints).toBeLessThan(0.7);
+  });
+
+  it("scales linearly in the season total", () => {
+    const single = rosterUtility([seasonPlayer("a", 120, 0.8)], SLOTS, CONFIG, 12);
+    const double = rosterUtility([seasonPlayer("a", 240, 0.8)], SLOTS, CONFIG, 12);
+    expect(double.expectedPoints / single.expectedPoints).toBeCloseTo(2, 1);
   });
 });

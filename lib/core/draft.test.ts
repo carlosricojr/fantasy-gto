@@ -361,6 +361,13 @@ describe("snakePicks", () => {
 });
 
 describe("pick ownership", () => {
+  // Worth being precise about what these do and do not prove. The map that used to be
+  // inlined in the page computed the same seat mapping, so most of the invariants below
+  // held for it as well — they guard a future bad extraction rather than catching the bug
+  // that shipped. Only the out-of-range slot test exercises the defect itself, which was
+  // that `slot > teams` produced another seat's pick numbers and that seat then overwrote
+  // the user's. The commit that added these overstated them; this note is the correction.
+
   /** Every league shape the interface can produce, plus a few beyond it. */
   const shapes: Array<[number, number]> = [];
   for (const teams of [4, 6, 8, 10, 11, 12, 14, 16]) {
