@@ -27,7 +27,8 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
-import { weeksBetween } from "../lib/nfl/season";
+import { NFL_REGULAR_SEASON_WEEKS, weeksBetween } from "../lib/nfl/season";
+import { OUTCOME_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -56,6 +57,33 @@ interface ProjectionRow {
   ceiling: number;
   contributions: Contribution[];
   modelVersion: string;
+}
+
+/**
+ * Prior strength and mean for a player's weekly availability.
+ *
+ * Games played is a small sample — seventeen at most — so taking it at face value says a
+ * player who finished last season is certain to finish this one, and that a rookie who
+ * played nothing never plays. Both are wrong, and the second is worse: it would make every
+ * incoming player worthless.
+ *
+ * Shrinking towards a league-typical rate fixes both. The prior is worth about ten games,
+ * so a full season moves a player most of the way to the top and a lost season does not
+ * write him off.
+ *
+ * Judgement, not measurement. The prior mean is roughly the share of games a rostered
+ * skill player actually takes part in.
+ */
+const AVAILABILITY_PRIOR_MEAN = 0.85;
+const AVAILABILITY_PRIOR_GAMES = 10;
+
+/** Weekly availability, shrunk from a player's own games played toward the league rate. */
+function shrunkAvailability(priorSeasonGames: number): number {
+  const played = Math.min(Math.max(priorSeasonGames, 0), NFL_REGULAR_SEASON_WEEKS);
+  const prior = AVAILABILITY_PRIOR_MEAN * AVAILABILITY_PRIOR_GAMES;
+  return (
+    (played + prior) / (NFL_REGULAR_SEASON_WEEKS + AVAILABILITY_PRIOR_GAMES)
+  );
 }
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
@@ -713,6 +741,7 @@ export async function runBuildDraftBoard(
         market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
       if (marketPoints !== null) withMarketPrice += 1;
 
+      const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
       rows.push({
         playerId: entry.playerId,
         name: entry.name,
@@ -723,6 +752,11 @@ export async function runBuildDraftBoard(
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: market?.adp ?? null,
         adpStdev: market?.stdev ?? null,
+        byeWeek: market?.bye ?? null,
+        availability: shrunkAvailability(priorGames.get(entry.playerId) ?? 0),
+        // The weekly spread is the one the weekly model measured, not an assumption.
+        p10: band?.p10 ?? 0.2,
+        p90: band?.p90 ?? 1.9,
       });
     }
 

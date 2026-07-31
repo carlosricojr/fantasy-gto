@@ -21,6 +21,10 @@ const boardRowValidator = v.object({
   blendedPoints: v.number(),
   adp: v.union(v.number(), v.null()),
   adpStdev: v.union(v.number(), v.null()),
+  byeWeek: v.union(v.number(), v.null()),
+  availability: v.number(),
+  p10: v.number(),
+  p90: v.number(),
 });
 
 /**
@@ -63,6 +67,10 @@ export const board = query({
       blendedPoints: row.blendedPoints,
       adp: row.adp,
       adpStdev: row.adpStdev,
+      byeWeek: row.byeWeek,
+      availability: row.availability,
+      p10: row.p10,
+      p90: row.p90,
     }));
   },
 });

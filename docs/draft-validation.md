@@ -107,6 +107,63 @@ handicapping the baseline.**
 - **2025 and 2026 are not evaluated.** Fantasy Football Calculator publishes no 2025 board,
   so 2024 is the most recent season with both a market price and a finished result.
 
+## The objective, and what is guaranteed about maximising it
+
+Everything above measures *player ranking*, which is an input. The thing the draft
+maximises is now the probability of winning the league, computed by playing the season out
+(`lib/core/season-sim.ts`).
+
+That change removes the weighting problem rather than solving it. There is no constant
+deciding what a bye collision is worth against a point of projection, or depth against a
+starter: byes, injuries, weekly variance, the head-to-head schedule, and the actual
+rosters your opponents have drafted all resolve into one number because the simulation
+plays them out. **Opponents are observed, not assumed** — a draft board records every
+team's picks, so by the middle rounds the league is largely known.
+
+Two findings from that simulation that a points-based valuation cannot produce:
+
+- **Weekly variance costs you wins even as an underdog.** "Underdogs want variance" holds
+  in a single winner-take-all shot; a fourteen-week head-to-head season is the opposite
+  regime. A matchup is won by out-scoring one opponent, so what pays is the *median* week,
+  and right-skewed variance at a fixed mean lowers the median — measured at 2,000
+  scenarios, identical expected points with the weekly median falling from 32.9 to 25.4
+  and expected wins falling with it. Boom-or-bust players are worth less than their
+  projection suggests.
+- **The same roster has materially different title odds in different leagues.** Expected
+  points identical, championship probability several times apart. No valuation that
+  ignores opponents can express that.
+
+### What is guaranteed
+
+- **The inner problems are exact.** The best legal lineup for a week is a maximum-weight
+  matching, solved exactly. Standings and the bracket are played out, not approximated.
+- **Certified improvement.** The recommendation is one step of policy improvement over an
+  explicit base policy: each candidate is evaluated by committing to it and finishing the
+  draft under that base policy. By the policy improvement theorem the result is no worse
+  than the base policy from any state. Not "usually better" — provably not worse.
+- **Not guaranteed: global optimality.** A draft is a sequential game against opponents who
+  react, over a state space exponential in the player pool. Claiming an optimal policy
+  would be false. A perfect-information relaxation would give a computable upper bound on
+  how much better any policy could do; it is **not implemented**, so the size of the gap is
+  currently unknown.
+
+### The estimate is noisy, and says so
+
+A title is roughly a one-in-twelve event, so at the few hundred scenarios a draft clock
+allows, the top candidates are frequently within sampling noise of each other — 16.7%
+against 15.8% is not a real difference at n=300. Every recommendation carries its standard
+error and a `tiedWithLeader` flag, and tied candidates are ordered by playoff probability,
+which resolves at these sample sizes because it is roughly a coin flip rather than a rare
+event. Presenting an unresolved ordering as decided would be exactly the false precision
+this project exists to avoid.
+
+### Still unmodelled
+
+Stated so their absence is visible: correlation between players (a quarterback and his own
+receiver score together), waiver-wire replacement level (depth you could stream is worth
+less than depth you must draft), and opponents who adapt their draft strategy rather than
+following the base policy.
+
 ## The part that is provable
 
 None of the above is what the draft board's value rests on. Two things it does are exact

@@ -155,6 +155,16 @@ export default defineSchema({
     blendedPoints: v.number(),
     adp: v.union(v.number(), v.null()),
     adpStdev: v.union(v.number(), v.null()),
+    /** The week this player's team is idle. Drives bye-collision cost in the simulation. */
+    byeWeek: v.union(v.number(), v.null()),
+    /**
+     * Probability he is fit in a given week, shrunk from his own games-played history.
+     * Drives how much the depth behind him is worth.
+     */
+    availability: v.number(),
+    /** Measured spread of actual/projected for his position, for weekly variance. */
+    p10: v.number(),
+    p90: v.number(),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])

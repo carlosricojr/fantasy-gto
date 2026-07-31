@@ -137,6 +137,39 @@ function simulateAvailability(
 }
 
 /**
+ * One scenario's weekly scores for a roster: the best legal lineup it can field each week.
+ *
+ * Exported because the league simulation needs exactly this, per team, and duplicating it
+ * would let the two drift apart — the whole point is that a team's score is computed the
+ * same way whether it is yours or an opponent's.
+ */
+export function drawWeek(
+  roster: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  weeks: readonly number[],
+  meanAbsenceWeeks: number,
+  rng: Rng,
+): number[] {
+  const availability = roster.map((player) =>
+    simulateAvailability(player, weeks, meanAbsenceWeeks, rng),
+  );
+
+  return weeks.map((_, w) => {
+    const playing = roster
+      .map((player, index) => ({ player, available: availability[index][w] }))
+      .filter((entry) => entry.available)
+      .map((entry) => ({
+        id: entry.player.id,
+        name: entry.player.name,
+        position: entry.player.position,
+        projectedPoints: drawPoints(entry.player, rng),
+        availability: "active" as const,
+      }));
+    return solveLineup(slots, playing).totalPoints;
+  });
+}
+
+/**
  * Expected season points from fielding the best legal lineup each week.
  *
  * `rng` is supplied by the caller so two rosters can be compared under identical

@@ -35,6 +35,14 @@ export interface AdpEntry {
   stdev: number;
   /** How many drafts the mean was taken from, so a thin sample is visible. */
   timesDrafted: number | null;
+  /**
+   * The week the player's team is idle.
+   *
+   * Carried because a bye is a hard constraint on a roster, not a detail: two starters
+   * sharing one means a week fielding nobody in that slot. The endpoint publishes it, so
+   * there is no reason to derive it from the schedule separately.
+   */
+  bye: number | null;
 }
 
 export function adpUrl(scoringId: string, teams: number, season: number): string {
@@ -116,6 +124,7 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
       // positive default keeps the survival curve a curve.
       stdev: toNumber(row.stdev) ?? 0,
       timesDrafted: toNumber(row.times_drafted),
+      bye: toNumber(row.bye),
     });
   }
   return entries;
