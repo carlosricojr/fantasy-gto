@@ -128,6 +128,21 @@ export interface SpeculativeEntry {
   signature: string;
   probability: number;
   recommendations: ChampionshipRecommendation[];
+  /**
+   * The position this entry answers, kept so a near-match can be judged against the real
+   * state rather than against its own output.
+   *
+   * Without it the approximate branch could only ask "are the players I would recommend
+   * still on the board?", which is true of an answer computed for a different team, a
+   * different roster size, or a different set of opponents. It served one manager's
+   * ranking to another.
+   */
+  context: {
+    myTeamIndex: number;
+    rosterSize: number;
+    rosterSignatures: string[];
+    availableIds: string[];
+  };
 }
 
 export interface SpeculativeCache {
@@ -282,10 +297,23 @@ export function precomputeRecommendations(
       signature: candidate.signature,
       probability: candidate.probability,
       recommendations: compute(candidate.state, config, seed, createRng, candidateLimit),
+      context: contextOf(candidate.state),
     });
   }
 
   return { builtFrom: stateSignature(canonicalizeState(state)), entries };
+}
+
+/** The parts of a state a near-match has to agree about. */
+function contextOf(state: CanonicalState): SpeculativeEntry["context"] {
+  return {
+    myTeamIndex: state.myTeamIndex,
+    rosterSize: state.rosterSize,
+    rosterSignatures: state.teams.map(
+      (team) => `${team.roster.map((p) => p.id).join(",")}|${team.remainingPicks.join(",")}`,
+    ),
+    availableIds: state.available.map((p) => p.id),
+  };
 }
 
 /**
@@ -308,36 +336,51 @@ export function resolveFromCache(
     return { kind: "exact", recommendations: exact.recommendations };
   }
 
-  // A near miss is still useful, but only if the caller is told. The comparison is on the
-  // players actually available, because that is what decides which candidate is taken.
-  const actualIds = new Set(canonical.available.map((p) => p.id));
-  let best: { entry: SpeculativeEntry; overlap: number; diff: Resolution["differences"] } | null =
-    null;
+  // A near miss is still useful, but only when it is a near miss about the *same
+  // question*. An entry computed for another manager, another roster size, or a league
+  // whose other teams drafted differently is not an approximation of this position — it is
+  // an answer to a different one, and returning it because its recommendations happen to
+  // still be available would be the worst failure this module can have.
+  const here = contextOf(canonical);
+  const actualIds = new Set(here.availableIds);
+  let best: { entry: SpeculativeEntry; distance: number } | null = null;
 
   for (const entry of cache.entries) {
-    const cachedIds = new Set(
-      entry.recommendations.map((r) => r.player.id).filter((id) => id.length > 0),
-    );
-    if (cachedIds.size === 0) continue;
-    // Every recommendation the cache would offer must still be on the board; if one has
-    // been taken, that cached ranking is answering a question about a player who is gone.
-    const missingFromCache = [...cachedIds].filter((id) => !actualIds.has(id));
-    const overlap = cachedIds.size - missingFromCache.length;
-    if (missingFromCache.length > 0) continue;
-    if (best === null || overlap > best.overlap) {
-      best = {
-        entry,
-        overlap,
-        diff: { missingFromCache, extraInCache: [] },
-      };
+    const context = entry.context;
+    if (context.myTeamIndex !== here.myTeamIndex) continue;
+    if (context.rosterSize !== here.rosterSize) continue;
+    // Our own roster and remaining picks must match exactly: they are the position.
+    if (
+      context.rosterSignatures[here.myTeamIndex] !==
+      here.rosterSignatures[here.myTeamIndex]
+    ) {
+      continue;
     }
+    if (entry.recommendations.length === 0) continue;
+    // Every player it would recommend must still be on the board.
+    if (entry.recommendations.some((r) => !actualIds.has(r.player.id))) continue;
+
+    // What is left may differ only in how the other teams' picks fell. Rank by how far
+    // apart the two boards are, so the closest future wins.
+    const cachedPool = new Set(context.availableIds);
+    const distance =
+      here.availableIds.filter((id) => !cachedPool.has(id)).length +
+      context.availableIds.filter((id) => !actualIds.has(id)).length;
+
+    if (best === null || distance < best.distance) best = { entry, distance };
   }
 
   if (best !== null) {
+    const cachedPool = new Set(best.entry.context.availableIds);
     return {
       kind: "approximate",
       recommendations: best.entry.recommendations,
-      differences: best.diff,
+      differences: {
+        // Available now but the cache thought gone, and vice versa. Genuinely populated,
+        // unlike the earlier version where the filter above guaranteed both were empty.
+        missingFromCache: here.availableIds.filter((id) => !cachedPool.has(id)),
+        extraInCache: best.entry.context.availableIds.filter((id) => !actualIds.has(id)),
+      },
     };
   }
 

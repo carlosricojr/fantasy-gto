@@ -7,6 +7,7 @@ import { type ActionCtx, internalAction } from "./_generated/server";
 
 import type { Contribution } from "../lib/core/domain";
 import { DVP_SHRINKAGE } from "../lib/nfl/model/config";
+import { GAMES_IN_SEASON } from "../lib/nfl/draft/config";
 import {
   type ImpliedTotalEntry,
   buildDefenseFactors,
@@ -20,6 +21,7 @@ import { NflverseProvider } from "../lib/sources/nflverse";
 import { AdpProvider } from "../lib/sources/adp";
 import {
   DRAFTABLE_POSITIONS,
+  MODELLED_POSITIONS,
   normalizeMarketPosition,
 } from "../lib/nfl/draft/config";
 import { normalizeName } from "../lib/nfl/draft/match";
@@ -30,7 +32,7 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
-import { NFL_REGULAR_SEASON_WEEKS, weeksBetween } from "../lib/nfl/season";
+import { weeksBetween } from "../lib/nfl/season";
 import { OUTCOME_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
@@ -80,13 +82,22 @@ interface ProjectionRow {
 const AVAILABILITY_PRIOR_MEAN = 0.85;
 const AVAILABILITY_PRIOR_GAMES = 10;
 
-/** Weekly availability, shrunk from a player's own games played toward the league rate. */
-function shrunkAvailability(priorSeasonGames: number): number {
-  const played = Math.min(Math.max(priorSeasonGames, 0), NFL_REGULAR_SEASON_WEEKS);
+/**
+ * Weekly availability, shrunk from a player's own games played toward the league rate.
+ *
+ * `hasHistory` separates two situations the arithmetic cannot tell apart. A veteran who
+ * played no games last season is evidence of poor availability; a rookie who played none
+ * is no evidence at all, and shrinking his zero produced 0.31 — an incoming first-rounder
+ * treated as missing two games in three.
+ *
+ * The denominator is games in a season, not weeks. A team plays seventeen times across
+ * eighteen weeks, so dividing by eighteen capped every ironman below the ceiling.
+ */
+function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): number {
+  if (!hasHistory) return AVAILABILITY_PRIOR_MEAN;
+  const played = Math.min(Math.max(priorSeasonGames, 0), GAMES_IN_SEASON);
   const prior = AVAILABILITY_PRIOR_MEAN * AVAILABILITY_PRIOR_GAMES;
-  return (
-    (played + prior) / (NFL_REGULAR_SEASON_WEEKS + AVAILABILITY_PRIOR_GAMES)
-  );
+  return (played + prior) / (GAMES_IN_SEASON + AVAILABILITY_PRIOR_GAMES);
 }
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
@@ -662,6 +673,15 @@ export async function runBuildDraftBoard(
       const totals = new Map<string, number>();
       const byId = new Map<string, string>();
       for (const week of weeks) {
+        // A kicking line scores zero through the offensive scorer, so including kickers
+        // here would fit the curve through a band of false zeros.
+        if (
+          !MODELLED_POSITIONS.includes(
+            week.competitor.position as (typeof MODELLED_POSITIONS)[number],
+          )
+        ) {
+          continue;
+        }
         const id = week.competitor.id;
         totals.set(id, (totals.get(id) ?? 0) + scoreOffense(week.stats, scoring).total);
         byId.set(id, week.competitor.name);
@@ -684,16 +704,26 @@ export async function runBuildDraftBoard(
         continue;
       }
       const totalsByName = seasonTotals(weeks);
+      // Fitted on *our* position spelling, and only for positions the offensive scorer can
+      // actually score. The market calls kickers `PK` and defences `DEF`, so a curve keyed
+      // on its spelling was never found by a `K` or `DST` lookup — every one of them fell
+      // through to the pooled curve, which is the mis-specification this whole per-position
+      // fit exists to avoid. Worse, those rows scored zero through `scoreOffense`, so they
+      // were dragging the pooled fit down as well.
       const samples = candidateAdp.data
         .map((entry) => {
+          const position = normalizeMarketPosition(entry.position);
+          if (
+            !MODELLED_POSITIONS.includes(
+              position as (typeof MODELLED_POSITIONS)[number],
+            )
+          ) {
+            return null;
+          }
           const actual = totalsByName.get(normalizeName(entry.name));
           return actual === undefined
             ? null
-            : {
-                adp: entry.adp,
-                actualSeasonPoints: actual,
-                position: entry.position,
-              };
+            : { adp: entry.adp, actualSeasonPoints: actual, position };
         })
         .filter(
           (s): s is { adp: number; actualSeasonPoints: number; position: string } =>
@@ -741,10 +771,18 @@ export async function runBuildDraftBoard(
       // honest, and he can still be drafted manually.
       if (history.length === 0 && market === null) continue;
 
-      // No prior games means no opinion, not a projection of zero. Passing zero through
-      // the blend marked every rookie down by the model's full weight.
+      // Whether the model has an opinion is a question about the *position* first and the
+      // row count second. Kickers have plenty of history rows, but `scoreOffense` scores a
+      // kicking line as zero, so every veteran kicker produced a real zero — not a null —
+      // and was blended down to 80% of his market price. That is the rookie markdown
+      // reappearing for a different population, and it also split kickers in two: one with
+      // no rows at all got the full market price and outranked an identically-priced
+      // veteran.
+      const modelled = MODELLED_POSITIONS.includes(
+        entry.position as (typeof MODELLED_POSITIONS)[number],
+      );
       const modelPoints =
-        history.length === 0
+        !modelled || history.length === 0
           ? null
           : seasonProjection({
               perGamePoints: history,
@@ -768,7 +806,10 @@ export async function runBuildDraftBoard(
         adp: market?.adp ?? null,
         adpStdev: market?.stdev ?? null,
         byeWeek: market?.bye ?? null,
-        availability: shrunkAvailability(priorGames.get(entry.playerId) ?? 0),
+        availability: shrunkAvailability(
+          priorGames.get(entry.playerId) ?? 0,
+          history.length > 0,
+        ),
         // The weekly spread is the one the weekly model measured, not an assumption.
         p10: band?.p10 ?? 0.2,
         p90: band?.p90 ?? 1.9,

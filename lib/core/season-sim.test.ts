@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { RosterSlot } from "./optimizer";
-import { createRng } from "./rng";
 import type { PlayerRisk } from "./roster-utility";
 import {
   type LeagueConfig,
+  bracketRoundsRequired,
   championshipProbability,
   roundRobinSchedule,
   sampleTeamWeeklyScores,
@@ -102,7 +102,7 @@ describe("roundRobinSchedule", () => {
 
 describe("simulateLeague", () => {
   const scoresFor = (teams: PlayerRisk[][], seed: number) =>
-    teams.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, createRng(seed + i)));
+    teams.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, seed + i));
 
   it("awards exactly one championship per scenario", () => {
     const teams = Array.from({ length: 8 }, (_, i) => roster(`t${i}`, 12 + i));
@@ -149,17 +149,17 @@ describe("championship probability is not expected points", () => {
     // less than their projection suggests in head-to-head, which is an actionable result
     // no points-based valuation can produce.
     const field = Array.from({ length: 7 }, (_, i) => roster(`f${i}`, 18));
-    const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, createRng(100 + i)));
+    const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, 100 + i));
 
     const steady = sampleTeamWeeklyScores(
       roster("steady", 12, { p10: 0.85, p90: 1.15 }),
       CONFIG,
-      createRng(50),
+      50,
     );
     const volatile = sampleTeamWeeklyScores(
       roster("volatile", 12, { p10: 0.15, p90: 2.4 }),
       CONFIG,
-      createRng(50),
+      50,
     );
 
     const steadyOutcome = championshipProbability(steady, fieldScores, CONFIG);
@@ -174,17 +174,17 @@ describe("championship probability is not expected points", () => {
     // The mirror image, and why a single "variance is good" rule would be wrong. A
     // dominant roster is trying to protect a lead, so noise can only cost it.
     const field = Array.from({ length: 7 }, (_, i) => roster(`f${i}`, 10));
-    const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, createRng(200 + i)));
+    const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, 200 + i));
 
     const steady = sampleTeamWeeklyScores(
       roster("steady", 20, { p10: 0.85, p90: 1.15 }),
       CONFIG,
-      createRng(60),
+      60,
     );
     const volatile = sampleTeamWeeklyScores(
       roster("volatile", 20, { p10: 0.15, p90: 2.4 }),
       CONFIG,
-      createRng(60),
+      60,
     );
 
     const steadyOutcome = championshipProbability(steady, fieldScores, CONFIG);
@@ -198,13 +198,13 @@ describe("championship probability is not expected points", () => {
   it("is decided by the opponents you face, not by your points alone", () => {
     // The same roster, two different leagues. Expected points are identical; championship
     // odds are not. No valuation that ignores opponents can express this.
-    const mine = sampleTeamWeeklyScores(roster("mine", 15), CONFIG, createRng(70));
+    const mine = sampleTeamWeeklyScores(roster("mine", 15), CONFIG, 70);
 
     const weak = Array.from({ length: 7 }, (_, i) =>
-      sampleTeamWeeklyScores(roster(`w${i}`, 10), CONFIG, createRng(300 + i)),
+      sampleTeamWeeklyScores(roster(`w${i}`, 10), CONFIG, 300 + i),
     );
     const strong = Array.from({ length: 7 }, (_, i) =>
-      sampleTeamWeeklyScores(roster(`s${i}`, 20), CONFIG, createRng(400 + i)),
+      sampleTeamWeeklyScores(roster(`s${i}`, 20), CONFIG, 400 + i),
     );
 
     const inWeak = championshipProbability(mine, weak, CONFIG);
@@ -214,5 +214,123 @@ describe("championship probability is not expected points", () => {
     expect(inWeak.championshipProbability).toBeGreaterThan(
       inStrong.championshipProbability * 3,
     );
+  });
+});
+
+describe("ties and bracket sufficiency", () => {
+  const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
+  const cfg: LeagueConfig = {
+    slots: SLOTS,
+    weeks,
+    playoffWeeks: [15, 16],
+    playoffTeams: 4,
+    scenarios: 1,
+    meanAbsenceWeeks: 3,
+  };
+
+  it("spreads titles evenly when every team is identical and tied", () => {
+    // Our team is always index 0, and the seeding tiebreak used to be array position, so
+    // in a fully tied league we took seed 1, won every bracket tie, and finished with a
+    // championship probability of exactly 1.0.
+    const tied = Array.from({ length: 8 }, () =>
+      Array.from({ length: 400 }, () => [...weeks, 15, 16].map(() => 0)),
+    );
+    const outcomes = simulateLeague(tied, { ...cfg, scenarios: 400 });
+    for (const outcome of outcomes) {
+      expect(outcome.championshipProbability).toBeGreaterThan(0.05);
+      expect(outcome.championshipProbability).toBeLessThan(0.25);
+    }
+  });
+
+  it("gives the top seeds a first-round bye when the field is not a power of two", () => {
+    // A six-team field previously played all six in round one, leaving three, and the bye
+    // then fell in round two on whoever happened to survive — so seed 2 got one only if
+    // seed 1 lost. Here seeds 1 and 2 score nothing in the first playoff week: with real
+    // byes they are not playing, and should still win.
+    const line = (reg: number, a: number, b: number, c: number) => [
+      [...weeks.map(() => reg), a, b, c],
+    ];
+    const field = [
+      line(100, 0, 100, 100),
+      line(99, 0, 100, 100),
+      line(98, 50, 50, 50),
+      line(97, 50, 50, 50),
+      line(96, 50, 50, 50),
+      line(95, 50, 50, 50),
+    ];
+    const outcomes = simulateLeague(field, {
+      ...cfg,
+      scenarios: 1,
+      playoffTeams: 6,
+      playoffWeeks: [15, 16, 17],
+    });
+    expect(outcomes[0].championshipProbability).toBe(1);
+  });
+
+  it("rejects a non-positive or fractional playoff field", () => {
+    const scores = Array.from({ length: 8 }, () => [[...weeks, 15, 16].map(() => 1)]);
+    for (const playoffTeams of [0, -1, 1.5]) {
+      expect(() => simulateLeague(scores, { ...cfg, playoffTeams })).toThrow(
+        /positive integer/,
+      );
+    }
+  });
+
+  it("splits a tie instead of handing it to whoever is nominally at home", () => {
+    // The circle method holds team 0 fixed, so it sat in the home position in all
+    // fourteen weeks while everyone else got five to eight. Awarding ties to the home
+    // side gave team 0 fourteen wins and everyone else six, from games that were all
+    // 0-0. Ties are reachable: early in a draft two teams can both field nobody.
+    const allTied = Array.from({ length: 8 }, () => [
+      [...weeks, 15, 16].map(() => 0),
+    ]);
+    const outcomes = simulateLeague(allTied, cfg);
+    for (const outcome of outcomes) {
+      expect(outcome.expectedWins).toBeCloseTo(weeks.length / 2, 6);
+    }
+  });
+
+  it("still awards a clean win when scores differ", () => {
+    const scores = Array.from({ length: 8 }, (_, i) => [
+      [...weeks, 15, 16].map(() => 100 - i),
+    ]);
+    const outcomes = simulateLeague(scores, cfg);
+    // The strongest team wins every week it plays.
+    expect(outcomes[0].expectedWins).toBeCloseTo(weeks.length, 6);
+  });
+
+  it("knows how many rounds a bracket needs", () => {
+    expect(bracketRoundsRequired(1)).toBe(0);
+    expect(bracketRoundsRequired(2)).toBe(1);
+    expect(bracketRoundsRequired(4)).toBe(2);
+    expect(bracketRoundsRequired(5)).toBe(3);
+    expect(bracketRoundsRequired(6)).toBe(3);
+    expect(bracketRoundsRequired(8)).toBe(3);
+  });
+
+  it("refuses a bracket that cannot finish rather than crowning a survivor", () => {
+    // Six qualifiers over two weeks previously crowned a different team than the same six
+    // over three, with nothing to indicate the final was never played.
+    const scores = Array.from({ length: 12 }, (_, i) => [
+      [...weeks, 15, 16].map(() => 100 - i),
+    ]);
+    expect(() =>
+      simulateLeague(scores, { ...cfg, playoffTeams: 6, playoffWeeks: [15, 16] }),
+    ).toThrow(/needs 3 playoff week/);
+    expect(() =>
+      simulateLeague(scores, { ...cfg, playoffTeams: 2, playoffWeeks: [] }),
+    ).toThrow();
+  });
+
+  it("accepts a bracket with exactly enough rounds, and with spare ones", () => {
+    const scores = Array.from({ length: 12 }, (_, i) => [
+      [...weeks, 15, 16, 17].map(() => 100 - i),
+    ]);
+    expect(() =>
+      simulateLeague(scores, { ...cfg, playoffTeams: 6, playoffWeeks: [15, 16, 17] }),
+    ).not.toThrow();
+    expect(() =>
+      simulateLeague(scores, { ...cfg, playoffTeams: 4, playoffWeeks: [15, 16, 17] }),
+    ).not.toThrow();
   });
 });

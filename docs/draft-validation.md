@@ -271,6 +271,59 @@ against a broken fingerprint — `buildSlots` happens to give a superflex a diff
 id, so id alone separated them — and was replaced with one that exercises the collision it
 claimed to.
 
+### Defects found and fixed in review
+
+An adversarial sweep over the draft code found nine, four of which changed shipped numbers.
+Recorded because several are the *same mistake in different clothes*, and the pattern is
+worth more than the individual fixes.
+
+- **Common random numbers were not working.** Draws came from one stream shared across a
+  roster, so how much randomness a player consumed depended on how many players preceded
+  him and whether they happened to be fit. Adding a candidate shifted everyone else's
+  numbers, and two rosters being compared differed by far more than the player under test.
+  Measured: a player projected at *zero* points scored between −8.4 and +12.7 depending
+  only on the seed. Each player now has his own stream keyed on his id, and draws happen
+  for every week regardless of availability — a worthless player now measures exactly 0.00
+  at every seed.
+- **Every veteran kicker was 20% below his market price.** `scoreOffense` scores a kicking
+  line as zero, so kickers had history that produced a real zero rather than a null, and
+  the blend marked them down by the model's full weight. This is the rookie markdown
+  reappearing for a different population — the fix is that "does the model have an opinion"
+  is a question about the position, not the row count.
+- **Kickers and defences were priced off the pooled curve.** The market spells them `PK`
+  and `DEF`; the lookups used `K` and `DST`, so no per-position curve was ever found. The
+  pooled curve is the mis-specification this document already records as measurably wrong,
+  and it was contaminated too, since those zero-scoring rows were in the fit.
+- **Our own team won every tie.** The circle-method schedule holds team 0 fixed, so it
+  occupied the home position in all fourteen weeks, and ties went to the home side. In a
+  fully tied league that gave team 0 fourteen wins to everyone else's six — and, since
+  seeding also broke ties by array position and our team is always index 0, a championship
+  probability of exactly 1.0. Ties split now, and seeding breaks on a
+  scenario-derived key uncorrelated with position.
+- **A six-team bracket gave no first-round bye.** All six played, leaving three, and the
+  bye then fell in round two on whoever survived — so the second seed got one only if the
+  first seed lost. Byes now land in round one, reducing the field to a power of two.
+- **A bracket with too few weeks crowned the highest remaining seed** without playing the
+  deciding game, silently. Six qualifiers over two weeks named a different champion than
+  the same six over three. It now refuses to run.
+- **The recommendation comparator was intransitive.** "Within noise, prefer the smoother
+  signal" is not a valid ordering: 12%, 14% and 16% give A~B, B~C, A<C. `Array.sort` on a
+  cycle may return anything. The leader is now established before sorting.
+- **The memo key omitted the shortlist length and the identity of the weeks.** Two leagues
+  with playoffs in weeks 15-17 and 14-16 were both "3" and shared a memo, though a bye
+  lands inside one and outside the other. An answer for three candidates could be served to
+  a request for twelve.
+- **A near-match could serve one manager's answer to another.** The approximate branch
+  compared only whether its own recommendations were still available — true of an answer
+  computed for a different team, a different roster size, or a different set of opponents.
+  It now requires the position to match and reports what genuinely differs; previously the
+  `differences` field was unreachable and always reported that nothing did.
+
+Two tests were also passing for the wrong reason and were rewritten: one asserted Jensen's
+inequality on a roster where every player started every week, so no truncation was possible
+and it passed on the noise the CRN fix removed; another claimed to separate a superflex
+league from a standard one but was satisfied by the slot *id* differing.
+
 ### Still unmodelled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own

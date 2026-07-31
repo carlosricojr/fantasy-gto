@@ -1,5 +1,5 @@
 import { type RosterSlot, solveLineup } from "./optimizer";
-import { type Rng, Z_90, standardNormal } from "./rng";
+import { type Rng, Z_90, createRng, standardNormal } from "./rng";
 
 /**
  * What a roster is actually worth.
@@ -110,6 +110,37 @@ export function fitLognormal(p10: number, p90: number): { mu: number; sigma: num
   return { mu, sigma };
 }
 
+/**
+ * A player's own random stream for one scenario.
+ *
+ * Per player rather than per roster, and this is what makes common random numbers
+ * actually work. Sharing one stream across a roster ties every player's draws to how many
+ * players precede him and to whether they happened to be fit — so adding a candidate, or
+ * an unrelated player getting injured, shifted everyone else's numbers. Two rosters being
+ * compared then differed by far more than the player under test, and the estimate of what
+ * he was worth was a difference of two nearly independent samples.
+ *
+ * Measured before the fix: a player projected at zero points scored anywhere from -8.4 to
+ * +12.7 depending only on the seed.
+ *
+ * Keying on the player id also means a player performs identically in a scenario however
+ * he is reached — same team, different team, drafted a round earlier — which is both
+ * correct and what lets two candidate rosters be compared under genuinely identical
+ * conditions.
+ */
+function playerStream(playerId: string, seed: number, scenario: number): Rng {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < playerId.length; i += 1) {
+    hash ^= playerId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  // Mixed rather than added, so nearby seeds and scenarios do not produce nearby streams.
+  hash ^= Math.imul(seed >>> 0, 0x9e3779b1) >>> 0;
+  hash = Math.imul(hash ^ (hash >>> 13), 0x85ebca6b) >>> 0;
+  hash ^= Math.imul(scenario + 1, 0xc2b2ae35) >>> 0;
+  return createRng((hash ^ (hash >>> 16)) >>> 0);
+}
+
 /** Draws one week's points for a player who is playing. */
 function drawPoints(player: PlayerRisk, rng: Rng): number {
   const { mu, sigma } = fitLognormal(player.p10, player.p90);
@@ -158,21 +189,28 @@ export function drawWeek(
   slots: readonly RosterSlot[],
   weeks: readonly number[],
   meanAbsenceWeeks: number,
-  rng: Rng,
+  seed: number,
+  scenario: number,
 ): number[] {
-  const availability = roster.map((player) =>
-    simulateAvailability(player, weeks, meanAbsenceWeeks, rng),
-  );
+  // Every player draws his availability and his points for every week, from his own
+  // stream, before anything is filtered. Drawing only for the weeks he turns out to be fit
+  // would make how much randomness he consumes depend on the result of the randomness, and
+  // that is precisely what desynchronised the comparison.
+  const draws = roster.map((player) => {
+    const rng = playerStream(player.id, seed, scenario);
+    const available = simulateAvailability(player, weeks, meanAbsenceWeeks, rng);
+    const points = weeks.map(() => drawPoints(player, rng));
+    return { player, available, points };
+  });
 
   return weeks.map((_, w) => {
-    const playing = roster
-      .map((player, index) => ({ player, available: availability[index][w] }))
-      .filter((entry) => entry.available)
+    const playing = draws
+      .filter((entry) => entry.available[w])
       .map((entry) => ({
         id: entry.player.id,
         name: entry.player.name,
         position: entry.player.position,
-        projectedPoints: drawPoints(entry.player, rng),
+        projectedPoints: entry.points[w],
         availability: "active" as const,
       }));
     return solveLineup(slots, playing).totalPoints;
@@ -191,7 +229,7 @@ export function rosterUtility(
   roster: readonly PlayerRisk[],
   slots: readonly RosterSlot[],
   config: UtilityConfig,
-  rng: Rng,
+  seed: number,
 ): RosterUtility {
   if (roster.length === 0) {
     return {
@@ -208,32 +246,21 @@ export function rosterUtility(
   let sumOfSquares = 0;
 
   for (let scenario = 0; scenario < config.scenarios; scenario += 1) {
-    const availability = roster.map((player) =>
-      simulateAvailability(player, config.weeks, config.meanAbsenceWeeks, rng),
+    const weekly = drawWeek(
+      roster,
+      slots,
+      config.weeks,
+      config.meanAbsenceWeeks,
+      seed,
+      scenario,
     );
 
     let seasonTotal = 0;
     for (let w = 0; w < config.weeks.length; w += 1) {
-      // Only players who are fit and not on bye can be assigned. Everyone else is simply
-      // absent from the matching, which is what makes a bye collision cost what it costs.
-      const playing = roster
-        .map((player, index) => ({ player, available: availability[index][w] }))
-        .filter((entry) => entry.available)
-        .map((entry) => ({
-          id: entry.player.id,
-          name: entry.player.name,
-          position: entry.player.position,
-          projectedPoints: drawPoints(entry.player, rng),
-          availability: "active" as const,
-        }));
-
-      const solution = solveLineup(slots, playing);
-      seasonTotal += solution.totalPoints;
-      weekTotals[w] += solution.totalPoints;
-      emptySlotTotal += solution.assignments.filter(
-        (a) => a.competitorId === null,
-      ).length;
+      seasonTotal += weekly[w];
+      weekTotals[w] += weekly[w];
     }
+    emptySlotTotal += countEmptySlots(roster, slots, config, seed, scenario);
 
     sum += seasonTotal;
     sumOfSquares += seasonTotal * seasonTotal;
@@ -263,13 +290,52 @@ export function marginalUtility(
   slots: readonly RosterSlot[],
   config: UtilityConfig,
   seed: number,
-  createRng: (seed: number) => Rng,
 ): number {
-  const without = rosterUtility(roster, slots, config, createRng(seed));
-  const with_ = rosterUtility([...roster, candidate], slots, config, createRng(seed));
+  const without = rosterUtility(roster, slots, config, seed);
+  const with_ = rosterUtility([...roster, candidate], slots, config, seed);
   return round2(with_.expectedPoints - without.expectedPoints);
 }
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * Starting slots left unfilled in one scenario.
+ *
+ * Recomputed from the same streams rather than accumulated inside `drawWeek`, so that
+ * function returns only what its name says. The streams are keyed on the player, so this
+ * sees exactly the same draws.
+ */
+function countEmptySlots(
+  roster: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  config: UtilityConfig,
+  seed: number,
+  scenario: number,
+): number {
+  const draws = roster.map((player) => {
+    const rng = playerStream(player.id, seed, scenario);
+    return {
+      player,
+      available: simulateAvailability(player, config.weeks, config.meanAbsenceWeeks, rng),
+    };
+  });
+
+  let empty = 0;
+  for (let w = 0; w < config.weeks.length; w += 1) {
+    const playing = draws
+      .filter((entry) => entry.available[w])
+      .map((entry) => ({
+        id: entry.player.id,
+        name: entry.player.name,
+        position: entry.player.position,
+        projectedPoints: 1,
+        availability: "active" as const,
+      }));
+    empty += solveLineup(slots, playing).assignments.filter(
+      (a) => a.competitorId === null,
+    ).length;
+  }
+  return empty;
 }

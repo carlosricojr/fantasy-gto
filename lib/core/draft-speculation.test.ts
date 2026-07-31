@@ -329,6 +329,80 @@ describe("the cache contract", () => {
     expect(resolved.kind).toBe("miss");
   });
 
+  it("refuses to approximate one manager's position with another's answer", () => {
+    // The worst failure this module can have. An entry computed for team 0 recommends
+    // players who are all still on the board, so a check that looked only at its own
+    // output happily served team 0's ranking — with team 0's roster and team 0's
+    // remaining picks behind every number — to team 3.
+    const state = baseState();
+    const cache = precomputeRecommendations(
+      state,
+      anticipateStates(state, [], 5, createRng(1)),
+      CONFIG,
+      42,
+      createRng,
+      { candidateLimit: 4 },
+    );
+    const otherManager = { ...baseState(), myTeamIndex: 3 };
+    const resolved = recommendWithCache(cache, otherManager, CONFIG, 42, createRng, {
+      candidateLimit: 4,
+      allowApproximate: true,
+    });
+    expect(resolved.kind).toBe("miss");
+  });
+
+  it("refuses to approximate across a different roster size", () => {
+    const state = baseState();
+    const cache = precomputeRecommendations(
+      state,
+      anticipateStates(state, [], 5, createRng(1)),
+      CONFIG,
+      42,
+      createRng,
+      { candidateLimit: 4 },
+    );
+    const deeper = { ...baseState(), rosterSize: ROUNDS + 3 };
+    expect(
+      recommendWithCache(cache, deeper, CONFIG, 42, createRng, {
+        candidateLimit: 4,
+        allowApproximate: true,
+      }).kind,
+    ).toBe("miss");
+  });
+
+  it("populates what differs when it does approximate", () => {
+    // The `differences` field was previously unreachable: the filter above it guaranteed
+    // both lists were empty, so it always reported that nothing differed.
+    const state = baseState();
+    const cache = precomputeRecommendations(
+      state,
+      anticipateStates(state, [{ team: 1 }, { team: 2 }], 60, createRng(1)),
+      CONFIG,
+      42,
+      createRng,
+      { maxStates: 6, candidateLimit: 4 },
+    );
+
+    // A real future: two opponents have picked, but not the ones any entry predicted.
+    const actual = baseState();
+    const pool = board();
+    const takenA = pool[pool.length - 1];
+    const takenB = pool[pool.length - 2];
+    actual.teams[1].roster = [takenA];
+    actual.teams[2].roster = [takenB];
+    actual.teams[1].remainingPicks = actual.teams[1].remainingPicks.slice(1);
+    actual.teams[2].remainingPicks = actual.teams[2].remainingPicks.slice(1);
+    actual.available = pool.filter((p) => p.id !== takenA.id && p.id !== takenB.id);
+
+    const resolved = resolveFromCache(cache, actual);
+    if (resolved.kind === "approximate") {
+      const diff = resolved.differences!;
+      expect(diff.missingFromCache.length + diff.extraInCache.length).toBeGreaterThan(0);
+    } else {
+      expect(resolved.kind).toBe("miss");
+    }
+  });
+
   it("reports a miss on an empty cache rather than an empty ranking", () => {
     const resolved = resolveFromCache({ builtFrom: "x", entries: [] }, baseState());
     expect(resolved.kind).toBe("miss");

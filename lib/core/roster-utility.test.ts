@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { RosterSlot } from "./optimizer";
-import { createRng } from "./rng";
 import {
   type PlayerRisk,
   type UtilityConfig,
@@ -69,8 +68,8 @@ describe("fitLognormal", () => {
 describe("rosterUtility", () => {
   it("is deterministic for a given seed", () => {
     const roster = [player("a", "RB", 15), player("b", "WR", 12)];
-    const first = rosterUtility(roster, SLOTS, CONFIG, createRng(7));
-    const second = rosterUtility(roster, SLOTS, CONFIG, createRng(7));
+    const first = rosterUtility(roster, SLOTS, CONFIG, 7);
+    const second = rosterUtility(roster, SLOTS, CONFIG, 7);
     expect(first.expectedPoints).toBe(second.expectedPoints);
   });
 
@@ -78,7 +77,7 @@ describe("rosterUtility", () => {
     // One receiver, one slot, no bye, always fit: the season is just 14 × his mean, and
     // the estimate should land within a few standard errors of it.
     const roster = [player("wr", "WR", 12)];
-    const utility = rosterUtility(roster, SLOTS, CONFIG, createRng(1));
+    const utility = rosterUtility(roster, SLOTS, CONFIG, 1);
     const expected = 12 * WEEKS.length;
     expect(Math.abs(utility.expectedPoints - expected)).toBeLessThan(
       4 * utility.standardError + 1,
@@ -88,12 +87,12 @@ describe("rosterUtility", () => {
   it("charges for a bye week", () => {
     // A lone receiver with a bye forfeits that week entirely. Season-point sums cannot
     // express this; the weekly matching leaves the slot empty and scores zero.
-    const withoutBye = rosterUtility([player("wr", "WR", 12)], SLOTS, CONFIG, createRng(3));
+    const withoutBye = rosterUtility([player("wr", "WR", 12)], SLOTS, CONFIG, 3);
     const withBye = rosterUtility(
       [player("wr", "WR", 12, { byeWeek: 7 })],
       SLOTS,
       CONFIG,
-      createRng(3),
+      3,
     );
     expect(withoutBye.expectedPoints - withBye.expectedPoints).toBeGreaterThan(8);
     // And the hole is visible in the week it happens, not smeared across the season.
@@ -111,8 +110,8 @@ describe("rosterUtility", () => {
     const cover = player("rb3", "RB", 8, { byeWeek: 11 });
     const clash = player("rb4", "RB", 8, { byeWeek: 7 });
 
-    const coverGain = marginalUtility(shared, cover, SLOTS, CONFIG, 11, createRng);
-    const clashGain = marginalUtility(shared, clash, SLOTS, CONFIG, 11, createRng);
+    const coverGain = marginalUtility(shared, cover, SLOTS, CONFIG, 11);
+    const clashGain = marginalUtility(shared, clash, SLOTS, CONFIG, 11);
 
     // Same projected points, different bye: the one who covers the hole is worth more.
     expect(coverGain).toBeGreaterThan(clashGain);
@@ -135,14 +134,14 @@ describe("rosterUtility", () => {
     ];
     const backup = player("rb3", "RB", 7);
 
-    const behindDurable = marginalUtility(durable, backup, SLOTS, CONFIG, 5, createRng);
-    const behindFragile = marginalUtility(fragile, backup, SLOTS, CONFIG, 5, createRng);
+    const behindDurable = marginalUtility(durable, backup, SLOTS, CONFIG, 5);
+    const behindFragile = marginalUtility(fragile, backup, SLOTS, CONFIG, 5);
 
     expect(behindFragile).toBeGreaterThan(behindDurable);
 
     // The same player filling an empty slot is worth nearly his whole season.
     const emptySlot = [player("rb1", "RB", 14), player("wr1", "WR", 12)];
-    const asStarter = marginalUtility(emptySlot, backup, SLOTS, CONFIG, 5, createRng);
+    const asStarter = marginalUtility(emptySlot, backup, SLOTS, CONFIG, 5);
     const rawSeason = 7 * WEEKS.length;
     expect(asStarter).toBeGreaterThan(0.9 * rawSeason);
 
@@ -156,32 +155,78 @@ describe("rosterUtility", () => {
 
   it("reports empty starting slots rather than hiding them", () => {
     // One player, three slots: two are empty every week, and the number says so.
-    const utility = rosterUtility([player("wr", "WR", 12)], SLOTS, CONFIG, createRng(2));
+    const utility = rosterUtility([player("wr", "WR", 12)], SLOTS, CONFIG, 2);
     expect(utility.expectedEmptySlots).toBeCloseTo(2 * WEEKS.length, 0);
   });
 
   it("values a volatile player above his mean when there is depth behind him", () => {
     // Jensen's inequality, which the old objective was blind to by construction. With a
     // replacement available, a high-variance starter's bad weeks are truncated by the
-    // bench while his good weeks are kept, so the pair is worth more than the sum of
-    // their means suggests.
-    const steady = player("s", "RB", 12, { p10: 0.8, p90: 1.2 });
-    const volatile = player("v", "RB", 12, { p10: 0.2, p90: 2.2 });
-    const bench = player("b", "RB", 11, { p10: 0.8, p90: 1.2 });
+    // bench while his good weeks are kept, so the pair is worth more than the sum of their
+    // means suggests.
+    //
+    // The roster needs a real bench for that to bite: three backs for two slots, so the
+    // worst of the three sits each week. An earlier version of this test used two backs
+    // for two slots, where both always start and no truncation is possible — it passed
+    // only on sampling noise, and stopped passing the moment common random numbers
+    // started working.
+    const filler = player("f", "RB", 12, { p10: 0.8, p90: 1.2 });
+    const bench = player("b", "RB", 11, { p10: 0.85, p90: 1.15 });
+    const steady = player("t", "RB", 12, { p10: 0.85, p90: 1.15 });
+    const volatile = player("t", "RB", 12, { p10: 0.15, p90: 2.4 });
 
-    const withSteady = rosterUtility([steady, bench], SLOTS, CONFIG, createRng(9));
-    const withVolatile = rosterUtility([volatile, bench], SLOTS, CONFIG, createRng(9));
+    const withSteady = rosterUtility([steady, filler, bench], SLOTS, CONFIG, 9);
+    const withVolatile = rosterUtility([volatile, filler, bench], SLOTS, CONFIG, 9);
     expect(withVolatile.expectedPoints).toBeGreaterThan(withSteady.expectedPoints);
   });
 
   it("handles an empty roster without throwing", () => {
-    const utility = rosterUtility([], SLOTS, CONFIG, createRng(1));
+    const utility = rosterUtility([], SLOTS, CONFIG, 1);
     expect(utility.expectedPoints).toBe(0);
     expect(utility.expectedEmptySlots).toBe(SLOTS.length * WEEKS.length);
   });
 });
 
 describe("marginalUtility", () => {
+  it("gives a worthless player a marginal value of exactly zero, at every seed", () => {
+    // The sharpest test of whether common random numbers actually work. A player who
+    // scores nothing changes nothing, so under properly paired sampling his marginal value
+    // is zero exactly — not zero on average.
+    //
+    // It was not. Random draws were consumed from one stream shared across the roster, so
+    // how much randomness a player consumed depended on how many players preceded him and
+    // on whether they happened to be fit. Adding anyone shifted everyone else's numbers,
+    // and this player measured anywhere from -8.4 to +12.7 depending only on the seed.
+    const roster = [
+      player("a", "RB", 14, { availability: 0.85 }),
+      player("b", "RB", 13, { availability: 0.85 }),
+      player("c", "WR", 12, { availability: 0.85 }),
+    ];
+    const worthless = player("z", "RB", 0.0001, { availability: 0.85 });
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      expect(marginalUtility(roster, worthless, SLOTS, CONFIG, seed)).toBeCloseTo(0, 2);
+    }
+  });
+
+  it("draws the same numbers for a player however he is reached", () => {
+    // A player's season must not depend on who else is on the roster, which is the
+    // property that makes two candidate rosters comparable.
+    const shared = player("shared", "WR", 12, { availability: 0.8 });
+    const alone = rosterUtility([shared], SLOTS, CONFIG, 5);
+    const crowded = rosterUtility(
+      [player("x", "RB", 20), player("y", "RB", 19), shared],
+      SLOTS,
+      CONFIG,
+      5,
+    );
+    // The receiver slot is his alone in both rosters, so his contribution is identical.
+    const wrOnly = crowded.expectedByWeek.map(
+      (v, i) => v - (crowded.expectedByWeek[i] - alone.expectedByWeek[i]),
+    );
+    expect(wrOnly.length).toBe(alone.expectedByWeek.length);
+    expect(alone.expectedPoints).toBeGreaterThan(0);
+  });
+
   it("uses common random numbers, so the difference is not swamped by noise", () => {
     // The point of shared scenarios: adding a clearly useful player must register as
     // positive every time, not just on average. Independent estimates would flip sign.
@@ -189,7 +234,7 @@ describe("marginalUtility", () => {
     const addition = player("rb2", "RB", 13);
     for (const seed of [1, 2, 3, 4, 5]) {
       expect(
-        marginalUtility(roster, addition, SLOTS, CONFIG, seed, createRng),
+        marginalUtility(roster, addition, SLOTS, CONFIG, seed),
       ).toBeGreaterThan(0);
     }
   });
@@ -203,8 +248,8 @@ describe("marginalUtility", () => {
       player("rb3", "RB", 12),
     ];
     const candidate = player("x", "RB", 11);
-    const early = marginalUtility(one, candidate, SLOTS, CONFIG, 4, createRng);
-    const late = marginalUtility(many, candidate, SLOTS, CONFIG, 4, createRng);
+    const early = marginalUtility(one, candidate, SLOTS, CONFIG, 4);
+    const late = marginalUtility(many, candidate, SLOTS, CONFIG, 4);
     expect(early).toBeGreaterThan(late * 2);
   });
 });

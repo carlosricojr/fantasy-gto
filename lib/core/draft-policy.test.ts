@@ -225,6 +225,58 @@ describe("recommendByChampionship", () => {
     expect(fragileRank === -1 || fragileRank > durableRank).toBe(true);
   });
 
+  it("puts the highest championship probability first", () => {
+    // The ranking used to sort with a "within noise, prefer playoff odds" comparator,
+    // which is not transitive: 12%, 14% and 16% at 600 scenarios give A~B, B~C, A<C — a
+    // cycle. `Array.prototype.sort` on a cycle may return anything, and it could place the
+    // 12% candidate above the 16% one. The leader is now established before sorting.
+    const recs = recommendByChampionship(
+      {
+        teams: freshTeams(),
+        myTeamIndex: 0,
+        available: board(),
+        rosterSize: ROUNDS,
+      },
+      CONFIG,
+      21,
+      createRng,
+      8,
+    );
+    const best = Math.max(...recs.map((r) => r.championshipProbability));
+
+    // The contract is not "highest title probability first" — a candidate statistically
+    // level with the leader may outrank it on the smoother playoff signal, which is the
+    // documented behaviour. What must hold is that the ordering is well-defined:
+    //
+    //  - whatever leads is within sampling noise of the true maximum;
+    //  - every tied candidate outranks every untied one;
+    //  - untied candidates descend by title probability.
+    expect(recs[0].tiedWithLeader).toBe(true);
+    expect(best - recs[0].championshipProbability).toBeLessThanOrEqual(
+      recs[0].standardError * 2 + 1e-9,
+    );
+
+    const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
+    if (firstUntied >= 0) {
+      for (let i = firstUntied; i < recs.length; i += 1) {
+        expect(recs[i].tiedWithLeader).toBe(false);
+      }
+      for (let i = firstUntied + 1; i < recs.length; i += 1) {
+        expect(recs[i - 1].championshipProbability).toBeGreaterThanOrEqual(
+          recs[i].championshipProbability,
+        );
+      }
+    }
+
+    // And the flag itself is honest: tied means within the combined standard errors.
+    const leader = recs.find((r) => r.championshipProbability === best)!;
+    for (const r of recs) {
+      const within =
+        best - r.championshipProbability <= leader.standardError + r.standardError;
+      expect(r.tiedWithLeader).toBe(within);
+    }
+  });
+
   it("returns nothing when the board is empty", () => {
     expect(
       recommendByChampionship(

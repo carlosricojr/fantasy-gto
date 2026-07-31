@@ -40,7 +40,11 @@ import { canonicalizeState, digestIds, stateSignature } from "./draft-speculatio
  * a memo. The seed is included because two seeds give genuinely different estimates of the
  * same quantity, and silently mixing them would make results irreproducible.
  */
-export function leagueFingerprint(config: LeagueConfig, seed: number): string {
+export function leagueFingerprint(
+  config: LeagueConfig,
+  seed: number,
+  candidateLimit?: number,
+): string {
   // Sorted, because slot order does not change the answer — verified by computing a
   // recommendation against a reversed slot list and getting an identical result. Leaving
   // it order-sensitive would cost hits for nothing. Eligibility is folded in rather than
@@ -52,11 +56,18 @@ export function leagueFingerprint(config: LeagueConfig, seed: number): string {
     .join(",");
   return [
     `slots=${digestIds([slots])}`,
-    `weeks=${config.weeks.length}`,
-    `po=${config.playoffTeams}/${config.playoffWeeks.length}`,
+    // Which weeks, not how many. A bye lands inside one league's schedule and outside
+    // another's, and that is exactly the collision the objective exists to price — two
+    // leagues with playoffs in weeks 15-17 and 14-16 are both "3" but are not the same
+    // problem.
+    `weeks=${config.weeks.join("-")}`,
+    `po=${config.playoffTeams}/${config.playoffWeeks.join("-")}`,
     `scen=${config.scenarios}`,
     `absence=${config.meanAbsenceWeeks}`,
     `seed=${seed}`,
+    // The shortlist length changes both how many recommendations come back and which,
+    // so an answer computed for three candidates must not be served to a request for ten.
+    `cand=${candidateLimit ?? "default"}`,
   ].join(";");
 }
 
@@ -65,8 +76,11 @@ export function memoKey(
   config: LeagueConfig,
   seed: number,
   state: DraftPolicyState,
+  candidateLimit?: number,
 ): string {
-  return `${leagueFingerprint(config, seed)}||${stateSignature(canonicalizeState(state))}`;
+  return `${leagueFingerprint(config, seed, candidateLimit)}||${stateSignature(
+    canonicalizeState(state),
+  )}`;
 }
 
 export interface MemoStore {
@@ -154,7 +168,7 @@ export function recommendMemoized(
   createRng: (seed: number) => Rng,
   candidateLimit?: number,
 ): MemoizedResult {
-  const key = memoKey(config, seed, state);
+  const key = memoKey(config, seed, state, candidateLimit);
   const hit = store.get(key);
   if (hit !== undefined) return { recommendations: hit, cached: true, key };
 

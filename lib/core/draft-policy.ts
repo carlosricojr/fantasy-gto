@@ -294,7 +294,7 @@ export function recommendByChampionship(
   const opponentScores = baselineRosters
     .filter((_, index) => index !== state.myTeamIndex)
     .map((roster, index) =>
-      sampleTeamWeeklyScores(roster, config, createRng(seed + 1000 + index)),
+      sampleTeamWeeklyScores(roster, config, seed + 1000 + index),
     );
 
   // What the rest of the league is expected to take, so our own rollout draws from the
@@ -316,7 +316,7 @@ export function recommendByChampionship(
       config.slots,
       forced,
     );
-    const mine = sampleTeamWeeklyScores(mineRoster, config, createRng(seed));
+    const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
     return championshipProbability(mine, opponentScores, config);
   };
 
@@ -335,30 +335,42 @@ export function recommendByChampionship(
         standardError: round4(Math.sqrt((p * (1 - p)) / config.scenarios)),
       };
     })
-    .map((r) => ({ ...r, tiedWithLeader: false }))
-    .sort((a, b) => {
-      // Treat title odds inside the combined noise as tied and decide on the smoother
-      // signal. Making a playoff is roughly a one-in-two event rather than one-in-twelve,
-      // so it resolves at sample sizes a draft clock permits.
-      const noise = a.standardError + b.standardError;
-      const gap = b.championshipProbability - a.championshipProbability;
-      if (Math.abs(gap) > noise) return gap;
-      return (
-        b.playoffProbability - a.playoffProbability ||
-        b.expectedPoints - a.expectedPoints ||
-        (a.player.id < b.player.id ? -1 : 1)
-      );
-    });
+    .map((r) => ({ ...r, tiedWithLeader: false }));
 
-  if (ranked.length > 0) {
-    const leader = ranked[0];
-    for (const entry of ranked) {
-      entry.tiedWithLeader =
-        Math.abs(leader.championshipProbability - entry.championshipProbability) <=
-        leader.standardError + entry.standardError;
-    }
+  if (ranked.length === 0) return ranked;
+
+  // Partition against the true maximum rather than sorting with the tie rule directly.
+  //
+  // "Within noise, prefer the smoother signal" is not a transitive relation, so it is not
+  // a valid comparator: with title odds of 12.0%, 14.0% and 16.0% at 600 scenarios, the
+  // first two are tied, the last two are tied, but the first and third are not — a cycle.
+  // `Array.prototype.sort` given a cycle may return anything, and it could put the 12%
+  // candidate first while the 16% one placed third. Establishing the leader first makes
+  // the comparison well-defined.
+  const best = ranked.reduce((a, b) =>
+    b.championshipProbability > a.championshipProbability ? b : a,
+  );
+  for (const entry of ranked) {
+    entry.tiedWithLeader =
+      best.championshipProbability - entry.championshipProbability <=
+      best.standardError + entry.standardError;
   }
-  return ranked;
+
+  // Everything statistically level with the leader is ordered by playoff probability,
+  // which is roughly a coin flip rather than a one-in-twelve event and so resolves at the
+  // sample sizes a draft clock allows. Everything below it is ordered on title odds.
+  const bySmootherSignal = (a: ChampionshipRecommendation, b: ChampionshipRecommendation) =>
+    b.playoffProbability - a.playoffProbability ||
+    b.expectedPoints - a.expectedPoints ||
+    (a.player.id < b.player.id ? -1 : 1);
+
+  return ranked.sort((a, b) => {
+    if (a.tiedWithLeader !== b.tiedWithLeader) return a.tiedWithLeader ? -1 : 1;
+    if (a.tiedWithLeader) return bySmootherSignal(a, b);
+    return (
+      b.championshipProbability - a.championshipProbability || bySmootherSignal(a, b)
+    );
+  });
 }
 
 function round4(value: number): number {

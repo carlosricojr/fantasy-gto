@@ -146,6 +146,27 @@ describe("leagueFingerprint separates leagues that are genuinely different", () 
     expect(leagueFingerprint({ ...CONFIG, meanAbsenceWeeks: 2 }, 1)).not.toBe(base);
   });
 
+  it("separates leagues whose weeks differ in identity, not just in count", () => {
+    // A bye lands inside one league's schedule and outside another's, which is the exact
+    // collision the objective exists to price. Recording only the count made playoffs in
+    // weeks 15-17 and 14-16 the same problem.
+    expect(
+      leagueFingerprint({ ...CONFIG, playoffWeeks: [12, 13] }, 1),
+    ).not.toBe(base);
+    expect(
+      leagueFingerprint(
+        { ...CONFIG, weeks: Array.from({ length: 12 }, (_, i) => i + 2) },
+        1,
+      ),
+    ).not.toBe(base);
+  });
+
+  it("separates different shortlist lengths", () => {
+    // `candidateLimit` changes both how many recommendations come back and which, so an
+    // answer computed for three must not be served to a request for ten.
+    expect(leagueFingerprint(CONFIG, 1, 3)).not.toBe(leagueFingerprint(CONFIG, 1, 10));
+  });
+
   it("separates different seeds", () => {
     expect(leagueFingerprint(CONFIG, 2)).not.toBe(base);
   });
@@ -275,6 +296,15 @@ describe("recommendMemoized", () => {
     // And the answers genuinely differ, so serving one for the other would be wrong,
     // not merely impure.
     expect(rec(second.recommendations)).not.toEqual(rec(first.recommendations));
+  });
+
+  it("does not serve a three-candidate answer to a request for twelve", () => {
+    const store = new LruMemoStore(8);
+    const state = baseState();
+    const first = recommendMemoized(store, state, CONFIG, 42, createRng, 3);
+    const second = recommendMemoized(store, state, CONFIG, 42, createRng, 12);
+    expect(second.cached).toBe(false);
+    expect(second.recommendations.length).toBeGreaterThan(first.recommendations.length);
   });
 
   it("does not serve an answer computed under a different seed", () => {
