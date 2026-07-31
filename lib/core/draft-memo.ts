@@ -1,0 +1,189 @@
+import type { Rng } from "./rng";
+import type { LeagueConfig } from "./season-sim";
+import {
+  type ChampionshipRecommendation,
+  type DraftPolicyState,
+  recommendByChampionship,
+} from "./draft-policy";
+import { canonicalizeState, digestIds, stateSignature } from "./draft-speculation";
+
+/**
+ * Remembering positions that have already been solved.
+ *
+ * A draft position is a pure input: the same board, the same rosters, the same league
+ * rules and the same seed give the same answer every time. So a position solved once never
+ * needs solving again — and early-round positions repeat constantly, both within a league
+ * and across every league drafting from the same board. The first three rounds of a
+ * twelve-team PPR draft are close to stereotyped.
+ *
+ * ## What the key has to cover, and why that is the hard part
+ *
+ * A memo is only safe if the key captures everything the answer depends on. Getting that
+ * wrong does not produce a slow tool, it produces a confidently wrong one — an answer
+ * computed for somebody else's league, served as though it were yours.
+ *
+ * So the key is the league fingerprint *and* the state signature, and the fingerprint
+ * covers every field of the configuration that can change a result: the starting slots and
+ * their eligibility, the weeks played, the playoff shape, the scenario count, the injury
+ * model, and the seed. Two leagues that differ in any of those are different problems, and
+ * a superflex league must never be served a single-quarterback answer.
+ *
+ * The state signature covers the rosters, the remaining picks, and a digest of the pool —
+ * see `draft-speculation.ts`.
+ */
+
+/**
+ * Identity of the problem being solved, excluding the position itself.
+ *
+ * Slot eligibility is folded in rather than just slot count: `FLEX` accepting a
+ * quarterback is a different league from one where it does not, and the two must not share
+ * a memo. The seed is included because two seeds give genuinely different estimates of the
+ * same quantity, and silently mixing them would make results irreproducible.
+ */
+export function leagueFingerprint(config: LeagueConfig, seed: number): string {
+  // Sorted, because slot order does not change the answer — verified by computing a
+  // recommendation against a reversed slot list and getting an identical result. Leaving
+  // it order-sensitive would cost hits for nothing. Eligibility is folded in rather than
+  // just the slot id: a caller assembling `LeagueConfig.slots` by hand can produce the
+  // same id accepting different positions, and those are different leagues.
+  const slots = [...config.slots]
+    .map((slot) => `${slot.id}:${[...slot.eligiblePositions].sort().join("/")}`)
+    .sort()
+    .join(",");
+  return [
+    `slots=${digestIds([slots])}`,
+    `weeks=${config.weeks.length}`,
+    `po=${config.playoffTeams}/${config.playoffWeeks.length}`,
+    `scen=${config.scenarios}`,
+    `absence=${config.meanAbsenceWeeks}`,
+    `seed=${seed}`,
+  ].join(";");
+}
+
+/** The full memo key: which problem, and which position within it. */
+export function memoKey(
+  config: LeagueConfig,
+  seed: number,
+  state: DraftPolicyState,
+): string {
+  return `${leagueFingerprint(config, seed)}||${stateSignature(canonicalizeState(state))}`;
+}
+
+export interface MemoStore {
+  get(key: string): ChampionshipRecommendation[] | undefined;
+  set(key: string, value: ChampionshipRecommendation[]): void;
+  readonly size: number;
+}
+
+export interface MemoStats {
+  hits: number;
+  misses: number;
+  /** Entries evicted because the store was full. */
+  evictions: number;
+}
+
+/**
+ * A bounded in-memory store, least-recently-used first out.
+ *
+ * Bounded because a draft board of several hundred players generates unboundedly many
+ * positions, and a process that remembers all of them eventually falls over. LRU because
+ * the positions worth keeping are the ones being revisited, which is exactly what recency
+ * measures.
+ */
+export class LruMemoStore implements MemoStore {
+  private readonly entries = new Map<string, ChampionshipRecommendation[]>();
+  readonly stats: MemoStats = { hits: 0, misses: 0, evictions: 0 };
+
+  constructor(private readonly capacity = 512) {
+    if (capacity < 1) throw new Error("memo capacity must be at least 1");
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  get(key: string): ChampionshipRecommendation[] | undefined {
+    const value = this.entries.get(key);
+    if (value === undefined) {
+      this.stats.misses += 1;
+      return undefined;
+    }
+    // Re-insert so this key becomes the most recently used. `Map` preserves insertion
+    // order, which is what makes the oldest key the first one iteration yields.
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    this.stats.hits += 1;
+    return value;
+  }
+
+  set(key: string, value: ChampionshipRecommendation[]): void {
+    if (this.entries.has(key)) this.entries.delete(key);
+    this.entries.set(key, value);
+    while (this.entries.size > this.capacity) {
+      const oldest = this.entries.keys().next();
+      if (oldest.done === true) break;
+      this.entries.delete(oldest.value);
+      this.stats.evictions += 1;
+    }
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}
+
+export interface MemoizedResult {
+  recommendations: ChampionshipRecommendation[];
+  /** True when the answer came from the store rather than being computed. */
+  cached: boolean;
+  key: string;
+}
+
+/**
+ * Recommends, consulting the store first and populating it on a miss.
+ *
+ * The stored value is returned as-is on a hit, which is sound precisely because the key
+ * covers every input: the computation is deterministic, so recomputing would produce the
+ * identical array. `draft-memo.test.ts` asserts that rather than assuming it.
+ */
+export function recommendMemoized(
+  store: MemoStore,
+  state: DraftPolicyState,
+  config: LeagueConfig,
+  seed: number,
+  createRng: (seed: number) => Rng,
+  candidateLimit?: number,
+): MemoizedResult {
+  const key = memoKey(config, seed, state);
+  const hit = store.get(key);
+  if (hit !== undefined) return { recommendations: hit, cached: true, key };
+
+  const recommendations = recommendByChampionship(
+    canonicalizeState(state),
+    config,
+    seed,
+    createRng,
+    candidateLimit,
+  );
+  store.set(key, recommendations);
+  return { recommendations, cached: false, key };
+}
+
+/**
+ * A `compute` function for `precomputeRecommendations`, backed by a store.
+ *
+ * Speculation and memoisation solve different halves of the same problem — one prepares
+ * futures that have not happened, the other remembers positions that have. Composed, a
+ * future prepared for an earlier pick, or solved in somebody else's league, is free.
+ */
+export function memoizedCompute(store: MemoStore) {
+  return (
+    state: DraftPolicyState,
+    config: LeagueConfig,
+    seed: number,
+    createRng: (seed: number) => Rng,
+    candidateLimit?: number,
+  ): ChampionshipRecommendation[] =>
+    recommendMemoized(store, state, config, seed, createRng, candidateLimit)
+      .recommendations;
+}

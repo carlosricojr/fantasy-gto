@@ -18,7 +18,10 @@ import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import { scoreOffense } from "../lib/nfl/scoring/score";
 import { NflverseProvider } from "../lib/sources/nflverse";
 import { AdpProvider } from "../lib/sources/adp";
-import { DRAFTABLE_POSITIONS } from "../lib/nfl/draft/config";
+import {
+  DRAFTABLE_POSITIONS,
+  normalizeMarketPosition,
+} from "../lib/nfl/draft/config";
 import { normalizeName } from "../lib/nfl/draft/match";
 import {
   type AdpCurveSet,
@@ -718,6 +721,11 @@ export async function runBuildDraftBoard(
     const adpByName = new Map(
       adpResult.data.map((entry) => [normalizeName(entry.name), entry]),
     );
+    // Defences are not players and never appear on a roster file, so they are taken from
+    // the market board directly. A league that starts one has to be able to draft one.
+    const marketDefences = adpResult.data.filter(
+      (entry) => normalizeMarketPosition(entry.position) === "DST",
+    );
 
     const rows = [];
     let withMarketPrice = 0;
@@ -747,6 +755,8 @@ export async function runBuildDraftBoard(
       if (marketPoints !== null) withMarketPrice += 1;
 
       const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
+      // Kickers have no model projection, so their weekly spread is the placeholder band
+      // rather than a measured one. `config.ts` marks it as such.
       rows.push({
         playerId: entry.playerId,
         name: entry.name,
@@ -762,6 +772,32 @@ export async function runBuildDraftBoard(
         // The weekly spread is the one the weekly model measured, not an assumption.
         p10: band?.p10 ?? 0.2,
         p90: band?.p90 ?? 1.9,
+      });
+    }
+
+    // Defences, synthesised from the market. They carry no model estimate at all, which
+    // the blend already handles: where the model is silent the market's price stands.
+    for (const entry of marketDefences) {
+      const marketPoints = adpImpliedPoints(entry.adp, "DST", curve);
+      if (marketPoints === null) continue;
+      const band = OUTCOME_QUANTILES.DST;
+      withMarketPrice += 1;
+      rows.push({
+        playerId: `dst-${normalizeName(entry.name)}`,
+        name: entry.name,
+        position: "DST",
+        team: entry.team,
+        modelPoints: 0,
+        marketPoints,
+        blendedPoints: blendedSeasonValue(null, marketPoints),
+        adp: entry.adp,
+        adpStdev: entry.stdev,
+        byeWeek: entry.bye,
+        // No games-played history exists for a defence; a team plays every week it is not
+        // on bye, so availability is the bye alone.
+        availability: 1,
+        p10: band.p10,
+        p90: band.p90,
       });
     }
 

@@ -48,6 +48,16 @@ export interface PlayerRisk {
    * A player who has finished each of the last two seasons sits near 1.
    */
   availability: number;
+  /**
+   * Where the market drafts him, and how widely that varies.
+   *
+   * Not used by the season simulation, which does not care how a roster was assembled.
+   * They live here because the draft layer needs the market's view of the same player and
+   * a parallel type would have to be kept in step by hand. Optional, so a caller that only
+   * simulates a season need not invent them.
+   */
+  adp?: number | null;
+  adpStdev?: number | null;
 }
 
 export interface UtilityConfig {

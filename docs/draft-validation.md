@@ -216,6 +216,61 @@ synchronous work would freeze the interface. The natural fit is to compute specu
 while opponents are on the clock — your next pick is known in advance, so the answer can be
 ready before the turn arrives.
 
+### League rules
+
+**Handled.** Roster shape is arbitrary — any combination of slot kinds and counts, including
+superflex — and the simulation uses it directly for every team. League size, playoff field,
+bracket length and season length are all configuration. Kickers and defences are on the
+board and draftable.
+
+**Kickers and defences carry the market's price only.** The model does not project either
+and will not pretend to. They were previously left off the board entirely, which did not
+make the tool cautious — it made it unusable for any league that starts one: the slot could
+never be filled, every simulated roster carried a permanent hole, and a user following the
+recommendations would finish the draft without a kicker. They are now valued exactly as a
+rookie is, by the same rule: where the model is silent, the market's price stands alone.
+Their weekly spread is the `placeholder` band in `OUTCOME_QUANTILES`, not a measured one.
+
+**Not handled: custom scoring.** Only PPR, half-PPR, and standard are supported. This is a
+harder limit than it looks, because it binds on both halves of the valuation at once — the
+projection would need re-scoring, and the market half simply does not exist, since ADP is
+only published for those three formats. A league with six-point passing touchdowns or a
+tight-end premium is *approximated* by the nearest preset, and the interface should say so
+rather than imply the board was built for it.
+
+### Cost of repeated positions
+
+A draft position is a pure input: the same board, rosters, rules and seed give the same
+answer every time. Two caches exploit that, and both are built so that a wrong hit is
+impossible rather than unlikely — a memo that answers quickly and incorrectly is worse than
+no memo.
+
+- **Memoisation** (`draft-memo.ts`) keys on a league fingerprint plus a state signature.
+  The fingerprint covers slot eligibility — not just slot ids, because a hand-assembled
+  `flex` that accepts quarterbacks is a different league — along with the playoff shape,
+  season length, scenario count, injury model, and seed.
+- **Speculation** (`draft-speculation.ts`) precomputes answers for the futures most likely
+  to occur while opponents are on the clock. You know your pick *number* in advance but not
+  the state at it, so there is no single answer to precompute; instead opponent picks are
+  sampled from the same ADP dispersion the survival model uses, states are deduplicated,
+  and the likeliest are solved in order until the budget runs out.
+
+States are canonicalised before either cache sees them, because roster order is meaningless
+in fantasy but determines the order random draws are consumed — so without it, the same
+position computes differently depending on how it was assembled.
+
+A cached answer is served **only on an exact signature match**, which is verified rather
+than assumed. Anything else is `approximate` (and labelled, with what differs) or `miss`.
+An approximation is never returned unless the caller explicitly asks for one.
+
+Both contracts are mutation-tested. Removing roster canonicalisation, dropping the pool
+digest from the signature, removing the hash separator, serving a near-miss as exact,
+dropping the seed or scenario count from the fingerprint, and evicting by insertion rather
+than by use each break at least one test. An earlier version of the superflex test passed
+against a broken fingerprint — `buildSlots` happens to give a superflex a different slot
+id, so id alone separated them — and was replaced with one that exercises the collision it
+claimed to.
+
 ### Still unmodelled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own

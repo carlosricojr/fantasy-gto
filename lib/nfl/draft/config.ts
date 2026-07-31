@@ -59,12 +59,44 @@ export const GAMES_IN_SEASON = 17;
 export const AVAILABILITY_FLOOR = 0.5;
 
 /**
- * Positions the draft board values.
+ * Positions the model projects.
  *
- * Kickers and defences are deliberately absent: the model does not project them, so any
- * number shown against them would be fabricated. They are drafted from the board as
- * unranked, which is honest about what we know.
+ * Kickers and defences are not among them and will not be: the weekly model has no view
+ * of either, and inventing one would be fabricating a number.
  */
-export const DRAFTABLE_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
+export const MODELLED_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
+
+/**
+ * Positions the board carries.
+ *
+ * Wider than the modelled set, because a league that starts a kicker needs to draft one.
+ * Leaving them off the board did not make the tool cautious — it made it unusable for
+ * such a league: the slot could never be filled, every simulated roster carried a
+ * permanent hole, and a user following the recommendations would finish the draft without
+ * a kicker.
+ *
+ * They are carried on the market's valuation alone. That is not a compromise but the same
+ * rule every other player follows: where the model has no opinion, the market's stands by
+ * itself, exactly as it does for a rookie with no prior games.
+ */
+export const DRAFTABLE_POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 
 export type DraftablePosition = (typeof DRAFTABLE_POSITIONS)[number];
+
+/**
+ * How the market names positions we spell differently.
+ *
+ * Fantasy Football Calculator publishes kickers as `PK` and defences as `DEF`. Matching on
+ * our own spelling silently drops both.
+ */
+export const MARKET_POSITION_ALIASES: Readonly<Record<string, string>> = {
+  PK: "K",
+  DEF: "DST",
+  "D/ST": "DST",
+};
+
+/** Normalises a market position code to ours. */
+export function normalizeMarketPosition(raw: string): string {
+  const code = raw.trim().toUpperCase();
+  return MARKET_POSITION_ALIASES[code] ?? code;
+}
