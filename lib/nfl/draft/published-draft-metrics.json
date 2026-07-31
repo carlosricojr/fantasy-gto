@@ -1,0 +1,24 @@
+{
+  "tuningSeason": 2023,
+  "evaluationSeason": 2024,
+  "chosenBlendWeight": 0.2,
+  "sampleSize": 151,
+  "spearman": {
+    "adpOnly": 0.5401533635413036,
+    "modelOnly": 0.44339142558382716,
+    "blended": 0.5363959567793657
+  },
+  "topN": {
+    "24": {
+      "adpOnly": 267.43333333333334,
+      "modelOnly": 244.52166666666668,
+      "blended": 272.61499999999995
+    },
+    "48": {
+      "adpOnly": 243.4754166666667,
+      "modelOnly": 217.86291666666662,
+      "blended": 238.30708333333337
+    }
+  },
+  "edgeOverMarket": -0.6956185068077624
+}

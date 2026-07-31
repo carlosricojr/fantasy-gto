@@ -132,7 +132,79 @@ Application defaults must therefore resolve "current season" from data availabil
 than from the wall clock, and the UI must present an offseason state honestly instead of
 rendering an empty current week. See `lib/nfl/season.ts`.
 
-## 5. Clerk billing webhook — NOT verified by observation
+## 5. Draft data
+
+Verified by direct request on 2026-07-31.
+
+### Average draft position — Fantasy Football Calculator
+
+```
+https://fantasyfootballcalculator.com/api/v1/adp/{ppr|half-ppr|standard}?teams={n}&year={season}
+```
+
+Public, unauthenticated, JSON. The 2026 PPR/12-team board returns **247 players**, each
+carrying `adp`, `stdev`, `high`, `low`, `times_drafted`, and `bye`.
+
+The standard deviation is the reason this source was chosen over the alternatives. Without
+dispersion, ADP reads as a deadline, and a draft strategy built on a deadline reaches for
+players who would have lasted another full round. `lib/core/draft.ts` turns `adp` and
+`stdev` into a survival probability directly.
+
+Two hazards, both handled in `lib/sources/adp.ts` and covered by tests:
+
+- **A season with no board returns HTTP 200 with `{"status":"Error"}`**, not a 404.
+  Reading that as success produces a board where every player is unranked and every
+  survival probability is 1. Confirmed: `year=2025` and `year=2031` both answer this way.
+- **Our ruleset id `half_ppr` is spelled `half-ppr` upstream.** Sending our spelling
+  returns the PPR board rather than an error.
+
+Availability by season, confirmed by request: 2021 (211 players), 2022 (157), 2023 (202),
+2024 (205 PPR / 180 standard), **2025 — none**, 2026 (247). The 2025 gap is why the
+backtest evaluates on 2024.
+
+### Live draft state — Sleeper
+
+```
+https://api.sleeper.app/v1/draft/{draft_id}
+https://api.sleeper.app/v1/draft/{draft_id}/picks
+https://api.sleeper.app/v1/state/nfl
+```
+
+Public and unauthenticated. `/v1/state/nfl` confirmed live, reporting the 2026 preseason
+with a season start of 2026-08-06.
+
+**Partially verified.** The endpoints are reachable and an unknown draft id was confirmed
+to return HTTP 200 with the body `null` rather than a 404 — a real hazard, since parsing
+`null` as an object surfaces as a confusing shape error. But **no live draft payload was
+captured**, because that needs an in-progress draft with a known id. The field names in
+`lib/sources/sleeper.ts` come from Sleeper's documentation, not from observation, exactly
+as with the Clerk webhook in section 6.
+
+The parsers are written so that being wrong about the shape degrades rather than misfires:
+a pick with no usable name or no overall number is skipped rather than guessed at, and
+missing settings fail the call instead of defaulting to invented league dimensions.
+
+### Rosters — nflverse
+
+```
+https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_{season}.csv
+https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_{season}.csv
+```
+
+`roster_2026.csv` confirmed present and populated: **2,930 players across all 32 teams**,
+carrying `position`, `status` (`ACT`, `RET`, and others), and `gsis_id`, which is the same
+identifier `stats_player_week` uses as `player_id`.
+
+This is the release the README's week-1 known gap names as the fix. It resolves a player's
+team before any game has been played, which is exactly what a preseason draft board needs
+and what the in-season projection path currently cannot do.
+
+### ESPN — still unusable
+
+Re-checked on 2026-07-31. `lm-api-reads.espn.com` and `lm.espn.com` remain **NXDOMAIN** on
+public DNS; `curl` fails with "Could not resolve host". Nothing has changed since section 3.
+
+## 6. Clerk billing webhook — NOT verified by observation
 
 Every other source in this document was confirmed by direct request. This one was not, and
 the distinction matters enough to state rather than blur.

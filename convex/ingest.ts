@@ -15,7 +15,18 @@ import {
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
+import { scoreOffense } from "../lib/nfl/scoring/score";
 import { NflverseProvider } from "../lib/sources/nflverse";
+import { AdpProvider } from "../lib/sources/adp";
+import { DRAFTABLE_POSITIONS } from "../lib/nfl/draft/config";
+import { normalizeName } from "../lib/nfl/draft/match";
+import {
+  type AdpCurveSet,
+  adpImpliedPoints,
+  blendedSeasonValue,
+  fitAdpCurves,
+  seasonProjection,
+} from "../lib/nfl/draft/value";
 import { weeksBetween } from "../lib/nfl/season";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
@@ -533,3 +544,226 @@ export const syncSchedule = internalAction({
     return { contests: rows.length };
   },
 });
+
+/**
+ * Builds the season-long draft board.
+ *
+ * Distinct from `projectWeek` in what it needs and when it runs. A weekly projection is
+ * driven by recent form and can only exist once games have been played; a draft board is
+ * needed *before* the season, when there is no current-season form at all and a player's
+ * team comes from the roster release rather than from an appearance.
+ *
+ * The board is the blend of two estimates — ours and the market's — because measurement
+ * says the blend beats either. `docs/draft-validation.md` has the figures and
+ * `pnpm draft-backtest` reproduces them.
+ */
+export const buildDraftBoard = internalAction({
+  args: {
+    season: v.number(),
+    scoringId: v.optional(v.string()),
+    teams: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ players: number; withMarketPrice: number; unpriced: number }> =>
+    runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
+});
+
+export async function runBuildDraftBoard(
+  ctx: ProjectWriteCtx,
+  {
+    season,
+    scoringId = DEFAULT_SCORING.id,
+    teams = 12,
+  }: { season: number; scoringId?: string; teams?: number },
+  provider: NflverseProvider,
+  adpProvider: AdpProvider,
+): Promise<{ players: number; withMarketPrice: number; unpriced: number }> {
+  const jobId = await ctx.runMutation(internal.jobs.start, {
+    kind: `draft:${season}-${scoringId}-${teams}`,
+    detail: `Building ${season} draft board (${scoringId}, ${teams}-team)`,
+  });
+
+  try {
+    // Who is on a team this season. The only source that knows before a game is played.
+    const rosterResult = await provider.seasonRoster(season);
+    if (!rosterResult.ok) throw new Error(rosterResult.reason);
+
+    // Two prior seasons of production, matching the backtest's window.
+    const priorSeasons: PlayerWeek[][] = [];
+    for (const back of [2, 1]) {
+      const result = await provider.playerWeeks(season - back);
+      if (!result.ok) throw new Error(result.reason);
+      priorSeasons.push(result.data);
+    }
+
+    const adpResult = await adpProvider.forSeason(season, scoringId, teams);
+    if (!adpResult.ok) throw new Error(adpResult.reason);
+
+    const scoring = SCORING_PRESETS.find((preset) => preset.id === scoringId);
+    if (!scoring) throw new Error(`Unknown scoring ruleset "${scoringId}".`);
+
+    // Per-game points, oldest first, and games played in the immediately prior season.
+    const perGame = new Map<string, number[]>();
+    const priorGames = new Map<string, number>();
+    for (const [index, weeks] of priorSeasons.entries()) {
+      const ordered = [...weeks].sort((a, b) => a.period.index - b.period.index);
+      for (const week of ordered) {
+        const id = week.competitor.id;
+        const points = scoreOffense(week.stats, scoring).total;
+        perGame.set(id, [...(perGame.get(id) ?? []), points]);
+        if (index === 1) priorGames.set(id, (priorGames.get(id) ?? 0) + 1);
+      }
+    }
+
+    // The market curve turns a draft slot into points, and is fitted on a season that is
+    // already finished — never on the one being drafted, which would be reading the
+    // answers.
+    //
+    // Which season that is cannot be assumed to be the previous one. A curve needs *both*
+    // a published ADP board and a finished result, and those do not always coincide:
+    // there is no 2025 board at all, so a 2026 draft has to reach back to 2024. Trying
+    // only `season - 1` silently produced a board with no market component whatsoever —
+    // which is not a degraded version of this product, it is the pure-model board that
+    // measurement says is the *worse* of the two signals.
+    const seasonTotals = (weeks: readonly PlayerWeek[]): Map<string, number> => {
+      const totals = new Map<string, number>();
+      const byId = new Map<string, string>();
+      for (const week of weeks) {
+        const id = week.competitor.id;
+        totals.set(id, (totals.get(id) ?? 0) + scoreOffense(week.stats, scoring).total);
+        byId.set(id, week.competitor.name);
+      }
+      const byName = new Map<string, number>();
+      for (const [id, name] of byId) byName.set(normalizeName(name), totals.get(id) ?? 0);
+      return byName;
+    };
+
+    let curve: AdpCurveSet | null = null;
+    const curveAttempts: string[] = [];
+    for (const [offset, weeks] of [
+      [1, priorSeasons[1]],
+      [2, priorSeasons[0]],
+    ] as const) {
+      const candidateSeason = season - offset;
+      const candidateAdp = await adpProvider.forSeason(candidateSeason, scoringId, teams);
+      if (!candidateAdp.ok) {
+        curveAttempts.push(`${candidateSeason}: no ADP board`);
+        continue;
+      }
+      const totalsByName = seasonTotals(weeks);
+      const samples = candidateAdp.data
+        .map((entry) => {
+          const actual = totalsByName.get(normalizeName(entry.name));
+          return actual === undefined
+            ? null
+            : {
+                adp: entry.adp,
+                actualSeasonPoints: actual,
+                position: entry.position,
+              };
+        })
+        .filter(
+          (s): s is { adp: number; actualSeasonPoints: number; position: string } =>
+            s !== null,
+        );
+
+      const fitted = fitAdpCurves(samples, candidateSeason);
+      if (fitted.pooled !== null) {
+        curve = fitted;
+        break;
+      }
+      curveAttempts.push(`${candidateSeason}: only ${samples.length} players matched`);
+    }
+
+    // Failing loudly rather than shipping a board that quietly is not the validated
+    // product. Every published figure in docs/draft-validation.md describes the blend.
+    if (curve === null) {
+      throw new Error(
+        `Could not fit a market curve for ${season}, so the board would carry no market ` +
+          `component and would not be the blend the published figures describe. ` +
+          `Tried — ${curveAttempts.join("; ")}.`,
+      );
+    }
+
+    const adpByName = new Map(
+      adpResult.data.map((entry) => [normalizeName(entry.name), entry]),
+    );
+
+    const rows = [];
+    let withMarketPrice = 0;
+    for (const entry of rosterResult.data) {
+      if (!DRAFTABLE_POSITIONS.includes(entry.position as (typeof DRAFTABLE_POSITIONS)[number])) {
+        continue;
+      }
+      const history = perGame.get(entry.playerId) ?? [];
+      const market = adpByName.get(normalizeName(entry.name)) ?? null;
+
+      // A player with neither production history nor a market price cannot be valued by
+      // anything. Listing him at zero would rank him below every kicker; omitting him is
+      // honest, and he can still be drafted manually.
+      if (history.length === 0 && market === null) continue;
+
+      const modelPoints = seasonProjection({
+        perGamePoints: history,
+        priorSeasonGames: priorGames.get(entry.playerId) ?? 0,
+      });
+      const marketPoints =
+        market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
+      if (marketPoints !== null) withMarketPrice += 1;
+
+      rows.push({
+        playerId: entry.playerId,
+        name: entry.name,
+        position: entry.position,
+        team: entry.team,
+        modelPoints,
+        marketPoints,
+        blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
+        adp: market?.adp ?? null,
+        adpStdev: market?.stdev ?? null,
+      });
+    }
+
+    if (rows.length === 0) {
+      await ctx.runMutation(internal.jobs.finish, {
+        jobId,
+        status: "failed",
+        error: `No draftable players resolved for ${season}. Nothing was written.`,
+      });
+      return { players: 0, withMarketPrice: 0, unpriced: 0 };
+    }
+
+    const computedAt = Date.now();
+    for (const batch of chunk(rows, WRITE_BATCH)) {
+      await ctx.runMutation(internal.draft.upsertBoardBatch, {
+        season,
+        scoringId,
+        teams,
+        computedAt,
+        rows: batch,
+      });
+    }
+    await ctx.runMutation(internal.draft.pruneBoard, {
+      season,
+      scoringId,
+      teams,
+      computedBefore: computedAt,
+    });
+
+    await ctx.runMutation(internal.jobs.finish, { jobId, status: "succeeded", error: null });
+    return {
+      players: rows.length,
+      withMarketPrice,
+      unpriced: rows.length - withMarketPrice,
+    };
+  } catch (error) {
+    await ctx.runMutation(internal.jobs.finish, {
+      jobId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}

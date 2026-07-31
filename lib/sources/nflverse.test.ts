@@ -6,6 +6,8 @@ import { parseCsv } from "../nfl/csv";
 
 import {
   NflverseProvider,
+  parseSeasonRoster,
+  seasonRosterUrl,
   easternWallClockToUtcIso,
   parseContests,
   parseMarketLines,
@@ -19,6 +21,10 @@ const gamesCsv = readFileSync(
 );
 const statsCsv = readFileSync(
   join(__dirname, "../../tests/fixtures/stats_player_week_sample.csv"),
+  "utf8",
+);
+const rosterCsv = readFileSync(
+  join(__dirname, "../../tests/fixtures/roster_2026_sample.csv"),
   "utf8",
 );
 
@@ -166,5 +172,48 @@ describe("NflverseProvider", () => {
     const result = await provider.allContests();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("unavailable");
+  });
+});
+
+describe("parseSeasonRoster", () => {
+  const entries = parseSeasonRoster(parseCsv(rosterCsv));
+
+  it("reads active players with a join key", () => {
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.playerId).not.toBe("");
+      expect(entry.name).not.toBe("");
+    }
+  });
+
+  it("drops players who are not active", () => {
+    // Retired and cut players stay on the file. A draft board that offered them would be
+    // recommending someone who will not take a snap.
+    const statuses = parseCsv(rosterCsv).map((r) => (r.status ?? "").toUpperCase());
+    expect(statuses).toContain("RET");
+    expect(entries.length).toBeLessThan(statuses.length);
+  });
+
+  it("drops rows with no gsis_id, which cannot be joined to any history", () => {
+    // Without the join key a player has no production history, so the board would price
+    // him from nothing at all.
+    const rows = parseCsv(rosterCsv);
+    const activeWithoutId = rows.filter(
+      (r) => (r.status ?? "").toUpperCase() === "ACT" && (r.gsis_id ?? "") === "",
+    );
+    for (const row of activeWithoutId) {
+      expect(entries.some((e) => e.name === row.full_name)).toBe(false);
+    }
+  });
+
+  it("normalises team codes and folds fullbacks into running backs", () => {
+    for (const entry of entries) {
+      if (entry.team !== null) expect(entry.team).toMatch(/^[A-Z]{2,3}$/);
+      expect(entry.position).not.toBe("FB");
+    }
+  });
+
+  it("builds the documented release url", () => {
+    expect(seasonRosterUrl(2026)).toContain("/rosters/roster_2026.csv");
   });
 });

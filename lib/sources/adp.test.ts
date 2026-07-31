@@ -1,0 +1,129 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { AdpProvider, adpUrl, parseAdp } from "./adp";
+
+/**
+ * Average draft position.
+ *
+ * The fixture is a byte-exact slice of a real response, so the parser is tested against
+ * the shape upstream actually sends rather than the shape it is documented to send.
+ */
+const payload = readFileSync(
+  join(__dirname, "../../tests/fixtures/adp_ppr_2026_sample.json"),
+  "utf8",
+);
+
+describe("adpUrl", () => {
+  it("maps our ruleset ids onto the endpoint's format names", () => {
+    // `half_ppr` is spelled `half-ppr` upstream. Sending our spelling returns the wrong
+    // board rather than an error, which is the kind of mismatch that never surfaces.
+    expect(adpUrl("half_ppr", 12, 2026)).toContain("/half-ppr?");
+    expect(adpUrl("standard", 12, 2026)).toContain("/standard?");
+    expect(adpUrl("ppr", 12, 2026)).toContain("/ppr?");
+  });
+
+  it("carries league size, which changes every survival probability", () => {
+    expect(adpUrl("ppr", 10, 2026)).toContain("teams=10");
+    expect(adpUrl("ppr", 14, 2026)).toContain("teams=14");
+  });
+
+  it("falls back to PPR for an unknown ruleset rather than sending a bad format", () => {
+    expect(adpUrl("nonsense", 12, 2026)).toContain("/ppr?");
+  });
+});
+
+describe("parseAdp", () => {
+  it("reads a real response", () => {
+    const entries = parseAdp(JSON.parse(payload));
+    expect(entries).not.toBeNull();
+    expect(entries!.length).toBe(12);
+
+    const first = entries![0];
+    expect(first.name).toBe("Jahmyr Gibbs");
+    expect(first.position).toBe("RB");
+    expect(first.team).toBe("DET");
+    expect(first.adp).toBeCloseTo(1.6, 6);
+    expect(first.stdev).toBeCloseTo(0.8, 6);
+    expect(first.timesDrafted).toBe(589);
+  });
+
+  it("returns null for the error envelope, which arrives with a 200", () => {
+    // The endpoint answers a season it has no data for with `{"status":"Error"}` and HTTP
+    // 200. Reading that as success would produce a board where nobody has an ADP and
+    // every player looks certain to last, which is worse than failing.
+    expect(parseAdp({ status: "Error", players: [] })).toBeNull();
+    expect(parseAdp({ status: "Error" })).toBeNull();
+  });
+
+  it("returns null rather than throwing on junk", () => {
+    expect(parseAdp(null)).toBeNull();
+    expect(parseAdp("nope")).toBeNull();
+    expect(parseAdp({ status: "Success" })).toBeNull();
+  });
+
+  it("skips rows it cannot use instead of emitting a broken entry", () => {
+    const entries = parseAdp({
+      status: "Success",
+      players: [
+        { name: "Real Player", position: "RB", team: "KC", adp: 10, stdev: 3 },
+        { name: "", position: "RB", adp: 11 },
+        { name: "No ADP", position: "WR" },
+        { name: "Zero ADP", position: "WR", adp: 0 },
+      ],
+    });
+    expect(entries!.map((e) => e.name)).toEqual(["Real Player"]);
+  });
+
+  it("tolerates numbers sent as strings", () => {
+    const entries = parseAdp({
+      status: "Success",
+      players: [{ name: "Stringy", position: "TE", adp: "42.5", stdev: "9" }],
+    });
+    expect(entries![0].adp).toBeCloseTo(42.5, 6);
+    expect(entries![0].stdev).toBeCloseTo(9, 6);
+  });
+
+  it("keeps a missing spread as zero for the caller to default", () => {
+    // Deliberately not defaulted here: the survival model owns that choice, and burying
+    // it in the parser would hide which players had no dispersion published.
+    const entries = parseAdp({
+      status: "Success",
+      players: [{ name: "No Spread", position: "QB", adp: 55 }],
+    });
+    expect(entries![0].stdev).toBe(0);
+  });
+});
+
+describe("AdpProvider", () => {
+  const provider = (body: string | Error) =>
+    new AdpProvider(async () => {
+      if (body instanceof Error) throw body;
+      return body;
+    });
+
+  it("returns entries for a season that has data", async () => {
+    const result = await provider(payload).forSeason(2026, "ppr", 12);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toHaveLength(12);
+  });
+
+  it("fails with an explanation when the season has no board yet", async () => {
+    const result = await provider('{"status":"Error"}').forSeason(2031, "ppr", 12);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/No average draft position/);
+  });
+
+  it("fails rather than throwing when upstream is unreachable", async () => {
+    const result = await provider(new Error("network down")).forSeason(2026, "ppr", 12);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/Could not load/);
+  });
+
+  it("fails on malformed JSON", async () => {
+    const result = await provider("<html>rate limited</html>").forSeason(2026, "ppr", 12);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/not valid JSON/);
+  });
+});

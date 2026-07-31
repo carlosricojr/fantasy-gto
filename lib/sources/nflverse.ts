@@ -34,6 +34,18 @@ export function schedulesUrl(): string {
   return `${RELEASE_BASE}/schedules/games.csv`;
 }
 
+/**
+ * Season roster release.
+ *
+ * The one source that says which team a player is on *before* a game has been played.
+ * Weekly statistics cannot: a player's team is derived from an appearance, so in the
+ * preseason there is nothing to derive it from. This is the release the README's week-1
+ * known gap names, and it is what makes a preseason draft board possible at all.
+ */
+export function seasonRosterUrl(season: number): string {
+  return `${RELEASE_BASE}/rosters/roster_${season}.csv`;
+}
+
 /** Fetches a URL as text. Injectable so tests never touch the network. */
 export type TextFetcher = (url: string) => Promise<string>;
 
@@ -191,6 +203,43 @@ export function parseVenues(rows: readonly CsvRow[]): VenueContext[] {
     }));
 }
 
+/** A player on a team's roster for a season. */
+export interface RosterEntry {
+  /** `gsis_id` upstream, which is the same identifier `stats_player_week` calls `player_id`. */
+  playerId: string;
+  name: string;
+  position: string;
+  team: string | null;
+}
+
+/** Pure parse of the season roster release. */
+export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
+  const entries: RosterEntry[] = [];
+  for (const row of rows) {
+    // Only active players. `RET`, `CUT`, and the rest are on the file too.
+    if (str(row, "status").toUpperCase() !== "ACT") continue;
+
+    // `gsis_id` is the join key to weekly statistics. Without it a roster row cannot be
+    // connected to any production history, so it would price a player from nothing.
+    const playerId = str(row, "gsis_id");
+    if (playerId === "") continue;
+
+    const name = str(row, "full_name") || str(row, "player_name");
+    if (name === "") continue;
+
+    let position = str(row, "position").toUpperCase();
+    if (position === "FB") position = "RB";
+
+    entries.push({
+      playerId,
+      name,
+      position,
+      team: normalizeTeam(str(row, "team")),
+    });
+  }
+  return entries;
+}
+
 export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvider {
   readonly sport: SportId = "nfl";
   readonly id = "nflverse";
@@ -230,6 +279,26 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     } catch (cause) {
       return failed(
         `Weekly statistics for ${season} are unavailable. The season may not have started.`,
+        cause,
+      );
+    }
+  }
+
+  /**
+   * Rostered players for a season, with their team.
+   *
+   * Retired and otherwise inactive players are dropped. Upstream keeps them on the file
+   * with a `status` other than `ACT`, and a draft board that offered them would be
+   * recommending players who will not take a snap.
+   */
+  async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
+    try {
+      const text = await this.fetchText(seasonRosterUrl(season));
+      return ok(parseSeasonRoster(parseCsv(text)));
+    } catch (cause) {
+      return failed(
+        `Rosters for ${season} are unavailable. They are usually published well before ` +
+          `the season starts.`,
         cause,
       );
     }

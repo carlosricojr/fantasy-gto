@@ -126,6 +126,41 @@ export default defineSchema({
     .index("by_sport_position", ["sport", "position"]),
 
   /**
+   * Season-long draft valuations.
+   *
+   * Separate from `projections` because it answers a different question. A projection is
+   * for one week and is recomputed as form changes; a draft board is for a whole season
+   * and is rebuilt when the market moves. Storing them in one table would mean a weekly
+   * refresh silently overwrote draft values, or vice versa.
+   *
+   * Both components are kept alongside the blend, so the interface can show what the
+   * market thinks and what the model thinks rather than only their average. The blend is
+   * the recommendation; the disagreement is the interesting part.
+   */
+  draftBoard: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    scoringId: v.string(),
+    /** League size, because ADP is only meaningful against one. */
+    teams: v.number(),
+    playerId: v.string(),
+    name: v.string(),
+    position: v.string(),
+    team: v.union(v.string(), v.null()),
+    /** Our own season projection. */
+    modelPoints: v.number(),
+    /** The market's implied points for this draft slot, or null if it has no opinion. */
+    marketPoints: v.union(v.number(), v.null()),
+    /** What the board ranks on. */
+    blendedPoints: v.number(),
+    adp: v.union(v.number(), v.null()),
+    adpStdev: v.union(v.number(), v.null()),
+    computedAt: v.number(),
+  })
+    .index("by_board", ["sport", "season", "scoringId", "teams"])
+    .index("by_board_player", ["sport", "season", "scoringId", "teams", "playerId"]),
+
+  /**
    * Model output. The product's primary read.
    *
    * `contributions` is stored alongside the number because the explanation is a feature,
