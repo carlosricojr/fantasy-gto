@@ -118,23 +118,25 @@ export const BASE_POLICY_WIDTH = 40;
  * the best legal lineup right now, which is a good enough filter to find the handful of
  * picks worth simulating properly.
  */
-function prefilterValue(
-  roster: readonly PlayerRisk[],
-  candidate: PlayerRisk,
-  slots: readonly RosterSlot[],
-): number {
-  // Expected contribution, not raw scoring rate. A player who misses half the season is
-  // worth half as much, and a filter blind to that would rank a fragile starter level with
-  // a durable one — then drop both before the objective, which does know the difference,
-  // ever sees them.
-  const toCompetitor = (p: PlayerRisk) => ({
+function toCompetitor(p: PlayerRisk) {
+  return {
     id: p.id,
     name: p.name,
     position: p.position,
     projectedPoints: p.weeklyMean * p.availability,
     availability: "active" as const,
-  });
-  const before = solveLineup(slots, roster.map(toCompetitor)).totalPoints;
+  };
+}
+
+function prefilterValue(
+  roster: readonly PlayerRisk[],
+  candidate: PlayerRisk,
+  slots: readonly RosterSlot[],
+  baseline?: number,
+): number {
+  // `baseline` is the roster's own lineup value, which does not depend on the candidate.
+  // Solving it once per pick rather than once per contender halves the rollout.
+  const before = baseline ?? solveLineup(slots, roster.map(toCompetitor)).totalPoints;
   const after = solveLineup(
     slots,
     [...roster, candidate].map(toCompetitor),
@@ -167,10 +169,11 @@ export function basePolicyPick(
           .sort((a, b) => b.weeklyMean * b.availability - a.weeklyMean * a.availability)
           .slice(0, BASE_POLICY_WIDTH);
 
+  const baseline = solveLineup(slots, roster.map(toCompetitor)).totalPoints;
   let best: PlayerRisk | null = null;
   let bestValue = -Infinity;
   for (const candidate of contenders) {
-    const value = prefilterValue(roster, candidate, slots);
+    const value = prefilterValue(roster, candidate, slots, baseline);
     if (value > bestValue) {
       bestValue = value;
       best = candidate;
@@ -186,6 +189,46 @@ export function basePolicyPick(
  * the teams picking before it have already taken — which is the part a per-team
  * simulation would get wrong.
  */
+/**
+ * Completes one team's roster, given what the rest of the league is expected to take.
+ *
+ * Evaluating a candidate only ever reads our own finished roster — the opponents come from
+ * the baseline rollout, which is computed once. Rolling the whole league forward per
+ * candidate therefore did twelve times the necessary work and discarded eleven twelfths of
+ * it, and that was the dominant cost of a recommendation.
+ *
+ * The approximation this shares with the cached opponent scores: if we take a player an
+ * opponent would have taken, that opponent's alternative is not recomputed. One player out
+ * of a board of hundreds cannot move a season simulation.
+ */
+export function completeOwnRoster(
+  roster: readonly PlayerRisk[],
+  ownRemainingPicks: number,
+  pool: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  forcedFirstPick: PlayerRisk | null,
+): PlayerRisk[] {
+  const out = [...roster];
+  const taken = new Set(out.map((p) => p.id));
+  let available = pool.filter((p) => !taken.has(p.id));
+
+  let picksLeft = ownRemainingPicks;
+  if (forcedFirstPick !== null) {
+    out.push(forcedFirstPick);
+    taken.add(forcedFirstPick.id);
+    available = available.filter((p) => p.id !== forcedFirstPick.id);
+    picksLeft -= 1;
+  }
+
+  for (let i = 0; i < picksLeft; i += 1) {
+    const pick = basePolicyPick(out, available, slots);
+    if (pick === null) break;
+    out.push(pick);
+    available = available.filter((p) => p.id !== pick.id);
+  }
+  return out;
+}
+
 export function completeDraft(
   state: DraftPolicyState,
   slots: readonly RosterSlot[],
@@ -254,13 +297,26 @@ export function recommendByChampionship(
       sampleTeamWeeklyScores(roster, config, createRng(seed + 1000 + index)),
     );
 
+  // What the rest of the league is expected to take, so our own rollout draws from the
+  // board they leave behind rather than from the whole pool.
+  const claimedByOthers = new Set(
+    baselineRosters
+      .filter((_, index) => index !== state.myTeamIndex)
+      .flat()
+      .map((p) => p.id),
+  );
+  const poolForUs = state.available.filter((p) => !claimedByOthers.has(p.id));
+  const ownPicksLeft = me.remainingPicks.length;
+
   const evaluate = (forced: PlayerRisk | null): TeamOutcome => {
-    const rosters = completeDraft(state, config.slots, forced);
-    const mine = sampleTeamWeeklyScores(
-      rosters[state.myTeamIndex],
-      config,
-      createRng(seed),
+    const mineRoster = completeOwnRoster(
+      me.roster,
+      ownPicksLeft,
+      poolForUs,
+      config.slots,
+      forced,
     );
+    const mine = sampleTeamWeeklyScores(mineRoster, config, createRng(seed));
     return championshipProbability(mine, opponentScores, config);
   };
 

@@ -185,18 +185,26 @@ export function adpImpliedPoints(
 }
 
 /**
- * Combines our estimate with the market's.
+ * Combines our estimate with the market's, where both have one.
  *
- * When the market has no opinion — an undrafted rookie, a deep bench player — there is
- * nothing to blend with, so our estimate stands alone rather than being halved toward a
- * zero that would mean "the market says he is worthless" when it actually says nothing.
+ * Absence has to mean absence on **both** sides, and getting that wrong is not a rounding
+ * error. A rookie has no prior games, so the model returns zero — not "he will score
+ * nothing", but "I have no basis for an opinion". Blending that zero in marked every
+ * rookie down by the model's full weight: a first-round rookie priced by the market at 300
+ * points was carried on the board at 240. That is a systematic markdown of exactly the
+ * players the model knows least about, which is the opposite of what a blend is for.
+ *
+ * So `null` on either side means the other estimate stands alone. The market alone for a
+ * player with no history, the model alone for a player with no market.
  */
 export function blendedSeasonValue(
-  modelPoints: number,
+  modelPoints: number | null,
   adpImplied: number | null,
   weight: number = MODEL_BLEND_WEIGHT,
 ): number {
-  if (adpImplied === null) return round2(modelPoints);
+  if (modelPoints === null && adpImplied === null) return 0;
+  if (adpImplied === null) return round2(modelPoints ?? 0);
+  if (modelPoints === null) return round2(adpImplied);
   return round2(weight * modelPoints + (1 - weight) * adpImplied);
 }
 

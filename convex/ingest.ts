@@ -733,10 +733,15 @@ export async function runBuildDraftBoard(
       // honest, and he can still be drafted manually.
       if (history.length === 0 && market === null) continue;
 
-      const modelPoints = seasonProjection({
-        perGamePoints: history,
-        priorSeasonGames: priorGames.get(entry.playerId) ?? 0,
-      });
+      // No prior games means no opinion, not a projection of zero. Passing zero through
+      // the blend marked every rookie down by the model's full weight.
+      const modelPoints =
+        history.length === 0
+          ? null
+          : seasonProjection({
+              perGamePoints: history,
+              priorSeasonGames: priorGames.get(entry.playerId) ?? 0,
+            });
       const marketPoints =
         market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
       if (marketPoints !== null) withMarketPrice += 1;
@@ -747,7 +752,7 @@ export async function runBuildDraftBoard(
         name: entry.name,
         position: entry.position,
         team: entry.team,
-        modelPoints,
+        modelPoints: modelPoints ?? 0,
         marketPoints,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: market?.adp ?? null,

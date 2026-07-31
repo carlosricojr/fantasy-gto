@@ -157,6 +157,65 @@ which resolves at these sample sizes because it is roughly a coin flip rather th
 event. Presenting an unresolved ordering as decided would be exactly the false precision
 this project exists to avoid.
 
+### Rookies
+
+A rookie has no prior games, so the model has no opinion about him. That was being passed
+through the blend as a *zero*, which marked every rookie down by the model's full weight —
+a market-300 rookie carried at 240. Absence now means absence on both sides: no history
+gives the market alone, exactly as no market already gave the model alone.
+
+**Whether to add college production was measured rather than assumed.** On the 2024 board,
+matched to season results:
+
+| Group | n | ADP Spearman vs actual |
+| --- | --- | --- |
+| Rookies (no 2022–23 snaps) | 24 | 0.2009 |
+| Veterans | 144 | 0.4455 |
+
+The market is visibly worse at *ordering* rookies. But it is well calibrated on their
+*level*: rookies drafted 1–50 averaged 235.1 actual points against veterans' 235.6, and
+50–100 gave 174.6 against 165.3. The crowd knows draft capital, which fixes the tier, and
+cannot tell which rookie hits — which nobody can.
+
+**No college data is loaded, deliberately.** Not because it carries no signal, but because
+this repository could not honestly validate that it does. There are roughly two dozen
+draftable rookies with a market price in a season; the standard error on a Spearman at
+n=24 is about 0.21, so the gap above is not even statistically distinguishable from the
+veteran figure. Tuning on one season and evaluating on another — the discipline every other
+number here is held to — would leave two dozen players per evaluation season. Any result
+would be noise dressed as a finding, and the honest move is to say so rather than to ship a
+feature that cannot be checked.
+
+The bar for revisiting: several seasons of rookie outcomes, a pre-registered metric, and a
+measured improvement over ADP that survives out-of-sample. Draft capital is already in ADP,
+so college production has to beat the crowd's reading of it, not merely correlate with
+outcomes.
+
+### Cost
+
+Measured on the real 2026 board, 12 teams, 15 rounds, a full roster of starters plus bench:
+
+| Scenarios | Candidates | Time |
+| --- | --- | --- |
+| 150 | 10 | 0.56s |
+| 300 | 10 | 0.97s |
+| 600 | 10 | 1.9s |
+| 1000 | 10 | 3.1s |
+
+At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
+resolves. 600 is the sensible default given a draft clock of a minute or more.
+
+Two optimisations got this from 7.8s. The rollout was completing all twelve teams for every
+candidate while only ever reading our own — the other eleven come from the baseline, which
+is computed once. And the base policy was re-solving the roster's own lineup for every one
+of forty contenders at every remaining pick, when that value does not depend on the
+contender.
+
+**Not yet done for production:** this must run off the main thread, because a second of
+synchronous work would freeze the interface. The natural fit is to compute speculatively
+while opponents are on the clock — your next pick is known in advance, so the answer can be
+ready before the turn arrives.
+
 ### Still unmodelled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own
