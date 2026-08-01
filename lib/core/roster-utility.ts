@@ -157,7 +157,7 @@ function drawPoints(player: PlayerRisk, rng: Rng): number {
  * so the long-run fit rate matches the player's own availability and absences last
  * `meanAbsenceWeeks` on average.
  */
-function simulateAvailability(
+export function simulateAvailability(
   player: PlayerRisk,
   weeks: readonly number[],
   meanAbsenceWeeks: number,
@@ -181,6 +181,10 @@ function simulateAvailability(
   // 0.31 — but this is a public function and the invariant should hold for any caller.
   const q = Math.min((r * (1 - availability)) / availability, 1);
 
+  // The comparisons below are `>=` and `<` rather than `>` and `<=` only by convention:
+  // `rng.next()` is continuous on [0, 1), so the two forms differ on an event of measure
+  // zero. A mutation run flags swapping them as a surviving change, and it is right that
+  // no test can tell them apart — that pair is genuinely equivalent, not a coverage gap.
   const out: boolean[] = [];
   let healthy = rng.next() < availability;
   for (const week of weeks) {

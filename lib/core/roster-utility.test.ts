@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { RosterSlot } from "./optimizer";
+import { createRng } from "./rng";
 import {
   type PlayerRisk,
   type UtilityConfig,
   fitLognormal,
   marginalUtility,
   rosterUtility,
+  simulateAvailability,
 } from "./roster-utility";
 
 /**
@@ -251,5 +253,95 @@ describe("marginalUtility", () => {
     const early = marginalUtility(one, candidate, SLOTS, CONFIG, 4);
     const late = marginalUtility(many, candidate, SLOTS, CONFIG, 4);
     expect(early).toBeGreaterThan(late * 2);
+  });
+});
+
+/**
+ * The availability chain.
+ *
+ * `q` and `r` are solved so the chain's long-run fit rate equals the player's own
+ * availability. That is the module's central claim about this function and nothing was
+ * checking it — a mutation run flipped the clamp on `q`, both chain transitions, and the
+ * two boundary branches without a single test objecting. A realised-rate test kills all of
+ * them at once, because every one of those changes moves the rate away from its target.
+ */
+describe("simulateAvailability", () => {
+  const SEASON = Array.from({ length: 17 }, (_, i) => i + 1);
+
+  /** Fraction of weeks actually played, pooled over many independent seasons. */
+  function realisedRate(availability: number, byeWeek: number | null = null): number {
+    let played = 0;
+    let total = 0;
+    for (let scenario = 0; scenario < 400; scenario += 1) {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability, byeWeek }),
+        SEASON,
+        3,
+        createRng(scenario + 1),
+      );
+      for (const ok of weeks) {
+        total += 1;
+        if (ok) played += 1;
+      }
+    }
+    return played / total;
+  }
+
+  it("realises the availability it was given", () => {
+    // Measured error across these is under 0.009; the tolerance is a safety margin, not a
+    // shrug. Anything that breaks the solve for `q` misses by far more than this.
+    for (const availability of [0.31, 0.5, 0.7, 0.85, 0.95]) {
+      expect(realisedRate(availability)).toBeCloseTo(availability, 1);
+      expect(Math.abs(realisedRate(availability) - availability)).toBeLessThan(0.03);
+    }
+  });
+
+  it("never plays a player who is never available", () => {
+    const weeks = simulateAvailability(
+      player("p", "RB", 10, { availability: 0 }),
+      SEASON,
+      3,
+      createRng(1),
+    );
+    expect(weeks).toEqual(SEASON.map(() => false));
+  });
+
+  it("always plays an ironman, except on his bye", () => {
+    const weeks = simulateAvailability(
+      player("p", "RB", 10, { availability: 1, byeWeek: 6 }),
+      SEASON,
+      3,
+      createRng(1),
+    );
+    expect(weeks.filter((ok) => !ok)).toHaveLength(1);
+    expect(weeks[5]).toBe(false);
+  });
+
+  it("clamps an availability outside [0, 1] rather than trusting it", () => {
+    // This is a public function and the entitlement of a caller to pass nonsense is not
+    // hypothetical — `shrunkAvailability` is one arithmetic slip from producing it.
+    expect(
+      simulateAvailability(
+        player("p", "RB", 10, { availability: 1.5 }),
+        SEASON,
+        3,
+        createRng(1),
+      ),
+    ).toEqual(SEASON.map(() => true));
+    expect(
+      simulateAvailability(
+        player("p", "RB", 10, { availability: -0.5 }),
+        SEASON,
+        3,
+        createRng(1),
+      ),
+    ).toEqual(SEASON.map(() => false));
+  });
+
+  it("takes the bye out of the weeks a fragile player would otherwise have played", () => {
+    // The bye is not part of the chain — it is subtracted from whatever the chain says.
+    const rate = realisedRate(0.8, 9);
+    expect(rate).toBeLessThan(0.8);
+    expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
   });
 });
