@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildMarketIndex,
   AUTO_APPLY_CONFIDENCE,
   MIN_MATCH_CONFIDENCE,
   editDistance,
@@ -166,5 +167,71 @@ describe("findNamesInText", () => {
     // picking one. Drafting the wrong Robinson is silent and unrecoverable.
     expect(matchName("Brjan Robinson", UNIVERSE)).toBeNull();
     expect(matchName("Bran Robinson", UNIVERSE)).toBeNull();
+  });
+});
+
+describe("buildMarketIndex", () => {
+  const norm = (raw: string) => (raw === "PK" ? "K" : raw.toUpperCase());
+  const row = (name: string, position: string, adp: number) => ({ name, position, adp });
+
+  it("joins on name when the board has no collision", () => {
+    const index = buildMarketIndex([row("Bijan Robinson", "RB", 3)], norm);
+    expect(index.find("Bijan Robinson", "RB")?.adp).toBe(3);
+  });
+
+  it("separates two players who normalise to the same name, by position", () => {
+    // The case that motivated this. `normalizeName` drops generational suffixes, so
+    // "Michael Carter" and "Michael Carter II" collapse to one key — and a plain Map
+    // would hand whichever came second the other's ADP, spread, and bye week.
+    const index = buildMarketIndex(
+      [row("Michael Carter", "RB", 90), row("Michael Carter II", "WR", 250)],
+      norm,
+    );
+    expect(index.find("Michael Carter", "RB")?.adp).toBe(90);
+    expect(index.find("Michael Carter", "WR")?.adp).toBe(250);
+    expect(index.collisions).toEqual(["michaelcarter"]);
+  });
+
+  it("refuses rather than guessing when position cannot separate them either", () => {
+    // Two genuinely indistinguishable rows. Returning either one silently prices a
+    // player off somebody else's market; returning null shows a missing price.
+    const index = buildMarketIndex(
+      [row("John Smith", "WR", 40), row("John Smith", "WR", 200)],
+      norm,
+    );
+    expect(index.find("John Smith", "WR")).toBeNull();
+  });
+
+  it("refuses a colliding name asked for under a third position", () => {
+    const index = buildMarketIndex(
+      [row("Michael Carter", "RB", 90), row("Michael Carter II", "WR", 250)],
+      norm,
+    );
+    expect(index.find("Michael Carter", "TE")).toBeNull();
+  });
+
+  it("still matches when the sources disagree about position", () => {
+    // Real and common: the market lists a player at RB, the roster file says WR. The
+    // name-only fallback exists so this keeps its price instead of silently losing it.
+    const index = buildMarketIndex([row("Deebo Samuel", "RB", 25)], norm);
+    expect(index.find("Deebo Samuel", "WR")?.adp).toBe(25);
+  });
+
+  it("applies the caller's position normalisation on both sides", () => {
+    const index = buildMarketIndex([row("Justin Tucker", "PK", 150)], norm);
+    expect(index.find("Justin Tucker", "K")?.adp).toBe(150);
+  });
+
+  it("reports no match rather than throwing on an unknown or empty name", () => {
+    const index = buildMarketIndex([row("Bijan Robinson", "RB", 3)], norm);
+    expect(index.find("Nobody At All", "RB")).toBeNull();
+    expect(index.find("", "RB")).toBeNull();
+  });
+
+  it("ignores a market row whose name normalises to nothing", () => {
+    // Punctuation-only names would otherwise all share the empty key and collide.
+    const index = buildMarketIndex([row("!!!", "RB", 1), row("???", "WR", 2)], norm);
+    expect(index.collisions).toEqual([]);
+    expect(index.find("!!!", "RB")).toBeNull();
   });
 });

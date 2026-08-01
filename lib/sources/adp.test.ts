@@ -127,3 +127,32 @@ describe("AdpProvider", () => {
     if (!result.ok) expect(result.reason).toMatch(/not valid JSON/);
   });
 });
+
+describe("bye weeks", () => {
+  const one = (bye: unknown) =>
+    parseAdp({ players: [{ name: "A Player", position: "RB", adp: 10, bye }] })?.[0];
+
+  it("keeps a real bye week", () => {
+    expect(one(9)?.bye).toBe(9);
+    expect(one("9")?.bye).toBe(9);
+  });
+
+  it("treats a published zero as absent rather than as week zero", () => {
+    // Weeks are numbered from one, so a zero here means "not stated". Carried through it
+    // reaches the board, which prints "bye 0" beside the player and — worse — groups
+    // every such player into a phantom week-0 collision in the bye-clash summary, which
+    // skips only null. The season simulation happens to be immune, because it compares
+    // against 1-based week numbers that never equal zero.
+    expect(one(0)?.bye).toBeNull();
+    expect(one("0")?.bye).toBeNull();
+  });
+
+  it("rejects a negative bye week", () => {
+    expect(one(-1)?.bye).toBeNull();
+  });
+
+  it("leaves a missing bye week null", () => {
+    expect(one(undefined)?.bye).toBeNull();
+    expect(one("not a week")?.bye).toBeNull();
+  });
+});

@@ -24,7 +24,7 @@ import {
   MODELLED_POSITIONS,
   normalizeMarketPosition,
 } from "../lib/nfl/draft/config";
-import { normalizeName } from "../lib/nfl/draft/match";
+import { buildMarketIndex, normalizeName } from "../lib/nfl/draft/match";
 import {
   type AdpCurveSet,
   adpImpliedPoints,
@@ -757,9 +757,10 @@ export async function runBuildDraftBoard(
       );
     }
 
-    const adpByName = new Map(
-      adpResult.data.map((entry) => [normalizeName(entry.name), entry]),
-    );
+    // Position-qualified, because a name-keyed `Map` silently hands one player another's
+    // ADP, dispersion, and bye week when two names normalise the same way. See
+    // `buildMarketIndex` — it refuses a collision it cannot separate rather than guessing.
+    const marketIndex = buildMarketIndex(adpResult.data, normalizeMarketPosition);
     // Defences are not players and never appear on a roster file, so they are taken from
     // the market board directly. A league that starts one has to be able to draft one.
     const marketDefences = adpResult.data.filter(
@@ -773,7 +774,7 @@ export async function runBuildDraftBoard(
         continue;
       }
       const history = perGame.get(entry.playerId) ?? [];
-      const market = adpByName.get(normalizeName(entry.name)) ?? null;
+      const market = marketIndex.find(entry.name, entry.position);
 
       // A player with neither production history nor a market price cannot be valued by
       // anything. Listing him at zero would rank him below every kicker; omitting him is

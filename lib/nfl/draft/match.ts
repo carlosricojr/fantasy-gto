@@ -34,6 +34,77 @@ export function normalizeName(raw: string): string {
   return words.join("");
 }
 
+/** The two fields any market row must carry to be joinable to a roster row. */
+export interface MarketRow {
+  name: string;
+  position: string;
+}
+
+/**
+ * A market board indexed for joining onto a roster, with collisions refused.
+ *
+ * The naive version of this is `new Map(entries.map(e => [normalizeName(e.name), e]))`,
+ * which is wrong in a way that never announces itself: `Map` takes the last write, so when
+ * two players normalise to the same name one of them silently inherits the other's ADP,
+ * dispersion, and bye week. Dropping generational suffixes makes that more likely, not
+ * less — it is exactly what collapses a father-and-son or same-name pair into one key.
+ *
+ * So the lookup is position-qualified first, and falls back to name-only *only* when the
+ * name is unique across the whole board. The fallback matters because the sources
+ * genuinely disagree about position — a player the market lists at RB can be a WR on the
+ * roster file — and without it every such player would lose his market price.
+ *
+ * When neither key resolves to exactly one row, the answer is `null`. A player with no
+ * market price is visibly missing a price; a player with someone else's is not.
+ */
+export interface MarketIndex<T extends MarketRow> {
+  /** The one row for this player, or `null` if there is no unambiguous answer. */
+  find(name: string, position: string): T | null;
+  /** Normalised names that appear on more than one row, for reporting. */
+  readonly collisions: readonly string[];
+}
+
+export function buildMarketIndex<T extends MarketRow>(
+  entries: readonly T[],
+  normalizePosition: (raw: string) => string,
+): MarketIndex<T> {
+  // `null` marks a key that more than one row claims, which is not the same as a key no
+  // row claims. Both must lose, but only after being told apart from each other.
+  const byNameAndPosition = new Map<string, T | null>();
+  const byName = new Map<string, T | null>();
+  const collisions = new Set<string>();
+
+  for (const entry of entries) {
+    const name = normalizeName(entry.name);
+    if (name === "") continue;
+    const qualified = `${name}|${normalizePosition(entry.position)}`;
+
+    byNameAndPosition.set(
+      qualified,
+      byNameAndPosition.has(qualified) ? null : entry,
+    );
+    if (byName.has(name)) {
+      byName.set(name, null);
+      collisions.add(name);
+    } else {
+      byName.set(name, entry);
+    }
+  }
+
+  return {
+    find(name, position) {
+      const key = normalizeName(name);
+      if (key === "") return null;
+      return (
+        byNameAndPosition.get(`${key}|${normalizePosition(position)}`) ??
+        byName.get(key) ??
+        null
+      );
+    },
+    collisions: [...collisions],
+  };
+}
+
 /** Levenshtein distance, iterative with a single row of state. */
 export function editDistance(a: string, b: string): number {
   if (a === b) return 0;

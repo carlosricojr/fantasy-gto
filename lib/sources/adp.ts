@@ -125,10 +125,21 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
       // no dispersion at all — see `DEFAULT_ADP_STDEV`.
       stdev: toNumber(row.stdev) ?? 0,
       timesDrafted: toNumber(row.times_drafted),
-      bye: toNumber(row.bye),
+      // Unlike `stdev`, a published zero here is not data — weeks are numbered from one,
+      // so a bye of 0 means "not stated", and carrying it through invents a week that
+      // does not exist. The season simulation happens to be immune (it compares against
+      // 1-based week numbers, which never equal zero), but the board is not: it prints
+      // "bye 0" next to the player, and the bye-collision summary skips only `null`, so
+      // every player the source left blank gets grouped into a phantom week-0 clash.
+      bye: positiveOrNull(toNumber(row.bye)),
     });
   }
   return entries;
+}
+
+/** A week number, or `null` for the zeroes and negatives that mean "not stated". */
+function positiveOrNull(value: number | null): number | null {
+  return value === null || value <= 0 ? null : value;
 }
 
 function toNumber(value: unknown): number | null {
