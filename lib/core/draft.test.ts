@@ -10,6 +10,7 @@ import {
   normalCdf,
   recommendDraftPicks,
   rosterValue,
+  normalizeLeagueSetup,
   pickOwnership,
   seatForTeamIndex,
   snakePicks,
@@ -434,5 +435,67 @@ describe("pick ownership", () => {
     expect(owners.get(1)).toBe(0);
     expect(owners.get(24)).toBe(0);
     expect(owners.get(25)).toBe(0);
+  });
+});
+
+describe("normalizeLeagueSetup", () => {
+  it("rounds what a number input actually produces", () => {
+    // The defect this exists for. `<input type="number">` yields "1.5" without complaint,
+    // clamping alone leaves it inside 1..teams, and the whole-seat requirement then fails
+    // where it is no longer recoverable — a render throw with no boundary above it, which
+    // replaced the setup screen with a crash page.
+    expect(normalizeLeagueSetup({ teams: 12, slot: 1.5, rounds: 15 }).slot).toBe(2);
+    expect(normalizeLeagueSetup({ teams: 12, slot: 2.4, rounds: 15 }).slot).toBe(2);
+    expect(normalizeLeagueSetup({ teams: 11.6, slot: 1, rounds: 15 }).teams).toBe(12);
+    expect(normalizeLeagueSetup({ teams: 12, slot: 1, rounds: 14.7 }).rounds).toBe(15);
+  });
+
+  it("survives everything a text field can hand it", () => {
+    for (const junk of ["", "abc", null, undefined, NaN, Infinity, -Infinity, {}, []]) {
+      const setup = normalizeLeagueSetup({ teams: junk, slot: junk, rounds: junk });
+      expect(Number.isInteger(setup.teams)).toBe(true);
+      expect(Number.isInteger(setup.slot)).toBe(true);
+      expect(Number.isInteger(setup.rounds)).toBe(true);
+      expect(setup.slot).toBeGreaterThanOrEqual(1);
+      expect(setup.slot).toBeLessThanOrEqual(setup.teams);
+      expect(setup.rounds).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("keeps the slot inside the league when the league shrinks", () => {
+    // Shrinking the league used to leave the slot pointing at a seat that no longer
+    // existed, and the snake arithmetic then produced another seat's picks.
+    expect(normalizeLeagueSetup({ teams: 10, slot: 12, rounds: 15 }).slot).toBe(10);
+    expect(normalizeLeagueSetup({ teams: 4, slot: 99, rounds: 15 }).slot).toBe(4);
+  });
+
+  it("clamps below as well as above", () => {
+    expect(normalizeLeagueSetup({ teams: 1, slot: 0, rounds: 0 })).toEqual({
+      teams: 2,
+      slot: 1,
+      rounds: 1,
+    });
+    expect(normalizeLeagueSetup({ teams: -5, slot: -5, rounds: -5 }).teams).toBe(2);
+  });
+
+  it("always produces a setup the draft functions accept", () => {
+    // The contract that matters: whatever goes in, what comes out can be drafted with.
+    const inputs = [1.5, 0, -3, 99, NaN, "7", "abc", 12, 8.5];
+    for (const teams of inputs) {
+      for (const slot of inputs) {
+        const setup = normalizeLeagueSetup({ teams, slot, rounds: 15 });
+        expect(() => pickOwnership(setup.teams, setup.slot, setup.rounds)).not.toThrow();
+        expect(() => snakePicks(setup.slot, setup.teams, setup.rounds)).not.toThrow();
+      }
+    }
+  });
+
+  it("honours explicit bounds", () => {
+    const setup = normalizeLeagueSetup(
+      { teams: 20, slot: 1, rounds: 100 },
+      { maxTeams: 14, maxRounds: 20 },
+    );
+    expect(setup.teams).toBe(14);
+    expect(setup.rounds).toBe(20);
   });
 });

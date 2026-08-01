@@ -464,6 +464,54 @@ export function snakePicks(
   return picks;
 }
 
+export interface LeagueSetup {
+  teams: number;
+  slot: number;
+  rounds: number;
+}
+
+/**
+ * Coerces a partially-typed league setup into one that is actually draftable.
+ *
+ * Every field here counts whole things — seats, rounds — and the controls that feed them
+ * are number inputs, which yield strings like `"1.5"`, `""` and `"abc"` as a matter of
+ * course. Clamping alone is not enough: a fractional slot sits happily inside `1..teams`
+ * and then fails the whole-seat requirement further down, where the failure is no longer
+ * recoverable. A decimal typed into a draft slot took the page down that way.
+ *
+ * Rounding rather than rejecting, because this runs on every keystroke. A setup screen that
+ * refuses input mid-type is worse than one that settles on the nearest sensible value.
+ */
+export function normalizeLeagueSetup(
+  raw: Partial<Record<keyof LeagueSetup, unknown>>,
+  bounds: { minTeams?: number; maxTeams?: number; maxRounds?: number } = {},
+): LeagueSetup {
+  const minTeams = bounds.minTeams ?? 2;
+  const maxTeams = bounds.maxTeams ?? 32;
+  const maxRounds = bounds.maxRounds ?? 40;
+
+  const teams = clampWhole(raw.teams, minTeams, maxTeams, minTeams);
+  return {
+    teams,
+    // Bounded by the league it sits in, so shrinking the league cannot leave a slot
+    // pointing at a seat that no longer exists.
+    slot: clampWhole(raw.slot, 1, teams, 1),
+    rounds: clampWhole(raw.rounds, 1, maxRounds, 1),
+  };
+}
+
+/** Nearest whole number inside the range, or `fallback` for anything unreadable. */
+function clampWhole(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.round(parsed), min), max);
+}
+
 /**
  * Which team owns each pick, with the manager being advised always at index 0.
  *

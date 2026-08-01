@@ -7,7 +7,12 @@ import { api } from "@/convex/_generated/api";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { pickOwnership, seatForTeamIndex, snakePicks } from "@/lib/core/draft";
+import {
+  normalizeLeagueSetup,
+  pickOwnership,
+  seatForTeamIndex,
+  snakePicks,
+} from "@/lib/core/draft";
 import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
@@ -105,10 +110,21 @@ export default function DraftPage() {
   // team-0-first and last write wins, that other team overwrote every one of the user's
   // picks: they owned nothing for the whole draft, "Your roster" never filled, and every
   // recommendation was computed for a team that could not pick. Nothing said so.
+  // One place decides what a valid setup is, and it is tested. Ad-hoc clamping at each
+  // input is how a fractional slot slipped past two separate guards.
+  const setup = useMemo(
+    () =>
+      normalizeLeagueSetup(
+        { teams, slot, rounds },
+        { minTeams: LEAGUE_SIZES[0], maxTeams: LEAGUE_SIZES[LEAGUE_SIZES.length - 1] },
+      ),
+    [teams, slot, rounds],
+  );
+
   useEffect(() => {
-    if (slot > teams) setSlot(teams);
-    else if (!Number.isInteger(slot) || slot < 1) setSlot(1);
-  }, [slot, teams]);
+    if (setup.slot !== slot) setSlot(setup.slot);
+    if (setup.rounds !== rounds) setRounds(setup.rounds);
+  }, [setup, slot, rounds]);
 
   const starters = useMemo(() => slotsForTemplate(templateId), [templateId]);
 
@@ -139,14 +155,15 @@ export default function DraftPage() {
   const pickOwners = useMemo(
     // `slot` is clamped above, but a render can happen between the state update and the
     // effect, so an out-of-range slot must not throw the page down.
-    () =>
-      Number.isInteger(slot) && slot >= 1 && slot <= teams
-        ? pickOwnership(teams, slot, rounds)
-        : new Map<number, number>(),
-    [teams, rounds, slot],
+    () => pickOwnership(setup.teams, setup.slot, setup.rounds),
+    [setup],
   );
 
-  const totalPicks = teams * rounds;
+  // Everything downstream reads the normalised setup, not the raw inputs. A mid-keystroke
+  // value that disagrees with the ownership map produces picks nobody owns, and a player
+  // recorded against one of those is never marked as taken — he stays on the board and
+  // keeps being recommended after he is gone.
+  const totalPicks = setup.teams * setup.rounds;
   const currentPick = useMemo(() => {
     for (let pick = 1; pick <= totalPicks; pick += 1) {
       if (picks[pick] === undefined) return pick;
@@ -162,11 +179,11 @@ export default function DraftPage() {
       ? "Nobody"
       : clockOwner === 0
         ? "You"
-        : `Seat ${seatForTeamIndex(clockOwner, slot)}`;
+        : `Seat ${seatForTeamIndex(clockOwner, setup.slot)}`;
 
   const draftState = useMemo<DraftPolicyState | null>(() => {
     if (pool.length === 0) return null;
-    const rosters: PlayerRisk[][] = Array.from({ length: teams }, () => []);
+    const rosters: PlayerRisk[][] = Array.from({ length: setup.teams }, () => []);
     const taken = new Set<string>();
     for (const [pick, playerId] of Object.entries(picks)) {
       const team = pickOwners.get(Number(pick));
@@ -178,7 +195,7 @@ export default function DraftPage() {
 
     const draftTeams: DraftTeam[] = rosters.map((roster, index) => ({
       id: `t${index}`,
-      name: index === 0 ? "You" : `Seat ${seatForTeamIndex(index, slot)}`,
+      name: index === 0 ? "You" : `Seat ${seatForTeamIndex(index, setup.slot)}`,
       roster,
       remainingPicks: [...pickOwners.entries()]
         .filter(([pick, team]) => team === index && pick >= currentPick)
@@ -190,9 +207,9 @@ export default function DraftPage() {
       teams: draftTeams,
       myTeamIndex: 0,
       available: pool.filter((p) => !taken.has(p.id)),
-      rosterSize: rounds,
+      rosterSize: setup.rounds,
     };
-  }, [pool, picks, pickOwners, byId, teams, rounds, currentPick, slot]);
+  }, [pool, picks, pickOwners, byId, setup, currentPick]);
 
   const config = useMemo<LeagueConfig>(
     () => ({
@@ -346,9 +363,7 @@ export default function DraftPage() {
 
           <p className="mt-4 text-sm text-muted-foreground">
             Your picks:{" "}
-            {Number.isInteger(slot) && slot >= 1 && slot <= teams
-              ? snakePicks(slot, teams, rounds).slice(0, 6).join(", ")
-              : "—"}
+            {snakePicks(setup.slot, setup.teams, setup.rounds).slice(0, 6).join(", ")}
             {rounds > 6 ? "…" : ""}
           </p>
 
