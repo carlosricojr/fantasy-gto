@@ -237,6 +237,10 @@ export default function DraftPage() {
     for (const [pick, playerId] of Object.entries(picks)) {
       const team = pickOwners.get(Number(pick));
       const player = byId.get(playerId);
+      // A restored draft can name a player the current board no longer carries — the
+      // refresh cron can drop somebody between sessions. The pick keeps its slot rather
+      // than being deleted: the alternative shifts every later pick up one and reassigns
+      // them to different seats, which corrupts the whole draft to tidy up one row.
       if (team === undefined || player === undefined) continue;
       rosters[team].push(player);
       taken.add(playerId);
