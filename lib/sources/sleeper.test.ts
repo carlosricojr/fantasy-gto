@@ -65,9 +65,19 @@ describe("parseSettings", () => {
     expect(parseSettings(null)).toBeNull();
   });
 
-  it("defaults only the fields that are safe to default", () => {
-    const settings = parseSettings({ settings: { teams: 10, rounds: 16 } });
-    expect(settings?.type).toBe("snake");
+  it("refuses to default the draft type, which decides pick order", () => {
+    // Same class of field as teams and rounds. A linear draft read as a snake misassigns
+    // every pick from round two onward, producing a complete-looking board attributing
+    // real players to the wrong managers.
+    expect(parseSettings({ settings: { teams: 10, rounds: 16 } })).toBeNull();
+    expect(parseSettings({ type: "", settings: { teams: 10, rounds: 16 } })).toBeNull();
+    expect(
+      parseSettings({ type: "LINEAR", settings: { teams: 10, rounds: 16 } })?.type,
+    ).toBe("linear");
+  });
+
+  it("defaults only what is genuinely cosmetic", () => {
+    const settings = parseSettings({ type: "snake", settings: { teams: 10, rounds: 16 } });
     expect(settings?.status).toBe("unknown");
   });
 });
@@ -108,6 +118,16 @@ describe("parsePicks", () => {
         { pick_no: 1, draft_slot: "not a number", metadata: { first_name: "A", last_name: "B" } },
       ]),
     ).toEqual([]);
+
+    // Seats are 1-based. Zero and negatives parse as integers but are not seats, and
+    // would attribute the pick to a manager who does not exist.
+    for (const draftSlot of [0, -1, -12]) {
+      expect(
+        parsePicks([
+          { pick_no: 1, draft_slot: draftSlot, metadata: { first_name: "A", last_name: "B" } },
+        ]),
+      ).toEqual([]);
+    }
   });
 
   it("skips a pick with no overall number", () => {

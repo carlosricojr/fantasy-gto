@@ -109,10 +109,17 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
   const rounds = toInt(settings.rounds);
   if (teams === null || rounds === null || teams <= 0 || rounds <= 0) return null;
 
+  // `type` decides the pick order, which puts it in the same class as teams and rounds:
+  // defaulting it produces a complete-looking board that attributes real players to the
+  // wrong managers. A linear draft read as a snake misassigns every pick from round two.
+  // `status` is genuinely cosmetic and is still defaulted.
+  const type = typeof root.type === "string" ? root.type.trim().toLowerCase() : "";
+  if (type === "") return null;
+
   return {
     teams,
     rounds,
-    type: typeof root.type === "string" ? root.type : "snake",
+    type,
     status: typeof root.status === "string" ? root.status : "unknown",
   };
 }
@@ -136,7 +143,7 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
     // zero silently files it under a manager who did not make it — which is worse than
     // dropping it, because the roster it corrupts is then used to compute odds.
     const draftSlot = toInt(row.draft_slot);
-    if (draftSlot === null) continue;
+    if (draftSlot === null || draftSlot < 1) continue;
 
     picks.push({
       overall,

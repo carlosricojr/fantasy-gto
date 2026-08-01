@@ -94,8 +94,12 @@ export function digestPlayers(players: readonly PlayerRisk[]): string {
   return digestStrings(
     players.map(
       (p) =>
-        `${p.id}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:${p.byeWeek ?? "-"}:` +
-        `${p.availability.toFixed(4)}:${p.adp ?? "-"}:${p.adpStdev ?? "-"}`,
+        // Position is in here because it decides which slots a player is eligible for,
+        // and preseason rebuilds do reclassify people — a tight end listed as a receiver
+        // changes every recommendation while leaving every other field alone.
+        `${p.id}:${p.position}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:` +
+        `${p.byeWeek ?? "-"}:${p.availability.toFixed(4)}:${p.adp ?? "-"}:` +
+        `${p.adpStdev ?? "-"}`,
     ),
   );
 }
