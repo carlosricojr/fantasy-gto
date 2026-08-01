@@ -288,3 +288,182 @@ describe("recommendByChampionship", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Gaps a mutation run found in the parts of the engine that nothing was pinning.
+ *
+ * Every test here was checked against the mutant it is meant to catch: the implementation
+ * was changed by hand, the test was confirmed to fail, and the change reverted. A test
+ * that passes either way is worse than no test, because it reports coverage it does not
+ * have — this suite has produced that mistake before.
+ */
+describe("recommendByChampionship, against the rest of the league", () => {
+  /** A complete roster, all of one strength, with no picks left to make. */
+  const settled = (prefix: string, weeklyMean: number): DraftTeam => ({
+    id: prefix,
+    name: prefix,
+    roster: [
+      player(`${prefix}qb`, "QB", weeklyMean),
+      player(`${prefix}rb1`, "RB", weeklyMean),
+      player(`${prefix}rb2`, "RB", weeklyMean),
+      player(`${prefix}wr1`, "WR", weeklyMean),
+      player(`${prefix}wr2`, "WR", weeklyMean),
+      player(`${prefix}te`, "TE", weeklyMean),
+      player(`${prefix}fx`, "RB", weeklyMean),
+    ],
+    remainingPicks: [],
+  });
+
+  /** Us, one player short of a full roster, with exactly one pick left. */
+  const meWithOnePickLeft = (): DraftTeam => ({
+    ...settled("me", 12),
+    roster: settled("me", 12).roster.slice(0, 6),
+    remainingPicks: [1],
+  });
+
+  const against = (opponentStrength: number): number => {
+    const teams = [
+      meWithOnePickLeft(),
+      ...Array.from({ length: 7 }, (_, i) => settled(`o${i}`, opponentStrength)),
+    ];
+    const recs = recommendByChampionship(
+      {
+        teams,
+        myTeamIndex: 0,
+        available: [player("free", "RB", 12)],
+        rosterSize: 7,
+      },
+      CONFIG,
+      1,
+      createRng,
+      11,
+    );
+    return recs[0].championshipProbability;
+  };
+
+  it("is beaten by a strong league and wins an weak one", () => {
+    // The filter that selects opponents is `index !== myTeamIndex`. Inverted, it selects
+    // *us*, the league becomes we-against-a-copy-of-ourselves, and nothing the other
+    // seven teams do can reach the number. This is the test that says they are the other
+    // teams and not us.
+    const versusStrong = against(30);
+    const versusWeak = against(2);
+    expect(versusStrong).toBeLessThan(0.05);
+    expect(versusWeak).toBeGreaterThan(0.9);
+  });
+
+  it("puts a symmetric league near its fair share rather than near a coin flip", () => {
+    // Eight equal teams: about one title in eight. If the opponent list collapsed to a
+    // single team the field would be two and this would sit near a half.
+    const fair = against(12);
+    expect(fair).toBeGreaterThan(0.02);
+    expect(fair).toBeLessThan(0.35);
+  });
+});
+
+describe("recommendByChampionship arithmetic", () => {
+  const recs = () =>
+    recommendByChampionship(
+      { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
+      CONFIG,
+      7,
+      createRng,
+      4,
+    );
+
+  it("reports the standard error of the proportion it measured", () => {
+    for (const r of recs()) {
+      const p = r.championshipProbability;
+      expect(r.standardError).toBeCloseTo(
+        Math.round(Math.sqrt((p * (1 - p)) / CONFIG.scenarios) * 1e4) / 1e4,
+        10,
+      );
+    }
+  });
+
+  it("reports a delta that is a difference from the baseline, not a sum", () => {
+    // The baseline is a probability, so it cannot be negative, so `p - baseline` can
+    // never exceed `p`. `p + baseline` does exactly that whenever the baseline is
+    // non-zero, which is the mutant this pins.
+    for (const r of recs()) {
+      expect(r.deltaVsBaseline).toBeLessThanOrEqual(r.championshipProbability);
+      expect(Math.abs(r.deltaVsBaseline)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("judges as many candidates as it was asked for", () => {
+    expect(recs()).toHaveLength(4);
+  });
+
+  it("still judges one candidate when asked for none", () => {
+    // The floor exists so a zero or negative limit cannot silently return an empty board
+    // to a user who is on the clock.
+    const none = recommendByChampionship(
+      { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
+      CONFIG,
+      7,
+      createRng,
+      0,
+    );
+    expect(none).toHaveLength(1);
+  });
+});
+
+describe("completeDraft, at its boundaries", () => {
+  it("never exceeds the roster size, even with more picks than seats", () => {
+    // The ordinary fixture gives each team exactly as many picks as seats, so the guard
+    // is never reached and an off-by-one in it changes nothing. A team holding more picks
+    // than it has room for is the case that exercises it.
+    const teams = Array.from({ length: TEAMS }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i + 1}`,
+      roster: [],
+      remainingPicks: snakePicks(i + 1, TEAMS, ROUNDS),
+    }));
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 4 },
+      SLOTS,
+      null,
+    );
+    for (const roster of rosters) expect(roster.length).toBeLessThanOrEqual(4);
+  });
+
+  it("drafts the last player on the board rather than stranding him", () => {
+    // The pool is emptied when it reaches zero, not when it reaches one.
+    const available = board().slice(0, TEAMS * 2);
+    const teams = Array.from({ length: TEAMS }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i + 1}`,
+      roster: [],
+      remainingPicks: snakePicks(i + 1, TEAMS, 2),
+    }));
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available, rosterSize: 2 },
+      SLOTS,
+      null,
+    );
+    expect(rosters.flat()).toHaveLength(available.length);
+  });
+
+  it("plays the picks in ascending order, not in whatever order teams are listed", () => {
+    // Two teams, one pick each. The seat holding pick 1 chooses before the seat holding
+    // pick 8, regardless of their position in the array. Sorting the pick order by a sum
+    // rather than a difference reverses exactly this pair, and the board is then dealt
+    // backwards — the last seat in the round takes the best player in the draft.
+    // The team owning pick 1 is listed *second*, so array order and pick order disagree.
+    // With them in agreement the assertion holds either way and pins nothing — which is
+    // how the first version of this test passed against the mutant it was written for.
+    const teams: DraftTeam[] = [
+      { id: "late", name: "late", roster: [], remainingPicks: [8] },
+      { id: "early", name: "early", roster: [], remainingPicks: [1] },
+    ];
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 1 },
+      SLOTS,
+      null,
+    );
+    const best = basePolicyPick([], board(), SLOTS)!;
+    expect(rosters[1].map((p) => p.id)).toEqual([best.id]);
+    expect(rosters[0].map((p) => p.id)).not.toEqual([best.id]);
+  });
+});
