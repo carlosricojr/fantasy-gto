@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
+import {
+  DRAFT_STORAGE_KEY,
+  type PersistedDraft,
+  parsePersistedDraft,
+} from "./persistence";
 import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
@@ -80,6 +86,49 @@ export default function DraftPage() {
   const [picks, setPicks] = useState<Record<number, string>>({});
 
   const [playoffTeams, setPlayoffTeams] = useState<number>(6);
+
+  // A draft survives a remount. The error boundary's "Try again" re-renders this segment,
+  // which reinitialises every `useState` above — without this, retrying after a crash
+  // loses the whole board, which is precisely when the user can least afford it.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    const stored = parsePersistedDraft(
+      typeof window === "undefined" ? null : window.sessionStorage.getItem(DRAFT_STORAGE_KEY),
+    );
+    if (stored !== null) {
+      setTeams(stored.teams);
+      setRounds(stored.rounds);
+      setSlot(stored.slot);
+      setScoringId(stored.scoringId);
+      setTemplateId(stored.templateId);
+      setPlayoffTeams(stored.playoffTeams);
+      setStarted(stored.started);
+      setPicks(stored.picks);
+    }
+    setRestored(true);
+  }, []);
+
+  useEffect(() => {
+    // Gated on `restored` so the defaults this component mounts with cannot overwrite a
+    // stored draft in the tick before the effect above has read it.
+    if (!restored || typeof window === "undefined") return;
+    const payload: PersistedDraft = {
+      teams,
+      rounds,
+      slot,
+      scoringId,
+      templateId,
+      playoffTeams,
+      started,
+      picks,
+    };
+    try {
+      window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // A full or disabled store is not worth taking the board down for. The draft still
+      // works; it just will not survive a remount.
+    }
+  }, [restored, teams, rounds, slot, scoringId, templateId, playoffTeams, started, picks]);
 
   // The season being drafted is the one after the last completed one, resolved from the
   // schedule rather than hardcoded — a literal year silently serves last season's board

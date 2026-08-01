@@ -17,6 +17,13 @@ import { Button } from "@/components/ui/button";
  * found yet — a draft board is used once a year, under time pressure, and losing the
  * screen mid-draft is the worst moment for it.
  *
+ * The body used to promise that "Try again" kept your picks while a reload would lose
+ * them. That was backwards about the mechanism and wrong about the outcome: `reset()`
+ * re-renders the segment, which remounts the draft page, which reinitialises the state the
+ * picks live in — so the button it recommended was no safer than the one it warned about.
+ * The draft is now written to `sessionStorage` (see `draft/persistence.ts`) and both paths
+ * restore it, which is what makes the sentence below true.
+ *
  * Deliberately no stack trace or error text in the body. It would be meaningless to
  * somebody trying to make a pick, and the message can carry internals.
  */
@@ -38,9 +45,8 @@ export default function AppError({
       <h1 className="text-2xl font-semibold tracking-tight">Something broke</h1>
       <p className="mt-3 text-muted-foreground">
         This screen hit an error it could not recover from on its own. Nothing you entered
-        has been sent anywhere, and trying again usually works — a draft in progress is
-        held in this tab, so reloading will lose the picks you have recorded, while the
-        button below will not.
+        has been sent anywhere, and trying again usually works. A draft in progress is
+        saved in this tab, so either button below will bring your recorded picks back.
       </p>
       <div className="mt-6 flex flex-wrap gap-2">
         <Button onClick={reset}>Try again</Button>
