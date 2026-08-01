@@ -148,6 +148,19 @@ export function simulateLeague(
   // NaN through the point totals — a silently wrong standings table rather than an error.
   const weeksNeeded = regularWeeks + config.playoffWeeks.length;
   for (const [team, scenarios] of teamScores.entries()) {
+    // The week dimension was checked here and the scenario dimension was not, so a team
+    // supplying too few scenarios reached the simulation loop and died on
+    // `teamScores[t][s]` being undefined — an unreadable TypeError from the middle of a
+    // Monte Carlo run, where these guards exist precisely to say what is wrong instead.
+    // Reachable in practice: `recommendByChampionship` samples opponents once and reuses
+    // them across candidates, so a cached sample and a changed config disagree here.
+    if (scenarios.length !== config.scenarios) {
+      throw new Error(
+        `Team ${team} supplies ${scenarios.length} scenario(s) but the league is ` +
+          `simulated over ${config.scenarios}. Sample with the same config the league ` +
+          `is simulated with.`,
+      );
+    }
     for (const weekly of scenarios) {
       if (weekly.length < weeksNeeded) {
         throw new Error(

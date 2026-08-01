@@ -678,9 +678,9 @@ export async function runBuildDraftBoard(
     // only `season - 1` silently produced a board with no market component whatsoever —
     // which is not a degraded version of this product, it is the pure-model board that
     // measurement says is the *worse* of the two signals.
-    const seasonTotals = (weeks: readonly PlayerWeek[]): Map<string, number> => {
+    const seasonTotals = (weeks: readonly PlayerWeek[]) => {
       const totals = new Map<string, number>();
-      const byId = new Map<string, string>();
+      const byId = new Map<string, { name: string; position: string }>();
       for (const week of weeks) {
         // A kicking line scores zero through the offensive scorer, so including kickers
         // here would fit the curve through a band of false zeros.
@@ -693,11 +693,17 @@ export async function runBuildDraftBoard(
         }
         const id = week.competitor.id;
         totals.set(id, (totals.get(id) ?? 0) + scoreOffense(week.stats, scoring).total);
-        byId.set(id, week.competitor.name);
+        byId.set(id, { name: week.competitor.name, position: week.competitor.position });
       }
-      const byName = new Map<string, number>();
-      for (const [id, name] of byId) byName.set(normalizeName(name), totals.get(id) ?? 0);
-      return byName;
+      // The same position-qualified, collision-refusing index the roster join uses, rather
+      // than a second hand-rolled scheme that has to be trusted separately. This lookup
+      // supplies the actual season points `fitAdpCurves` is fitted on, so a collision does
+      // not merely mislabel two players — it pairs one player's points with the other's ADP
+      // inside the fit, and the resulting curve prices everyone at that position.
+      return buildMarketIndex(
+        [...byId].map(([id, who]) => ({ ...who, total: totals.get(id) ?? 0 })),
+        normalizeMarketPosition,
+      );
     };
 
     let curve: AdpCurveSet | null = null;
@@ -712,7 +718,7 @@ export async function runBuildDraftBoard(
         curveAttempts.push(`${candidateSeason}: no ADP board`);
         continue;
       }
-      const totalsByName = seasonTotals(weeks);
+      const seasonPoints = seasonTotals(weeks);
       // Fitted on *our* position spelling, and only for positions the offensive scorer can
       // actually score. The market calls kickers `PK` and defences `DEF`, so a curve keyed
       // on its spelling was never found by a `K` or `DST` lookup — every one of them fell
@@ -729,7 +735,7 @@ export async function runBuildDraftBoard(
           ) {
             return null;
           }
-          const actual = totalsByName.get(normalizeName(entry.name));
+          const actual = seasonPoints.find(entry.name, entry.position)?.total;
           return actual === undefined
             ? null
             : { adp: entry.adp, actualSeasonPoints: actual, position };

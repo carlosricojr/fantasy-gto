@@ -207,6 +207,7 @@ export function completeOwnRoster(
   pool: readonly PlayerRisk[],
   slots: readonly RosterSlot[],
   forcedFirstPick: PlayerRisk | null,
+  rosterSize?: number,
 ): PlayerRisk[] {
   const out = [...roster];
   const taken = new Set(out.map((p) => p.id));
@@ -221,6 +222,12 @@ export function completeOwnRoster(
   }
 
   for (let i = 0; i < picksLeft; i += 1) {
+    // Bounded by the roster as well as by the picks, the way `completeDraft` bounds every
+    // opponent. The two limits are equal in an ordinary draft, but they are supplied
+    // independently, and a team holding more picks than seats would otherwise be simulated
+    // with a longer roster than anyone it plays — which lifts every candidate's title odds
+    // together and reads as a better board rather than as a bug.
+    if (rosterSize !== undefined && out.length >= rosterSize) break;
     const pick = basePolicyPick(out, available, slots);
     if (pick === null) break;
     out.push(pick);
@@ -321,6 +328,7 @@ export function recommendByChampionship(
       poolForUs,
       config.slots,
       forced,
+      state.rosterSize,
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
     return championshipProbability(mine, opponentScores, config);

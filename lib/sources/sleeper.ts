@@ -131,8 +131,11 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
     const row = item as Record<string, unknown>;
     const metadata = (row.metadata ?? {}) as Record<string, unknown>;
 
+    // Rejected below 1 for the same reason `draft_slot` is: an identity field that parses
+    // but cannot be real places the pick at a position no draft has, and a pick at overall
+    // 0 or -3 sorts ahead of the true first pick and shifts the board under it.
     const overall = toInt(row.pick_no);
-    if (overall === null) continue;
+    if (overall === null || overall < 1) continue;
 
     const first = typeof metadata.first_name === "string" ? metadata.first_name : "";
     const last = typeof metadata.last_name === "string" ? metadata.last_name : "";

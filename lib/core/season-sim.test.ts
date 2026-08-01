@@ -334,3 +334,20 @@ describe("ties and bracket sufficiency", () => {
     ).not.toThrow();
   });
 });
+
+describe("simulateLeague scenario validation", () => {
+  it("refuses a team that supplies the wrong number of scenarios", () => {
+    // The week dimension was guarded and the scenario dimension was not, so this used to
+    // reach the simulation loop and die on an undefined index — an unreadable TypeError
+    // from inside a Monte Carlo run. It is reachable through
+    // `recommendByChampionship`, which samples opponents once and reuses that sample
+    // across candidates, so a cached sample and a changed config disagree here.
+    const config = { ...CONFIG, scenarios: 3 };
+    const weeks = config.weeks.length + config.playoffWeeks.length;
+    const full = Array.from({ length: 3 }, () => new Array(weeks).fill(10));
+    const short = Array.from({ length: 2 }, () => new Array(weeks).fill(10));
+
+    expect(() => simulateLeague([full, short], config)).toThrow(/scenario/i);
+    expect(() => simulateLeague([full, full], config)).not.toThrow();
+  });
+});

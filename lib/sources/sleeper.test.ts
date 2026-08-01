@@ -130,6 +130,19 @@ describe("parsePicks", () => {
     }
   });
 
+  it("drops a pick whose overall number is not a real pick", () => {
+    // Same rule as `draft_slot`, and for the same reason: an identity field that parses
+    // but cannot be real puts the pick at a position no draft has. Picks are sorted by
+    // this number, so an overall of 0 or -3 sorts ahead of the true first pick.
+    for (const pickNo of [0, -1, -12]) {
+      expect(
+        parsePicks([
+          { pick_no: pickNo, draft_slot: 1, metadata: { first_name: "A", last_name: "B" } },
+        ]),
+      ).toEqual([]);
+    }
+  });
+
   it("skips a pick with no overall number", () => {
     // Without it the pick cannot be placed in the draft at all.
     expect(

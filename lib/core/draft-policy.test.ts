@@ -6,6 +6,7 @@ import {
   type DraftTeam,
   basePolicyPick,
   completeDraft,
+  completeOwnRoster,
   recommendByChampionship,
 } from "./draft-policy";
 import { snakePicks } from "./draft";
@@ -465,5 +466,27 @@ describe("completeDraft, at its boundaries", () => {
     const best = basePolicyPick([], board(), SLOTS)!;
     expect(rosters[1].map((p) => p.id)).toEqual([best.id]);
     expect(rosters[0].map((p) => p.id)).not.toEqual([best.id]);
+  });
+});
+
+describe("completeOwnRoster", () => {
+  it("stops at the roster size, not at the picks it holds", () => {
+    // `completeDraft` bounds every opponent by `rosterSize`; this bounds us the same way.
+    // Given more picks than seats it would otherwise build a longer roster than anyone we
+    // play, and a team with an extra starter wins more titles — every candidate's odds
+    // rise together, which reads as a better board rather than as a bug.
+    const filled = completeOwnRoster([], 12, board(), SLOTS, null, 5);
+    expect(filled).toHaveLength(5);
+  });
+
+  it("still fills only as many picks as it holds when that is the tighter bound", () => {
+    expect(completeOwnRoster([], 3, board(), SLOTS, null, 10)).toHaveLength(3);
+  });
+
+  it("counts the forced pick against both bounds", () => {
+    const forced = board()[0];
+    const filled = completeOwnRoster([], 9, board(), SLOTS, forced, 4);
+    expect(filled).toHaveLength(4);
+    expect(filled.map((p) => p.id)).toContain(forced.id);
   });
 });

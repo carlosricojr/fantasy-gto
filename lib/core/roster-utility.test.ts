@@ -221,12 +221,33 @@ describe("marginalUtility", () => {
       CONFIG,
       5,
     );
-    // The receiver slot is his alone in both rosters, so his contribution is identical.
-    const wrOnly = crowded.expectedByWeek.map(
-      (v, i) => v - (crowded.expectedByWeek[i] - alone.expectedByWeek[i]),
+    // The slots are rb1, rb2 and wr1, so the two backs fill the RB slots and the receiver
+    // fills his own in both rosters. The crowded total therefore decomposes exactly into
+    // the backs plus the same receiver — but only if the receiver drew identical numbers
+    // in both, which is the property being tested.
+    //
+    // The previous version of this assertion computed
+    // `crowded[i] - (crowded[i] - alone[i])`, which is `alone[i]` by construction, and
+    // then checked that array against itself. It passed whether or not common random
+    // numbers worked.
+    const backsOnly = rosterUtility(
+      [player("x", "RB", 20), player("y", "RB", 19)],
+      SLOTS,
+      CONFIG,
+      5,
     );
-    expect(wrOnly.length).toBe(alone.expectedByWeek.length);
     expect(alone.expectedPoints).toBeGreaterThan(0);
+    for (let i = 0; i < alone.expectedByWeek.length; i += 1) {
+      // Each weekly figure is rounded to two decimals before it is returned, so a
+      // difference of two of them can sit up to 0.01 away from the rounded difference.
+      // The tolerance is that rounding and nothing more — a receiver drawing different
+      // numbers in the two rosters misses by whole points, not by hundredths.
+      expect(
+        Math.abs(
+          crowded.expectedByWeek[i] - backsOnly.expectedByWeek[i] - alone.expectedByWeek[i],
+        ),
+      ).toBeLessThanOrEqual(0.011);
+    }
   });
 
   it("uses common random numbers, so the difference is not swamped by noise", () => {

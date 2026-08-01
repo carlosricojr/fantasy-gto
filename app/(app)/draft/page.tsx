@@ -143,17 +143,6 @@ export default function DraftPage() {
           ? seasonState.season + 1
           : seasonState.season;
 
-  const board = useQuery(
-    api.draft.board,
-    season === null ? "skip" : { season, scoringId, teams },
-  );
-  const freshness = useQuery(
-    api.draft.boardFreshness,
-    season === null ? "skip" : { season, scoringId, teams },
-  );
-
-  const recommender = useRecommendations();
-
   // Lowering the league size after choosing a slot left `slot > teams`, and `snakePicks`
   // then produced the pick set of a different seat. Because the owner map is written
   // team-0-first and last write wins, that other team overwrote every one of the user's
@@ -170,10 +159,26 @@ export default function DraftPage() {
     [teams, slot, rounds],
   );
 
+  // `setup.teams` rather than `teams`. A restored draft carries whatever whole number was
+  // stored, and while `setup` clamps it for ownership, pick counts and rosters, the board
+  // query read the raw value — so an out-of-range league fetched one board shape and drew
+  // the seats of another.
+  const board = useQuery(
+    api.draft.board,
+    season === null ? "skip" : { season, scoringId, teams: setup.teams },
+  );
+  const freshness = useQuery(
+    api.draft.boardFreshness,
+    season === null ? "skip" : { season, scoringId, teams: setup.teams },
+  );
+
+  const recommender = useRecommendations();
+
   useEffect(() => {
+    if (setup.teams !== teams) setTeams(setup.teams);
     if (setup.slot !== slot) setSlot(setup.slot);
     if (setup.rounds !== rounds) setRounds(setup.rounds);
-  }, [setup, slot, rounds]);
+  }, [setup, teams, slot, rounds]);
 
   const starters = useMemo(() => slotsForTemplate(templateId), [templateId]);
 
@@ -664,12 +669,23 @@ function Caveat({
   freshness: { computedAt: number } | null;
   boardSize: number;
 }) {
+  // Formatted after mount, never during render. `toLocaleString` reads the locale and
+  // timezone of whoever runs it, so the server's rendering of this timestamp and the
+  // browser's are different strings for the same instant, and React reports a hydration
+  // mismatch. The board is client-fetched today, which is the only reason it has not
+  // happened yet — that is a fact about the current data flow, not a property of this
+  // component, and it should not be what keeps the page from erroring.
+  const [builtAt, setBuiltAt] = useState<string | null>(null);
+  useEffect(() => {
+    setBuiltAt(
+      freshness === null ? null : new Date(freshness.computedAt).toLocaleString(),
+    );
+  }, [freshness]);
+
   return (
     <p className="mt-6 text-xs text-muted-foreground">
       {boardSize} players.{" "}
-      {freshness === null
-        ? "Freshness unknown."
-        : `Board built ${new Date(freshness.computedAt).toLocaleString()}.`}{" "}
+      {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`}{" "}
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
