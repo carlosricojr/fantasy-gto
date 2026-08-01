@@ -10,7 +10,8 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "@/lib/nfl/draft/value";
-import { normalizeName } from "@/lib/nfl/draft/match";
+import { buildMarketIndex, normalizeName } from "@/lib/nfl/draft/match";
+import { normalizeMarketPosition } from "@/lib/nfl/draft/config";
 import { adpUrl, parseAdp } from "@/lib/sources/adp";
 
 /**
@@ -226,13 +227,15 @@ async function buildUniverse(target: number, curves: AdpCurveSet): Promise<Unive
 async function curveFor(season: number): Promise<AdpCurveSet> {
   const played = await loadSeason(season);
   const adp = await loadAdp(season);
-  const byName = new Map<string, PlayerSeason>();
-  for (const player of played.values()) byName.set(normalizeName(player.name), player);
+  // Position-qualified, and ambiguous names refused. A plain name-keyed map takes the
+  // last write, which injects one player's season points against another player's ADP —
+  // straight into the curve the published blend figures are computed from.
+  const index = buildMarketIndex([...played.values()], normalizeMarketPosition);
 
   const samples = adp
     .map((entry) => {
-      const player = byName.get(normalizeName(entry.name));
-      return player === undefined
+      const player = index.find(entry.name, entry.position);
+      return player === null
         ? null
         : {
             adp: entry.adp,
