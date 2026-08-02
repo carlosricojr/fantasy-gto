@@ -353,7 +353,12 @@ export function precomputeRecommendations(
     entries.push({
       signature: candidate.signature,
       probability: candidate.probability,
-      recommendations: compute(candidate.state, config, seed, candidateLimit),
+      // Sealed on insert, the way the memo store seals what it holds. Both caches feed the
+      // same worker and the same interface, and copying the array alone still lets a
+      // caller write through a recommendation — or its `player` — into the entry.
+      recommendations: compute(candidate.state, config, seed, candidateLimit).map((r) =>
+        Object.freeze({ ...r, player: Object.freeze({ ...r.player }) }),
+      ),
       context: contextOf(candidate.state),
     });
   }

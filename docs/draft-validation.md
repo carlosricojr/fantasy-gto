@@ -39,12 +39,21 @@ exactly what makes a published figure meaningless.
 
 | Blend weight (0 = market only, 1 = model only) | Spearman, 2023 |
 | --- | --- |
-| 0 | 0.5578 |
-| 0.1 | 0.5674 |
-| **0.2** | **0.5739** |
-| 0.3 | 0.5671 |
+| 0 | 0.5579 |
+| 0.1 | 0.5676 |
+| **0.2** | **0.5741** |
+| 0.3 | 0.5673 |
+| 0.4 | 0.5658 |
 | 0.5 | 0.5579 |
+| 0.6 | 0.5520 |
+| 0.8 | 0.5371 |
 | 1 | 0.5151 |
+
+Every weight in `BLEND_WEIGHTS`, not a selection — the text calls 0.2 the best of the
+values swept, so a table missing three of them invites the reader to check a sweep that is
+not the one the script runs. These figures also moved with the tie correction recorded
+below, and were stale here until it was noticed that only the evaluation table had been
+updated.
 
 The model keeps a small weight for a reason that does not depend on beating the market:
 **it prices players the market has not.** Around two thirds of rostered skill players have

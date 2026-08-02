@@ -222,8 +222,13 @@ export function completeOwnRoster(
   // that bypasses the loop: a roster already at `rosterSize` came back one player longer
   // than every opponent, and `ownRemainingPicks === 0` seated a candidate anyway and left
   // `picksLeft` at -1.
+  // Both bounds the loop applies, plus the identity one: a player already on the roster
+  // must not be seated a second time. The forced branch skips the loop, so every check the
+  // loop performs has to be repeated here or it is not performed at all.
   const roomForForced =
-    picksLeft > 0 && (rosterSize === undefined || out.length < rosterSize);
+    picksLeft > 0 &&
+    (rosterSize === undefined || out.length < rosterSize) &&
+    !taken.has(forcedFirstPick?.id ?? "");
   if (forcedFirstPick !== null && roomForForced) {
     out.push(forcedFirstPick);
     taken.add(forcedFirstPick.id);
@@ -253,7 +258,15 @@ export function completeDraft(
 ): PlayerRisk[][] {
   const rosters = state.teams.map((t) => [...t.roster]);
   const taken = new Set(rosters.flat().map((p) => p.id));
-  if (forcedFirstPick !== null) {
+  // Same three checks as `completeOwnRoster`, for the same reason: this branch bypasses
+  // the loop below, so nothing else applies them. Seating a player who is already on a
+  // roster would put him on two teams; seating one into a full roster would field a team
+  // larger than everyone it plays.
+  if (
+    forcedFirstPick !== null &&
+    !taken.has(forcedFirstPick.id) &&
+    rosters[state.myTeamIndex].length < state.rosterSize
+  ) {
     rosters[state.myTeamIndex].push(forcedFirstPick);
     taken.add(forcedFirstPick.id);
   }

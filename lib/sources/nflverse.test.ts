@@ -194,8 +194,11 @@ describe("parseSeasonRoster", () => {
     // row dropped for any reason — a missing gsis_id, a blank name — so it passed without
     // the status filter doing anything, and would still have passed had the fixture
     // contained no retired player at all.
+    // Restricted to rows that carry a join key. A retired row with an empty `gsis_id`
+    // satisfies the assertion below for the wrong reason — no entry has an empty
+    // `playerId` either way — so only rows the *status* filter must drop are selected.
     const retired = parseCsv(rosterCsv).filter(
-      (r) => (r.status ?? "").toUpperCase() === "RET",
+      (r) => (r.status ?? "").toUpperCase() === "RET" && (r.gsis_id ?? "") !== "",
     );
     expect(retired.length).toBeGreaterThan(0);
     for (const row of retired) {

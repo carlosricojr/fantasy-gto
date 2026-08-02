@@ -112,7 +112,13 @@ export class LruMemoStore implements MemoStore {
   readonly stats: MemoStats = { hits: 0, misses: 0, evictions: 0 };
 
   constructor(private readonly capacity = 512) {
-    if (capacity < 1) throw new Error("memo capacity must be at least 1");
+    // Integer, not merely positive. `NaN` passes a `< 1` check, and `size > NaN` is always
+    // false — so the eviction loop never runs and the store grows without bound, which is
+    // the one thing this class exists to prevent. A fractional capacity gives an
+    // off-by-a-fraction bound, which is merely wrong rather than dangerous.
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error(`memo capacity must be a whole number of at least 1, got ${capacity}`);
+    }
   }
 
   get size(): number {

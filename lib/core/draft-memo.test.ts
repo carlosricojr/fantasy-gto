@@ -425,3 +425,23 @@ describe("cached results are isolated from callers", () => {
     expect(second.recommendations[0].championshipProbability).toBe(originalTop);
   });
 });
+
+describe("LruMemoStore capacity", () => {
+  it("refuses a capacity that would disable eviction", () => {
+    // `NaN` passes a `< 1` check and `size > NaN` is always false, so the eviction loop
+    // never runs and the store grows without bound — the one failure this class exists to
+    // prevent, reached by the value most likely to arrive from a bad computation.
+    for (const capacity of [Number.NaN, 0, -1, 2.5, Number.POSITIVE_INFINITY]) {
+      expect(() => new LruMemoStore(capacity)).toThrow(/whole number/);
+    }
+  });
+
+  it("accepts a real capacity and evicts at it", () => {
+    const store = new LruMemoStore(2);
+    store.set("a", []);
+    store.set("b", []);
+    store.set("c", []);
+    expect(store.size).toBe(2);
+    expect(store.stats.evictions).toBe(1);
+  });
+});

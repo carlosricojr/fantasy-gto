@@ -184,6 +184,25 @@ export const AUTO_APPLY_CONFIDENCE = 0.93;
  */
 export const MATCH_AMBIGUITY_MARGIN = 0.1;
 
+/**
+ * Normalised names for a candidate list, cached against the list itself.
+ *
+ * `findNamesInText` calls `matchName` once per word window across four window sizes, so on
+ * a few-hundred-player universe and a screen's worth of text the same few hundred names
+ * were being renormalised roughly a million times — for a result that cannot change
+ * between calls. Keyed weakly on the array so a caller that rebuilds its universe is not
+ * served the old one, and so holding the cache cannot keep a dead universe alive.
+ */
+const normalizedCache = new WeakMap<readonly MatchCandidate[], string[]>();
+
+function normalizedNames(candidates: readonly MatchCandidate[]): string[] {
+  const hit = normalizedCache.get(candidates);
+  if (hit !== undefined) return hit;
+  const computed = candidates.map((c) => normalizeName(c.name));
+  normalizedCache.set(candidates, computed);
+  return computed;
+}
+
 /** Best match for a single name-like string, or `null` if nothing is close enough. */
 export function matchName<T extends MatchCandidate>(
   raw: string,
@@ -196,8 +215,29 @@ export function matchName<T extends MatchCandidate>(
   let best: NameMatch<T> | null = null;
   let runnerUp = 0;
 
-  for (const candidate of candidates) {
-    const score = similarity(needle, normalizeName(candidate.name));
+  const normalized = normalizedNames(candidates);
+
+  // Below this, a candidate can affect neither the winner nor the ambiguity check, so the
+  // edit distance need not be computed at all.
+  //
+  // `best` is only returned when it clears `minConfidence`, and the runner-up only matters
+  // through `best - runnerUp < MATCH_AMBIGUITY_MARGIN`. If a candidate scores under
+  // `minConfidence - MATCH_AMBIGUITY_MARGIN` then for any returnable `best` that
+  // difference already exceeds the margin, so the candidate cannot suppress a match
+  // either. The bound is exact rather than heuristic: skipping is provably invisible.
+  const floor = minConfidence - MATCH_AMBIGUITY_MARGIN;
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    const name = normalized[i];
+    // Two strings differing in length by `d` are at least `d` edits apart, so
+    // `1 - d / max(len)` is an upper bound on their similarity — available without running
+    // the O(n·m) comparison. On a few-hundred-player universe most candidates fail it.
+    const longest = Math.max(needle.length, name.length);
+    if (longest > 0 && 1 - Math.abs(needle.length - name.length) / longest < floor) {
+      continue;
+    }
+    const score = similarity(needle, name);
     if (best === null || score > best.confidence) {
       runnerUp = best?.confidence ?? 0;
       best = { candidate, confidence: score };

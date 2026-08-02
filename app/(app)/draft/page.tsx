@@ -365,6 +365,26 @@ export default function DraftPage() {
     );
   }
 
+  // A restored draft arrives with `started: true` and goes straight past the setup screen,
+  // where the empty-board message lives. If no board exists for that season, scoring and
+  // size — a shape that was never built, or one whose rows have not landed yet — the user
+  // met "Record pick 1 — You" over a search box that could never match anything, with
+  // nothing to explain it and no control to change the league.
+  if (started && board.length === 0) {
+    return (
+      <PageShell title="Draft" subtitle="No board for this league">
+        <p className="text-sm text-muted-foreground">
+          No {season} board has been built for {setup.teams}-team{" "}
+          {scoringId.replace("_", " ")} yet, so there is nothing to draft from. Boards
+          exist for {LEAGUE_SIZES.join(", ")}-team leagues.
+        </p>
+        <Button className="mt-6" variant="outline" onClick={() => setStarted(false)}>
+          Change the league setup
+        </Button>
+      </PageShell>
+    );
+  }
+
   if (!started) {
     return (
       <PageShell

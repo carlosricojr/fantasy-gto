@@ -915,12 +915,18 @@ export async function runBuildDraftBoard(
       teams,
       computedAt,
     });
-    await ctx.runMutation(internal.draft.pruneBoard, {
-      season,
-      scoringId,
-      teams,
-      computedBefore: computedAt,
-    });
+    // Drained rather than called once. `pruneBoard` deletes a bounded page and says
+    // whether more remain, because the stale set includes every failed rebuild's rows and
+    // is not bounded by one run's size.
+    for (;;) {
+      const pruned = await ctx.runMutation(internal.draft.pruneBoard, {
+        season,
+        scoringId,
+        teams,
+        computedBefore: computedAt,
+      });
+      if (!pruned.more) break;
+    }
 
     await ctx.runMutation(internal.jobs.finish, { jobId, status: "succeeded", error: null });
     return {

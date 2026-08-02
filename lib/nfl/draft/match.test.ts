@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MATCH_AMBIGUITY_MARGIN,
   buildMarketIndex,
   AUTO_APPLY_CONFIDENCE,
   MIN_MATCH_CONFIDENCE,
@@ -250,5 +251,86 @@ describe("normalizeName folds accents", () => {
 
   it("keeps the letter rather than dropping it", () => {
     expect(normalizeName("José Gonzalez")).toBe("josegonzalez");
+  });
+});
+
+/**
+ * The length prune inside `matchName`.
+ *
+ * It skips the edit distance for candidates whose lengths are too far apart to matter. The
+ * argument that this is invisible is short — a candidate below
+ * `minConfidence - MATCH_AMBIGUITY_MARGIN` can neither win nor suppress a winner — but an
+ * argument is not a check, and the prune sits directly on the path that decides which
+ * player a screen-read pick belongs to.
+ *
+ * So the pruned implementation is compared against an unpruned one over every candidate in
+ * a plausible universe, damaged twelve ways, at three confidence thresholds.
+ */
+describe("matchName is unchanged by its length prune", () => {
+  /** The implementation as it was before the prune, kept deliberately naive. */
+  function unpruned<T extends { id: string; name: string }>(
+    raw: string,
+    candidates: readonly T[],
+    minConfidence: number,
+  ): { candidate: T; confidence: number } | null {
+    const needle = normalizeName(raw);
+    if (needle.length < 4) return null;
+    let best: { candidate: T; confidence: number } | null = null;
+    let runnerUp = 0;
+    for (const candidate of candidates) {
+      const score = similarity(needle, normalizeName(candidate.name));
+      if (best === null || score > best.confidence) {
+        runnerUp = best?.confidence ?? 0;
+        best = { candidate, confidence: score };
+      } else if (score > runnerUp) {
+        runnerUp = score;
+      }
+    }
+    if (best === null || best.confidence < minConfidence) return null;
+    if (best.confidence - runnerUp < MATCH_AMBIGUITY_MARGIN) return null;
+    return best;
+  }
+
+  const FIRST = ["Ja", "Bijan", "Brian", "Amon", "Jose", "Puka", "CeeDee", "Saquon", "De"];
+  const LAST = [
+    "Marr Chase",
+    "Robinson",
+    "Robinson Jr",
+    "Ra St Brown",
+    "Gonzalez",
+    "Nacua",
+    "Lamb",
+    "Barkley",
+    "Von Achane",
+  ];
+  const universe = FIRST.flatMap((f, i) =>
+    LAST.map((l, j) => ({ id: `${i}-${j}`, name: `${f} ${l}` })),
+  );
+
+  /** Deletions, inserted spaces and substitutions — what a screen read actually does. */
+  const damage = (s: string, k: number): string => {
+    const a = s.split("");
+    if (k % 3 === 0 && a.length > 3) a.splice(k % a.length, 1);
+    if (k % 3 === 1) a.splice(k % a.length, 0, " ");
+    if (k % 3 === 2 && a.length > 2) a[k % a.length] = "s";
+    return a.join("");
+  };
+
+  it("agrees with the unpruned implementation on every case", () => {
+    let checked = 0;
+    for (const candidate of universe) {
+      for (let k = 0; k < 12; k += 1) {
+        for (const confidence of [0.7, MIN_MATCH_CONFIDENCE, 0.9]) {
+          const probe = damage(candidate.name, k);
+          const pruned = matchName(probe, universe, confidence);
+          const plain = unpruned(probe, universe, confidence);
+          expect(pruned?.candidate.id ?? null).toBe(plain?.candidate.id ?? null);
+          expect(pruned?.confidence ?? 0).toBeCloseTo(plain?.confidence ?? 0, 12);
+          checked += 1;
+        }
+      }
+    }
+    // Guards against the loops silently covering nothing.
+    expect(checked).toBeGreaterThan(2000);
   });
 });

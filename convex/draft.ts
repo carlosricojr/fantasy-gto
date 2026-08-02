@@ -218,6 +218,9 @@ export const upsertBoardBatch = internalMutation({
  * players nobody is drafting. Scoped to one league shape so rebuilding the 12-team board
  * cannot empty the 10-team one.
  */
+/** Rows deleted per `pruneBoard` call, so one mutation stays inside its limits. */
+const PRUNE_PAGE = 256;
+
 export const pruneBoard = internalMutation({
   args: {
     season: v.number(),
@@ -236,9 +239,15 @@ export const pruneBoard = internalMutation({
           .eq("teams", teams),
       )
       .filter((q) => q.lt(q.field("computedAt"), computedBefore))
-      .collect();
+      .take(PRUNE_PAGE + 1);
 
-    for (const row of stale) await ctx.db.delete(row._id);
-    return { deleted: stale.length };
+    // Bounded, and the caller is told whether to come back. A failed rebuild leaves its
+    // rows behind — `publishBoard` never pointed at them and the ingest path only prunes
+    // after a successful publish — so the stale set is not bounded by one run's size, and
+    // a single mutation deleting all of it eventually exceeds what a transaction can do.
+    // Failing there would mean the pruning never happens at all.
+    const page = stale.slice(0, PRUNE_PAGE);
+    for (const row of page) await ctx.db.delete(row._id);
+    return { deleted: page.length, more: stale.length > PRUNE_PAGE };
   },
 });

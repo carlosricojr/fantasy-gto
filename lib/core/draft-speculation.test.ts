@@ -619,3 +619,34 @@ describe("sampleFuture seat validation", () => {
     }
   });
 });
+
+describe("cached recommendations are sealed", () => {
+  it("survives a caller writing through a returned recommendation", () => {
+    // The memo store already sealed what it holds; this cache copied the array only, so a
+    // caller could reach the entry through one more dereference. Both feed the same worker.
+    const built = baseState();
+    const cache = precomputeRecommendations(
+      built,
+      anticipateStates(built, [{ team: 1 }], 3, createRng(1)),
+      CONFIG,
+      42,
+      { candidateLimit: 3 },
+    );
+    const entry = cache.entries[0];
+    expect(entry.recommendations.length).toBeGreaterThan(0);
+
+    const [first] = entry.recommendations;
+    const originalProbability = first.championshipProbability;
+    const originalMean = first.player.weeklyMean;
+
+    expect(() => {
+      first.championshipProbability = 999;
+    }).toThrow();
+    expect(() => {
+      first.player.weeklyMean = 999;
+    }).toThrow();
+
+    expect(entry.recommendations[0].championshipProbability).toBe(originalProbability);
+    expect(entry.recommendations[0].player.weeklyMean).toBe(originalMean);
+  });
+});
