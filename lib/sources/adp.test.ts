@@ -210,3 +210,15 @@ describe("prototype keys are not scoring formats", () => {
     expect(adpFormatFor("half_ppr")).toBe("half-ppr");
   });
 });
+
+describe("position whitespace", () => {
+  it("trims a published position before uppercasing it", () => {
+    // Untrimmed it becomes " RB", which `normalizeMarketPosition` does not map — so the
+    // market index key is `name|" RB"` and the position-qualified lookup misses the
+    // player entirely. `name` and `team` were already trimmed; this was the odd one out.
+    const entry = parseAdp({
+      players: [{ name: "A Player", position: "  rb ", adp: 10 }],
+    })?.[0];
+    expect(entry?.position).toBe("RB");
+  });
+});

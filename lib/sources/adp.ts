@@ -147,7 +147,10 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
 
     entries.push({
       name,
-      position: typeof row.position === "string" ? row.position.toUpperCase() : "",
+      // Trimmed like `name` and `team`. A published " RB" is not mapped by
+      // `normalizeMarketPosition`, so it becomes the key `name|" RB"` and the
+      // position-qualified lookup in `buildMarketIndex` misses the player entirely.
+      position: typeof row.position === "string" ? row.position.trim().toUpperCase() : "",
       // Through the same normaliser the roster uses. Left raw, an alias spelling — LAR,
       // OAK, STL, WFT — is a different key from the roster's canonical one, so the two
       // sources stop agreeing about which team a player is on.

@@ -269,6 +269,11 @@ function coveringTests(
   ownOnly: boolean,
 ): string[] {
   const moduleName = file.replace(/^.*\//, "").replace(/\.ts$/, "");
+  // Escaped before it becomes a pattern. The name comes from a CLI path, and a
+  // metacharacter in it either changes what the regex matches or throws outright — either
+  // way `coveringTests` comes back empty, the module reports SKIPPED, and the run exits 1
+  // for a reason that has nothing to do with test coverage.
+  const modulePattern = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const own = file.replace(/\.ts$/, ".test.ts");
 
   const covering = new Set<string>();
@@ -278,7 +283,7 @@ function coveringTests(
   for (const test of allTests) {
     const source = readFileSync(join(process.cwd(), test), "utf8");
     // Any import whose path ends in this module's name, however it is spelled relatively.
-    if (new RegExp(`from "[^"]*\\b${moduleName}"`).test(source)) covering.add(test);
+    if (new RegExp(`from "[^"]*\\b${modulePattern}"`).test(source)) covering.add(test);
   }
   return [...covering];
 }
