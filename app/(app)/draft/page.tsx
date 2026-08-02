@@ -787,7 +787,15 @@ function NumberPicker({
         // used to produce odd pick numbers; since `snakePicks` started rejecting one it
         // throws during render instead, and there is no error boundary under `app/`, so
         // the setup screen is replaced by a crash page that only a reload clears.
-        const next = Math.round(Number(event.target.value));
+        //
+        // An empty field is a keystroke in the middle of retyping, not a request for the
+        // minimum. `Number("")` is 0, which rounds to 0 and is finite, so clamping it
+        // immediately snapped the box to `min` the moment the user deleted the last digit
+        // — and because the input is controlled, "15" could never be replaced by "12",
+        // only appended to.
+        const raw = event.target.value.trim();
+        if (raw === "") return;
+        const next = Math.round(Number(raw));
         if (Number.isFinite(next)) onChange(Math.min(Math.max(next, min), max));
       }}
     />

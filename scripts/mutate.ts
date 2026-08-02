@@ -220,11 +220,19 @@ function mutantsFor(file: string, source: string): Mutant[] {
       (m) => " ".repeat(m.length),
     );
     const commentAt = withoutStrings.indexOf("//");
-    const masked =
+    const withoutLineComment =
       commentAt === -1
         ? withoutStrings
         : withoutStrings.slice(0, commentAt) +
           " ".repeat(withoutStrings.length - commentAt);
+    // And any `/* ... */` fragment sitting beside code. `isMutableLine` only rejects a
+    // line whose *trimmed* text starts with `/*`, so `const cap = 5; /* keep >= 5 */`
+    // was mutable and the `>=` inside the comment was an eligible site — a mutant that
+    // edits comment text, which nothing can object to and which is then reported as a
+    // survivor indistinguishable from a real gap.
+    const masked = withoutLineComment.replace(/\/\*[\s\S]*?\*\//g, (m) =>
+      " ".repeat(m.length),
+    );
 
     for (const mutator of MUTATORS) {
       for (const site of mutator.sites(masked)) {
