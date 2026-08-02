@@ -35,10 +35,25 @@ export interface RecommendResponse {
 const store = new LruMemoStore(256);
 
 self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
-  const { id, state, config, seed, candidateLimit } = event.data;
   const startedAt = Date.now();
+  // Destructured inside the guard, not above it. A malformed message threw here, before
+  // the try, so the worker posted no reply at all and the requester sat on `loading: true`
+  // for ever — the one outcome the catch below exists to prevent.
+  let id = -1;
 
   try {
+    const request = event.data as Partial<RecommendRequest> | null;
+    if (typeof request !== "object" || request === null) {
+      throw new Error("The worker received a message it could not read.");
+    }
+    if (typeof request.id !== "number" || !Number.isFinite(request.id)) {
+      // Without a usable id the reply cannot be matched to a request, and
+      // `use-recommendations` would drop it as out of order. Nothing can be answered.
+      throw new Error("The worker received a request with no usable id.");
+    }
+    id = request.id;
+    const { state, config, seed, candidateLimit } = request as RecommendRequest;
+
     const result = recommendMemoized(
       store,
       state,

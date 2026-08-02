@@ -93,6 +93,17 @@ export function snakePicks(
   teams: number,
   rounds: number,
 ): number[] {
+  // All three, for the reason the docstring gives about `slot`. A fractional `teams`
+  // passes any `slot <= teams` check and then produces fractional overall pick numbers —
+  // and `pickOwnership` keys a Map on those, so they never match the integer pick counter
+  // the board increments and every pick in the draft ends up owned by nobody. Same silent
+  // failure: the board renders, and the advice is computed against the wrong roster.
+  if (!Number.isInteger(teams) || teams < 1) {
+    throw new Error(`A league cannot have ${teams} teams.`);
+  }
+  if (!Number.isInteger(rounds) || rounds < 0) {
+    throw new Error(`A draft cannot have ${rounds} rounds.`);
+  }
   if (!Number.isInteger(slot) || slot < 1 || slot > teams) {
     throw new Error(
       `Draft slot ${slot} is outside a ${teams}-team league. The pick numbers this ` +

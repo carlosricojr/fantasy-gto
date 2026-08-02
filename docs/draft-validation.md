@@ -12,16 +12,16 @@ production:
 
 | Method | Spearman vs actual 2024 points | Mean actual points, top 24 | top 48 |
 | --- | --- | --- | --- |
-| **Market (ADP)** | **0.5402** | 267.4 | **243.5** |
-| Our season model | 0.4434 | 244.5 | 217.9 |
+| **Market (ADP)** | **0.5403** | 267.4 | **243.5** |
+| Our season model | 0.4433 | 244.5 | 217.9 |
 | Blend, weight 0.2 | 0.5364 | **272.6** | 238.3 |
 
 Read this plainly:
 
-- **The market ranks players far better than our model does** — 0.5402 against 0.4434.
+- **The market ranks players far better than our model does** — 0.5403 against 0.4433.
   That gap is not close.
 - **Blending our model in made rank correlation slightly worse**, not better: 0.5364
-  against 0.5402, a 0.7% decline. The improvement seen on the tuning season did not
+  against 0.5403, a 0.72% decline. The improvement seen on the tuning season did not
   replicate.
 - The blend's top 24 did score more (272.6 against 267.4), so the two metrics disagree.
   One evaluation season of 151 players cannot settle a disagreement that small.
@@ -56,8 +56,10 @@ It reported the blend beating the market by 13.5%, from a weight of 0.5. That re
 from fitting a single ADP-to-points curve across all positions pooled. Pooling is
 mis-specified: quarterbacks score far more raw points than running backs drafted at the
 same slot, so a pooled curve reads every quarterback as wildly overvalued. Correcting it to
-one curve per position raised the market's own score from 0.4455 to 0.5402 — and took most
-of our model's apparent value with it.
+one curve per position raised the market's own score from 0.4455 to roughly 0.54 — and took
+most of our model's apparent value with it. (That 0.4455 was measured before the tie
+correction below, so the two ends of the comparison are not on exactly the same estimator.
+The size of the effect is the point and it is unaffected.)
 
 The lesson is recorded rather than quietly fixed: **most of the edge was an artefact of
 handicapping the baseline.**
@@ -110,6 +112,23 @@ handicapping the baseline.**
   the tool unusable for any league that starts one.
 - **2025 and 2026 are not evaluated.** Fantasy Football Calculator publishes no 2025 board,
   so 2024 is the most recent season with both a market price and a finished result.
+
+### The rank correlation was order-dependent until 2026-08-02
+
+`spearman` assigned every player a distinct rank by sort position and used the
+`1 - 6·Σd²/(n(n²−1))` shortcut, which is only valid when nothing is tied. Ties are routine
+here — `seasonProjection`, `adpImpliedPoints` and `blendedSeasonValue` all round to two
+decimals, so players share values — and tied players were given different ranks decided by
+the order rows came out of a CSV.
+
+Corrected to mid-ranks with Pearson correlation on the ranks, which agrees exactly with the
+shortcut when there are no ties. Every figure in the table above moved, which is the proof
+there were ties: the market from 0.5402 to 0.5403, our model from 0.4434 to 0.4433, the
+blend unchanged at 0.5364, and the decline against the market from 0.70% to 0.72%.
+
+The movement is small and it does not change any conclusion. It is recorded because the
+figures above are the authority for what this product may claim, and a number that depends
+on input order is not one.
 
 ## The objective, and what is guaranteed about maximising it
 

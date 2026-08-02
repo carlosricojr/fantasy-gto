@@ -14,7 +14,7 @@
  *
  * Small, and the measurement behind it is negative. **Average draft position ranks
  * players substantially better than our model does**: on held-out 2024 the market scored
- * a Spearman correlation of 0.5402 against actual season points and our model 0.4434.
+ * a Spearman correlation of 0.5403 against actual season points and our model 0.4433.
  * Blending at this weight scored 0.5364 — very slightly *worse* than the market alone.
  * The improvement seen on the tuning season did not replicate.
  *

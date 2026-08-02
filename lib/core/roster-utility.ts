@@ -86,6 +86,14 @@ export const DEFAULT_UTILITY_CONFIG: Omit<UtilityConfig, "weeks"> = {
 export interface RosterUtility {
   /** Expected total points across the fantasy season, from the best lineup each week. */
   expectedPoints: number;
+  /**
+   * The same mean before rounding.
+   *
+   * Exists so `marginalUtility` can subtract before rounding. The difference between two
+   * rosters is often a fraction of a point where the totals are hundreds, so quantising
+   * both terms at 0.01 lands squarely on the quantity being measured.
+   */
+  rawExpectedPoints: number;
   /** Standard error of that estimate, so a comparison inside the noise is visible. */
   standardError: number;
   /** Expected points by week, which exposes bye-week holes directly. */
@@ -251,6 +259,7 @@ export function rosterUtility(
   if (roster.length === 0) {
     return {
       expectedPoints: 0,
+      rawExpectedPoints: 0,
       standardError: 0,
       expectedByWeek: config.weeks.map(() => 0),
       expectedEmptySlots: slots.length * config.weeks.length,
@@ -288,6 +297,10 @@ export function rosterUtility(
   const variance = Math.max(0, sumOfSquares / n - mean * mean);
   return {
     expectedPoints: round2(mean),
+    // Unrounded, for `marginalUtility`. Reported values stay rounded; a difference of two
+    // rounded values does not, because the quantity it measures is far smaller than the
+    // terms it comes from.
+    rawExpectedPoints: mean,
     standardError: round2(Math.sqrt(variance / n)),
     expectedByWeek: weekTotals.map((total) => round2(total / n)),
     expectedEmptySlots: round2(emptySlotTotal / n),
@@ -308,9 +321,13 @@ export function marginalUtility(
   config: UtilityConfig,
   seed: number,
 ): number {
+  // Subtracted before rounding. Season totals are hundreds of points and a deep-bench
+  // marginal value can be a fraction of one, so rounding both terms to two decimals first
+  // put 0.01 of quantisation directly on the quantity being measured — the thing common
+  // random numbers exist to resolve.
   const without = rosterUtility(roster, slots, config, seed);
   const with_ = rosterUtility([...roster, candidate], slots, config, seed);
-  return round2(with_.expectedPoints - without.expectedPoints);
+  return round2(with_.rawExpectedPoints - without.rawExpectedPoints);
 }
 
 function round2(value: number): number {

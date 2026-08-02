@@ -4,9 +4,9 @@
   "chosenBlendWeight": 0.2,
   "sampleSize": 151,
   "spearman": {
-    "adpOnly": 0.5401533635413036,
-    "modelOnly": 0.44339142558382716,
-    "blended": 0.5363959567793657
+    "adpOnly": 0.5402697985444675,
+    "modelOnly": 0.4432698181160781,
+    "blended": 0.5363991017754783
   },
   "topN": {
     "24": {
@@ -20,5 +20,5 @@
       "blended": 238.30708333333337
     }
   },
-  "edgeOverMarket": -0.6956185068077624
+  "edgeOverMarket": -0.7164377463662038
 }

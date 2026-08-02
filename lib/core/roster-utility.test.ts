@@ -238,15 +238,15 @@ describe("marginalUtility", () => {
     );
     expect(alone.expectedPoints).toBeGreaterThan(0);
     for (let i = 0; i < alone.expectedByWeek.length; i += 1) {
-      // Each weekly figure is rounded to two decimals before it is returned, so a
-      // difference of two of them can sit up to 0.01 away from the rounded difference.
-      // The tolerance is that rounding and nothing more — a receiver drawing different
-      // numbers in the two rosters misses by whole points, not by hundredths.
+      // Three separately rounded terms, each carrying up to 0.005, so the worst case is
+      // 0.015 rather than 0.01. The tolerance is that bound and nothing more: a receiver
+      // drawing different numbers in the two rosters misses by whole points, so 0.016
+      // still fails loudly on a real regression while not failing on arithmetic.
       expect(
         Math.abs(
           crowded.expectedByWeek[i] - backsOnly.expectedByWeek[i] - alone.expectedByWeek[i],
         ),
-      ).toBeLessThanOrEqual(0.011);
+      ).toBeLessThanOrEqual(0.016);
     }
   });
 

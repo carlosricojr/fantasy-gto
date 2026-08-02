@@ -113,8 +113,13 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
   // defaulting it produces a complete-looking board that attributes real players to the
   // wrong managers. A linear draft read as a snake misassigns every pick from round two.
   // `status` is genuinely cosmetic and is still defaulted.
+  // Only the two formats this code models. An auction has no pick order at all, so every
+  // pick number `snakePicks` produces for it is fiction — and read as a snake it would
+  // render a complete, confident board attributing real players to seats that never
+  // existed. Refusing a draft we cannot represent is the whole point of not defaulting
+  // this field.
   const type = typeof root.type === "string" ? root.type.trim().toLowerCase() : "";
-  if (type === "") return null;
+  if (type !== "snake" && type !== "linear") return null;
 
   return {
     teams,

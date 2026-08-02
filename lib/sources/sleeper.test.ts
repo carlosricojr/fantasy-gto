@@ -76,6 +76,13 @@ describe("parseSettings", () => {
     ).toBe("linear");
   });
 
+  it("refuses a draft format it cannot represent at all", () => {
+    // An auction has no pick order, so every pick number derived from it is fiction. Read
+    // as a snake it produces a complete, confident board of seats that never existed.
+    expect(parseSettings({ type: "auction", settings: { teams: 10, rounds: 16 } })).toBeNull();
+    expect(parseSettings({ type: "unknown", settings: { teams: 10, rounds: 16 } })).toBeNull();
+  });
+
   it("defaults only what is genuinely cosmetic", () => {
     const settings = parseSettings({ type: "snake", settings: { teams: 10, rounds: 16 } });
     expect(settings?.status).toBe("unknown");

@@ -143,20 +143,59 @@ async function loadAdp(season: number) {
   return entries;
 }
 
+/**
+ * Spearman rank correlation, with ties handled.
+ *
+ * Mid-ranks rather than sort positions, and Pearson on the ranks rather than the
+ * `1 - 6·Σd²/(n(n²−1))` shortcut. The shortcut is only valid when nothing is tied, and ties
+ * are reachable: `seasonProjection`, `adpImpliedPoints` and `blendedSeasonValue` all round
+ * to two decimals, so two players routinely share a value. Ranking those by sort position
+ * gave them different ranks decided by input order, which made the published figure depend
+ * on the order rows came out of a CSV.
+ *
+ * With no ties the two forms agree exactly, so an unchanged number after this change is
+ * evidence the data had none — not evidence the change did nothing.
+ */
 function spearman(pairs: Array<[number, number]>): number {
   const n = pairs.length;
   if (n < 3) return Number.NaN;
+
   const rank = (values: number[]): number[] => {
-    const order = values.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0]);
+    const order = values
+      .map((v, i) => [v, i] as const)
+      .sort((a, b) => a[0] - b[0]);
     const ranks = new Array<number>(n);
-    for (let i = 0; i < order.length; i += 1) ranks[order[i][1]] = i;
+    let i = 0;
+    while (i < order.length) {
+      // Everything equal to `order[i]` shares the average of the positions they span.
+      let j = i;
+      while (j + 1 < order.length && order[j + 1][0] === order[i][0]) j += 1;
+      const midRank = (i + j) / 2;
+      for (let k = i; k <= j; k += 1) ranks[order[k][1]] = midRank;
+      i = j + 1;
+    }
     return ranks;
   };
+
   const ra = rank(pairs.map((p) => p[0]));
   const rb = rank(pairs.map((p) => p[1]));
-  let d2 = 0;
-  for (let i = 0; i < n; i += 1) d2 += (ra[i] - rb[i]) ** 2;
-  return 1 - (6 * d2) / (n * (n * n - 1));
+  const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / n;
+  const ma = mean(ra);
+  const mb = mean(rb);
+
+  let cov = 0;
+  let va = 0;
+  let vb = 0;
+  for (let i = 0; i < n; i += 1) {
+    const da = ra[i] - ma;
+    const db = rb[i] - mb;
+    cov += da * db;
+    va += da * da;
+    vb += db * db;
+  }
+  // Zero variance means every value tied, so there is no ordering to correlate with.
+  if (va === 0 || vb === 0) return Number.NaN;
+  return cov / Math.sqrt(va * vb);
 }
 
 interface Universe {

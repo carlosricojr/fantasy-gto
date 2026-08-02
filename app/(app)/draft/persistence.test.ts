@@ -149,6 +149,16 @@ describe("parsePersistedDraft", () => {
     expect(parsePersistedDraft(stored({ picks: { 1: "dup", 2: "dup" } }))).toBeNull();
   });
 
+  it("refuses two keys that resolve to the same pick", () => {
+    // `"1"` and `"01"` both parse to 1, and the second would overwrite the first — quietly
+    // repairing corrupt state into a different draft rather than refusing it. The
+    // numeric-lookup assertion below cannot prove this, because `picks[7]` coerces to
+    // `picks["7"]` either way.
+    expect(parsePersistedDraft(stored({ picks: { "1": "a", "01": "b" } }))).toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { "007": "a" } }))).toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { " 7": "a" } }))).toBeNull();
+  });
+
   it("keeps pick numbers as numbers, not the strings JSON turns keys into", () => {
     // `Object.entries` hands back string keys. The board indexes picks by number, and a
     // record keyed by "1" does not answer a lookup for 1.

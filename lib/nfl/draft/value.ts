@@ -12,8 +12,8 @@ import {
  * score across a season — combined at a weight chosen on a tuning season.
  *
  * The combination does **not** beat the market. Measured out-of-sample on 2024: the market
- * ranks players at 0.5402 by rank correlation, our model at 0.4434, and the blend at
- * 0.5364 — a 0.7% decline against the market alone. The blend is kept because it wins on
+ * ranks players at 0.5403 by rank correlation, our model at 0.4433, and the blend at
+ * 0.5364 — a 0.72% decline against the market alone. The blend is kept because it wins on
  * the other metric the backtest reports, total points among each method's top 24, and
  * because the two disagree and one evaluation season of 151 players cannot settle it. No
  * ranking edge over the market may be claimed anywhere in the interface.
