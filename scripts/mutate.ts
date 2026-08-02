@@ -43,6 +43,26 @@ interface Mutator {
 }
 
 /** A textual swap, guarded so it cannot fire on a longer operator that contains it. */
+/** Like `operator`, but only where the token is a whole word. */
+function wordOperator(name: string, from: string, to: string): Mutator {
+  const isWordChar = (c: string | undefined): boolean =>
+    c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  return {
+    name,
+    sites(masked) {
+      const out: MutationSite[] = [];
+      let index = masked.indexOf(from);
+      while (index !== -1) {
+        const before = masked[index - 1];
+        const after = masked[index + from.length];
+        if (!isWordChar(before) && !isWordChar(after)) out.push({ index, from, to });
+        index = masked.indexOf(from, index + 1);
+      }
+      return out;
+    },
+  };
+}
+
 function operator(
   name: string,
   from: string,
@@ -103,8 +123,12 @@ const MUTATORS: Mutator[] = [
   operator("times->div", " * ", " / "),
   operator("max->min", "Math.max", "Math.min"),
   operator("min->max", "Math.min", "Math.max"),
-  operator("true->false", "true", "false"),
-  operator("false->true", "false", "true"),
+  // Word-bounded: `true` and `false` also occur inside identifiers like `isTrueFlag` and
+  // `trueValue`, and rewriting one mid-identifier produces an undeclared reference — or,
+  // worse, a coincidentally valid one. Either way the mutant tests something other than
+  // the boolean literal it claims to flip.
+  wordOperator("true->false", "true", "false"),
+  wordOperator("false->true", "false", "true"),
   operator("nullish->or", " ?? ", " || "),
   numericLiteral,
 ];
@@ -234,7 +258,18 @@ function coveringTests(
 function listTestFiles(): string[] {
   const out = execFileSync(
     "git",
-    ["ls-files", "lib/**/*.test.ts", "lib/*.test.ts", "app/**/*.test.ts"],
+    // `--others --exclude-standard` includes files that exist but are not staged yet. A
+    // test written and not yet added is exactly the case somebody runs this harness for,
+    // and without it the module reports as having no tests and gets skipped.
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "lib/**/*.test.ts",
+      "lib/*.test.ts",
+      "app/**/*.test.ts",
+    ],
     { cwd: process.cwd(), encoding: "utf8" },
   );
   return out.split("\n").filter((line) => line.endsWith(".test.ts"));

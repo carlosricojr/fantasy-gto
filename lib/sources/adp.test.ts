@@ -172,3 +172,25 @@ describe("unmapped scoring", () => {
     if (!result.ok) expect(result.reason).toMatch(/No average-draft-position/);
   });
 });
+
+describe("team codes", () => {
+  const one = (team: unknown) =>
+    parseAdp({ players: [{ name: "A Player", position: "RB", adp: 10, team }] })?.[0];
+
+  it("normalises alias spellings to the same code the roster uses", () => {
+    // Left raw, an alias is a different key from the roster's canonical one and the two
+    // sources stop agreeing about which team a player is on.
+    expect(one("OAK")?.team).toBe("LV");
+    expect(one("STL")?.team).toBe("LA");
+    expect(one("WFT")?.team).toBe("WAS");
+  });
+
+  it("passes a canonical code through unchanged", () => {
+    expect(one("SF")?.team).toBe("SF");
+  });
+
+  it("leaves a missing or blank team null", () => {
+    expect(one(undefined)?.team).toBeNull();
+    expect(one("   ")?.team).toBeNull();
+  });
+});

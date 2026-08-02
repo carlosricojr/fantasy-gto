@@ -11,15 +11,18 @@ import {
 } from "./draft";
 
 /**
- * Draft recommendation.
+ * Draft market model and snake geometry.
  *
- * The claims worth testing are the ones the interface makes: that value is solved rather
- * than approximated, that waiting is priced from ADP dispersion rather than treated as a
- * deadline, and that the recommendation follows scarcity rather than raw projection.
+ * Two claims, which are the two this module still makes. That ADP is read as a mean with
+ * dispersion rather than as a deadline — a player with ADP 40 and a spread of 12 is still
+ * there at pick 45 about a third of the time. And that the snake arithmetic attributes
+ * every pick in the draft to exactly one seat, which is the invariant whose absence once
+ * handed a manager's whole draft to somebody else.
+ *
+ * The recommendation engine that used to live here moved to `draft-policy.ts` and the
+ * value-over-next-available version was deleted; the claims about solving value and
+ * following scarcity are tested there, not here.
  */
-
-
-
 
 describe("normalCdf", () => {
   it("matches known values", () => {

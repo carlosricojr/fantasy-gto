@@ -52,6 +52,13 @@ self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
       throw new Error("The worker received a request with no usable id.");
     }
     id = request.id;
+    // `state` and `config` fail loudly anyway, because `memoKey` dereferences them. `seed`
+    // is the one field that passes straight through: it lands in the memo key as
+    // `seed=undefined` and reaches the sampler as NaN, and the worker then replies with a
+    // normal response carrying no error — a degenerate ranking presented as a valid one.
+    if (typeof request.seed !== "number" || !Number.isFinite(request.seed)) {
+      throw new Error("The worker received a request with no usable seed.");
+    }
     const { state, config, seed, candidateLimit } = request as RecommendRequest;
 
     const result = recommendMemoized(
