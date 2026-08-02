@@ -120,6 +120,9 @@ function parsePicks(value: unknown, totalPicks: number): Record<number, string> 
   for (const [key, playerId] of Object.entries(value as Record<string, unknown>)) {
     const pick = Number(key);
     if (!Number.isInteger(pick) || pick < 1 || pick > totalPicks) return null;
+    // `"1"` and `"01"` both parse to pick 1, and the second would overwrite the first —
+    // silently repairing corrupt state into a different draft instead of refusing it.
+    if (String(pick) !== key) return null;
     if (typeof playerId !== "string" || playerId === "") return null;
     if (seen.has(playerId)) return null;
     seen.add(playerId);

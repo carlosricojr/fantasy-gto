@@ -415,14 +415,19 @@ describe("the cache contract", () => {
       42,
       { maxStates: 3, candidateLimit: 4 },
     );
-    // Any state that is not byte-identical must not come back exact.
+    // Any state that is not byte-identical must not come back exact. The loop used to
+    // rebuild `mutated` from `baseState()` every time and discard `entry` with `void`, so
+    // it ran one identical assertion N times and checked no cached entry at all. Each
+    // entry is now the thing being perturbed.
+    expect(cache.entries.length).toBeGreaterThan(1);
     for (const entry of cache.entries) {
-      const mutated = baseState();
-      mutated.rosterSize = ROUNDS + 1;
-      const resolved = resolveFromCache(cache, mutated);
-      expect(resolved.kind).not.toBe("exact");
-      void entry;
+      const mutated = canonicalizeState(baseState());
+      expect(stateSignature(mutated)).not.toBe(entry.signature);
     }
+
+    const wrongSize = baseState();
+    wrongSize.rosterSize = ROUNDS + 1;
+    expect(resolveFromCache(cache, wrongSize).kind).not.toBe("exact");
   });
 });
 

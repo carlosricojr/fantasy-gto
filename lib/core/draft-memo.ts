@@ -139,7 +139,10 @@ export class LruMemoStore implements MemoStore {
 
   set(key: string, value: ChampionshipRecommendation[]): void {
     if (this.entries.has(key)) this.entries.delete(key);
-    this.entries.set(key, [...value]);
+    // The array is copied and each recommendation frozen. Copying the array alone stops a
+    // caller reordering the cache; it does not stop one writing to a recommendation object,
+    // which is shared by reference with every future hit.
+    this.entries.set(key, value.map((r) => Object.freeze({ ...r })));
     while (this.entries.size > this.capacity) {
       const oldest = this.entries.keys().next();
       if (oldest.done === true) break;
@@ -185,7 +188,15 @@ export function recommendMemoized(
     candidateLimit,
   );
   store.set(key, recommendations);
-  return { recommendations, cached: false, key };
+  // A miss hands back the same guarantees a hit does — a separate array of frozen
+  // recommendations. Returning the raw computed array meant the first caller held
+  // references the cache also held, and only later callers were protected. Not read back
+  // through `store.get`, which would count a hit that did not happen.
+  return {
+    recommendations: recommendations.map((r) => Object.freeze({ ...r })),
+    cached: false,
+    key,
+  };
 }
 
 /**

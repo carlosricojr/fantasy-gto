@@ -10,7 +10,7 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "@/lib/nfl/draft/value";
-import { buildMarketIndex, normalizeName } from "@/lib/nfl/draft/match";
+import { buildMarketIndex } from "@/lib/nfl/draft/match";
 import { normalizeMarketPosition } from "@/lib/nfl/draft/config";
 import { adpUrl, parseAdp } from "@/lib/sources/adp";
 
@@ -193,6 +193,12 @@ async function buildUniverse(target: number, curves: AdpCurveSet): Promise<Unive
     const matched = index.find(entry.name, entry.position);
     if (matched === null) continue;
     const id = matched.id;
+    // Two ADP rows can resolve to one roster player — `normalizeName` collapses
+    // punctuation and generational suffixes, so "A.J. Brown" and "AJ Brown" both land
+    // here. Pushed twice, the player is counted twice by `spearman` with identical ranks
+    // on both sides, can contribute his points twice to one `topN` mean, and inflates the
+    // `sampleSize` published as a distinct player count.
+    if (actual.has(id)) continue;
 
     const history = [
       ...(twoBack.get(id)?.perGamePoints ?? []),

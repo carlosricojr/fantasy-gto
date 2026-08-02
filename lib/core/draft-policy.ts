@@ -27,11 +27,15 @@ import {
  *  1. **The inner problems are exact.** The best legal lineup for a week is a
  *     maximum-weight matching, solved exactly. Standings and the bracket are played out
  *     rather than approximated.
- *  2. **Certified improvement.** This is one step of policy improvement over an explicit
- *     base policy: every candidate is evaluated by *committing to it and then finishing
- *     the draft under the base policy*, and the best is taken. By the policy improvement
- *     theorem the resulting policy is no worse than the base policy from any state — not
- *     "usually better", provably not worse.
+ *  2. **One step of policy improvement, estimated by simulation.** Every candidate is
+ *     evaluated by *committing to it and then finishing the draft under an explicit base
+ *     policy*, and the best is taken. The policy improvement theorem is what makes this
+ *     the right shape — but the theorem needs the base policy's exact action values, and
+ *     these are Monte Carlo estimates over `config.scenarios` draws. Sampling noise can
+ *     put a candidate on top whose true championship probability is below the base
+ *     policy's own choice, which is why every recommendation carries a standard error and
+ *     why candidates inside it are reported as tied rather than ranked. The guarantee
+ *     belongs to the theorem; this is an estimate of it.
  *  3. **A computable optimality gap** via a perfect-information relaxation, which would
  *     bound how much better any policy could do. Not implemented; noted so its absence is
  *     visible rather than implied.
@@ -338,39 +342,49 @@ export function recommendByChampionship(
    * because leaving the hole open would understate them by a whole roster spot — the
    * mirror of the same error.
    */
-  const opponentScoresFor = (forced: PlayerRisk | null): number[][][] => {
-    if (forced === null) return baselineOpponentScores;
+  const opponentScoresFor = (
+    forced: PlayerRisk | null,
+  ): { scores: number[][][]; replacementId: string | null } => {
+    if (forced === null) {
+      return { scores: baselineOpponentScores, replacementId: null };
+    }
     const owner = opponentRosters.findIndex((roster) =>
       roster.some((p) => p.id === forced.id),
     );
-    if (owner === -1) return baselineOpponentScores;
+    if (owner === -1) return { scores: baselineOpponentScores, replacementId: null };
 
+    // `forced` is on an opponent roster in this branch, so `claimedByOthers` already kept
+    // it out of `poolForUs` and no further filtering is needed here.
     const without = opponentRosters[owner].filter((p) => p.id !== forced.id);
-    const replacement = basePolicyPick(
-      without,
-      poolForUs.filter((p) => p.id !== forced.id),
-      config.slots,
-    );
+    const replacement = basePolicyPick(without, poolForUs, config.slots);
     const scores = [...baselineOpponentScores];
     scores[owner] = sampleTeamWeeklyScores(
       replacement === null ? without : [...without, replacement],
       config,
       seed + 1000 + owner,
     );
-    return scores;
+    return { scores, replacementId: replacement?.id ?? null };
   };
 
   const evaluate = (forced: PlayerRisk | null): TeamOutcome => {
+    const { scores, replacementId } = opponentScoresFor(forced);
+    // The replacement has to leave our pool as well. Both selections run `basePolicyPick`
+    // over the same `poolForUs`, so they routinely land on the same player — which put him
+    // on the opponent's roster and ours in one scenario. That is the very double-count
+    // this branch was added to remove, reintroduced one step later, and it fires only for
+    // candidates an opponent held, which is precisely the set the branch exists for.
     const mineRoster = completeOwnRoster(
       me.roster,
       ownPicksLeft,
-      poolForUs,
+      replacementId === null
+        ? poolForUs
+        : poolForUs.filter((p) => p.id !== replacementId),
       config.slots,
       forced,
       state.rosterSize,
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
-    return championshipProbability(mine, opponentScoresFor(forced), config);
+    return championshipProbability(mine, scores, config);
   };
 
   const baseline = evaluate(null);

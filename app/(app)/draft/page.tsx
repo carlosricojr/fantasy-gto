@@ -180,7 +180,16 @@ export default function DraftPage() {
     if (setup.teams !== teams) setTeams(setup.teams);
     if (setup.slot !== slot) setSlot(setup.slot);
     if (setup.rounds !== rounds) setRounds(setup.rounds);
-  }, [setup, teams, slot, rounds]);
+    // The playoff buttons are filtered by `field < teams`, but the chosen value was never
+    // re-checked. Picking 6 in an eight-team league and then shrinking the league left it
+    // at 6 with no button showing as selected — and, worse, that stale value went into
+    // `LeagueConfig`, so every recommendation was computed against a playoff field the
+    // league could not field.
+    if (!PLAYOFF_FIELDS.some((field) => field === playoffTeams && field < setup.teams)) {
+      const usable = [...PLAYOFF_FIELDS].filter((field) => field < setup.teams);
+      if (usable.length > 0) setPlayoffTeams(usable[usable.length - 1]);
+    }
+  }, [setup, teams, slot, rounds, playoffTeams]);
 
   const starters = useMemo(() => slotsForTemplate(templateId), [templateId]);
 

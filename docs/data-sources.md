@@ -15,7 +15,7 @@ Base: `https://github.com/nflverse/nflverse-data/releases/download`
 
 ### 1.1 Weekly player stats (the core table)
 
-```
+```text
 {base}/stats_player/stats_player_week_{SEASON}.csv
 ```
 
@@ -51,7 +51,7 @@ entirely by our engine and cannot be validated against this column.
 
 ### 1.2 Schedules, Vegas lines, and weather
 
-```
+```text
 {base}/schedules/games.csv
 ```
 
@@ -82,7 +82,7 @@ real RFC 4180 parser is mandatory; naive `String.split(",")` is a defect.
 
 The 32 team codes present in 2025 are:
 
-```
+```text
 ARI ATL BAL BUF CAR CHI CIN CLE DAL DEN DET GB  HOU IND JAX KC
 LA  LAC LV  MIA MIN NE  NO  NYG NYJ PHI PIT SEA SF  TB  TEN WAS
 ```
@@ -138,7 +138,7 @@ Verified by direct request on 2026-07-31.
 
 ### Average draft position — Fantasy Football Calculator
 
-```
+```text
 https://fantasyfootballcalculator.com/api/v1/adp/{ppr|half-ppr|standard}?teams={n}&year={season}
 ```
 
@@ -164,7 +164,7 @@ backtest evaluates on 2024.
 
 ### Live draft state — Sleeper
 
-```
+```text
 https://api.sleeper.app/v1/draft/{draft_id}
 https://api.sleeper.app/v1/draft/{draft_id}/picks
 https://api.sleeper.app/v1/state/nfl
@@ -186,7 +186,7 @@ missing settings fail the call instead of defaulting to invented league dimensio
 
 ### Rosters — nflverse
 
-```
+```text
 https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_{season}.csv
 https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_{season}.csv
 ```

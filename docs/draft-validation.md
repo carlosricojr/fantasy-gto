@@ -141,10 +141,17 @@ Two findings from that simulation that a points-based valuation cannot produce:
 
 - **The inner problems are exact.** The best legal lineup for a week is a maximum-weight
   matching, solved exactly. Standings and the bracket are played out, not approximated.
-- **Certified improvement.** The recommendation is one step of policy improvement over an
-  explicit base policy: each candidate is evaluated by committing to it and finishing the
-  draft under that base policy. By the policy improvement theorem the result is no worse
-  than the base policy from any state. Not "usually better" — provably not worse.
+- **One step of policy improvement, estimated by simulation.** The recommendation is one
+  step of policy improvement over an explicit base policy: each candidate is evaluated by
+  committing to it and finishing the draft under that base policy.
+
+  What this is *not* is a proof. The policy improvement theorem needs the exact action
+  values of the base policy, and these are Monte Carlo estimates over a finite number of
+  scenarios — which is why every recommendation carries a standard error and why the
+  interface marks candidates inside it as tied. Sampling noise can put a candidate on top
+  whose true championship probability is below the base policy's own choice. This section
+  previously said "provably not worse", which the estimates cannot support; the guarantee
+  belongs to the theorem, not to this implementation of it.
 - **Not guaranteed: global optimality.** A draft is a sequential game against opponents who
   react, over a state space exponential in the player pool. Claiming an optimal policy
   would be false. A perfect-information relaxation would give a computable upper bound on

@@ -206,7 +206,6 @@ describe("parseSeasonRoster", () => {
   it("drops rows with no gsis_id, which cannot be joined to any history", () => {
     // Without the join key a player has no production history, so the board would price
     // him from nothing at all.
-    const rows = parseCsv(rosterCsv);
     // On a constructed row. The captured fixture contains no active player missing a
     // `gsis_id`, so the previous form filtered to an empty list, ran its loop zero times
     // and passed without touching the filter — it would have passed with the filter

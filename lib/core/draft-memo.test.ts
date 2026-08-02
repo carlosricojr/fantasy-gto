@@ -396,3 +396,26 @@ describe("composed with speculation", () => {
     expect(memoised.entries).toEqual(plain.entries);
   });
 });
+
+describe("cached results are isolated from callers", () => {
+  it("survives a caller reordering or editing what it was handed", () => {
+    // The array and the recommendations both reach the worker and then the interface. A
+    // caller that sorts what it was given, or writes to one of the objects in it, must not
+    // be able to change what the next hit returns.
+    const store = new LruMemoStore(4);
+    const state = canonicalizeState(baseState());
+    const first = recommendMemoized(store, state, CONFIG, 42, 3).recommendations;
+    const originalOrder = first.map((r) => r.player.id);
+    const originalTop = first[0].championshipProbability;
+
+    first.reverse();
+    expect(() => {
+      first[0].championshipProbability = 999;
+    }).toThrow();
+
+    const second = recommendMemoized(store, state, CONFIG, 42, 3);
+    expect(second.cached).toBe(true);
+    expect(second.recommendations.map((r) => r.player.id)).toEqual(originalOrder);
+    expect(second.recommendations[0].championshipProbability).toBe(originalTop);
+  });
+});

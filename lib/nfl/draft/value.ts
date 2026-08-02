@@ -9,9 +9,18 @@ import {
  * Season-long player valuation for drafting.
  *
  * Two independent estimates of the same quantity — how many fantasy points a player will
- * score across a season — combined because measurement showed the combination beats
- * either. See `docs/draft-validation.md` for the figures and `config.ts` for why the
- * weight is what it is.
+ * score across a season — combined at a weight chosen on a tuning season.
+ *
+ * The combination does **not** beat the market. Measured out-of-sample on 2024: the market
+ * ranks players at 0.5402 by rank correlation, our model at 0.4434, and the blend at
+ * 0.5364 — a 0.7% decline against the market alone. The blend is kept because it wins on
+ * the other metric the backtest reports, total points among each method's top 24, and
+ * because the two disagree and one evaluation season of 151 players cannot settle it. No
+ * ranking edge over the market may be claimed anywhere in the interface.
+ *
+ * This docstring previously said measurement showed the combination beats either. It does
+ * not, and `config.ts`, `published-draft-metrics.json` and the backtest's own output all
+ * said so at the time. See `docs/draft-validation.md`.
  *
  * This is a different question from the weekly model's. Weekly asks "how will he do on
  * Sunday", which is dominated by matchup and recent form. Season-long asks "how much will

@@ -357,7 +357,10 @@ export function resolveFromCache(
 
   const exact = cache.entries.find((entry) => entry.signature === signature);
   if (exact !== undefined) {
-    return { kind: "exact", recommendations: exact.recommendations };
+    // Copied, like the memo store. Both caches hand their arrays to the same worker and
+    // the same interface, and a caller that sorts or splices what it was given would
+    // otherwise edit the cache in place — every later hit returning the mutated ranking.
+    return { kind: "exact", recommendations: [...exact.recommendations] };
   }
 
   // A near miss is still useful, but only when it is a near miss about the *same
@@ -398,7 +401,7 @@ export function resolveFromCache(
     const cachedPool = new Set(best.entry.context.availableIds);
     return {
       kind: "approximate",
-      recommendations: best.entry.recommendations,
+      recommendations: [...best.entry.recommendations],
       differences: {
         // Available now but the cache thought gone, and vice versa. Genuinely populated,
         // unlike the earlier version where the filter above guaranteed both were empty.

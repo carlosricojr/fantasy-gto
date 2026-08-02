@@ -867,12 +867,14 @@ export async function runBuildDraftBoard(
     }
 
     if (rows.length === 0) {
-      await ctx.runMutation(internal.jobs.finish, {
-        jobId,
-        status: "failed",
-        error: `No draftable players resolved for ${season}. Nothing was written.`,
-      });
-      return { players: 0, withMarketPrice: 0, unpriced: 0 };
+      // Thrown rather than returned. Returning normally after marking the job failed put
+      // the two records in direct contradiction: `refreshDraftBoards` counts a normal
+      // return as a rebuild, so the cron reported the shape rebuilt while its own job row
+      // said it had failed and no board row existed. The existing catch below records the
+      // failure, so this needs no bookkeeping of its own.
+      throw new Error(
+        `No draftable players resolved for ${season}. Nothing was written.`,
+      );
     }
 
     const computedAt = Date.now();
