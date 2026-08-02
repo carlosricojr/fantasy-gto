@@ -388,9 +388,13 @@ describe("recommendByChampionship arithmetic", () => {
       // `p` here is already rounded — they differ by up to 5e-5, so a recomputation from
       // `p` lands on a different 1e-4 grid point whenever it sits near a boundary, and the
       // test would fail for a seed that changed nothing.
+      // 3 digits, not 4. The implementation derives this from the unrounded probability
+      // and reports it on a 1e-4 grid, so a recomputation from the rounded `p` can land a
+      // whole grid step away — 4 digits is exactly at that boundary and would fail on a
+      // seed change that altered nothing.
       expect(r.standardError).toBeCloseTo(
         Math.sqrt((p * (1 - p)) / CONFIG.scenarios),
-        4,
+        3,
       );
     }
   });

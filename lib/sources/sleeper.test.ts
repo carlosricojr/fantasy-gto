@@ -76,6 +76,14 @@ describe("parseSettings", () => {
     ).toBe("linear");
   });
 
+  it("refuses a fractional team or round count rather than truncating it", () => {
+    // 10.5 teams is not a league that got rounded, it is a payload this code does not
+    // understand — and truncating turned it into a plausible 10 that the guards below
+    // could no longer see.
+    expect(parseSettings({ type: "snake", settings: { teams: 10.5, rounds: 16 } })).toBeNull();
+    expect(parseSettings({ type: "snake", settings: { teams: 10, rounds: 16.5 } })).toBeNull();
+  });
+
   it("refuses a draft format it cannot represent at all", () => {
     // An auction has no pick order, so every pick number derived from it is fiction. Read
     // as a snake it produces a complete, confident board of seats that never existed.
@@ -160,6 +168,19 @@ describe("parsePicks", () => {
       { pick_no: 1, draft_slot: 1, round: 3, metadata: { first_name: "A", last_name: "B" } },
     ]);
     expect(withRound.round).toBe(3);
+  });
+
+  it("drops a pick whose seat or number is fractional", () => {
+    expect(
+      parsePicks([
+        { pick_no: 1, draft_slot: 2.5, metadata: { first_name: "A", last_name: "B" } },
+      ]),
+    ).toEqual([]);
+    expect(
+      parsePicks([
+        { pick_no: 1.5, draft_slot: 2, metadata: { first_name: "A", last_name: "B" } },
+      ]),
+    ).toEqual([]);
   });
 
   it("skips a pick with no overall number", () => {

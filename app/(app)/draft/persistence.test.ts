@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type PersistedDraft, parsePersistedDraft } from "./persistence";
+import { MAX_ROUNDS, type PersistedDraft, parsePersistedDraft } from "./persistence";
 
 /**
  * Restoring a draft.
@@ -103,8 +103,13 @@ describe("parsePersistedDraft", () => {
   });
 
   it("refuses a round count past the maximum, and accepts the maximum itself", () => {
-    expect(parsePersistedDraft(stored({ rounds: 40, picks: {} }))?.rounds).toBe(40);
-    expect(parsePersistedDraft(stored({ rounds: 41, picks: {} }))).toBeNull();
+    // Against the constant, not a literal. The setup control uses the same one, and the
+    // two were independent numbers until they disagreed — 30 in the interface against 40
+    // here, so a restored draft could hold a round count nothing could correct.
+    expect(parsePersistedDraft(stored({ rounds: MAX_ROUNDS, picks: {} }))?.rounds).toBe(
+      MAX_ROUNDS,
+    );
+    expect(parsePersistedDraft(stored({ rounds: MAX_ROUNDS + 1, picks: {} }))).toBeNull();
   });
 
   it("refuses a slot outside the league it was stored with", () => {

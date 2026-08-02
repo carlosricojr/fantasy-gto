@@ -45,8 +45,13 @@ interface Mutator {
 /** A textual swap, guarded so it cannot fire on a longer operator that contains it. */
 /** Like `operator`, but only where the token is a whole word. */
 function wordOperator(name: string, from: string, to: string): Mutator {
-  const isWordChar = (c: string | undefined): boolean =>
-    c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  // `.` blocks a boundary rather than being one: `flags.true` would otherwise match, and
+  // the mutant would rewrite a property name instead of a boolean literal — producing
+  // either a reference to something that does not exist, or a behaviour change for a
+  // reason unrelated to the flip it claims to make. `numericLiteral` already blocks `.`
+  // for the same reason.
+  const blocksBoundary = (c: string | undefined): boolean =>
+    c !== undefined && /[A-Za-z0-9_$.]/.test(c);
   return {
     name,
     sites(masked) {
@@ -55,7 +60,9 @@ function wordOperator(name: string, from: string, to: string): Mutator {
       while (index !== -1) {
         const before = masked[index - 1];
         const after = masked[index + from.length];
-        if (!isWordChar(before) && !isWordChar(after)) out.push({ index, from, to });
+        if (!blocksBoundary(before) && !blocksBoundary(after)) {
+          out.push({ index, from, to });
+        }
         index = masked.indexOf(from, index + 1);
       }
       return out;

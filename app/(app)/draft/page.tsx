@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   DRAFT_STORAGE_KEY,
   LEAGUE_SIZES,
+  MAX_ROUNDS,
   PLAYOFF_FIELDS,
   type PersistedDraft,
   parsePersistedDraft,
@@ -388,7 +389,13 @@ export default function DraftPage() {
               </div>
             </Field>
             <Field label="Rounds">
-              <NumberPicker label="Rounds" value={rounds} onChange={setRounds} min={1} max={30} />
+              <NumberPicker
+                label="Rounds"
+                value={rounds}
+                onChange={setRounds}
+                min={1}
+                max={MAX_ROUNDS}
+              />
             </Field>
             <Field label="Your draft slot">
               <NumberPicker

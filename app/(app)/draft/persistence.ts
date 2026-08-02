@@ -35,8 +35,14 @@ export const LEAGUE_SIZES = [8, 10, 12, 14] as const;
 
 export const PLAYOFF_FIELDS = [4, 6] as const;
 
-/** Rounds beyond this are not a draft anyone is running. */
-export const MAX_ROUNDS = 40;
+/**
+ * Rounds beyond this are not a draft anyone is running.
+ *
+ * The setup control uses this same constant as its ceiling. They were two independent
+ * numbers — the control capped at 30, this accepted 40 — so a restored draft could hold a
+ * round count the interface could neither represent nor correct.
+ */
+export const MAX_ROUNDS = 30;
 
 export interface PersistedDraft {
   teams: number;

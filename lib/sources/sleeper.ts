@@ -175,11 +175,21 @@ function positiveOrNull(value: number | null): number | null {
   return value === null || value < 1 ? null : value;
 }
 
+/**
+ * A whole number, or `null`.
+ *
+ * Rejects a fractional value rather than truncating it. Every caller here is reading an
+ * identity field — a seat, a pick number, a team count — and 10.5 teams is not a league
+ * that got rounded, it is a payload this code does not understand. Truncating turned that
+ * into a plausible 10 and hid it from the guards downstream, which are the whole reason
+ * these fields are parsed separately in the first place.
+ */
 function toInt(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
-  }
-  return null;
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  return Number.isInteger(parsed) ? parsed : null;
 }

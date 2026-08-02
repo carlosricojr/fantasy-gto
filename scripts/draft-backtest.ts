@@ -53,7 +53,14 @@ interface PublishedDraftMetrics {
   spearman: { adpOnly: number; modelOnly: number; blended: number };
   topN: Record<string, { adpOnly: number; modelOnly: number; blended: number }>;
   /** Improvement of the blend over the market alone, in percent of correlation. */
-  edgeOverMarket: number;
+  /**
+   * Blend against market, as a **percentage**, not a fraction.
+   *
+   * Named for the unit because every sibling here is a correlation in [-1, 1], and a bare
+   * `-0.72` beside three of those reads as a fraction — which is a hundredfold error in
+   * the one field the honesty ledger is most often quoted from.
+   */
+  edgeOverMarketPercent: number;
 }
 
 async function cached(dir: string, file: string, url: string): Promise<string> {
@@ -498,7 +505,7 @@ async function main(): Promise<void> {
         },
       ]),
     ),
-    edgeOverMarket: edge,
+    edgeOverMarketPercent: edge,
   };
   writeFileSync(PUBLISHED_PATH, `${JSON.stringify(published, null, 2)}\n`);
   process.stdout.write(
