@@ -155,7 +155,13 @@ export interface QuantileBand {
  * future ruleset adds — and giving them no spread at all would make them look risk-free
  * rather than unmeasured.
  */
-export const PLACEHOLDER_QUANTILES = { p10: 0.2, p90: 1.9 } as const;
+export const PLACEHOLDER_QUANTILES: QuantileBand = {
+  p10: 0.2,
+  p90: 1.9,
+  // Typed rather than commented, for the reason `QuantileBand` says: a band that cannot
+  // state where it came from is one the interface cannot decline to present as evidence.
+  provenance: "placeholder",
+};
 
 export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
   QB: { p10: 0.171, p90: 1.772, provenance: "measured" },

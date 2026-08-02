@@ -113,6 +113,37 @@ describe("draft board publishing", () => {
     expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000 });
   });
 
+  it("does not let a stale run that finishes late take the current board with it", async () => {
+    const t = convexTest(schema, modules);
+
+    // The newer rebuild lands and publishes first.
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 5_000,
+      rows: [row("new", 200)],
+    });
+    await t.mutation(internal.draft.publishBoard, { ...shape, computedAt: 5_000 });
+
+    // An older one — a retry, or a manual run beside the cron — finishes afterwards. If it
+    // moved the pointer back to 4000, its own prune would then delete every row with
+    // `computedAt < 4000` and the newer board would be what `computedAt >= 4000` kept, but
+    // the *pointer* would be serving 4000's rows: the live board replaced by a stale one
+    // that happened to be slower. The published pointer only ever moves forward.
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 4_000,
+      rows: [row("old", 111)],
+    });
+    await t.mutation(internal.draft.publishBoard, { ...shape, computedAt: 4_000 });
+
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 5_000 });
+    expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
+
+    // And the stale run's own prune cannot remove the live board either.
+    await t.mutation(internal.draft.pruneBoard, { ...shape, computedBefore: 4_000 });
+    expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
+  });
+
   it("does not let a rebuild of one league size disturb another", async () => {
     const t = convexTest(schema, modules);
     const ten = { season: SEASON, scoringId: SCORING, teams: 10 };

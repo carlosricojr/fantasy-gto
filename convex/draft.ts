@@ -143,9 +143,23 @@ export const publishBoard = internalMutation({
       )
       .first();
 
-    const doc = { sport: "nfl", season, scoringId, teams, publishedAt: computedAt };
-    if (existing) await ctx.db.patch(existing._id, doc);
-    else await ctx.db.insert("draftBoardRuns", doc);
+    // Monotonic. Two rebuilds for one shape can overlap — a retry, or a manual run beside
+    // the cron — and if the older one publishes last the pointer retreats. `pruneBoard`
+    // then deletes everything with `computedAt < computedBefore`, which is the *newer*
+    // board, so a late-finishing stale run would take the current one with it.
+    if (existing) {
+      if (computedAt > existing.publishedAt) {
+        await ctx.db.patch(existing._id, { publishedAt: computedAt });
+      }
+      return;
+    }
+    await ctx.db.insert("draftBoardRuns", {
+      sport: "nfl",
+      season,
+      scoringId,
+      teams,
+      publishedAt: computedAt,
+    });
   },
 });
 

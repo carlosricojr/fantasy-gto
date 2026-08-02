@@ -525,7 +525,12 @@ export default function DraftPage() {
           {/* Hidden once every pick is in. `currentPick` runs one past the last pick when
               the draft is complete, so this heading read "Record pick 181 — Nobody" and
               offered a search that could not attribute anything to a seat. */}
-          <section className={draftComplete ? "hidden" : "mt-6"}>
+          <section className="mt-6">
+            {/* Only the recording controls are hidden once the draft is complete. Undo
+                sits below, outside this wrapper, because correcting a mistaken *last*
+                pick is exactly when it is needed and hiding the whole section made it
+                unreachable at that moment. */}
+            <div className={draftComplete ? "hidden" : undefined}>
             <h2 className="text-sm font-medium">
               Record pick {currentPick} &mdash; {clockLabel}
             </h2>
@@ -561,6 +566,7 @@ export default function DraftPage() {
                 </li>
               ))}
             </ul>
+            </div>
             {/* Gated on the pick it actually removes, not on the map being non-empty.
                 `currentPick` is the first *empty* pick, so a restored board with a gap in
                 it offered "Undo pick N" for an entry that does not exist and removed

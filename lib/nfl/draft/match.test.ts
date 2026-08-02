@@ -235,3 +235,18 @@ describe("buildMarketIndex", () => {
     expect(index.find("!!!", "RB")).toBeNull();
   });
 });
+
+describe("normalizeName folds accents", () => {
+  it("gives an accented and unaccented spelling the same key", () => {
+    // The sources disagree about accents constantly. Stripping rather than folding
+    // deleted the whole character — "José" became "jos" — so one spelling could not find
+    // the other and `buildMarketIndex` reported the market price as missing.
+    expect(normalizeName("José Gonzalez")).toBe(normalizeName("Jose Gonzalez"));
+    expect(normalizeName("Amon-Ra St. Brown")).toBe(normalizeName("Amon Ra St Brown"));
+    expect(normalizeName("Ndamukong Suh")).toBe("ndamukongsuh");
+  });
+
+  it("keeps the letter rather than dropping it", () => {
+    expect(normalizeName("José Gonzalez")).toBe("josegonzalez");
+  });
+});

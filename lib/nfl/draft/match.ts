@@ -28,6 +28,13 @@ const DROPPED_SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 export function normalizeName(raw: string): string {
   const words = raw
     .toLowerCase()
+    // Accents are folded, not stripped. Decomposing first turns "é" into "e" plus a
+    // combining mark, so removing the marks leaves the letter — where the punctuation
+    // filter below would otherwise delete the whole character. One source spelling
+    // "José" and another "Jose" produced two different keys for one player, and
+    // `buildMarketIndex` then reported his market price as missing.
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s]/g, "")
     .split(/\s+/)
     .filter((w) => w.length > 0 && !DROPPED_SUFFIXES.has(w));
