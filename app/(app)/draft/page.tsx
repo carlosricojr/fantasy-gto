@@ -515,7 +515,10 @@ export default function DraftPage() {
             />
           )}
 
-          <section className="mt-6">
+          {/* Hidden once every pick is in. `currentPick` runs one past the last pick when
+              the draft is complete, so this heading read "Record pick 181 — Nobody" and
+              offered a search that could not attribute anything to a seat. */}
+          <section className={draftComplete ? "hidden" : "mt-6"}>
             <h2 className="text-sm font-medium">
               Record pick {currentPick} &mdash; {clockLabel}
             </h2>

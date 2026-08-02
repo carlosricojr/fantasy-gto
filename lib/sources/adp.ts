@@ -48,7 +48,12 @@ export interface AdpEntry {
 
 /** The upstream format for a scoring id, or `null` if there is no mapping for it. */
 export function adpFormatFor(scoringId: string): string | null {
-  return FORMAT_BY_SCORING[scoringId] ?? null;
+  // Own-property, not a plain index. `scoringId` comes from stored or user-supplied state,
+  // and a key like `constructor` or `toString` resolves through the prototype to something
+  // truthy — which would sail past the null check below and be interpolated into the URL.
+  return Object.hasOwn(FORMAT_BY_SCORING, scoringId)
+    ? FORMAT_BY_SCORING[scoringId]
+    : null;
 }
 
 /**

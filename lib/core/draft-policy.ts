@@ -292,6 +292,20 @@ export function recommendByChampionship(
   seed: number,
   candidateLimit = CHAMPIONSHIP_CANDIDATES,
 ): ChampionshipRecommendation[] {
+  // Checked here, because the state arrives from the worker through `postMessage` and no
+  // local type carries across that boundary. Unvalidated, an out-of-range index makes `me`
+  // undefined and the failure surfaces as a TypeError from inside the simulation rather
+  // than at whatever built the state. `sampleFuture` applies the same rule to seat indices.
+  if (
+    !Number.isInteger(state.myTeamIndex) ||
+    state.myTeamIndex < 0 ||
+    state.myTeamIndex >= state.teams.length
+  ) {
+    throw new Error(
+      `Advising team index ${state.myTeamIndex}, which is not one of the ` +
+        `${state.teams.length} teams in this draft.`,
+    );
+  }
   const me = state.teams[state.myTeamIndex];
   if (state.available.length === 0) return [];
 

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { AdpProvider, adpUrl, parseAdp } from "./adp";
+import { AdpProvider, adpFormatFor, adpUrl, parseAdp } from "./adp";
 
 /**
  * Average draft position.
@@ -192,5 +192,21 @@ describe("team codes", () => {
   it("leaves a missing or blank team null", () => {
     expect(one(undefined)?.team).toBeNull();
     expect(one("   ")?.team).toBeNull();
+  });
+});
+
+describe("prototype keys are not scoring formats", () => {
+  it("refuses an inherited property name", () => {
+    // `scoringId` reaches here from stored state. A plain index lookup resolves
+    // `constructor` and `toString` through the prototype to something truthy, which would
+    // pass the null check and be interpolated straight into the endpoint URL.
+    for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(adpFormatFor(key)).toBeNull();
+      expect(() => adpUrl(key, 12, 2026)).toThrow(/No average-draft-position/);
+    }
+  });
+
+  it("still resolves the real ones", () => {
+    expect(adpFormatFor("half_ppr")).toBe("half-ppr");
   });
 });

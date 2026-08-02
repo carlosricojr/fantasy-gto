@@ -558,3 +558,21 @@ describe("completeOwnRoster", () => {
     expect(completeOwnRoster([], 0, board(), SLOTS, forced, 10)).toHaveLength(0);
   });
 });
+
+describe("recommendByChampionship input validation", () => {
+  it("rejects a team index that is not in the league", () => {
+    // The state crosses a `postMessage` boundary, where no local type survives. Without
+    // this the failure is a TypeError from inside the simulation rather than at the caller
+    // that built the state.
+    for (const myTeamIndex of [-1, TEAMS, TEAMS + 3, 1.5, Number.NaN]) {
+      expect(() =>
+        recommendByChampionship(
+          { teams: freshTeams(), myTeamIndex, available: board(), rosterSize: ROUNDS },
+          CONFIG,
+          7,
+          2,
+        ),
+      ).toThrow(/not one of the/);
+    }
+  });
+});
