@@ -342,12 +342,31 @@ describe("simulateLeague scenario validation", () => {
     // from inside a Monte Carlo run. It is reachable through
     // `recommendByChampionship`, which samples opponents once and reuses that sample
     // across candidates, so a cached sample and a changed config disagree here.
+    // Six teams, not two: with `playoffTeams: 4` a two-team league is an oversized
+    // playoff field, and asserting it does *not* throw locked in behaviour that is now
+    // rejected outright.
     const config = { ...CONFIG, scenarios: 3 };
     const weeks = config.weeks.length + config.playoffWeeks.length;
-    const full = Array.from({ length: 3 }, () => new Array(weeks).fill(10));
-    const short = Array.from({ length: 2 }, () => new Array(weeks).fill(10));
+    const team = (scenarios: number) =>
+      Array.from({ length: scenarios }, () => new Array(weeks).fill(10));
+    const six = Array.from({ length: 6 }, () => team(3));
 
-    expect(() => simulateLeague([full, short], config)).toThrow(/scenario/i);
-    expect(() => simulateLeague([full, full], config)).not.toThrow();
+    expect(() => simulateLeague([...six.slice(0, 5), team(2)], config)).toThrow(
+      /scenario/i,
+    );
+    expect(() => simulateLeague(six, config)).not.toThrow();
+  });
+
+  it("refuses a playoff field larger than the league", () => {
+    // The clamp inside the bracket maths reinterpreted this as "everyone qualifies", so a
+    // misconfigured league produced a full table of plausible-looking odds instead of an
+    // error. A field *equal* to the league is left alone — unusual, but the regular season
+    // still decides seeding and the first-round byes.
+    const config = { ...CONFIG, scenarios: 2, playoffTeams: 6 };
+    const weeks = config.weeks.length + config.playoffWeeks.length;
+    const scores = Array.from({ length: 4 }, () =>
+      Array.from({ length: 2 }, () => new Array(weeks).fill(10)),
+    );
+    expect(() => simulateLeague(scores, config)).toThrow(/not that many teams/i);
   });
 });

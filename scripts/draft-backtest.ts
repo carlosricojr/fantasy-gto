@@ -11,7 +11,7 @@ import {
   seasonProjection,
 } from "@/lib/nfl/draft/value";
 import { buildMarketIndex } from "@/lib/nfl/draft/match";
-import { normalizeMarketPosition } from "@/lib/nfl/draft/config";
+import { MODELLED_POSITIONS, normalizeMarketPosition } from "@/lib/nfl/draft/config";
 import { adpUrl, parseAdp } from "@/lib/sources/adp";
 
 /**
@@ -92,7 +92,13 @@ async function loadSeason(season: number): Promise<Map<string, PlayerSeason>> {
     if (str(row, "season_type") !== "REG") continue;
     let position = str(row, "position").toUpperCase();
     if (position === "FB") position = "RB";
-    if (!["QB", "RB", "WR", "TE"].includes(position)) continue;
+    // The production list, not a copy of it. A backtest filtering on a different set of
+    // positions than the ingest measures a board nobody is served.
+    if (
+      !MODELLED_POSITIONS.includes(position as (typeof MODELLED_POSITIONS)[number])
+    ) {
+      continue;
+    }
 
     const id = str(row, "player_id");
     if (id === "") continue;

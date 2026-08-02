@@ -99,6 +99,14 @@ export function useRecommendations(): RecommendationState & {
     });
 
     worker.addEventListener("error", (event) => {
+      // An `error` event from a module worker means the script failed to load or threw at
+      // the top level, so the worker is dead. Leaving `workerRef` set meant every later
+      // request posted into the void: no reply ever came, the previous answer stayed on
+      // screen marked stale for ever, and the next request cleared the error message that
+      // was the only sign anything was wrong. Dropping the reference routes it to the
+      // unsupported path, which the page already explains.
+      workerRef.current = null;
+      setSupported(false);
       setState((previous) => ({
         ...previous,
         loading: false,

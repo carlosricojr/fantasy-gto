@@ -1,5 +1,6 @@
 import { type ProviderResult, failed, ok } from "../core/providers";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
+import { normalizeTeam } from "../nfl/teams";
 
 /**
  * Average draft position.
@@ -142,7 +143,13 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
     entries.push({
       name,
       position: typeof row.position === "string" ? row.position.toUpperCase() : "",
-      team: typeof row.team === "string" && row.team.trim() !== "" ? row.team.trim() : null,
+      // Through the same normaliser the roster uses. Left raw, an alias spelling — LAR,
+      // OAK, STL, WFT — is a different key from the roster's canonical one, so the two
+      // sources stop agreeing about which team a player is on.
+      team:
+        typeof row.team === "string" && row.team.trim() !== ""
+          ? normalizeTeam(row.team.trim())
+          : null,
       adp,
       // Kept as published, including a zero. The survival model owns the decision about
       // what a missing spread means, and defaulting it here would hide which players had

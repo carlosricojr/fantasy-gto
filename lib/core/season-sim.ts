@@ -147,6 +147,21 @@ export function simulateLeague(
   // the end yields `undefined`, which compares false against everything and propagates as
   // NaN through the point totals — a silently wrong standings table rather than an error.
   const weeksNeeded = regularWeeks + config.playoffWeeks.length;
+  // A field larger than the league is incoherent, and `bracketRoundsRequired` and the
+  // qualifier slice both clamp it with `Math.min(playoffTeams, teamCount)` — so it was
+  // quietly reinterpreted as "everyone qualifies" and simulated as though that were what
+  // had been asked for.
+  //
+  // Strictly greater, not `>=`. A field *equal* to the league is unusual but coherent:
+  // every team plays on, and the regular season still decides seeding and who gets a
+  // first-round bye, which is what the bye test below this file relies on.
+  if (config.playoffTeams > teamCount) {
+    throw new Error(
+      `A ${teamCount}-team league cannot send ${config.playoffTeams} teams to the ` +
+        `playoffs. There are not that many teams.`,
+    );
+  }
+
   // A zero scenario count passes every per-team check below — an empty outer array
   // trivially equals it — then the loop never runs, `n` is zero, and every rate is 0/0.
   // The table comes back full of NaN, which is the silent-wrong-answer failure the rest of
