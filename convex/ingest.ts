@@ -604,9 +604,13 @@ export const syncSchedule = internalAction({
  * needed *before* the season, when there is no current-season form at all and a player's
  * team comes from the roster release rather than from an appearance.
  *
- * The board is the blend of two estimates — ours and the market's — because measurement
- * says the blend beats either. `docs/draft-validation.md` has the figures and
- * `pnpm draft-backtest` reproduces them.
+ * The board is the blend of two estimates — ours and the market's. The blend does **not**
+ * out-rank the market: on held-out 2024 the market scored 0.5403 by rank correlation and
+ * the blend 0.5364. It is kept because it wins on total points among each method's top 24,
+ * because one evaluation season of 151 players cannot settle a disagreement between two
+ * metrics, and because the model prices players the market has no published ADP for at
+ * all. `docs/draft-validation.md` has the figures and `pnpm draft-backtest` reproduces
+ * them. No ranking edge over the market may be claimed anywhere in the interface.
  */
 export const buildDraftBoard = internalAction({
   args: {
@@ -719,12 +723,16 @@ export async function runBuildDraftBoard(
         continue;
       }
       const seasonPoints = seasonTotals(weeks);
-      // Fitted on *our* position spelling, and only for positions the offensive scorer can
-      // actually score. The market calls kickers `PK` and defences `DEF`, so a curve keyed
-      // on its spelling was never found by a `K` or `DST` lookup — every one of them fell
-      // through to the pooled curve, which is the mis-specification this whole per-position
-      // fit exists to avoid. Worse, those rows scored zero through `scoreOffense`, so they
-      // were dragging the pooled fit down as well.
+      // Fitted on *our* position spelling, and only for the positions the offensive scorer
+      // can actually score. Kickers and defences get no curve of their own and are priced
+      // off the pooled one — deliberately, because `scoreOffense` scores a kicking line as
+      // zero, so any curve fitted from those rows would be fitted from false zeros.
+      //
+      // Excluding them is what this filter buys: previously the market's own spellings
+      // (`PK`, `DEF`) meant no curve was ever found for them anyway, *and* their zeros were
+      // dragging the pooled fit down for everybody else. Only the second half of that is
+      // fixed here. They still resolve through `curves.pooled`, which is the honest
+      // treatment for a position the model cannot value.
       const samples = candidateAdp.data
         .map((entry) => {
           const position = normalizeMarketPosition(entry.position);

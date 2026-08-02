@@ -19,7 +19,11 @@ export interface Rng {
 }
 
 /**
- * SplitMix64-style generator, reduced to the 32-bit arithmetic JavaScript does exactly.
+ * mulberry32, a 32-bit generator whose arithmetic JavaScript does exactly.
+ *
+ * Named correctly here because the docstring used to say "SplitMix64-style", which the
+ * inline comment below already contradicted — and somebody auditing these constants
+ * against SplitMix64 would not have found them.
  *
  * Chosen over a linear congruential generator because the low bits of an LCG are
  * notoriously non-random, and this is used to drive per-week availability draws where a
