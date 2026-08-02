@@ -86,6 +86,9 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (rounds > MAX_ROUNDS) return null;
   if (slot > teams) return null;
   if (!PLAYOFF_FIELDS.includes(playoffTeams as (typeof PLAYOFF_FIELDS)[number])) return null;
+  // Unreachable with the current lists — 4 or 6 against 8 through 14 — and kept for the
+  // day one of them changes. A field as large as the league sends everyone to the
+  // playoffs, which is not a league anyone is simulating.
   if (playoffTeams >= teams) return null;
 
   const { scoringId, templateId, started } = row;

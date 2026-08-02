@@ -94,6 +94,19 @@ describe("parsePersistedDraft", () => {
     }
   });
 
+  it("accepts every league size a board is built for, at both ends", () => {
+    // Pinned individually so a change to the list is a change to a test, not a silent
+    // widening or narrowing of what the product will restore.
+    for (const teams of [8, 10, 12, 14]) {
+      expect(parsePersistedDraft(stored({ teams, slot: 1 }))?.teams).toBe(teams);
+    }
+  });
+
+  it("refuses a round count past the maximum, and accepts the maximum itself", () => {
+    expect(parsePersistedDraft(stored({ rounds: 40, picks: {} }))?.rounds).toBe(40);
+    expect(parsePersistedDraft(stored({ rounds: 41, picks: {} }))).toBeNull();
+  });
+
   it("refuses a slot outside the league it was stored with", () => {
     // The failure this exact check exists for: `snakePicks` still produces plausible
     // numbers for an out-of-range seat, and they belong to somebody else.
@@ -107,8 +120,13 @@ describe("parsePersistedDraft", () => {
     for (const playoffTeams of [1, 2, 3, 5, 8, 11]) {
       expect(parsePersistedDraft(stored({ playoffTeams }))).toBeNull();
     }
-    // A field at least as large as the league would send everyone to the playoffs.
     expect(parsePersistedDraft(stored({ teams: 8, playoffTeams: 6 }))).not.toBeNull();
+    // Note what this does *not* prove. `playoffTeams: 8` is rejected by the list check
+    // above, not by the `playoffTeams >= teams` check below it — with the current lists
+    // (4 or 6 against 8 through 14) a valid field is always smaller than its league, so
+    // that comparison is unreachable and no input can exercise it. It stays as a guard
+    // for the day someone adds a smaller league or a larger field, and this comment is
+    // here so nobody reads the line above as covering it.
     expect(parsePersistedDraft(stored({ teams: 8, playoffTeams: 8 }))).toBeNull();
   });
 

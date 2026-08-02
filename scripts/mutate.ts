@@ -234,7 +234,7 @@ function coveringTests(
 function listTestFiles(): string[] {
   const out = execFileSync(
     "git",
-    ["ls-files", "lib/**/*.test.ts", "lib/*.test.ts"],
+    ["ls-files", "lib/**/*.test.ts", "lib/*.test.ts", "app/**/*.test.ts"],
     { cwd: process.cwd(), encoding: "utf8" },
   );
   return out.split("\n").filter((line) => line.endsWith(".test.ts"));
@@ -370,6 +370,7 @@ async function main(): Promise<void> {
   process.stdout.write("  green, and the per-mutant command agrees.\n");
 
   const survivors: Mutant[] = [];
+  const skipped: string[] = [];
   let killed = 0;
   let tested = 0;
 
@@ -401,7 +402,17 @@ async function main(): Promise<void> {
       `\n${file}  (${mutants.length} mutants, ${tests.length} covering test file(s))\n`,
     );
     if (tests.length === 0) {
-      process.stdout.write("  no test imports this module — every mutant would survive\n");
+      // Skipped rather than scored. Running the mutants anyway reports every one of them
+      // as surviving, which reads as a coverage problem in the module when it is really a
+      // discovery problem in this harness: `listTestFiles` globbed only `lib/**` for a
+      // while after the vitest config started including `app/**`, and the file came back
+      // at 0% having executed no test at all. A score computed over files whose tests were
+      // never found is not a worse number, it is a meaningless one.
+      process.stdout.write(
+        "  SKIPPED — no test file found for this module, so nothing here was measured\n",
+      );
+      skipped.push(file);
+      continue;
     }
 
     // The file on disk is deliberately corrupted between these two writes, so an
@@ -451,6 +462,15 @@ async function main(): Promise<void> {
       `mutants ${tested}   killed ${killed}   survived ${survivors.length}   ` +
       `score ${score.toFixed(1)}%\n${"=".repeat(70)}\n`,
   );
+  if (skipped.length > 0) {
+    process.stdout.write(
+      `\n${skipped.length} file(s) contributed nothing to that score because no test ` +
+        `file was found:\n` +
+        skipped.map((f) => `  ${f}\n`).join("") +
+        "Either they are genuinely untested, or this harness cannot see their tests.\n",
+    );
+    process.exitCode = 1;
+  }
 
   if (survivors.length > 0) {
     process.stdout.write("\nSurvivors, by file:\n");
