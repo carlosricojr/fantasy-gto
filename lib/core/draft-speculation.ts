@@ -245,6 +245,15 @@ export function sampleFuture(
   const teams = state.teams.map((team) => ({ ...team, roster: [...team.roster] }));
   let cursor = 0;
   for (const { team } of picksBeforeMyTurn) {
+    // `picksBeforeMyTurn` is caller-supplied and `anticipateStates` forwards it without
+    // looking at it, so an out-of-range seat surfaced as `undefined.roster` from inside the
+    // sampling loop rather than at the call site that supplied it.
+    if (!Number.isInteger(team) || team < 0 || team >= teams.length) {
+      throw new Error(
+        `Pick attributed to seat index ${team}, which is not one of the ` +
+          `${teams.length} teams in this draft.`,
+      );
+    }
     if (cursor >= order.length) break;
     const player = order[cursor];
     cursor += 1;

@@ -166,7 +166,9 @@ export interface MemoizedResult {
 /**
  * Recommends, consulting the store first and populating it on a miss.
  *
- * The stored value is returned as-is on a hit, which is sound precisely because the key
+ * A hit returns a copy of the stored array, whose recommendations are frozen — a caller
+ * that sorts or writes to what it was handed cannot edit the cache. That is separate from
+ * the key being exhaustive, which is what makes the hit *correct* to serve: the key
  * covers every input: the computation is deterministic, so recomputing would produce the
  * identical array. `draft-memo.test.ts` asserts that rather than assuming it.
  */

@@ -596,3 +596,26 @@ describe("a rebuild between caching and resolving", () => {
     expect(resolveFromCache(cache, repriced).kind).toBe("miss");
   });
 });
+
+describe("sampleFuture seat validation", () => {
+  it("rejects a seat that is not in the draft", () => {
+    // `picksBeforeMyTurn` comes from the caller and `anticipateStates` forwards it
+    // unexamined, so without this the failure is `undefined.roster` thrown from inside the
+    // sampling loop — a stack trace pointing at the sampler rather than at whoever built
+    // the pick list.
+    //
+    // This guard was reported as added once before and was not: the edit anchored on a
+    // line that did not exist and silently applied nothing. Hence a test.
+    const state = canonicalizeState(baseState());
+    for (const team of [-1, TEAMS, TEAMS + 5, 1.5, Number.NaN]) {
+      expect(() => sampleFuture(state, [{ team }], createRng(1))).toThrow(/seat index/);
+    }
+  });
+
+  it("still samples normally for every real seat", () => {
+    const state = canonicalizeState(baseState());
+    for (let team = 0; team < TEAMS; team += 1) {
+      expect(() => sampleFuture(state, [{ team }], createRng(1))).not.toThrow();
+    }
+  });
+});

@@ -147,6 +147,16 @@ export interface QuantileBand {
  * README's known gaps), so there is no backtest behind their bands. They are present so
  * the table is total, not because they are evidence.
  */
+/**
+ * The band used for a position `OUTCOME_QUANTILES` has no entry for.
+ *
+ * Not measured, and named so that nothing reads it as though it were. It exists because a
+ * draft board carries positions the weekly model never scores — a defence, or anything a
+ * future ruleset adds — and giving them no spread at all would make them look risk-free
+ * rather than unmeasured.
+ */
+export const PLACEHOLDER_QUANTILES = { p10: 0.2, p90: 1.9 } as const;
+
 export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
   QB: { p10: 0.171, p90: 1.772, provenance: "measured" },
   RB: { p10: 0.269, p90: 1.901, provenance: "measured" },

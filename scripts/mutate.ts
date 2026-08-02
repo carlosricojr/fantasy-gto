@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
@@ -341,7 +341,26 @@ function backupsUnder(root: string): string[] {
   return found;
 }
 
+/**
+ * Distinguishes a missing binary from a failing suite.
+ *
+ * Both arrive at the same `catch`, and reading one as the other is how this harness keeps
+ * finding new ways to report a confident number for work it did not do — the `--silent`
+ * bug, the `app/**` glob, `--limit abc`, the untracked-test gap, and now this. A vitest
+ * that cannot be spawned makes every mutant look killed, which is a 100% score over
+ * nothing.
+ */
+function assertVitestExists(): void {
+  if (!existsSync(VITEST)) {
+    throw new Error(
+      `No vitest binary at ${VITEST}. That is a broken invocation, not a failing suite — ` +
+        `run \`pnpm install\` or check the working directory.`,
+    );
+  }
+}
+
 function runAll(): boolean {
+  assertVitestExists();
   try {
     execFileSync(VITEST, ["run", "--project", "domain", "--silent=true"], {
       cwd: process.cwd(),
@@ -365,6 +384,7 @@ function runAll(): boolean {
  */
 function runTests(files: readonly string[]): boolean {
   if (files.length === 0) return true;
+  assertVitestExists();
   try {
     execFileSync(VITEST, ["run", "--project", "domain", "--silent=true", ...files], {
       cwd: process.cwd(),

@@ -33,7 +33,7 @@ import {
   seasonProjection,
 } from "../lib/nfl/draft/value";
 import { weeksBetween } from "../lib/nfl/season";
-import { OUTCOME_QUANTILES } from "../lib/nfl/model/config";
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -842,9 +842,12 @@ export async function runBuildDraftBoard(
           priorGames.get(entry.playerId) ?? 0,
           history.length > 0,
         ),
-        // The weekly spread is the one the weekly model measured, not an assumption.
-        p10: band?.p10 ?? 0.2,
-        p90: band?.p90 ?? 1.9,
+        // Measured where the weekly model has a band for the position, and an explicitly
+        // unmeasured placeholder where it does not — declared in `config.ts` beside the
+        // real ones rather than as two literals here, so the difference is visible at the
+        // point somebody reads the measured bands.
+        p10: band?.p10 ?? PLACEHOLDER_QUANTILES.p10,
+        p90: band?.p90 ?? PLACEHOLDER_QUANTILES.p90,
       });
     }
 
