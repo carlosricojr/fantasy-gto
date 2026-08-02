@@ -202,6 +202,17 @@ matched to season results:
 | Rookies (no 2022–23 snaps) | 24 | 0.2009 |
 | Veterans | 144 | 0.4455 |
 
+These two figures are **not** on the same basis as the headline table above. They were
+measured over a 168-player universe that does not require two prior seasons of history —
+the headline table's 151 players do — and under the pooled ADP curve and the pre-tie
+`spearman`, both since corrected. The veteran figure being 0.4455, identical to the pooled
+curve's market score quoted earlier, is that coincidence and not the same measurement.
+
+They are left as measured rather than restated, because the argument they support is a gap
+of 0.24 against a standard error of about 0.21 at n=24 — a difference no estimator change
+of this size touches. Re-running them on the corrected basis would move the third decimal
+and change nothing about the conclusion.
+
 The market is visibly worse at *ordering* rookies. But it is well calibrated on their
 *level*: rookies drafted 1–50 averaged 235.1 actual points against veterans' 235.6, and
 50–100 gave 174.6 against 165.3. The crowd knows draft capital, which fixes the tier, and

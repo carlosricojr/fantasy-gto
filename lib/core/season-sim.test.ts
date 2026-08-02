@@ -151,13 +151,18 @@ describe("championship probability is not expected points", () => {
     const field = Array.from({ length: 7 }, (_, i) => roster(`f${i}`, 18));
     const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, 100 + i));
 
+    // Both rosters carry the tag "t" on purpose. `playerStream` keys each player's random
+    // stream on his *id*, so a shared seed alone does not pair two samples — only a shared
+    // id does. With different tags these were independent draws, and the ±5 tolerance below
+    // is about the size of the volatile estimate's own standard error, so the equality it
+    // asserts was luck rather than common random numbers.
     const steady = sampleTeamWeeklyScores(
-      roster("steady", 12, { p10: 0.85, p90: 1.15 }),
+      roster("t", 12, { p10: 0.85, p90: 1.15 }),
       CONFIG,
       50,
     );
     const volatile = sampleTeamWeeklyScores(
-      roster("volatile", 12, { p10: 0.15, p90: 2.4 }),
+      roster("t", 12, { p10: 0.15, p90: 2.4 }),
       CONFIG,
       50,
     );

@@ -538,7 +538,11 @@ export default function DraftPage() {
                 </li>
               ))}
             </ul>
-            {Object.keys(picks).length > 0 ? (
+            {/* Gated on the pick it actually removes, not on the map being non-empty.
+                `currentPick` is the first *empty* pick, so a restored board with a gap in
+                it offered "Undo pick N" for an entry that does not exist and removed
+                nothing when pressed. */}
+            {picks[currentPick - 1] !== undefined ? (
               <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
                 Undo pick {currentPick - 1}
               </Button>

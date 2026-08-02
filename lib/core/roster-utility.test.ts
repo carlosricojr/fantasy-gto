@@ -174,6 +174,10 @@ describe("rosterUtility", () => {
     // started working.
     const filler = player("f", "RB", 12, { p10: 0.8, p90: 1.2 });
     const bench = player("b", "RB", 11, { p10: 0.85, p90: 1.15 });
+    // `steady` and `volatile` share the id "t" deliberately. `playerStream` derives each
+    // player's stream from his id, so they draw identical uniforms and the only difference
+    // between the two rosters is the spread being tested. Renaming either one silently
+    // unpairs them and the comparison becomes two independent samples.
     const steady = player("t", "RB", 12, { p10: 0.85, p90: 1.15 });
     const volatile = player("t", "RB", 12, { p10: 0.15, p90: 2.4 });
 
