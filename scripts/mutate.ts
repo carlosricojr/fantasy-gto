@@ -385,6 +385,7 @@ async function main(): Promise<void> {
     return;
   }
   const ownOnly = args.includes("--own");
+  const failOnSurvivors = args.includes("--fail-on-survivors");
   const targets = args.filter((a) => a.endsWith(".ts"));
   const files = targets.length > 0 ? targets : DEFAULT_TARGETS;
 
@@ -532,6 +533,18 @@ async function main(): Promise<void> {
       "\nA survivor is a change to the code that no test objected to. Some are\n" +
         "equivalent mutants that cannot change behaviour; the rest are gaps.\n",
     );
+    // Survivors do not fail the run by default, and the distinction is deliberate: every
+    // other non-zero exit in this file marks the harness having *malfunctioned* — a bad
+    // `--limit`, a red baseline, a file whose tests could not be found — where the number
+    // it printed means nothing. Survivors are a result. Some are equivalent mutants that
+    // no test can kill, so a run that always exits non-zero would make the exit code as
+    // uninformative as one that never does.
+    //
+    // `--fail-on-survivors` opts into gate behaviour for anything that wants it.
+    if (failOnSurvivors) {
+      process.stdout.write("\n--fail-on-survivors: exiting non-zero.\n");
+      process.exitCode = 1;
+    }
   }
 }
 

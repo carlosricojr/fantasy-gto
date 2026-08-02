@@ -395,7 +395,11 @@ export function recommendByChampionship(
       const p = outcome.championshipProbability;
       return {
         player,
-        championshipProbability: p,
+        // Both rounded, so `delta <= probability` is exact rather than nearly exact. With
+        // an unrounded probability and a rounded delta, a zero baseline makes the delta
+        // `round4(p)`, which can exceed `p` by 5e-5 — and the test asserting that relation
+        // holds today only because the fixture never produces a zero baseline.
+        championshipProbability: round4(p),
         deltaVsBaseline: round4(p - baseline.championshipProbability),
         playoffProbability: outcome.playoffProbability,
         expectedPoints: outcome.expectedPoints,

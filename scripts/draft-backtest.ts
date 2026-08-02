@@ -283,16 +283,23 @@ async function curveFor(season: number): Promise<AdpCurveSet> {
   // straight into the curve the published blend figures are computed from.
   const index = buildMarketIndex([...played.values()], normalizeMarketPosition);
 
+  // Deduplicated by roster player, the same guard `buildUniverse` carries and for the same
+  // reason: `parseAdp` does not deduplicate by name and `normalizeName` collapses two
+  // spellings of one player onto one roster id. There it cost one rank; here the duplicate
+  // pair enters the least-squares fit twice and biases the slope and intercept of the
+  // curve that prices *every* player on the board — and this runs for the tuning curve and
+  // the evaluation curve both, so it reaches every figure in published-draft-metrics.json.
+  const seen = new Set<string>();
   const samples = adp
     .map((entry) => {
       const player = index.find(entry.name, entry.position);
-      return player === null
-        ? null
-        : {
-            adp: entry.adp,
-            actualSeasonPoints: player.total,
-            position: entry.position || player.position,
-          };
+      if (player === null || seen.has(player.id)) return null;
+      seen.add(player.id);
+      return {
+        adp: entry.adp,
+        actualSeasonPoints: player.total,
+        position: entry.position || player.position,
+      };
     })
     .filter(
       (s): s is { adp: number; actualSeasonPoints: number; position: string } =>
