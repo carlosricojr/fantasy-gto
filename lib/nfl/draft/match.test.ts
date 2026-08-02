@@ -59,7 +59,9 @@ describe("editDistance and similarity", () => {
 
 describe("matchName", () => {
   it("recovers a name through typical OCR damage", () => {
-    // Substitutions of the kind OCR actually makes: rn/m, l/1, s/5.
+    // The three ways a name comes back damaged in practice: a substituted letter, a
+    // dropped apostrophe, and a space inserted mid-word. (This comment used to list
+    // rn/m, l/1 and s/5, none of which any of these inputs exercise.)
     for (const damaged of ["Ja'Marr Chsse", "JaMarr Chase", "Ja Marr Chas e"]) {
       const match = matchName(damaged, UNIVERSE);
       expect(match?.candidate.id).toBe("1");

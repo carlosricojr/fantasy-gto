@@ -242,3 +242,25 @@ describe("SleeperDraftProvider", () => {
     if (!result.ok) expect(result.reason).toMatch(/unexpected shape/);
   });
 });
+
+describe("seats above the league", () => {
+  const pick = (draftSlot: number) => ({
+    pick_no: 1,
+    draft_slot: draftSlot,
+    metadata: { first_name: "A", last_name: "B" },
+  });
+
+  it("drops a seat past the last one when the league size is known", () => {
+    // The mirror of the below-1 rule. A seat of 14 in a twelve-team draft is not a seat,
+    // and unbounded it persists and gets treated as one — a pick attributed to a manager
+    // who does not exist, from the other end.
+    expect(parsePicks([pick(14)], 12)).toEqual([]);
+    expect(parsePicks([pick(13)], 12)).toEqual([]);
+    expect(parsePicks([pick(12)], 12)).toHaveLength(1);
+  });
+
+  it("keeps the lower bound when the league size is not supplied", () => {
+    expect(parsePicks([pick(14)])).toHaveLength(1);
+    expect(parsePicks([pick(0)])).toEqual([]);
+  });
+});

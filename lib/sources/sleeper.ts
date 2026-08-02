@@ -73,13 +73,15 @@ export class SleeperDraftProvider {
    * list each time is deliberate — an incremental feed would make a dropped update
    * silently persistent, which is the failure mode this whole feature has to avoid.
    */
-  async picks(draftId: string): Promise<ProviderResult<SleeperPick[]>> {
+  async picks(draftId: string, teams?: number): Promise<ProviderResult<SleeperPick[]>> {
     const parsed = await this.json(draftPicksUrl(draftId), "picks");
     if (!parsed.ok) return parsed;
     if (!Array.isArray(parsed.data)) {
       return failed(`Sleeper returned an unexpected shape for draft ${draftId}.`);
     }
-    return ok(parsePicks(parsed.data));
+    // `teams` comes from `settings()`. Optional because a caller polling picks alone still
+    // gets the lower bound; supplying it adds the upper one.
+    return ok(parsePicks(parsed.data, teams));
   }
 
   private async json(url: string, what: string): Promise<ProviderResult<unknown>> {
@@ -130,7 +132,10 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
   };
 }
 
-export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
+export function parsePicks(
+  payload: readonly unknown[],
+  teams?: number,
+): SleeperPick[] {
   const picks: SleeperPick[] = [];
   for (const item of payload) {
     if (typeof item !== "object" || item === null) continue;
@@ -151,8 +156,13 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
     // A pick whose seat is unknown cannot be attributed to a team, and defaulting it to
     // zero silently files it under a manager who did not make it — which is worse than
     // dropping it, because the roster it corrupts is then used to compute odds.
+    // Bounded above as well as below, when the caller knows the league size. A seat of 14
+    // in a twelve-team draft is not a seat; unbounded it persists and is treated as one,
+    // which is the same "attributed to a manager who does not exist" failure the lower
+    // bound exists for, from the other end.
     const draftSlot = toInt(row.draft_slot);
     if (draftSlot === null || draftSlot < 1) continue;
+    if (teams !== undefined && draftSlot > teams) continue;
 
     picks.push({
       overall,

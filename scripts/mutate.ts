@@ -42,7 +42,6 @@ interface Mutator {
   sites(masked: string): MutationSite[];
 }
 
-/** A textual swap, guarded so it cannot fire on a longer operator that contains it. */
 /** Like `operator`, but only where the token is a whole word. */
 function wordOperator(name: string, from: string, to: string): Mutator {
   // `.` blocks a boundary rather than being one: `flags.true` would otherwise match, and
@@ -70,6 +69,7 @@ function wordOperator(name: string, from: string, to: string): Mutator {
   };
 }
 
+/** A textual swap, guarded so it cannot fire on a longer operator that contains it. */
 function operator(
   name: string,
   from: string,
@@ -556,7 +556,21 @@ async function main(): Promise<void> {
     process.stdout.write("\n");
   }
 
-  const score = tested === 0 ? 0 : (killed / tested) * 100;
+  // A run that produced no mutants at all is not a 0% result, it is a run that measured
+  // nothing — a target that is only types and re-exports, a filter that matched no file, a
+  // limit that excluded everything. Printing a score for it is the sixth version of the
+  // mistake this file already guards against five times.
+  if (tested === 0) {
+    process.stdout.write(
+      `\n${"=".repeat(70)}\n` +
+        `No mutants were generated, so nothing was measured. Check the targets: a file\n` +
+        `of only types and re-exports has no mutable sites.\n${"=".repeat(70)}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const score = (killed / tested) * 100;
   process.stdout.write(
     `\n${"=".repeat(70)}\n` +
       `mutants ${tested}   killed ${killed}   survived ${survivors.length}   ` +
