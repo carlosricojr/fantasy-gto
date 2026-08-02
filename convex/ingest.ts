@@ -887,6 +887,19 @@ export async function runBuildDraftBoard(
         rows: batch,
       });
     }
+    // Publish, then prune — in that order, and both only after every batch has landed.
+    //
+    // Until `publishBoard` runs, readers are still being served the previous run's rows
+    // and the half-written new ones are invisible, so a failure anywhere above leaves the
+    // last good board whole rather than interleaving two of them. Pruning after publishing
+    // means the rows being deleted are already the ones nobody is reading; pruning first
+    // would delete the board that is still live.
+    await ctx.runMutation(internal.draft.publishBoard, {
+      season,
+      scoringId,
+      teams,
+      computedAt,
+    });
     await ctx.runMutation(internal.draft.pruneBoard, {
       season,
       scoringId,

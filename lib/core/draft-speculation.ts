@@ -91,16 +91,24 @@ export function digestIds(ids: readonly string[]): string {
  * then served for a board that no longer exists, labelled as cached.
  */
 export function digestPlayers(players: readonly PlayerRisk[]): string {
-  return digestStrings(
-    players.map(
-      (p) =>
-        // Position is in here because it decides which slots a player is eligible for,
-        // and preseason rebuilds do reclassify people — a tight end listed as a receiver
-        // changes every recommendation while leaving every other field alone.
-        `${p.id}:${p.position}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:` +
-        `${p.byeWeek ?? "-"}:${p.availability.toFixed(4)}:${p.adp ?? "-"}:` +
-        `${p.adpStdev ?? "-"}`,
-    ),
+  return digestStrings(players.map(playerFingerprint));
+}
+
+/**
+ * One player's identity and every number the simulation reads from him.
+ *
+ * Extracted so the exact path and the approximate path agree on what "the same player"
+ * means. They used to disagree: the signature digested these fields, while `contextOf`
+ * recorded ids alone, so a rebuilt board was refused by one and accepted by the other.
+ */
+export function playerFingerprint(p: PlayerRisk): string {
+  // Position is in here because it decides which slots a player is eligible for, and
+  // preseason rebuilds do reclassify people — a tight end listed as a receiver changes
+  // every recommendation while leaving every other field alone.
+  return (
+    `${p.id}:${p.position}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:` +
+    `${p.byeWeek ?? "-"}:${p.availability.toFixed(4)}:${p.adp ?? "-"}:` +
+    `${p.adpStdev ?? "-"}`
   );
 }
 
@@ -129,13 +137,19 @@ function digestStrings(ids: readonly string[]): string {
  * rosters, but a signature is also used to recognise a position seen in an *earlier*
  * draft, and a board rebuilt against a newer market has different players on it. Without
  * the pool, an answer computed for last week's board would be served for this one.
+ *
+ * Each roster is digested by the same rule, rather than listed by id. Drafted players
+ * drive the simulation as directly as undrafted ones — `sampleTeamWeeklyScores` reads
+ * their projections from our roster and from every opponent's — so a rebuild that moved a
+ * drafted player's numbers without changing who holds him produced an identical signature
+ * and an exact hit computed against the old projections.
  */
 export function stateSignature(state: CanonicalState): string {
   const teams = state.teams
     .map((team, index) => {
-      const ids = team.roster.map((p) => p.id).join(",");
+      const roster = digestPlayers(team.roster);
       const picks = team.remainingPicks.join(",");
-      return `${index}:${ids}|${picks}`;
+      return `${index}:${roster}|${picks}`;
     })
     .join(";");
   const pool = digestPlayers(state.available);
@@ -168,6 +182,16 @@ export interface SpeculativeEntry {
     rosterSize: number;
     rosterSignatures: string[];
     availableIds: string[];
+    /**
+     * Fingerprint per player the entry was computed against, drafted or not.
+     *
+     * The id lists above say who was where; these say what the numbers were. Without them
+     * the approximate branch compared ids only, so a board rebuilt against a newer market
+     * looked identical to it and its answer was served as an approximation of a position
+     * it never described. The exact path already refused that; this is the same rule on
+     * the other path.
+     */
+    fingerprints: Record<string, string>;
   };
 }
 
@@ -330,6 +354,10 @@ export function precomputeRecommendations(
 
 /** The parts of a state a near-match has to agree about. */
 function contextOf(state: CanonicalState): SpeculativeEntry["context"] {
+  const fingerprints: Record<string, string> = {};
+  for (const player of [...state.available, ...state.teams.flatMap((t) => t.roster)]) {
+    fingerprints[player.id] = playerFingerprint(player);
+  }
   return {
     myTeamIndex: state.myTeamIndex,
     rosterSize: state.rosterSize,
@@ -337,7 +365,26 @@ function contextOf(state: CanonicalState): SpeculativeEntry["context"] {
       (team) => `${team.roster.map((p) => p.id).join(",")}|${team.remainingPicks.join(",")}`,
     ),
     availableIds: state.available.map((p) => p.id),
+    fingerprints,
   };
+}
+
+/**
+ * Whether two contexts describe the same board, for every player they both know about.
+ *
+ * The pools are *expected* to differ — that is what makes a hit approximate. What may not
+ * differ is any player's numbers, because an entry computed against other projections is
+ * not a nearby answer to this question, it is an answer to a different one.
+ */
+function sameBoard(
+  a: SpeculativeEntry["context"],
+  b: SpeculativeEntry["context"],
+): boolean {
+  for (const [id, fingerprint] of Object.entries(a.fingerprints)) {
+    const other = b.fingerprints[id];
+    if (other !== undefined && other !== fingerprint) return false;
+  }
+  return true;
 }
 
 /**
@@ -383,6 +430,10 @@ export function resolveFromCache(
     ) {
       continue;
     }
+    // Refused when any player they both know about carries different numbers — see
+    // `sameBoard`. This is issue #4: the signature covered the pool's numbers and this
+    // path covered ids alone, so a rebuild slipped through here.
+    if (!sameBoard(here, context)) continue;
     if (entry.recommendations.length === 0) continue;
     // Every player it would recommend must still be on the board.
     if (entry.recommendations.some((r) => !actualIds.has(r.player.id))) continue;

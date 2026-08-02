@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import type { QueryCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
 
 /**
@@ -41,16 +42,25 @@ export const board = query({
     teams: v.number(),
   },
   handler: async (ctx, { season, scoringId, teams }) => {
-    const rows = await ctx.db
-      .query("draftBoard")
-      .withIndex("by_board", (q) =>
-        q
-          .eq("sport", "nfl")
-          .eq("season", season)
-          .eq("scoringId", scoringId)
-          .eq("teams", teams),
-      )
-      .collect();
+    // Only the rows belonging to the last run that finished. The table is written batch by
+    // batch, so a run that failed partway leaves its rows interleaved with the previous
+    // board's — and served together they are part this week's prices and part last week's,
+    // with nothing to say so.
+    const published = await publishedRun(ctx, season, scoringId, teams);
+    if (published === null) return [];
+
+    const rows = (
+      await ctx.db
+        .query("draftBoard")
+        .withIndex("by_board", (q) =>
+          q
+            .eq("sport", "nfl")
+            .eq("season", season)
+            .eq("scoringId", scoringId)
+            .eq("teams", teams),
+        )
+        .collect()
+    ).filter((row) => row.computedAt === published);
 
     rows.sort(
       (a, b) =>
@@ -79,14 +89,51 @@ export const board = query({
 export const boardFreshness = query({
   args: { season: v.number(), scoringId: v.string(), teams: v.number() },
   handler: async (ctx, { season, scoringId, teams }) => {
-    // The newest `computedAt` on the board, not the first row the index happens to yield.
-    // Index order is by the board key and has nothing to do with when a row was written,
-    // and `upsertBoardBatch` writes batch by batch — so mid-rebuild the board holds a mix
-    // of old and new timestamps and `.first()` could return either. The interface states
-    // this figure to the user as the board's freshness, which `.first()` cannot support:
-    // it could call a mostly-stale board fresh, or a mostly-new one stale.
-    const rows = await ctx.db
-      .query("draftBoard")
+    // The published run's own timestamp, which is the one figure that describes the board
+    // as a whole. This used to take `.first()` from the board itself — index order, which
+    // has nothing to do with write time — so mid-rebuild it could call a mostly stale
+    // board fresh or a mostly new one stale.
+    const published = await publishedRun(ctx, season, scoringId, teams);
+    return published === null ? null : { computedAt: published };
+  },
+});
+
+/** `computedAt` of the last completed run for a league shape, or `null` if none has. */
+async function publishedRun(
+  ctx: QueryCtx,
+  season: number,
+  scoringId: string,
+  teams: number,
+): Promise<number | null> {
+  const run = await ctx.db
+    .query("draftBoardRuns")
+    .withIndex("by_board", (q) =>
+      q
+        .eq("sport", "nfl")
+        .eq("season", season)
+        .eq("scoringId", scoringId)
+        .eq("teams", teams),
+    )
+    .first();
+  return run === null ? null : run.publishedAt;
+}
+
+/**
+ * Marks a run's rows as the board, after every batch has landed.
+ *
+ * The last step of a rebuild, and the only one that changes what readers see. Until it
+ * runs, a partially written board is invisible and the previous one is still whole.
+ */
+export const publishBoard = internalMutation({
+  args: {
+    season: v.number(),
+    scoringId: v.string(),
+    teams: v.number(),
+    computedAt: v.number(),
+  },
+  handler: async (ctx, { season, scoringId, teams, computedAt }) => {
+    const existing = await ctx.db
+      .query("draftBoardRuns")
       .withIndex("by_board", (q) =>
         q
           .eq("sport", "nfl")
@@ -94,9 +141,11 @@ export const boardFreshness = query({
           .eq("scoringId", scoringId)
           .eq("teams", teams),
       )
-      .collect();
-    if (rows.length === 0) return null;
-    return { computedAt: Math.max(...rows.map((row) => row.computedAt)) };
+      .first();
+
+    const doc = { sport: "nfl", season, scoringId, teams, publishedAt: computedAt };
+    if (existing) await ctx.db.patch(existing._id, doc);
+    else await ctx.db.insert("draftBoardRuns", doc);
   },
 });
 
@@ -112,7 +161,15 @@ export const upsertBoardBatch = internalMutation({
   handler: async (ctx, { season, scoringId, teams, computedAt, rows }) => {
     let written = 0;
     for (const row of rows) {
-      const existing = await ctx.db
+      // Matched on the run as well as the player. Patching whichever row already existed
+      // for this player overwrote the *live* board with a run that had not been published
+      // yet — so a rebuild that failed halfway had already destroyed the rows it was going
+      // to replace, and the previous board could not be served whole. A run writes its own
+      // rows and leaves the last one alone until `publishBoard` swaps them.
+      //
+      // Still idempotent: a retried batch carries the same `computedAt`, finds its own row
+      // and patches it rather than inserting a duplicate.
+      const forPlayer = await ctx.db
         .query("draftBoard")
         .withIndex("by_board_player", (q) =>
           q
@@ -122,10 +179,11 @@ export const upsertBoardBatch = internalMutation({
             .eq("teams", teams)
             .eq("playerId", row.playerId),
         )
-        .first();
+        .collect();
+      const thisRun = forPlayer.find((existing) => existing.computedAt === computedAt);
 
       const doc = { sport: "nfl", season, scoringId, teams, ...row, computedAt };
-      if (existing) await ctx.db.patch(existing._id, doc);
+      if (thisRun) await ctx.db.patch(thisRun._id, doc);
       else await ctx.db.insert("draftBoard", doc);
       written += 1;
     }

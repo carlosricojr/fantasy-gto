@@ -521,3 +521,78 @@ describe("recommendWithCache", () => {
     expect(strict.recommendations.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * A board rebuilt underneath a cache.
+ *
+ * The preseason refresh runs twice a day, so a cache can outlive the numbers it was
+ * computed from. Both paths must refuse an entry whose players have moved — the exact path
+ * because it claims the answer is for this position, the approximate path because it
+ * claims the answer is *near* this position. Neither is true of different projections.
+ */
+describe("a rebuild between caching and resolving", () => {
+  /** The same state with one player's projection moved, leaving every id alone. */
+  const withProjectionMoved = (
+    state: DraftPolicyState,
+    playerId: string,
+  ): DraftPolicyState => ({
+    ...state,
+    available: state.available.map((p) =>
+      p.id === playerId ? { ...p, weeklyMean: p.weeklyMean + 4 } : p,
+    ),
+    teams: state.teams.map((team) => ({
+      ...team,
+      roster: team.roster.map((p) =>
+        p.id === playerId ? { ...p, weeklyMean: p.weeklyMean + 4 } : p,
+      ),
+    })),
+  });
+
+  it("refuses an exact hit when a drafted player's numbers moved", () => {
+    // Issue #5. The signature listed rosters by id, so a rebuild that repriced a player
+    // somebody had already taken produced an identical signature — and drafted players
+    // drive the simulation exactly as directly as undrafted ones, through every opponent
+    // roster `sampleTeamWeeklyScores` reads.
+    const before = baseState();
+    before.teams[1].roster = [before.available[0]];
+    before.available = before.available.slice(1);
+
+    const after = withProjectionMoved(before, before.teams[1].roster[0].id);
+    expect(stateSignature(canonicalizeState(after))).not.toBe(
+      stateSignature(canonicalizeState(before)),
+    );
+  });
+
+  it("refuses an approximate hit when the board underneath it was repriced", () => {
+    // Issue #4. The approximate branch compared ids only, so the same rebuild looked
+    // identical to it and its answer was served as an approximation of a position it
+    // never described.
+    const built = baseState();
+    const cache = precomputeRecommendations(
+      built,
+      anticipateStates(built, [{ team: 1 }, { team: 2 }], 5, createRng(1)),
+      CONFIG,
+      42,
+      { candidateLimit: 4 },
+    );
+    expect(cache.entries.length).toBeGreaterThan(0);
+
+    // A future the cache did not anticipate, so only the approximate path can serve it.
+    const actual = baseState();
+    const pool = board();
+    const takenA = pool[pool.length - 1];
+    const takenB = pool[pool.length - 2];
+    actual.teams[1].roster = [takenA];
+    actual.teams[2].roster = [takenB];
+    actual.teams[1].remainingPicks = actual.teams[1].remainingPicks.slice(1);
+    actual.teams[2].remainingPicks = actual.teams[2].remainingPicks.slice(1);
+    actual.available = pool.filter((p) => p.id !== takenA.id && p.id !== takenB.id);
+
+    // Unchanged numbers: this is the case the approximate path exists to serve.
+    expect(resolveFromCache(cache, actual).kind).toBe("approximate");
+
+    // Same board, one price moved. Now it is an answer to a different question.
+    const repriced = withProjectionMoved(actual, actual.available[0].id);
+    expect(resolveFromCache(cache, repriced).kind).toBe("miss");
+  });
+});

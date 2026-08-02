@@ -175,6 +175,29 @@ export default defineSchema({
     .index("by_board", ["sport", "season", "scoringId", "teams"])
     .index("by_board_player", ["sport", "season", "scoringId", "teams", "playerId"]),
 
+
+  /**
+   * The run whose rows are currently the board, per league shape.
+   *
+   * `draftBoard` is written batch by batch, so mid-rebuild the table holds a mix of the
+   * run in progress and the one before it. If a batch fails partway the job is marked
+   * failed and the mixed state simply stays there, and every reader was served that
+   * mixture with nothing to indicate it — part this week's prices, part last week's, and
+   * a freshness line confidently reporting one of them.
+   *
+   * A run publishes itself here only after every batch has landed. Readers serve the rows
+   * carrying `publishedAt` and ignore everything else, so a failed run is invisible rather
+   * than half-visible, and the previous board survives intact until a replacement is
+   * complete.
+   */
+  draftBoardRuns: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    scoringId: v.string(),
+    teams: v.number(),
+    /** `computedAt` of the last run that finished writing every batch. */
+    publishedAt: v.number(),
+  }).index("by_board", ["sport", "season", "scoringId", "teams"]),
   /**
    * Model output. The product's primary read.
    *
