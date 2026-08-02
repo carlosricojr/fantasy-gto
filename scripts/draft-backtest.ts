@@ -356,7 +356,21 @@ async function main(): Promise<void> {
 
   // A zero correlation for the market would make the edge infinite or NaN, and it would
   // be printed next to real figures as though it meant something.
-  const edge = adpOnly === 0 ? Number.NaN : ((blended - adpOnly) / adpOnly) * 100;
+  // Guarding the division alone still publishes the damage: a NaN edge prints as "NaN%"
+  // beside real figures and `JSON.stringify` writes it into published-draft-metrics.json
+  // as `null`, so a documented number becomes absent without anything saying so. A
+  // negative baseline is worse than absent — it inverts the sign of `edge` relative to the
+  // `blended > adpOnly` branch, letting the script announce that blending improves on the
+  // market next to a negative percentage. Either way the evaluation universe is broken and
+  // there is no figure to report.
+  if (!(adpOnly > 0)) {
+    throw new Error(
+      `The market's own rank correlation came out at ${adpOnly}, which is not a usable ` +
+        `baseline. Every published figure is relative to it, so there is nothing to ` +
+        `report. Check that the evaluation season matched any players at all.`,
+    );
+  }
+  const edge = ((blended - adpOnly) / adpOnly) * 100;
   const top24 = {
     market: topN(evaluation, evaluation.market, 24),
     blended: topN(evaluation, blendValues, 24),

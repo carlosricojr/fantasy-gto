@@ -280,7 +280,11 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     const cached = this.weeksCache.get(season);
     if (cached !== undefined) return cached;
     const result = await this.fetchPlayerWeeks(season);
-    this.weeksCache.set(season, result);
+    // Only successes are cached. A failure is usually transient — a network blip, or a
+    // release that upstream has not published yet — and one provider serves a whole
+    // board-building run, so caching the failure turns a single bad fetch into every
+    // later call for that season failing too, for the lifetime of the action.
+    if (result.ok) this.weeksCache.set(season, result);
     return result;
   }
 
@@ -312,7 +316,11 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     const cached = this.rosterCache.get(season);
     if (cached !== undefined) return cached;
     const result = await this.fetchSeasonRoster(season);
-    this.rosterCache.set(season, result);
+    // Only successes are cached. A failure is usually transient — a network blip, or a
+    // release that upstream has not published yet — and one provider serves a whole
+    // board-building run, so caching the failure turns a single bad fetch into every
+    // later call for that season failing too, for the lifetime of the action.
+    if (result.ok) this.rosterCache.set(season, result);
     return result;
   }
 

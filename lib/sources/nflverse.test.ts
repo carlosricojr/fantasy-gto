@@ -189,9 +189,18 @@ describe("parseSeasonRoster", () => {
   it("drops players who are not active", () => {
     // Retired and cut players stay on the file. A draft board that offered them would be
     // recommending someone who will not take a snap.
-    const statuses = parseCsv(rosterCsv).map((r) => (r.status ?? "").toUpperCase());
-    expect(statuses).toContain("RET");
-    expect(entries.length).toBeLessThan(statuses.length);
+    //
+    // Named by id rather than counted. `entries.length < rows.length` is satisfied by any
+    // row dropped for any reason — a missing gsis_id, a blank name — so it passed without
+    // the status filter doing anything, and would still have passed had the fixture
+    // contained no retired player at all.
+    const retired = parseCsv(rosterCsv).filter(
+      (r) => (r.status ?? "").toUpperCase() === "RET",
+    );
+    expect(retired.length).toBeGreaterThan(0);
+    for (const row of retired) {
+      expect(entries.some((e) => e.playerId === row.gsis_id)).toBe(false);
+    }
   });
 
   it("drops rows with no gsis_id, which cannot be joined to any history", () => {
@@ -211,6 +220,21 @@ describe("parseSeasonRoster", () => {
       if (entry.team !== null) expect(entry.team).toMatch(/^[A-Z]{2,3}$/);
       expect(entry.position).not.toBe("FB");
     }
+  });
+
+  it("folds a fullback into a running back", () => {
+    // On a constructed row rather than the captured fixture, which contains no fullback —
+    // so the assertion above that no entry has position FB was true of a file that never
+    // had one, and would have stayed true with the folding removed. Not added to the
+    // fixture because its value is that it is a real capture.
+    const header =
+      "season,team,position,depth_chart_position,jersey_number,status,full_name," +
+      "first_name,last_name,birth_date,height,weight,college,gsis_id";
+    const row =
+      "2026,SF,FB,FB,44,ACT,Test Fullback,Test,Fullback,1991-04-23,185,235,Harvard,00-0030100";
+    const [entry] = parseSeasonRoster(parseCsv(`${header}\n${row}`));
+    expect(entry.position).toBe("RB");
+    expect(entry.playerId).toBe("00-0030100");
   });
 
   it("builds the documented release url", () => {

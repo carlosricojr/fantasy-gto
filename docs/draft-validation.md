@@ -100,10 +100,14 @@ handicapping the baseline.**
   the unit tests pin, so it was not shipped. Until this is solved, **treat the ordering as
   advice about scarcity in the early and middle rounds, and check your own empty slots
   late.** The board shows them.
-- **`BENCH_VALUE_WEIGHT` (0.1) and `AVAILABILITY_FLOOR` (0.5) are judgement, not
-  measurement.** Both are documented as such where they are defined.
-- **Kickers and defences are not valued**, because the model does not project them. They
-  are absent from the board rather than carrying a fabricated number.
+- **`AVAILABILITY_FLOOR` (0.5) is judgement, not measurement.** It is documented as such
+  where it is defined. `BENCH_VALUE_WEIGHT` was too, and no longer exists — the objective
+  that needed a bench discount was replaced by one that values depth by playing the season
+  out, which is the whole reason it could be deleted.
+- **Kickers and defences are not projected by the model**, so they carry the market's price
+  alone rather than a fabricated number. They *are* on the board and draftable — see
+  "League rules" below. Leaving them off entirely was the previous behaviour and it made
+  the tool unusable for any league that starts one.
 - **2025 and 2026 are not evaluated.** Fantasy Football Calculator publishes no 2025 board,
   so 2024 is the most recent season with both a market price and a finished result.
 
@@ -211,10 +215,14 @@ is computed once. And the base policy was re-solving the roster's own lineup for
 of forty contenders at every remaining pick, when that value does not depend on the
 contender.
 
-**Not yet done for production:** this must run off the main thread, because a second of
-synchronous work would freeze the interface. The natural fit is to compute speculatively
-while opponents are on the clock — your next pick is known in advance, so the answer can be
-ready before the turn arrives.
+**Done.** It runs off the main thread in a Web Worker
+(`app/(app)/draft/recommend.worker.ts`), so a second of synchronous work cannot freeze the
+interface, and the board requests a recommendation speculatively while opponents are on the
+clock. Which player will still be available is not known in advance, so the speculation
+covers several plausible futures and takes a precomputed answer only when the board that
+arrives matches one of them exactly — `lib/core/draft-speculation.ts`. Repeated states are
+served from an LRU memo keyed on the full league configuration
+(`lib/core/draft-memo.ts`).
 
 ### League rules
 

@@ -131,12 +131,16 @@ export class LruMemoStore implements MemoStore {
     this.entries.delete(key);
     this.entries.set(key, value);
     this.stats.hits += 1;
-    return value;
+    // Copied on the way out, and on the way in below. The cached array is handed to the
+    // worker and on to the UI, and a caller that sorts or splices what it was given would
+    // otherwise be editing the cache in place — every later hit returning the mutated
+    // ranking until eviction, with nothing to suggest the answer had changed.
+    return [...value];
   }
 
   set(key: string, value: ChampionshipRecommendation[]): void {
     if (this.entries.has(key)) this.entries.delete(key);
-    this.entries.set(key, value);
+    this.entries.set(key, [...value]);
     while (this.entries.size > this.capacity) {
       const oldest = this.entries.keys().next();
       if (oldest.done === true) break;

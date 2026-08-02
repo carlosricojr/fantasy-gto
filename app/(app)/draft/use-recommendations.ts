@@ -64,9 +64,21 @@ export function useRecommendations(): RecommendationState & {
       return;
     }
 
-    const worker = new Worker(new URL("./recommend.worker.ts", import.meta.url), {
-      type: "module",
-    });
+    // `typeof Worker === "undefined"` catches an environment with no constructor. It does
+    // not catch a constructor that throws, which is what a Content Security Policy without
+    // `worker-src` does, and what a bundle missing the worker chunk does. Unhandled, that
+    // exception leaves the effect and reaches the error boundary, taking down a draft board
+    // that would otherwise still work — the page already explains itself when
+    // recommendations are unavailable, so a failure belongs on that path.
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./recommend.worker.ts", import.meta.url), {
+        type: "module",
+      });
+    } catch {
+      setSupported(false);
+      return;
+    }
     workerRef.current = worker;
 
     worker.addEventListener("message", (event: MessageEvent<RecommendResponse>) => {

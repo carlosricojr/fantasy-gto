@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   DRAFT_STORAGE_KEY,
+  LEAGUE_SIZES,
+  PLAYOFF_FIELDS,
   type PersistedDraft,
   parsePersistedDraft,
 } from "./persistence";
@@ -51,9 +53,7 @@ const SEED = 20260731;
  * that was never built is a dead end on the first screen. Mirrors
  * `DRAFT_BOARD_LEAGUE_SIZES` in `convex/ingest.ts`.
  */
-const LEAGUE_SIZES = [8, 10, 12, 14] as const;
 
-const PLAYOFF_FIELDS = [4, 6] as const;
 
 /** Scenarios per recommendation. 600 resolves the ordering; 300 leaves the top few tied. */
 const SCENARIOS = 600;
@@ -134,14 +134,16 @@ export default function DraftPage() {
   // schedule rather than hardcoded — a literal year silently serves last season's board
   // once the calendar rolls over.
   const seasonState = useQuery(api.season.current, {});
+  // `undefined` is the query in flight; `null` is a resolved answer that there is no
+  // season. Collapsing both to null left the page showing "Loading the board…" for ever
+  // when the schedule had not been ingested, with nothing said and nothing to do.
+  const seasonLoading = seasonState === undefined;
   const season =
-    seasonState === undefined
+    seasonState === undefined || seasonState === null
       ? null
-      : seasonState === null
-        ? null
-        : seasonState.isComplete
-          ? seasonState.season + 1
-          : seasonState.season;
+      : seasonState.isComplete
+        ? seasonState.season + 1
+        : seasonState.season;
 
   // Lowering the league size after choosing a slot left `slot > teams`, and `snakePicks`
   // then produced the pick set of a different seat. Because the owner map is written
@@ -324,6 +326,18 @@ export default function DraftPage() {
       delete next[currentPick - 1];
       return next;
     });
+  }
+
+  if (!seasonLoading && season === null) {
+    return (
+      <PageShell title="Draft" subtitle="No season to draft for">
+        <p className="text-sm text-muted-foreground">
+          The schedule has not been loaded yet, so there is no season to build a board
+          for. This resolves once the next season&rsquo;s schedule is published — there is
+          nothing to fix here.
+        </p>
+      </PageShell>
+    );
   }
 
   if (season === null || board === undefined) {

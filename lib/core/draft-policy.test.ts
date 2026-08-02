@@ -163,7 +163,17 @@ describe("recommendByChampionship", () => {
     );
     expect(recs.length).toBeGreaterThan(0);
     for (const r of recs) expect(r.standardError).toBeGreaterThan(0);
-    expect(recs[0].tiedWithLeader).toBe(true);
+    // Checked against the condition, not against the ordering. `recs[0]` is the leader,
+    // whose difference from itself is zero, so it is flagged tied whenever the standard
+    // error is positive — which the line above already asserts. Testing that told us
+    // nothing and would have survived a mutant that set the flag unconditionally.
+    const best = Math.max(...recs.map((r) => r.championshipProbability));
+    const leader = recs.find((r) => r.championshipProbability === best)!;
+    for (const r of recs) {
+      expect(r.tiedWithLeader).toBe(
+        best - r.championshipProbability <= leader.standardError + r.standardError,
+      );
+    }
   });
 
   it("avoids stacking a bye it already has", () => {

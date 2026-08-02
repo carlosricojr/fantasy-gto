@@ -147,6 +147,17 @@ export function simulateLeague(
   // the end yields `undefined`, which compares false against everything and propagates as
   // NaN through the point totals — a silently wrong standings table rather than an error.
   const weeksNeeded = regularWeeks + config.playoffWeeks.length;
+  // A zero scenario count passes every per-team check below — an empty outer array
+  // trivially equals it — then the loop never runs, `n` is zero, and every rate is 0/0.
+  // The table comes back full of NaN, which is the silent-wrong-answer failure the rest of
+  // these guards exist to prevent.
+  if (!Number.isInteger(config.scenarios) || config.scenarios < 1) {
+    throw new Error(
+      `A league cannot be simulated over ${config.scenarios} scenario(s). Every rate ` +
+        `would be a division by zero.`,
+    );
+  }
+
   for (const [team, scenarios] of teamScores.entries()) {
     // The week dimension was checked here and the scenario dimension was not, so a team
     // supplying too few scenarios reached the simulation loop and died on

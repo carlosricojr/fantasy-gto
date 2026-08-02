@@ -86,6 +86,51 @@ describe("parsePersistedDraft", () => {
     expect(parsePersistedDraft(stored({ picks: {} }))?.picks).toEqual({});
   });
 
+  it("refuses a league size no board is built for", () => {
+    // ADP is published per league size, so a board is not transferable. An 11-team draft
+    // has no board behind it and the setup screen never offers one.
+    for (const teams of [7, 11, 13, 32]) {
+      expect(parsePersistedDraft(stored({ teams }))).toBeNull();
+    }
+  });
+
+  it("refuses a slot outside the league it was stored with", () => {
+    // The failure this exact check exists for: `snakePicks` still produces plausible
+    // numbers for an out-of-range seat, and they belong to somebody else.
+    expect(parsePersistedDraft(stored({ teams: 12, slot: 13 }))).toBeNull();
+    expect(parsePersistedDraft(stored({ teams: 12, slot: 12 }))?.slot).toBe(12);
+  });
+
+  it("refuses a playoff field the product does not offer, or one that cannot fit", () => {
+    // Nothing downstream repairs this. The setup control lists only 4 and 6, so a stored
+    // 11 has no control that could correct it and reaches the simulation config as is.
+    for (const playoffTeams of [1, 2, 3, 5, 8, 11]) {
+      expect(parsePersistedDraft(stored({ playoffTeams }))).toBeNull();
+    }
+    // A field at least as large as the league would send everyone to the playoffs.
+    expect(parsePersistedDraft(stored({ teams: 8, playoffTeams: 6 }))).not.toBeNull();
+    expect(parsePersistedDraft(stored({ teams: 8, playoffTeams: 8 }))).toBeNull();
+  });
+
+  it("refuses an unknown scoring preset or roster template", () => {
+    // `scoringById` falls back to the default rather than throwing, so an unknown id here
+    // would silently score the whole board under rules the user did not pick.
+    expect(parsePersistedDraft(stored({ scoringId: "dynasty-2qb" }))).toBeNull();
+    expect(parsePersistedDraft(stored({ templateId: "not-a-template" }))).toBeNull();
+  });
+
+  it("refuses a pick number past the end of the draft", () => {
+    // 12 teams over 15 rounds is 180 picks. Pick 181 belongs to no seat.
+    expect(parsePersistedDraft(stored({ picks: { 180: "p" } }))).not.toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { 181: "p" } }))).toBeNull();
+  });
+
+  it("refuses the same player drafted twice", () => {
+    // A board that cannot exist. Restored, it would show a player on two rosters and
+    // remove him from the pool once.
+    expect(parsePersistedDraft(stored({ picks: { 1: "dup", 2: "dup" } }))).toBeNull();
+  });
+
   it("keeps pick numbers as numbers, not the strings JSON turns keys into", () => {
     // `Object.entries` hands back string keys. The board indexes picks by number, and a
     // record keyed by "1" does not answer a lookup for 1.

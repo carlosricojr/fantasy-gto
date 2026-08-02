@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 
 /**
  * Mutation testing.
@@ -250,22 +250,47 @@ function listTestFiles(): string[] {
  * mutant on disk. A file on disk survives what a handler cannot, and the next run cleans
  * up after the last one.
  */
+const BACKUP_SUFFIX = ".mutate-backup";
+
 function backupPathFor(path: string): string {
-  return `${path}.mutate-backup`;
+  return `${path}${BACKUP_SUFFIX}`;
 }
 
-/** Undoes a run that was killed before it could restore. */
-function recoverAbandonedMutants(files: readonly string[]): string[] {
+/**
+ * Undoes a run that was killed before it could restore.
+ *
+ * Scans the whole tree rather than the current run's target list. A run killed while
+ * mutating a file leaves its backup on disk, and if the next invocation happens to target
+ * a narrower set — which is the normal way to work, broad sweep then focus — that file is
+ * never looked at and stays mutated. `git status` would eventually show it, but only to
+ * somebody looking; an unattended `git add -A` or a CI step would not.
+ */
+function recoverAbandonedMutants(): string[] {
   const recovered: string[] = [];
-  for (const file of files) {
-    const path = join(process.cwd(), file);
-    const backup = backupPathFor(path);
-    if (!existsSync(backup)) continue;
+  for (const backup of backupsUnder(process.cwd())) {
+    const path = backup.slice(0, -BACKUP_SUFFIX.length);
     writeFileSync(path, readFileSync(backup, "utf8"));
     rmSync(backup, { force: true });
-    recovered.push(file);
+    recovered.push(relative(process.cwd(), path));
   }
   return recovered;
+}
+
+/** Every `.mutate-backup` under `root`, skipping directories a mutant cannot be in. */
+function backupsUnder(root: string): string[] {
+  const skip = new Set(["node_modules", ".git", ".next", "dist", "coverage"]);
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const item of readdirSync(dir, { withFileTypes: true })) {
+      if (item.isDirectory()) {
+        if (!skip.has(item.name)) walk(join(dir, item.name));
+      } else if (item.name.endsWith(BACKUP_SUFFIX)) {
+        found.push(join(dir, item.name));
+      }
+    }
+  };
+  walk(root);
+  return found;
 }
 
 function runAll(): boolean {
@@ -312,7 +337,7 @@ async function main(): Promise<void> {
   const targets = args.filter((a) => a.endsWith(".ts"));
   const files = targets.length > 0 ? targets : DEFAULT_TARGETS;
 
-  const recovered = recoverAbandonedMutants(files);
+  const recovered = recoverAbandonedMutants();
   if (recovered.length > 0) {
     process.stdout.write(
       `\nRecovered ${recovered.length} file(s) left mutated by an earlier run: ` +

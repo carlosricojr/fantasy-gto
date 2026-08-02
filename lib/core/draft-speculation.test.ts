@@ -394,13 +394,17 @@ describe("the cache contract", () => {
     actual.teams[2].remainingPicks = actual.teams[2].remainingPicks.slice(1);
     actual.available = pool.filter((p) => p.id !== takenA.id && p.id !== takenB.id);
 
+    // Asserted unconditionally. The previous form branched on the resolution and, in the
+    // `else`, asserted that a miss is a miss — so a regression that stopped populating
+    // `differences`, the field this test exists for, would resolve as a miss and pass.
+    //
+    // The two players taken are the last on the board, which a `candidateLimit: 4`
+    // ranking cannot contain, so every recommended player is still available and this
+    // must resolve as approximate.
     const resolved = resolveFromCache(cache, actual);
-    if (resolved.kind === "approximate") {
-      const diff = resolved.differences!;
-      expect(diff.missingFromCache.length + diff.extraInCache.length).toBeGreaterThan(0);
-    } else {
-      expect(resolved.kind).toBe("miss");
-    }
+    expect(resolved.kind).toBe("approximate");
+    const diff = resolved.differences!;
+    expect(diff.missingFromCache.length + diff.extraInCache.length).toBeGreaterThan(0);
   });
 
   it("reports a miss on an empty cache rather than an empty ranking", () => {
