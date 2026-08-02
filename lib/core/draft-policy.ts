@@ -1,5 +1,4 @@
 import { type RosterSlot, solveLineup } from "./optimizer";
-import { type Rng } from "./rng";
 import type { PlayerRisk } from "./roster-utility";
 import {
   type LeagueConfig,
@@ -270,15 +269,16 @@ export function completeDraft(
 /**
  * Ranks candidate picks by the championship probability they lead to.
  *
- * `createRng` is called fresh for each evaluation with the same seed, so every candidate
- * is judged against identical scenarios. Without that the differences between candidates
- * — often a fraction of a percentage point — would be buried in sampling noise.
+ * Every candidate is judged against identical scenarios: `seed` is passed unchanged into
+ * `sampleTeamWeeklyScores` for each one, and each player's stream is derived from his own
+ * id, so the same player draws the same numbers whichever candidate roster he sits in.
+ * Without that the differences between candidates — often a fraction of a percentage
+ * point — would be buried in sampling noise.
  */
 export function recommendByChampionship(
   state: DraftPolicyState,
   config: LeagueConfig,
   seed: number,
-  createRng: (seed: number) => Rng,
   candidateLimit = CHAMPIONSHIP_CANDIDATES,
 ): ChampionshipRecommendation[] {
   const me = state.teams[state.myTeamIndex];

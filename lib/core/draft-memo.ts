@@ -1,4 +1,3 @@
-import type { Rng } from "./rng";
 import type { LeagueConfig } from "./season-sim";
 import {
   type ChampionshipRecommendation,
@@ -173,7 +172,6 @@ export function recommendMemoized(
   state: DraftPolicyState,
   config: LeagueConfig,
   seed: number,
-  createRng: (seed: number) => Rng,
   candidateLimit?: number,
 ): MemoizedResult {
   const key = memoKey(config, seed, state, candidateLimit);
@@ -184,7 +182,6 @@ export function recommendMemoized(
     canonicalizeState(state),
     config,
     seed,
-    createRng,
     candidateLimit,
   );
   store.set(key, recommendations);
@@ -203,9 +200,8 @@ export function memoizedCompute(store: MemoStore) {
     state: DraftPolicyState,
     config: LeagueConfig,
     seed: number,
-    createRng: (seed: number) => Rng,
-    candidateLimit?: number,
+      candidateLimit?: number,
   ): ChampionshipRecommendation[] =>
-    recommendMemoized(store, state, config, seed, createRng, candidateLimit)
+    recommendMemoized(store, state, config, seed, candidateLimit)
       .recommendations;
 }

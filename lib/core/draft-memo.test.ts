@@ -252,14 +252,14 @@ describe("recommendMemoized", () => {
     const store = new LruMemoStore(8);
     const state = baseState();
 
-    const first = recommendMemoized(store, state, CONFIG, 42, createRng, 4);
+    const first = recommendMemoized(store, state, CONFIG, 42, 4);
     expect(first.cached).toBe(false);
 
-    const second = recommendMemoized(store, state, CONFIG, 42, createRng, 4);
+    const second = recommendMemoized(store, state, CONFIG, 42, 4);
     expect(second.cached).toBe(true);
     expect(second.recommendations).toEqual(first.recommendations);
 
-    const live = recommendByChampionship(canonicalizeState(state), CONFIG, 42, createRng, 4);
+    const live = recommendByChampionship(canonicalizeState(state), CONFIG, 42, 4);
     expect(second.recommendations).toEqual(live);
   });
 
@@ -272,12 +272,12 @@ describe("recommendMemoized", () => {
     const a = baseState();
     a.teams[1].roster = [pool[0], pool[3]];
     a.available = pool.filter((p) => p.id !== pool[0].id && p.id !== pool[3].id);
-    recommendMemoized(store, a, CONFIG, 42, createRng, 4);
+    recommendMemoized(store, a, CONFIG, 42, 4);
 
     const b = baseState();
     b.teams[1].roster = [pool[3], pool[0]];
     b.available = a.available;
-    expect(recommendMemoized(store, b, CONFIG, 42, createRng, 4).cached).toBe(true);
+    expect(recommendMemoized(store, b, CONFIG, 42, 4).cached).toBe(true);
   });
 
   it("does NOT serve a superflex answer to a single-quarterback league", () => {
@@ -289,8 +289,8 @@ describe("recommendMemoized", () => {
     };
     const state = baseState();
 
-    const first = recommendMemoized(store, state, superflex, 42, createRng, 4);
-    const second = recommendMemoized(store, state, CONFIG, 42, createRng, 4);
+    const first = recommendMemoized(store, state, superflex, 42, 4);
+    const second = recommendMemoized(store, state, CONFIG, 42, 4);
 
     expect(second.cached).toBe(false);
     // And the answers genuinely differ, so serving one for the other would be wrong,
@@ -301,8 +301,8 @@ describe("recommendMemoized", () => {
   it("does not serve a three-candidate answer to a request for twelve", () => {
     const store = new LruMemoStore(8);
     const state = baseState();
-    const first = recommendMemoized(store, state, CONFIG, 42, createRng, 3);
-    const second = recommendMemoized(store, state, CONFIG, 42, createRng, 12);
+    const first = recommendMemoized(store, state, CONFIG, 42, 3);
+    const second = recommendMemoized(store, state, CONFIG, 42, 12);
     expect(second.cached).toBe(false);
     expect(second.recommendations.length).toBeGreaterThan(first.recommendations.length);
   });
@@ -310,16 +310,16 @@ describe("recommendMemoized", () => {
   it("does not serve an answer computed under a different seed", () => {
     const store = new LruMemoStore(8);
     const state = baseState();
-    recommendMemoized(store, state, CONFIG, 1, createRng, 4);
-    expect(recommendMemoized(store, state, CONFIG, 2, createRng, 4).cached).toBe(false);
+    recommendMemoized(store, state, CONFIG, 1, 4);
+    expect(recommendMemoized(store, state, CONFIG, 2, 4).cached).toBe(false);
   });
 
   it("does not serve an answer computed at a different scenario count", () => {
     const store = new LruMemoStore(8);
     const state = baseState();
-    recommendMemoized(store, state, CONFIG, 42, createRng, 4);
+    recommendMemoized(store, state, CONFIG, 42, 4);
     expect(
-      recommendMemoized(store, state, { ...CONFIG, scenarios: 80 }, 42, createRng, 4)
+      recommendMemoized(store, state, { ...CONFIG, scenarios: 80 }, 42, 4)
         .cached,
     ).toBe(false);
   });
@@ -328,18 +328,18 @@ describe("recommendMemoized", () => {
     // A rebuilt board has different players on it, so an identical set of rosters is a
     // different problem.
     const store = new LruMemoStore(8);
-    recommendMemoized(store, baseState(), CONFIG, 42, createRng, 4);
+    recommendMemoized(store, baseState(), CONFIG, 42, 4);
 
     const rebuilt = baseState();
     rebuilt.available = [...rebuilt.available, player("NEW", "WR", 15, 999)];
-    expect(recommendMemoized(store, rebuilt, CONFIG, 42, createRng, 4).cached).toBe(false);
+    expect(recommendMemoized(store, rebuilt, CONFIG, 42, 4).cached).toBe(false);
   });
 
   it("does not serve one team's answer to another team", () => {
     const store = new LruMemoStore(8);
-    recommendMemoized(store, baseState(), CONFIG, 42, createRng, 4);
+    recommendMemoized(store, baseState(), CONFIG, 42, 4);
     const other = { ...baseState(), myTeamIndex: 2 };
-    expect(recommendMemoized(store, other, CONFIG, 42, createRng, 4).cached).toBe(false);
+    expect(recommendMemoized(store, other, CONFIG, 42, 4).cached).toBe(false);
   });
 
   it("recomputes after the entry has been evicted", () => {
@@ -349,9 +349,9 @@ describe("recommendMemoized", () => {
     b.teams[1].roster = [board()[0]];
     b.available = board().slice(1);
 
-    recommendMemoized(store, a, CONFIG, 42, createRng, 4);
-    recommendMemoized(store, b, CONFIG, 42, createRng, 4); // evicts a
-    expect(recommendMemoized(store, a, CONFIG, 42, createRng, 4).cached).toBe(false);
+    recommendMemoized(store, a, CONFIG, 42, 4);
+    recommendMemoized(store, b, CONFIG, 42, 4); // evicts a
+    expect(recommendMemoized(store, a, CONFIG, 42, 4).cached).toBe(false);
   });
 });
 
@@ -364,7 +364,7 @@ describe("composed with speculation", () => {
     const state = baseState();
     const anticipated = anticipateStates(state, [{ team: 1 }], 40, createRng(1));
 
-    precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, {
+    precomputeRecommendations(state, anticipated, CONFIG, 42, {
       maxStates: 3,
       candidateLimit: 3,
       compute: memoizedCompute(store),
@@ -372,7 +372,7 @@ describe("composed with speculation", () => {
     const afterFirst = { ...store.stats };
     expect(afterFirst.misses).toBeGreaterThan(0);
 
-    precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, {
+    precomputeRecommendations(state, anticipated, CONFIG, 42, {
       maxStates: 3,
       candidateLimit: 3,
       compute: memoizedCompute(store),
@@ -388,8 +388,8 @@ describe("composed with speculation", () => {
     const anticipated = anticipateStates(state, [{ team: 1 }], 30, createRng(2));
     const options = { maxStates: 2, candidateLimit: 3 } as const;
 
-    const plain = precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, options);
-    const memoised = precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, {
+    const plain = precomputeRecommendations(state, anticipated, CONFIG, 42, options);
+    const memoised = precomputeRecommendations(state, anticipated, CONFIG, 42, {
       ...options,
       compute: memoizedCompute(new LruMemoStore(64)),
     });

@@ -287,7 +287,6 @@ export function precomputeRecommendations(
   anticipated: readonly AnticipatedState[],
   config: LeagueConfig,
   seed: number,
-  createRng: (seed: number) => Rng,
   options: {
     maxStates?: number;
     candidateLimit?: number;
@@ -304,8 +303,7 @@ export function precomputeRecommendations(
       state: CanonicalState,
       config: LeagueConfig,
       seed: number,
-      createRng: (seed: number) => Rng,
-      candidateLimit?: number,
+          candidateLimit?: number,
     ) => ChampionshipRecommendation[];
   } = {},
 ): SpeculativeCache {
@@ -322,7 +320,7 @@ export function precomputeRecommendations(
     entries.push({
       signature: candidate.signature,
       probability: candidate.probability,
-      recommendations: compute(candidate.state, config, seed, createRng, candidateLimit),
+      recommendations: compute(candidate.state, config, seed, candidateLimit),
       context: contextOf(candidate.state),
     });
   }
@@ -424,7 +422,6 @@ export function recommendWithCache(
   actual: DraftPolicyState,
   config: LeagueConfig,
   seed: number,
-  createRng: (seed: number) => Rng,
   options: { candidateLimit?: number; allowApproximate?: boolean } = {},
 ): Resolution {
   if (cache !== null) {
@@ -440,7 +437,6 @@ export function recommendWithCache(
       canonicalizeState(actual),
       config,
       seed,
-      createRng,
       options.candidateLimit,
     ),
   };

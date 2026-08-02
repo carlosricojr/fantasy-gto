@@ -255,7 +255,7 @@ describe("the cache contract", () => {
     // answer under the same name, which is worse than not caching at all.
     const state = baseState();
     const anticipated = anticipateStates(state, [], 10, createRng(1));
-    const cache = precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, {
+    const cache = precomputeRecommendations(state, anticipated, CONFIG, 42, {
       candidateLimit: 5,
     });
 
@@ -266,7 +266,6 @@ describe("the cache contract", () => {
       canonicalizeState(state),
       CONFIG,
       42,
-      createRng,
       5,
     );
     expect(resolved.recommendations).toEqual(live);
@@ -281,7 +280,6 @@ describe("the cache contract", () => {
       anticipateStates(built, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
 
@@ -298,7 +296,6 @@ describe("the cache contract", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
     const otherTurn = { ...baseState(), myTeamIndex: 1 };
@@ -313,7 +310,6 @@ describe("the cache contract", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
     const leader = cache.entries[0].recommendations[0].player.id;
@@ -340,11 +336,10 @@ describe("the cache contract", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
     const otherManager = { ...baseState(), myTeamIndex: 3 };
-    const resolved = recommendWithCache(cache, otherManager, CONFIG, 42, createRng, {
+    const resolved = recommendWithCache(cache, otherManager, CONFIG, 42, {
       candidateLimit: 4,
       allowApproximate: true,
     });
@@ -358,12 +353,11 @@ describe("the cache contract", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
     const deeper = { ...baseState(), rosterSize: ROUNDS + 3 };
     expect(
-      recommendWithCache(cache, deeper, CONFIG, 42, createRng, {
+      recommendWithCache(cache, deeper, CONFIG, 42, {
         candidateLimit: 4,
         allowApproximate: true,
       }).kind,
@@ -379,7 +373,6 @@ describe("the cache contract", () => {
       anticipateStates(state, [{ team: 1 }, { team: 2 }], 60, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { maxStates: 6, candidateLimit: 4 },
     );
 
@@ -420,7 +413,6 @@ describe("the cache contract", () => {
       anticipateStates(state, [{ team: 1 }, { team: 2 }], 60, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { maxStates: 3, candidateLimit: 4 },
     );
     // Any state that is not byte-identical must not come back exact.
@@ -438,7 +430,7 @@ describe("precomputeRecommendations", () => {
   it("respects the state budget", () => {
     const state = baseState();
     const anticipated = anticipateStates(state, [{ team: 1 }, { team: 2 }], 100, createRng(1));
-    const cache = precomputeRecommendations(state, anticipated, CONFIG, 42, createRng, {
+    const cache = precomputeRecommendations(state, anticipated, CONFIG, 42, {
       maxStates: 2,
       candidateLimit: 3,
     });
@@ -453,7 +445,6 @@ describe("precomputeRecommendations", () => {
       anticipateStates(baseState(), [{ team: 1 }], 60, createRng(1)),
       CONFIG,
       42,
-      createRng,
       {
         maxStates: 8,
         candidateLimit: 3,
@@ -473,7 +464,6 @@ describe("precomputeRecommendations", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 3 },
     );
     expect(cache.builtFrom).toBe(stateSignature(canonicalizeState(state)));
@@ -482,7 +472,7 @@ describe("precomputeRecommendations", () => {
 
 describe("recommendWithCache", () => {
   it("computes when there is no cache at all", () => {
-    const result = recommendWithCache(null, baseState(), CONFIG, 42, createRng, {
+    const result = recommendWithCache(null, baseState(), CONFIG, 42, {
       candidateLimit: 4,
     });
     expect(result.kind).toBe("miss");
@@ -496,10 +486,9 @@ describe("recommendWithCache", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
-    const result = recommendWithCache(cache, state, CONFIG, 42, createRng, {
+    const result = recommendWithCache(cache, state, CONFIG, 42, {
       candidateLimit: 4,
     });
     expect(result.kind).toBe("exact");
@@ -514,14 +503,13 @@ describe("recommendWithCache", () => {
       anticipateStates(state, [], 5, createRng(1)),
       CONFIG,
       42,
-      createRng,
       { candidateLimit: 4 },
     );
     const changed = baseState();
     changed.teams[1].roster = [board()[40]];
     changed.available = board().filter((p) => p.id !== board()[40].id);
 
-    const strict = recommendWithCache(cache, changed, CONFIG, 42, createRng, {
+    const strict = recommendWithCache(cache, changed, CONFIG, 42, {
       candidateLimit: 4,
     });
     expect(strict.kind).toBe("miss");

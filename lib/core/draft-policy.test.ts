@@ -10,7 +10,6 @@ import {
   recommendByChampionship,
 } from "./draft-policy";
 import { snakePicks } from "./draft";
-import { createRng } from "./rng";
 import type { PlayerRisk } from "./roster-utility";
 import type { LeagueConfig } from "./season-sim";
 
@@ -141,8 +140,8 @@ describe("recommendByChampionship", () => {
       available: board(),
       rosterSize: ROUNDS,
     };
-    const first = recommendByChampionship(s, CONFIG, 3, createRng, 4);
-    const second = recommendByChampionship(s, CONFIG, 3, createRng, 4);
+    const first = recommendByChampionship(s, CONFIG, 3, 4);
+    const second = recommendByChampionship(s, CONFIG, 3, 4);
     expect(first.map((r) => r.player.id)).toEqual(second.map((r) => r.player.id));
   });
 
@@ -158,7 +157,6 @@ describe("recommendByChampionship", () => {
       },
       CONFIG,
       5,
-      createRng,
       5,
     );
     expect(recs.length).toBeGreaterThan(0);
@@ -191,7 +189,6 @@ describe("recommendByChampionship", () => {
       { teams, myTeamIndex: 0, available, rosterSize: ROUNDS },
       CONFIG,
       11,
-      createRng,
       8,
     );
 
@@ -219,7 +216,6 @@ describe("recommendByChampionship", () => {
       },
       CONFIG,
       13,
-      createRng,
       8,
     );
 
@@ -250,7 +246,6 @@ describe("recommendByChampionship", () => {
       },
       CONFIG,
       21,
-      createRng,
       8,
     );
     const best = Math.max(...recs.map((r) => r.championshipProbability));
@@ -294,7 +289,6 @@ describe("recommendByChampionship", () => {
         { teams: freshTeams(), myTeamIndex: 0, available: [], rosterSize: ROUNDS },
         CONFIG,
         1,
-        createRng,
       ),
     ).toEqual([]);
   });
@@ -346,7 +340,6 @@ describe("recommendByChampionship, against the rest of the league", () => {
       },
       CONFIG,
       1,
-      createRng,
       11,
     );
     return recs[0].championshipProbability;
@@ -378,7 +371,6 @@ describe("recommendByChampionship arithmetic", () => {
       { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
       CONFIG,
       7,
-      createRng,
       4,
     );
 
@@ -413,7 +405,6 @@ describe("recommendByChampionship arithmetic", () => {
       { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
       CONFIG,
       7,
-      createRng,
       0,
     );
     expect(none).toHaveLength(1);

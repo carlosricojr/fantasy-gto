@@ -1,6 +1,5 @@
 /// <reference lib="webworker" />
 
-import { createRng } from "@/lib/core/rng";
 import { LruMemoStore, recommendMemoized } from "@/lib/core/draft-memo";
 import type { ChampionshipRecommendation, DraftPolicyState } from "@/lib/core/draft-policy";
 import type { LeagueConfig } from "@/lib/core/season-sim";
@@ -45,7 +44,6 @@ self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
       state,
       config,
       seed,
-      createRng,
       candidateLimit,
     );
     const response: RecommendResponse = {
