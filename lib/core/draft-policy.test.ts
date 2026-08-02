@@ -383,9 +383,14 @@ describe("recommendByChampionship arithmetic", () => {
   it("reports the standard error of the proportion it measured", () => {
     for (const r of recs()) {
       const p = r.championshipProbability;
+      // Compared at the precision the implementation reports, not at 10 digits. The
+      // standard error is derived from the *unrounded* probability and then rounded, while
+      // `p` here is already rounded — they differ by up to 5e-5, so a recomputation from
+      // `p` lands on a different 1e-4 grid point whenever it sits near a boundary, and the
+      // test would fail for a seed that changed nothing.
       expect(r.standardError).toBeCloseTo(
-        Math.round(Math.sqrt((p * (1 - p)) / CONFIG.scenarios) * 1e4) / 1e4,
-        10,
+        Math.sqrt((p * (1 - p)) / CONFIG.scenarios),
+        4,
       );
     }
   });

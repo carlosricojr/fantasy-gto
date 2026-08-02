@@ -187,6 +187,14 @@ export function pickOwnership(
   slot: number,
   rounds: number,
 ): Map<number, number> {
+  // Checked here rather than left to `snakePicks`, which only runs if the loop body does.
+  // A `teams` below 1 skips the loop entirely and returns an empty map — every pick in the
+  // draft owned by nobody, which is the exact failure this function's docstring is about,
+  // reached by the one path that never calls the function doing the validating.
+  if (!Number.isInteger(teams) || teams < 1) {
+    throw new Error(`A league cannot have ${teams} teams.`);
+  }
+
   const owners = new Map<number, number>();
   for (let index = 0; index < teams; index += 1) {
     for (const pick of snakePicks(seatForTeamIndex(index, slot), teams, rounds)) {

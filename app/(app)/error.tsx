@@ -24,6 +24,12 @@ import { Button } from "@/components/ui/button";
  * The draft is now written to `sessionStorage` (see `draft/persistence.ts`) and both paths
  * restore it, which is what makes the sentence below true.
  *
+ * It also used to say "nothing you entered has been sent anywhere". This boundary covers
+ * every signed-in route, not only the client-side draft, and a render can fail *after* a
+ * mutation the server already accepted — so that sentence could talk somebody into
+ * repeating an action that had gone through. The only guarantee it can actually make is
+ * the one about the draft, which is now the only one it makes.
+ *
  * Deliberately no stack trace or error text in the body. It would be meaningless to
  * somebody trying to make a pick, and the message can carry internals.
  */
@@ -44,9 +50,9 @@ export default function AppError({
     <main className="mx-auto max-w-2xl px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">Something broke</h1>
       <p className="mt-3 text-muted-foreground">
-        This screen hit an error it could not recover from on its own. Nothing you entered
-        has been sent anywhere, and trying again usually works. A draft in progress is
-        saved in this tab, so either button below will bring your recorded picks back.
+        This screen hit an error it could not recover from on its own. Trying again
+        usually works. A draft in progress is saved in this tab, so either button below
+        will bring your recorded picks back.
       </p>
       <div className="mt-6 flex flex-wrap gap-2">
         <Button onClick={reset}>Try again</Button>

@@ -38,7 +38,8 @@ export interface SleeperDraftSettings {
 export interface SleeperPick {
   /** Overall pick number, 1-based. */
   overall: number;
-  round: number;
+  /** Round number, 1-based, or `null` when the source did not give a usable one. */
+  round: number | null;
   /** Draft slot, 1-based, which is the manager's seat rather than their roster id. */
   draftSlot: number;
   playerName: string;
@@ -155,7 +156,9 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
 
     picks.push({
       overall,
-      round: toInt(row.round) ?? 0,
+      // Zero is not a round. Defaulting to it invents a value that reads as real, in the
+      // same way `draft_slot` and `pick_no` do, so it is null when the source does not say.
+      round: positiveOrNull(toInt(row.round)),
       draftSlot,
       playerName: name,
       position:
@@ -165,6 +168,11 @@ export function parsePicks(payload: readonly unknown[]): SleeperPick[] {
     });
   }
   return picks.sort((a, b) => a.overall - b.overall);
+}
+
+/** A 1-based count, or `null` for the zeroes and negatives that are not one. */
+function positiveOrNull(value: number | null): number | null {
+  return value === null || value < 1 ? null : value;
 }
 
 function toInt(value: unknown): number | null {

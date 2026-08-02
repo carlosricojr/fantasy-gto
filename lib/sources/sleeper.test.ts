@@ -150,6 +150,18 @@ describe("parsePicks", () => {
     }
   });
 
+  it("leaves an unusable round null rather than calling it round zero", () => {
+    // Same rule as the other identity fields: a defaulted zero reads as real data.
+    const [pick] = parsePicks([
+      { pick_no: 1, draft_slot: 1, round: 0, metadata: { first_name: "A", last_name: "B" } },
+    ]);
+    expect(pick.round).toBeNull();
+    const [withRound] = parsePicks([
+      { pick_no: 1, draft_slot: 1, round: 3, metadata: { first_name: "A", last_name: "B" } },
+    ]);
+    expect(withRound.round).toBe(3);
+  });
+
   it("skips a pick with no overall number", () => {
     // Without it the pick cannot be placed in the draft at all.
     expect(

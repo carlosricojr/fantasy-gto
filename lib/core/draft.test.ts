@@ -170,6 +170,11 @@ describe("pick ownership", () => {
     expect(() => snakePicks(-1, 10, 15)).toThrow();
     expect(() => snakePicks(1.5, 10, 15)).toThrow();
     expect(() => pickOwnership(10, 12, 15)).toThrow();
+    // A league with no teams skips the loop entirely, so `snakePicks` never runs and every
+    // pick comes back owned by nobody. Rejected here rather than delegated.
+    expect(() => pickOwnership(0, 1, 15)).toThrow();
+    expect(() => pickOwnership(-4, 1, 15)).toThrow();
+    expect(() => pickOwnership(10.5, 1, 15)).toThrow();
   });
 
   it("still reverses each round, and gives the turn manager back-to-back picks", () => {

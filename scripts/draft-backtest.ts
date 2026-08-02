@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseCsv, num, str } from "@/lib/nfl/csv";
@@ -135,6 +135,13 @@ async function loadAdp(season: number) {
   );
   const entries = parseAdp(JSON.parse(raw));
   if (entries === null) {
+    // The error envelope arrives with HTTP 200, so `cached` has already written it to
+    // disk. Left there it is served for every later run, and the failure becomes
+    // permanent until somebody clears the directory by hand — a cached "no board" that
+    // looks identical to genuinely having no board.
+    rmSync(join(ADP_CACHE_DIR, `adp_${SCORING_ID}_${LEAGUE_TEAMS}_${season}.json`), {
+      force: true,
+    });
     throw new Error(
       `No ADP published for ${season}. The backtest needs both a tuning and an ` +
         `evaluation season with a market board.`,
@@ -421,11 +428,15 @@ async function main(): Promise<void> {
   // `blended > adpOnly` branch, letting the script announce that blending improves on the
   // market next to a negative percentage. Either way the evaluation universe is broken and
   // there is no figure to report.
-  if (!(adpOnly > 0)) {
+  // All three, not only the baseline. A NaN or negative `modelOnly` or `blended` prints
+  // beside real figures and is written into published-draft-metrics.json, where a
+  // documented number becoming `null` says nothing about why.
+  if (!(adpOnly > 0) || !Number.isFinite(modelOnly) || !Number.isFinite(blended)) {
     throw new Error(
-      `The market's own rank correlation came out at ${adpOnly}, which is not a usable ` +
-        `baseline. Every published figure is relative to it, so there is nothing to ` +
-        `report. Check that the evaluation season matched any players at all.`,
+      `Rank correlations came out at market ${adpOnly}, model ${modelOnly}, blend ` +
+        `${blended}. Every published figure is relative to the market baseline and none ` +
+        `of the three is reportable unless all are finite and the baseline is positive. ` +
+        `Check that the evaluation season matched any players at all.`,
     );
   }
   const edge = ((blended - adpOnly) / adpOnly) * 100;

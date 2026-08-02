@@ -204,7 +204,20 @@ function mutantsFor(file: string, source: string): Mutant[] {
     if (!mutable) return;
 
     // Blanked to the same length, so offsets found here are valid in the real line.
-    const masked = line.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, (m) => " ".repeat(m.length));
+    // Strings first, then any trailing `//` comment. Without the second step a comment
+    // containing "true", "Math.min" or a number produced a mutant that edits only the
+    // comment, which every test passes and which is then reported as a surviving gap —
+    // noise that looks exactly like a real finding.
+    const withoutStrings = line.replace(
+      /"[^"]*"|'[^']*'|`[^`]*`/g,
+      (m) => " ".repeat(m.length),
+    );
+    const commentAt = withoutStrings.indexOf("//");
+    const masked =
+      commentAt === -1
+        ? withoutStrings
+        : withoutStrings.slice(0, commentAt) +
+          " ".repeat(withoutStrings.length - commentAt);
 
     for (const mutator of MUTATORS) {
       for (const site of mutator.sites(masked)) {
