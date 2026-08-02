@@ -213,7 +213,14 @@ export function completeOwnRoster(
   let available = pool.filter((p) => !taken.has(p.id));
 
   let picksLeft = ownRemainingPicks;
-  if (forcedFirstPick !== null) {
+  // The forced pick goes through both bounds the loop below enforces. Seating it
+  // unconditionally is the same failure the loop guard exists to prevent, on the one path
+  // that bypasses the loop: a roster already at `rosterSize` came back one player longer
+  // than every opponent, and `ownRemainingPicks === 0` seated a candidate anyway and left
+  // `picksLeft` at -1.
+  const roomForForced =
+    picksLeft > 0 && (rosterSize === undefined || out.length < rosterSize);
+  if (forcedFirstPick !== null && roomForForced) {
     out.push(forcedFirstPick);
     taken.add(forcedFirstPick.id);
     available = available.filter((p) => p.id !== forcedFirstPick.id);
@@ -304,22 +311,54 @@ export function recommendByChampionship(
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
   // eleven rosters per candidate would dominate the cost.
   const baselineRosters = completeDraft(state, config.slots, null);
-  const opponentScores = baselineRosters
-    .filter((_, index) => index !== state.myTeamIndex)
-    .map((roster, index) =>
-      sampleTeamWeeklyScores(roster, config, seed + 1000 + index),
-    );
+  const opponentRosters = baselineRosters.filter(
+    (_, index) => index !== state.myTeamIndex,
+  );
+  const baselineOpponentScores = opponentRosters.map((roster, index) =>
+    sampleTeamWeeklyScores(roster, config, seed + 1000 + index),
+  );
 
   // What the rest of the league is expected to take, so our own rollout draws from the
   // board they leave behind rather than from the whole pool.
-  const claimedByOthers = new Set(
-    baselineRosters
-      .filter((_, index) => index !== state.myTeamIndex)
-      .flat()
-      .map((p) => p.id),
-  );
+  const claimedByOthers = new Set(opponentRosters.flat().map((p) => p.id));
   const poolForUs = state.available.filter((p) => !claimedByOthers.has(p.id));
   const ownPicksLeft = me.remainingPicks.length;
+
+  /**
+   * Opponent scores for a world in which we take `forced`.
+   *
+   * The shortlist is drawn from `state.available`, and the baseline completion may already
+   * have given one of those players to an opponent — so scoring a candidate against the
+   * untouched baseline played him on two teams at once, adding his points to ours without
+   * removing them from theirs. That inflates exactly the candidates an opponent wanted,
+   * which is the ordering this function exists to get right.
+   *
+   * At most one opponent can hold him, since `completeDraft` never deals a player twice.
+   * That opponent is re-completed with the next player the base policy would have taken,
+   * because leaving the hole open would understate them by a whole roster spot — the
+   * mirror of the same error.
+   */
+  const opponentScoresFor = (forced: PlayerRisk | null): number[][][] => {
+    if (forced === null) return baselineOpponentScores;
+    const owner = opponentRosters.findIndex((roster) =>
+      roster.some((p) => p.id === forced.id),
+    );
+    if (owner === -1) return baselineOpponentScores;
+
+    const without = opponentRosters[owner].filter((p) => p.id !== forced.id);
+    const replacement = basePolicyPick(
+      without,
+      poolForUs.filter((p) => p.id !== forced.id),
+      config.slots,
+    );
+    const scores = [...baselineOpponentScores];
+    scores[owner] = sampleTeamWeeklyScores(
+      replacement === null ? without : [...without, replacement],
+      config,
+      seed + 1000 + owner,
+    );
+    return scores;
+  };
 
   const evaluate = (forced: PlayerRisk | null): TeamOutcome => {
     const mineRoster = completeOwnRoster(
@@ -331,7 +370,7 @@ export function recommendByChampionship(
       state.rosterSize,
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
-    return championshipProbability(mine, opponentScores, config);
+    return championshipProbability(mine, opponentScoresFor(forced), config);
   };
 
   const baseline = evaluate(null);

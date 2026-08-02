@@ -782,11 +782,6 @@ export async function runBuildDraftBoard(
       const history = perGame.get(entry.playerId) ?? [];
       const market = marketIndex.find(entry.name, entry.position);
 
-      // A player with neither production history nor a market price cannot be valued by
-      // anything. Listing him at zero would rank him below every kicker; omitting him is
-      // honest, and he can still be drafted manually.
-      if (history.length === 0 && market === null) continue;
-
       // Whether the model has an opinion is a question about the *position* first and the
       // row count second. Kickers have plenty of history rows, but `scoreOffense` scores a
       // kicking line as zero, so every veteran kicker produced a real zero — not a null —
@@ -797,6 +792,19 @@ export async function runBuildDraftBoard(
       const modelled = MODELLED_POSITIONS.includes(
         entry.position as (typeof MODELLED_POSITIONS)[number],
       );
+
+      // A player neither side can value cannot be valued by anything. Listing him at zero
+      // would rank him below every kicker; omitting him is honest, and he can still be
+      // drafted manually.
+      //
+      // Gated on `modelled`, not on the row count. Those agree for QB/RB/WR/TE, where no
+      // prior games means no projection — but a kicker accumulates a history row per game
+      // and every one of them scores zero, so `history.length` said the model had an
+      // opinion when `modelled` was about to overrule it. A veteran kicker missing from
+      // this season's ADP therefore passed the guard with no model value and no market
+      // value, and `blendedSeasonValue(null, null)` wrote him to the board at exactly the
+      // zero this line exists to keep off it.
+      if ((!modelled || history.length === 0) && market === null) continue;
       const modelPoints =
         !modelled || history.length === 0
           ? null

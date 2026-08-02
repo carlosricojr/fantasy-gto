@@ -45,8 +45,27 @@ export interface AdpEntry {
   bye: number | null;
 }
 
+/** The upstream format for a scoring id, or `null` if there is no mapping for it. */
+export function adpFormatFor(scoringId: string): string | null {
+  return FORMAT_BY_SCORING[scoringId] ?? null;
+}
+
+/**
+ * Throws on an unmapped scoring id rather than substituting PPR.
+ *
+ * The fallback was silent and the board it produced looked entirely normal: a half-PPR or
+ * standard league would have been priced off a PPR market, which reorders receivers
+ * against backs throughout. Every caller already handles a failed provider result, and a
+ * missing board is visible in a way a wrong one is not.
+ */
 export function adpUrl(scoringId: string, teams: number, season: number): string {
-  const format = FORMAT_BY_SCORING[scoringId] ?? "ppr";
+  const format = adpFormatFor(scoringId);
+  if (format === null) {
+    throw new Error(
+      `No average-draft-position board is published for scoring "${scoringId}". ` +
+        `Serving another format's board would price the league under the wrong rules.`,
+    );
+  }
   return `${BASE}/${format}?teams=${teams}&year=${season}`;
 }
 
@@ -65,6 +84,11 @@ export class AdpProvider {
     scoringId: string,
     teams: number,
   ): Promise<ProviderResult<AdpEntry[]>> {
+    if (adpFormatFor(scoringId) === null) {
+      return failed(
+        `No average-draft-position board is published for scoring "${scoringId}".`,
+      );
+    }
     const url = adpUrl(scoringId, teams, season);
     let raw: string;
     try {

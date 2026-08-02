@@ -175,13 +175,14 @@ async function buildUniverse(target: number, curves: AdpCurveSet): Promise<Unive
   ]);
   const adp = await loadAdp(target);
 
-  const byName = new Map<string, string>();
-  const ambiguous = new Set<string>();
-  for (const player of targetSeason.values()) {
-    const key = normalizeName(player.name);
-    if (byName.has(key)) ambiguous.add(key);
-    byName.set(key, player.id);
-  }
+  // The same index the curve fit uses, rather than the hand-rolled map this used to
+  // carry. That version was not wrong — it skipped ambiguous names — but it was strictly
+  // weaker: it dropped *both* players whenever two names normalised the same way, where
+  // the index separates them when their positions differ and refuses only when position
+  // cannot. Every player it dropped left the evaluated universe, so `sampleSize` in
+  // published-draft-metrics.json was smaller than the same matching rule would give, and
+  // the two halves of this one script measured on different join rules.
+  const index = buildMarketIndex([...targetSeason.values()], normalizeMarketPosition);
 
   const ids: string[] = [];
   const actual = new Map<string, number>();
@@ -189,10 +190,9 @@ async function buildUniverse(target: number, curves: AdpCurveSet): Promise<Unive
   const market = new Map<string, number>();
 
   for (const entry of adp) {
-    const key = normalizeName(entry.name);
-    if (ambiguous.has(key)) continue;
-    const id = byName.get(key);
-    if (id === undefined) continue;
+    const matched = index.find(entry.name, entry.position);
+    if (matched === null) continue;
+    const id = matched.id;
 
     const history = [
       ...(twoBack.get(id)?.perGamePoints ?? []),

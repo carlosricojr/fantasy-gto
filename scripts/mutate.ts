@@ -333,6 +333,22 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => a !== "--");
   const limitIndex = args.indexOf("--limit");
   const limit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : Infinity;
+  // `Number(undefined)` and `Number("abc")` are both NaN, and `slice(0, NaN)` is empty —
+  // so a typo in the flag ran zero mutants against every file, printed `score 0.0%`, and
+  // exited 0. That is the third way this harness has found to publish a number for work it
+  // did not do.
+  if (!Number.isFinite(limit) && limit !== Infinity) {
+    process.stderr.write(
+      `--limit needs a positive whole number; got "${args[limitIndex + 1] ?? ""}".\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (limit < 1) {
+    process.stderr.write(`--limit must be at least 1; got ${limit}.\n`);
+    process.exitCode = 1;
+    return;
+  }
   const ownOnly = args.includes("--own");
   const targets = args.filter((a) => a.endsWith(".ts"));
   const files = targets.length > 0 ? targets : DEFAULT_TARGETS;

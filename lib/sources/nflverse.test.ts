@@ -207,12 +207,33 @@ describe("parseSeasonRoster", () => {
     // Without the join key a player has no production history, so the board would price
     // him from nothing at all.
     const rows = parseCsv(rosterCsv);
-    const activeWithoutId = rows.filter(
-      (r) => (r.status ?? "").toUpperCase() === "ACT" && (r.gsis_id ?? "") === "",
-    );
-    for (const row of activeWithoutId) {
-      expect(entries.some((e) => e.name === row.full_name)).toBe(false);
-    }
+    // On a constructed row. The captured fixture contains no active player missing a
+    // `gsis_id`, so the previous form filtered to an empty list, ran its loop zero times
+    // and passed without touching the filter — it would have passed with the filter
+    // deleted.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const csv = [
+      header,
+      "2026,KC,WR,ACT,No Join Key,",
+      "2026,KC,WR,ACT,Has Join Key,00-0030300",
+    ].join("\n");
+    const parsed = parseSeasonRoster(parseCsv(csv));
+    expect(parsed.map((e) => e.name)).toEqual(["Has Join Key"]);
+  });
+
+  it("keeps a traded player once rather than twice", () => {
+    // The same active player on two teams in one release. The board is keyed by
+    // (board, playerId), so both rows are written and the later silently wins — the team
+    // shown is whichever the file listed last.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const csv = [
+      header,
+      "2026,NYJ,RB,ACT,Traded Player,00-0030200",
+      "2026,SF,RB,ACT,Traded Player,00-0030200",
+    ].join("\n");
+    const parsed = parseSeasonRoster(parseCsv(csv));
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].team).toBe("NYJ");
   });
 
   it("normalises team codes and folds fullbacks into running backs", () => {

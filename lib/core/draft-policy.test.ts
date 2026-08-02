@@ -257,9 +257,15 @@ describe("recommendByChampionship", () => {
     //  - whatever leads is within sampling noise of the true maximum;
     //  - every tied candidate outranks every untied one;
     //  - untied candidates descend by title probability.
+    // Against the implementation's own bound — the leader's standard error plus the
+    // entry's — not twice the first entry's. Those differ: `standardError` is
+    // sqrt(p(1-p)/n), so below a half the leader carries the larger one, and an entry the
+    // implementation correctly calls tied can exceed twice its own. That the doubled form
+    // passed was a fact about seed 21.
+    const top = recs.find((r) => r.championshipProbability === best)!;
     expect(recs[0].tiedWithLeader).toBe(true);
     expect(best - recs[0].championshipProbability).toBeLessThanOrEqual(
-      recs[0].standardError * 2 + 1e-9,
+      top.standardError + recs[0].standardError + 1e-9,
     );
 
     const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
@@ -345,7 +351,7 @@ describe("recommendByChampionship, against the rest of the league", () => {
     return recs[0].championshipProbability;
   };
 
-  it("is beaten by a strong league and wins an weak one", () => {
+  it("is beaten by a strong league and wins a weak one", () => {
     // The filter that selects opponents is `index !== myTeamIndex`. Inverted, it selects
     // *us*, the league becomes we-against-a-copy-of-ourselves, and nothing the other
     // seven teams do can reach the number. This is the test that says they are the other
@@ -470,6 +476,52 @@ describe("completeDraft, at its boundaries", () => {
   });
 });
 
+describe("recommendByChampionship against opponents who wanted the same player", () => {
+  it("does not play a candidate on our roster and an opponent's at once", () => {
+    // The shortlist comes from `state.available`, and the baseline completion may already
+    // have handed one of those players to an opponent. Scored against the untouched
+    // baseline, taking him added his points to us without removing them from them — so he
+    // scored twice, and the candidates opponents wanted were exactly the ones inflated.
+    //
+    // One overwhelming player on a thin board: every opponent wants him, so he is certain
+    // to appear on a completed opponent roster. Double-counted, taking him barely moves
+    // our odds, because the opponent who "still has him" cancels the gain.
+    const star = player("STAR", "RB", 60);
+    const filler = Array.from({ length: TEAMS * ROUNDS }, (_, i) =>
+      player(`f${i}`, i % 2 === 0 ? "WR" : "RB", 6),
+    );
+    // We sit in the last seat, so an opponent holds pick 1 and takes the star in the
+    // baseline completion. At seat 1 we would take him ourselves and forcing him would
+    // change nothing — which is correct, and tests nothing.
+    const teams: DraftTeam[] = Array.from({ length: TEAMS }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i}`,
+      roster: [],
+      remainingPicks: snakePicks(i === 0 ? TEAMS : i, TEAMS, ROUNDS),
+    }));
+    const recs = recommendByChampionship(
+      {
+        teams,
+        myTeamIndex: 0,
+        available: [star, ...filler],
+        rosterSize: ROUNDS,
+      },
+      CONFIG,
+      13,
+      3,
+    );
+    const forStar = recs.find((r) => r.player.id === "STAR");
+    expect(forStar).toBeDefined();
+    // Taking the one dominant player on the board must make us clear favourites in an
+    // eight-team league. Double-counted he is still on the opponent who took him, so we
+    // gain him without their losing him and the odds land near a coin flip instead:
+    // measured, 0.76 against 0.49 at this seed. "Better than zero" does not separate
+    // those, which is why the first version of this test passed against the bug.
+    expect(forStar!.championshipProbability).toBeGreaterThan(0.6);
+    expect(forStar!.deltaVsBaseline).toBeGreaterThan(0.02);
+  });
+});
+
 describe("completeOwnRoster", () => {
   it("stops at the roster size, not at the picks it holds", () => {
     // `completeDraft` bounds every opponent by `rosterSize`; this bounds us the same way.
@@ -489,5 +541,15 @@ describe("completeOwnRoster", () => {
     const filled = completeOwnRoster([], 9, board(), SLOTS, forced, 4);
     expect(filled).toHaveLength(4);
     expect(filled.map((p) => p.id)).toContain(forced.id);
+  });
+
+  it("refuses to seat a forced pick that neither bound has room for", () => {
+    // The loop stops at both bounds; the forced pick used to bypass the loop entirely, so
+    // a full roster came back one longer than every opponent and a team with no picks
+    // left still drafted. Both make our simulated team bigger than the ones it plays.
+    const forced = board()[0];
+    const full = board().slice(1, 5);
+    expect(completeOwnRoster(full, 3, board(), SLOTS, forced, 4)).toHaveLength(4);
+    expect(completeOwnRoster([], 0, board(), SLOTS, forced, 10)).toHaveLength(0);
   });
 });

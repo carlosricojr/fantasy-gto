@@ -215,6 +215,12 @@ export interface RosterEntry {
 /** Pure parse of the season roster release. */
 export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
   const entries: RosterEntry[] = [];
+  // A player traded mid-season can appear active on two teams in the same release. The
+  // board is keyed by `(board, playerId)`, so both rows are written and the later one wins
+  // — meaning the team shown is whichever the file happened to list last, silently. Kept
+  // once, at the first active row, so the choice is at least deterministic and the
+  // duplicate cannot masquerade as two draftable players.
+  const seen = new Set<string>();
   for (const row of rows) {
     // Only active players. `RET`, `CUT`, and the rest are on the file too.
     if (str(row, "status").toUpperCase() !== "ACT") continue;
@@ -222,7 +228,7 @@ export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
     // `gsis_id` is the join key to weekly statistics. Without it a roster row cannot be
     // connected to any production history, so it would price a player from nothing.
     const playerId = str(row, "gsis_id");
-    if (playerId === "") continue;
+    if (playerId === "" || seen.has(playerId)) continue;
 
     const name = str(row, "full_name") || str(row, "player_name");
     if (name === "") continue;
@@ -230,6 +236,7 @@ export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
     let position = str(row, "position").toUpperCase();
     if (position === "FB") position = "RB";
 
+    seen.add(playerId);
     entries.push({
       playerId,
       name,

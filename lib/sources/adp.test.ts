@@ -29,9 +29,8 @@ describe("adpUrl", () => {
     expect(adpUrl("ppr", 14, 2026)).toContain("teams=14");
   });
 
-  it("falls back to PPR for an unknown ruleset rather than sending a bad format", () => {
-    expect(adpUrl("nonsense", 12, 2026)).toContain("/ppr?");
-  });
+  // The unknown-ruleset case used to assert a fallback to PPR here. That fallback was the
+  // defect, not the behaviour — see "unmapped scoring" at the end of this file.
 });
 
 describe("parseAdp", () => {
@@ -154,5 +153,22 @@ describe("bye weeks", () => {
   it("leaves a missing bye week null", () => {
     expect(one(undefined)?.bye).toBeNull();
     expect(one("not a week")?.bye).toBeNull();
+  });
+});
+
+describe("unmapped scoring", () => {
+  it("refuses rather than serving another format's board", () => {
+    // The fallback to PPR was silent and produced a board that looked entirely normal —
+    // a half-PPR league priced off a PPR market, which reorders receivers against backs
+    // all the way down. A missing board is visible; a wrong one is not.
+    expect(() => adpUrl("dynasty-2qb", 12, 2026)).toThrow(/No average-draft-position/);
+    expect(adpUrl("half_ppr", 12, 2026)).toContain("half-ppr");
+  });
+
+  it("reports it as a provider failure rather than throwing at the caller", async () => {
+    const provider = new AdpProvider(async () => "{}");
+    const result = await provider.forSeason(2026, "dynasty-2qb", 12);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/No average-draft-position/);
   });
 });

@@ -79,7 +79,13 @@ export const board = query({
 export const boardFreshness = query({
   args: { season: v.number(), scoringId: v.string(), teams: v.number() },
   handler: async (ctx, { season, scoringId, teams }) => {
-    const row = await ctx.db
+    // The newest `computedAt` on the board, not the first row the index happens to yield.
+    // Index order is by the board key and has nothing to do with when a row was written,
+    // and `upsertBoardBatch` writes batch by batch — so mid-rebuild the board holds a mix
+    // of old and new timestamps and `.first()` could return either. The interface states
+    // this figure to the user as the board's freshness, which `.first()` cannot support:
+    // it could call a mostly-stale board fresh, or a mostly-new one stale.
+    const rows = await ctx.db
       .query("draftBoard")
       .withIndex("by_board", (q) =>
         q
@@ -88,8 +94,9 @@ export const boardFreshness = query({
           .eq("scoringId", scoringId)
           .eq("teams", teams),
       )
-      .first();
-    return row === null ? null : { computedAt: row.computedAt };
+      .collect();
+    if (rows.length === 0) return null;
+    return { computedAt: Math.max(...rows.map((row) => row.computedAt)) };
   },
 });
 
