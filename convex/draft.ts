@@ -50,18 +50,17 @@ export const board = query({
     const published = await publishedRun(ctx, season, scoringId, teams);
     if (published === null) return [];
 
-    const rows = (
-      await ctx.db
-        .query("draftBoard")
-        .withIndex("by_board", (q) =>
-          q
-            .eq("sport", "nfl")
-            .eq("season", season)
-            .eq("scoringId", scoringId)
-            .eq("teams", teams),
-        )
-        .collect()
-    ).filter((row) => row.computedAt === published);
+    const rows = await ctx.db
+      .query("draftBoard")
+      .withIndex("by_board_run", (q) =>
+        q
+          .eq("sport", "nfl")
+          .eq("season", season)
+          .eq("scoringId", scoringId)
+          .eq("teams", teams)
+          .eq("computedAt", published),
+      )
+      .collect();
 
     rows.sort(
       (a, b) =>
@@ -231,14 +230,14 @@ export const pruneBoard = internalMutation({
   handler: async (ctx, { season, scoringId, teams, computedBefore }) => {
     const stale = await ctx.db
       .query("draftBoard")
-      .withIndex("by_board", (q) =>
+      .withIndex("by_board_run", (q) =>
         q
           .eq("sport", "nfl")
           .eq("season", season)
           .eq("scoringId", scoringId)
-          .eq("teams", teams),
+          .eq("teams", teams)
+          .lt("computedAt", computedBefore),
       )
-      .filter((q) => q.lt(q.field("computedAt"), computedBefore))
       .take(PRUNE_PAGE + 1);
 
     // Bounded, and the caller is told whether to come back. A failed rebuild leaves its

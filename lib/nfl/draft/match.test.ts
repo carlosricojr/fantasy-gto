@@ -334,3 +334,17 @@ describe("matchName is unchanged by its length prune", () => {
     expect(checked).toBeGreaterThan(2000);
   });
 });
+
+describe("the normalisation cache follows an array that grew", () => {
+  it("does not serve a stale list after the caller appends", () => {
+    // The cache is keyed on array identity. `readonly T[]` stops mutation through the
+    // parameter, not through the caller's own reference — and a shorter cached list leaves
+    // `normalized[i]` undefined and throws on `.length` a few lines later.
+    const universe = [{ id: "1", name: "Bijan Robinson" }];
+    expect(matchName("Bijan Robinson", universe)?.candidate.id).toBe("1");
+
+    universe.push({ id: "2", name: "Puka Nacua" });
+    expect(() => matchName("Puka Nacua", universe)).not.toThrow();
+    expect(matchName("Puka Nacua", universe)?.candidate.id).toBe("2");
+  });
+});

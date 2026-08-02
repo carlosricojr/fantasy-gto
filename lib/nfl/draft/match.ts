@@ -196,8 +196,12 @@ export const MATCH_AMBIGUITY_MARGIN = 0.1;
 const normalizedCache = new WeakMap<readonly MatchCandidate[], string[]>();
 
 function normalizedNames(candidates: readonly MatchCandidate[]): string[] {
+  // Length-checked as well as identity-checked. `readonly T[]` stops mutation through
+  // *this* reference, not through the caller's own — and a caller that pushes to the array
+  // it already passed would otherwise be served a shorter cached list, leaving
+  // `normalized[i]` undefined and throwing on `.length` a few lines later.
   const hit = normalizedCache.get(candidates);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined && hit.length === candidates.length) return hit;
   const computed = candidates.map((c) => normalizeName(c.name));
   normalizedCache.set(candidates, computed);
   return computed;

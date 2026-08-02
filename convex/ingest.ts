@@ -733,6 +733,7 @@ export async function runBuildDraftBoard(
       // dragging the pooled fit down for everybody else. Only the second half of that is
       // fixed here. They still resolve through `curves.pooled`, which is the honest
       // treatment for a position the model cannot value.
+      const sampledPlayers = new Set<string>();
       const samples = candidateAdp.data
         .map((entry) => {
           const position = normalizeMarketPosition(entry.position);
@@ -743,10 +744,18 @@ export async function runBuildDraftBoard(
           ) {
             return null;
           }
-          const actual = seasonPoints.find(entry.name, entry.position)?.total;
-          return actual === undefined
-            ? null
-            : { adp: entry.adp, actualSeasonPoints: actual, position };
+          // Deduplicated by the matched roster player, the rule the backtest already
+          // applies. Two ADP rows — "A.J. Brown" and "AJ Brown" — can resolve to one
+          // player, and counting him twice weights his (adp, points) pair twice in the
+          // least-squares fit that prices everyone at that position.
+          const matched = seasonPoints.find(entry.name, entry.position);
+          if (matched === null || sampledPlayers.has(matched.name)) return null;
+          sampledPlayers.add(matched.name);
+          return {
+            adp: entry.adp,
+            actualSeasonPoints: matched.total,
+            position,
+          };
         })
         .filter(
           (s): s is { adp: number; actualSeasonPoints: number; position: string } =>

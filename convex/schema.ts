@@ -182,6 +182,11 @@ export default defineSchema({
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])
+    // Selects one run. Without it every run-scoped read — serving the published board,
+    // and pruning the stale ones — has to scan the whole league shape and discard the
+    // rest, and that discarded set grows with the number of failed rebuilds rather than
+    // with the size of a board.
+    .index("by_board_run", ["sport", "season", "scoringId", "teams", "computedAt"])
     .index("by_board_player", ["sport", "season", "scoringId", "teams", "playerId"]),
 
 
