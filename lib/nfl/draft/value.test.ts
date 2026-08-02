@@ -152,8 +152,13 @@ describe("perGameRate against the real simulator", () => {
   it("gives equal season totals equal value, however durable the player", () => {
     // The differential error the fix was about. Before it, the fragile player realised
     // roughly half the durable one's total from the same season projection.
-    const durable = rosterUtility([seasonPlayer("d", 240, 0.95)], SLOTS, CONFIG, 11);
-    const fragile = rosterUtility([seasonPlayer("f", 240, 0.55)], SLOTS, CONFIG, 11);
+    // One id for both. `playerStream` derives each player's random stream from his id, so
+    // a shared seed does not pair two samples — only a shared id does. With "d" and "f"
+    // these were independent draws, and the 0.9–1.1 band is about the size of the sampling
+    // error on two single-player estimates at 600 scenarios, so the test could fail on the
+    // draw rather than on the behaviour.
+    const durable = rosterUtility([seasonPlayer("p", 240, 0.95)], SLOTS, CONFIG, 11);
+    const fragile = rosterUtility([seasonPlayer("p", 240, 0.55)], SLOTS, CONFIG, 11);
 
     const ratio = fragile.expectedPoints / durable.expectedPoints;
     expect(ratio).toBeGreaterThan(0.9);
@@ -167,8 +172,10 @@ describe("perGameRate against the real simulator", () => {
       ...seasonPlayer(id, seasonPoints, availability),
       weeklyMean: seasonPoints / 17,
     });
-    const durable = rosterUtility([naive("d", 240, 0.95)], SLOTS, CONFIG, 11);
-    const fragile = rosterUtility([naive("f", 240, 0.55)], SLOTS, CONFIG, 11);
+    // Same id for both, for the same reason as above. The margin here is wide enough that
+    // this is consistency rather than a flake fix.
+    const durable = rosterUtility([naive("p", 240, 0.95)], SLOTS, CONFIG, 11);
+    const fragile = rosterUtility([naive("p", 240, 0.55)], SLOTS, CONFIG, 11);
 
     expect(fragile.expectedPoints / durable.expectedPoints).toBeLessThan(0.7);
   });

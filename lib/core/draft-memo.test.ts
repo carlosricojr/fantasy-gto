@@ -412,6 +412,12 @@ describe("cached results are isolated from callers", () => {
     expect(() => {
       first[0].championshipProbability = 999;
     }).toThrow();
+    // The nested player too. `Object.freeze` is shallow and `player` is the same object the
+    // caller supplied in `state.available`, so freezing only the recommendation left the
+    // cache editable through one more dereference.
+    expect(() => {
+      first[0].player.weeklyMean = 999;
+    }).toThrow();
 
     const second = recommendMemoized(store, state, CONFIG, 42, 3);
     expect(second.cached).toBe(true);

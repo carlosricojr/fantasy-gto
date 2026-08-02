@@ -142,7 +142,7 @@ export class LruMemoStore implements MemoStore {
     // The array is copied and each recommendation frozen. Copying the array alone stops a
     // caller reordering the cache; it does not stop one writing to a recommendation object,
     // which is shared by reference with every future hit.
-    this.entries.set(key, value.map((r) => Object.freeze({ ...r })));
+    this.entries.set(key, value.map(sealed));
     while (this.entries.size > this.capacity) {
       const oldest = this.entries.keys().next();
       if (oldest.done === true) break;
@@ -172,6 +172,22 @@ export interface MemoizedResult {
  * covers every input: the computation is deterministic, so recomputing would produce the
  * identical array. `draft-memo.test.ts` asserts that rather than assuming it.
  */
+/**
+ * A recommendation a caller cannot write through.
+ *
+ * `Object.freeze` is shallow, and `player` is the very object the caller handed in through
+ * `state.available` — so freezing the recommendation alone left `rec.player.weeklyMean`
+ * writable, and writing to it edited the cached entry and every later hit. The worker path
+ * survives that only because `postMessage` clones; `memoizedCompute` and the tests call
+ * in-process.
+ *
+ * Applied on the way into the store *and* on the way out of a miss, so the first caller
+ * gets the same guarantees as every later one.
+ */
+function sealed(r: ChampionshipRecommendation): ChampionshipRecommendation {
+  return Object.freeze({ ...r, player: Object.freeze({ ...r.player }) });
+}
+
 export function recommendMemoized(
   store: MemoStore,
   state: DraftPolicyState,
@@ -194,11 +210,7 @@ export function recommendMemoized(
   // recommendations. Returning the raw computed array meant the first caller held
   // references the cache also held, and only later callers were protected. Not read back
   // through `store.get`, which would count a hit that did not happen.
-  return {
-    recommendations: recommendations.map((r) => Object.freeze({ ...r })),
-    cached: false,
-    key,
-  };
+  return { recommendations: recommendations.map(sealed), cached: false, key };
 }
 
 /**
