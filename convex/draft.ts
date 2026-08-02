@@ -26,6 +26,7 @@ const boardRowValidator = v.object({
   availability: v.number(),
   p10: v.number(),
   p90: v.number(),
+  quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
 });
 
 /**
@@ -81,6 +82,10 @@ export const board = query({
       availability: row.availability,
       p10: row.p10,
       p90: row.p90,
+      // Carried to the client so the interface can decline to present an assumed spread
+      // as evidence. Nothing renders a range today; the marker exists so that when
+      // something does, it cannot do so without knowing which kind it has.
+      quantileProvenance: row.quantileProvenance,
     }));
   },
 });

@@ -167,9 +167,18 @@ export default defineSchema({
      * Drives how much the depth behind him is worth.
      */
     availability: v.number(),
-    /** Measured spread of actual/projected for his position, for weekly variance. */
+    /** Spread of actual/projected for his position, for weekly variance. */
     p10: v.number(),
     p90: v.number(),
+    /**
+     * Whether that spread was measured or assumed.
+     *
+     * Stored rather than inferred, for the same reason `modelPoints` is nullable: a row
+     * that cannot say where its numbers came from will eventually be presented as though
+     * they were all measured. Kickers and defences carry `placeholder`, and so does any
+     * position `OUTCOME_QUANTILES` has no entry for.
+     */
+    quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])

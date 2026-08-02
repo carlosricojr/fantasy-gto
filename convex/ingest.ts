@@ -848,6 +848,7 @@ export async function runBuildDraftBoard(
         // point somebody reads the measured bands.
         p10: band?.p10 ?? PLACEHOLDER_QUANTILES.p10,
         p90: band?.p90 ?? PLACEHOLDER_QUANTILES.p90,
+        quantileProvenance: band?.provenance ?? PLACEHOLDER_QUANTILES.provenance,
       });
     }
 
@@ -874,6 +875,9 @@ export async function runBuildDraftBoard(
         availability: 1,
         p10: band.p10,
         p90: band.p90,
+        // A defence's band is `placeholder` in `OUTCOME_QUANTILES`, and the stored row
+        // says so rather than leaving the reader to know it.
+        quantileProvenance: band.provenance,
       });
     }
 

@@ -44,6 +44,7 @@ function row(playerId: string, blendedPoints: number) {
     availability: 0.9,
     p10: 0.3,
     p90: 1.9,
+    quantileProvenance: "measured" as const,
   };
 }
 
