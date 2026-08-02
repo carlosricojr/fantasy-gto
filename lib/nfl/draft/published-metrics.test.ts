@@ -62,7 +62,13 @@ describe("docs/draft-validation.md quotes the published metrics", () => {
   });
 
   it("states the sample size the metrics were computed over", () => {
-    expect(doc).toContain(String(metrics.sampleSize));
+    // Bound to the sentence that states it. `toContain(String(n))` is a bare substring
+    // match over the whole document: it passes on any occurrence of those digits — inside
+    // a longer number, a year, an unrelated cell — so it would keep passing after the
+    // document started quoting a different n, which is the one thing it exists to catch.
+    const stated = doc.match(/over the (\d+) players with both a market price/);
+    expect(stated).not.toBeNull();
+    expect(Number(stated![1])).toBe(metrics.sampleSize);
   });
 
   it("keeps the blend weight the document names in step with the one measured", () => {
