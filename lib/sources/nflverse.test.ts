@@ -242,6 +242,19 @@ describe("parseSeasonRoster", () => {
     }
   });
 
+  it("normalises a legacy team code to its canonical one", () => {
+    // On a constructed row. The captured fixture is a current-season file, so it carries
+    // only canonical codes — `/^[A-Z]{2,3}$/` accepts `OAK` and `STL` just as happily, and
+    // the assertion above would pass with `normalizeTeam` deleted outright.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const rows = [
+      "2026,OAK,RB,ACT,Legacy Raider,00-0030400",
+      "2026,STL,WR,ACT,Legacy Ram,00-0030401",
+    ];
+    const parsed = parseSeasonRoster(parseCsv([header, ...rows].join("\n")));
+    expect(parsed.map((e) => e.team)).toEqual(["LV", "LA"]);
+  });
+
   it("folds a fullback into a running back", () => {
     // On a constructed row rather than the captured fixture, which contains no fullback —
     // so the assertion above that no entry has position FB was true of a file that never

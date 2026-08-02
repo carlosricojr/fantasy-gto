@@ -294,13 +294,20 @@ export default function DraftPage() {
 
   // Recompute whenever the board changes, including while opponents are picking — the
   // answer for a future position is worth having before the turn arrives.
+  const draftComplete = currentPick > totalPicks;
+
   useEffect(() => {
     if (!started || draftState === null) return;
     if (draftState.available.length === 0) return;
+    // A finished draft still changes `draftState` on the last pick, and the pool is never
+    // empty — drafted players are a small slice of the board — so without this the worker
+    // ran a full season simulation for a draft that was over, and the panel went on
+    // advising a pick for a clock nobody is on.
+    if (draftComplete) return;
     recommender.request(draftState, config, SEED, 10);
     // `recommender.request` is stable; depending on the whole object would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, draftState, config]);
+  }, [started, draftState, config, draftComplete]);
 
   const myRoster = draftState?.teams[0].roster ?? [];
 
@@ -495,12 +502,18 @@ export default function DraftPage() {
             </p>
           ) : null}
 
-          <Recommendations
-            state={recommender}
-            onPick={record}
-            onTheClock={onTheClock}
-            clockLabel={clockLabel}
-          />
+          {draftComplete ? (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              The draft is over &mdash; every pick is recorded. Your roster is below.
+            </p>
+          ) : (
+            <Recommendations
+              state={recommender}
+              onPick={record}
+              onTheClock={onTheClock}
+              clockLabel={clockLabel}
+            />
+          )}
 
           <section className="mt-6">
             <h2 className="text-sm font-medium">

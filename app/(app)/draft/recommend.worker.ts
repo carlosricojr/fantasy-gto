@@ -59,6 +59,16 @@ self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
     if (typeof request.seed !== "number" || !Number.isFinite(request.seed)) {
       throw new Error("The worker received a request with no usable seed.");
     }
+    // Same rule as `seed`, and the same failure without it: a non-numeric limit reaches
+    // `Math.max(candidateLimit, 1)` as NaN, `slice(0, NaN)` returns nothing, and the reply
+    // is a normal response carrying an empty ranking and no error.
+    if (
+      request.candidateLimit !== undefined &&
+      (typeof request.candidateLimit !== "number" ||
+        !Number.isFinite(request.candidateLimit))
+    ) {
+      throw new Error("The worker received a request with an unusable candidate limit.");
+    }
     const { state, config, seed, candidateLimit } = request as RecommendRequest;
 
     const result = recommendMemoized(

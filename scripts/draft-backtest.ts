@@ -355,6 +355,15 @@ async function main(): Promise<void> {
   let bestScore = -Infinity;
   for (const weight of BLEND_WEIGHTS) {
     const value = score(tuning, weight);
+    // The same rule the evaluation block applies, on the half that chooses the weight. A
+    // NaN score never satisfies `value > bestScore`, so the sweep would silently keep the
+    // default and print it as though it had been selected on the data.
+    if (!Number.isFinite(value)) {
+      throw new Error(
+        `The tuning season scored ${value} at blend weight ${weight}, so no weight can ` +
+          `be chosen from it. Check that the tuning season matched any players at all.`,
+      );
+    }
     const marker = value > bestScore ? " <-" : "";
     if (value > bestScore) {
       bestScore = value;
