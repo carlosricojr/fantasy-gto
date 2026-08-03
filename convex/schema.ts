@@ -177,8 +177,18 @@ export default defineSchema({
      * that cannot say where its numbers came from will eventually be presented as though
      * they were all measured. Kickers and defences carry `placeholder`, and so does any
      * position `OUTCOME_QUANTILES` has no entry for.
+     *
+     * Optional only so that adding it cannot break a deployment that already holds board
+     * rows. Convex validates the schema against existing documents, so a required field on
+     * a populated table fails the deploy outright — and this table is populated in any
+     * environment where the board has been built once, which is every environment the
+     * feature has ever run in. Every write sets it; a row without it predates the column,
+     * and readers treat that as `placeholder`, because the one thing a row of unknown
+     * provenance must not do is claim to be measured.
      */
-    quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
+    quantileProvenance: v.optional(
+      v.union(v.literal("measured"), v.literal("placeholder")),
+    ),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])
