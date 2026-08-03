@@ -749,8 +749,15 @@ export async function runBuildDraftBoard(
           // player, and counting him twice weights his (adp, points) pair twice in the
           // least-squares fit that prices everyone at that position.
           const matched = seasonPoints.find(entry.name, entry.position);
-          if (matched === null || sampledPlayers.has(matched.name)) return null;
-          sampledPlayers.add(matched.name);
+          // Keyed the way `buildMarketIndex` distinguishes players, not by raw name. The
+          // index legitimately returns two *different* players for one name string when
+          // their positions differ, so deduping on the name alone would drop the second
+          // and shrink the fit sample — turning a guard against double-weighting into a
+          // quiet loss of data.
+          if (matched === null) return null;
+          const key = `${normalizeName(matched.name)}|${normalizeMarketPosition(matched.position)}`;
+          if (sampledPlayers.has(key)) return null;
+          sampledPlayers.add(key);
           return {
             adp: entry.adp,
             actualSeasonPoints: matched.total,

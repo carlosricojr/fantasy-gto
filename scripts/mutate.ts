@@ -230,9 +230,19 @@ function mutantsFor(file: string, source: string): Mutant[] {
     // was mutable and the `>=` inside the comment was an eligible site — a mutant that
     // edits comment text, which nothing can object to and which is then reported as a
     // survivor indistinguishable from a real gap.
-    const masked = withoutLineComment.replace(/\/\*[\s\S]*?\*\//g, (m) =>
+    const withoutBlocks = withoutLineComment.replace(/\/\*[\s\S]*?\*\//g, (m) =>
       " ".repeat(m.length),
     );
+    // And a `/*` that opens after code and never closes on this line. `isMutableLine`
+    // accepts such a line because its trimmed text does not start with `/*`, and
+    // `inBlockComment` only turns on for the lines that follow — so everything after the
+    // opener was an eligible site producing comment-only mutants.
+    const danglingBlock = withoutBlocks.indexOf("/*");
+    const masked =
+      danglingBlock === -1
+        ? withoutBlocks
+        : withoutBlocks.slice(0, danglingBlock) +
+          " ".repeat(withoutBlocks.length - danglingBlock);
 
     for (const mutator of MUTATORS) {
       for (const site of mutator.sites(masked)) {
@@ -425,7 +435,7 @@ async function main(): Promise<void> {
   // so a typo in the flag ran zero mutants against every file, printed `score 0.0%`, and
   // exited 0. That is the third way this harness has found to publish a number for work it
   // did not do.
-  if (!Number.isFinite(limit) && limit !== Infinity) {
+  if (limit !== Infinity && !Number.isInteger(limit)) {
     process.stderr.write(
       `--limit needs a positive whole number; got "${args[limitIndex + 1] ?? ""}".\n`,
     );
