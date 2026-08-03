@@ -11,6 +11,7 @@ import {
   anticipateStates,
   canonicalizeState,
   digestIds,
+  digestPlayers,
   precomputeRecommendations,
   recommendWithCache,
   resolveFromCache,
@@ -754,5 +755,76 @@ describe("allowApproximate is an opt-in", () => {
     );
     expect(resolved.kind).toBe("miss");
     expect(resolved.recommendations.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The digest, pinned to actual output.
+ *
+ * Same reasoning as the golden values in roster-utility: changing a hash constant produces
+ * a different but equally valid digest, so no structural assertion can tell — yet it is not
+ * equivalent, because every cache key in the system changes with it. A cache whose keys
+ * shift silently between deploys is a cache that never hits, and nothing would say so.
+ *
+ * Meant to fail if the hash changes. When that is deliberate, re-run and update.
+ */
+describe("digest output is stable", () => {
+  it("produces the values this implementation produces today", () => {
+    expect(digestIds([])).toBe("811c9dc5");
+    expect(digestIds(["a"])).toBe("ff248b00");
+    expect(digestIds(["a", "b", "c"])).toBe("9ab20731");
+  });
+
+  it("digests a player's numbers, not only his id", () => {
+    const at = (adp: number | null) => ({
+      id: "x",
+      name: "x",
+      position: "RB",
+      weeklyMean: 10,
+      p10: 0.3,
+      p90: 1.9,
+      byeWeek: null,
+      availability: 0.9,
+      adp,
+      adpStdev: 6,
+    });
+    expect(digestPlayers([at(5)])).not.toBe(digestPlayers([at(6)]));
+  });
+});
+
+/**
+ * Sampling a plausible future.
+ *
+ * `sampleFuture` draws each player's perceived draft slot as `adp + N(0, stdev)` and takes
+ * them in that order — the same model `survivalProbability` integrates, so the futures we
+ * prepare for are consistent with the probabilities we quote. If the ordering breaks, the
+ * cache is built for futures that will never happen, and every speculative hit is for a
+ * board nobody reached.
+ *
+ * Nothing was checking that it follows the market at all. Turning the comparator into a sum
+ * makes it take players in id order instead, and no test noticed.
+ */
+describe("sampleFuture follows the market", () => {
+  it("takes players near the top of the board, not in arbitrary order", () => {
+    const state = canonicalizeState(baseState());
+    const taken: number[] = [];
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const future = sampleFuture(state, [{ team: 1 }], createRng(seed));
+      // The one player who left the pool is the one the opponent took.
+      const before = new Set(state.available.map((p) => p.id));
+      for (const id of future.available.map((p) => p.id)) before.delete(id);
+      const [id] = [...before];
+      const player = state.available.find((p) => p.id === id)!;
+      taken.push(player.adp ?? 999);
+    }
+
+    expect(taken).toHaveLength(200);
+    // Drawn around ADP with a spread, so the mean sits near the top of the board.
+    const mean = taken.reduce((a, b) => a + b, 0) / taken.length;
+    expect(mean).toBeLessThan(10);
+    // A tail is expected — that is the point of the noise — but a thin one.
+    expect(taken.filter((adp) => adp > 20).length).toBeLessThan(15);
+    // And it is genuinely random rather than always the same player.
+    expect(new Set(taken).size).toBeGreaterThan(4);
   });
 });
