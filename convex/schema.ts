@@ -178,17 +178,20 @@ export default defineSchema({
      * they were all measured. Kickers and defences carry `placeholder`, and so does any
      * position `OUTCOME_QUANTILES` has no entry for.
      *
-     * Optional only so that adding it cannot break a deployment that already holds board
-     * rows. Convex validates the schema against existing documents, so a required field on
-     * a populated table fails the deploy outright — and this table is populated in any
-     * environment where the board has been built once, which is every environment the
-     * feature has ever run in. Every write sets it; a row without it predates the column,
-     * and readers treat that as `placeholder`, because the one thing a row of unknown
-     * provenance must not do is claim to be measured.
+     * Required, like the four fields beside it.
+     *
+     * It went in optional for a while, justified by Convex rejecting a required field on a
+     * table that already holds documents. That reasoning does not survive contact with the
+     * history: `byeWeek`, `availability`, `p10` and `p90` were all added to this same table
+     * as required fields in e82a9f4, after it was created in 6e04b2d. If the premise held,
+     * the deploy would fail on `byeWeek` before it ever reached this line, and softening
+     * one field of five would achieve nothing.
+     *
+     * What is actually true: this table does not exist on `main`, so the first production
+     * deploy creates it and every field is fine. A development deployment that ran an
+     * earlier commit of this branch needs its data cleared regardless, for those four.
      */
-    quantileProvenance: v.optional(
-      v.union(v.literal("measured"), v.literal("placeholder")),
-    ),
+    quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])

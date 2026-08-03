@@ -84,10 +84,7 @@ export const board = query({
       // Carried to the client so the interface can decline to present an assumed spread
       // as evidence. Nothing renders a range today; the marker exists so that when
       // something does, it cannot do so without knowing which kind it has.
-      // Absent means the row was written before the column existed. Read as
-      // `placeholder`, never as `measured`: an unknown provenance must not be able to
-      // present itself as evidence.
-      quantileProvenance: row.quantileProvenance ?? "placeholder",
+      quantileProvenance: row.quantileProvenance,
     }));
   },
 });

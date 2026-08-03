@@ -114,40 +114,25 @@ describe("draft board publishing", () => {
     expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000 });
   });
 
-  it("reads a row written before the provenance column as placeholder", async () => {
-    // The column was added to a table that is already populated wherever this feature has
-    // run once. It is optional so the deploy cannot fail on existing documents, which
-    // means legacy rows are a real state and not a hypothetical — and a row that cannot
-    // say where its spread came from must not be able to claim it was measured.
+  it("serves the provenance it stored, both values", async () => {
+    // Pinned in both directions. Asserting only one lets the read be replaced by that
+    // constant with the suite still green — which is what a previous version of this test
+    // allowed, since it covered a fallback and never a stored value.
     const t = convexTest(schema, modules);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("draftBoard", {
-        sport: "nfl",
-        season: SEASON,
-        scoringId: SCORING,
-        teams: TEAMS,
-        computedAt: 1_000,
-        playerId: "legacy",
-        name: "Legacy Row",
-        position: "RB",
-        team: "SF",
-        modelPoints: null,
-        marketPoints: 100,
-        blendedPoints: 100,
-        adp: 10,
-        adpStdev: 5,
-        byeWeek: 9,
-        availability: 0.9,
-        p10: 0.3,
-        p90: 1.9,
-        // No `quantileProvenance` — exactly what a pre-migration row looks like.
-      });
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 1_000,
+      rows: [
+        { ...row("measured-player", 200), quantileProvenance: "measured" as const },
+        { ...row("placeholder-player", 100), quantileProvenance: "placeholder" as const },
+      ],
     });
     await t.mutation(internal.draft.publishBoard, { ...shape, computedAt: 1_000 });
 
-    const [served] = await t.query(api.draft.board, shape);
-    expect(served.playerId).toBe("legacy");
-    expect(served.quantileProvenance).toBe("placeholder");
+    const served = await t.query(api.draft.board, shape);
+    const byId = new Map(served.map((r) => [r.playerId, r.quantileProvenance]));
+    expect(byId.get("measured-player")).toBe("measured");
+    expect(byId.get("placeholder-player")).toBe("placeholder");
   });
 
   it("does not let a stale run that finishes late take the current board with it", async () => {

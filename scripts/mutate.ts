@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import ts from "typescript";
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -389,6 +390,26 @@ function assertVitestExists(): void {
   }
 }
 
+/**
+ * Whether a mutated source still parses as TypeScript.
+ *
+ * Uses the compiler's own parser rather than a heuristic, because the cases that matter are
+ * exactly the ones a textual rule gets wrong: `a <= b` is valid and `Set<=string>` is not,
+ * and both come from the same mutator on the same character.
+ */
+function parses(source: string): boolean {
+  const file = ts.createSourceFile(
+    "mutant.ts",
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+  // `parseDiagnostics` is not on the public type, but it is what the parser fills in and
+  // there is no public accessor for syntax-only errors.
+  return (file as unknown as { parseDiagnostics: unknown[] }).parseDiagnostics.length === 0;
+}
+
 function runAll(): boolean {
   assertVitestExists();
   try {
@@ -487,6 +508,7 @@ async function main(): Promise<void> {
   const survivors: Mutant[] = [];
   const skipped: string[] = [];
   let killed = 0;
+  let unparseable = 0;
   let tested = 0;
 
   // The file currently carrying a mutant, so an interrupt restores that one and only that
@@ -543,6 +565,19 @@ async function main(): Promise<void> {
     for (const mutant of mutants) {
       const lines = original.split("\n");
       lines[mutant.line - 1] = mutant.after;
+      const mutatedSource = lines.join("\n");
+
+      // A mutant that does not parse is not a mutant. `<` inside a generic — `Set<string>`
+      // becoming `Set<=string>` — is the common case, and it was being counted as a *kill*:
+      // vitest cannot load the module, exits non-zero, and `runTests` reads that as the
+      // tests having objected. Every one of those inflated the score for a change no test
+      // ever saw. Discarded rather than scored, and counted separately so the number is
+      // visible instead of implied.
+      if (!parses(mutatedSource)) {
+        unparseable += 1;
+        continue;
+      }
+
       let green = false;
       try {
         // Set immediately before the write and cleared by the restore, so the pointer is
@@ -551,7 +586,7 @@ async function main(): Promise<void> {
         // wrong, and that is the only window a hard kill can land in.
         writeFileSync(backupPathFor(path), original);
         inFlight = { path, original };
-        writeFileSync(path, lines.join("\n"));
+        writeFileSync(path, mutatedSource);
         tested += 1;
         green = runTests(tests);
       } finally {
@@ -589,7 +624,12 @@ async function main(): Promise<void> {
   process.stdout.write(
     `\n${"=".repeat(70)}\n` +
       `mutants ${tested}   killed ${killed}   survived ${survivors.length}   ` +
-      `score ${score.toFixed(1)}%\n${"=".repeat(70)}\n`,
+      `score ${score.toFixed(1)}%\n` +
+      (unparseable > 0
+        ? `${unparseable} generated mutant(s) did not parse and were discarded rather ` +
+          `than scored.\n`
+        : "") +
+      `${"=".repeat(70)}\n`,
   );
   if (skipped.length > 0) {
     process.stdout.write(
