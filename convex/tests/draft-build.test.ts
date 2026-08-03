@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { runBuildDraftBoard } from "../ingest";
 import { AdpProvider } from "../../lib/sources/adp";
+import { MODEL_BLEND_WEIGHT } from "../../lib/nfl/draft/config";
 import {
   NflverseProvider,
   schedulesUrl,
@@ -31,7 +32,13 @@ const SEASON = 2026;
 const TEAM = "PHI";
 const OPPONENT = "DAL";
 
-/** Enough of a schedule that the season resolves and byes can be computed. */
+/**
+ * A schedule, served only because the provider can be asked for one.
+ *
+ * `runBuildDraftBoard` never requests it — the season is a parameter and bye weeks come
+ * from the market feed, not the schedule. The previous comment here claimed both, which
+ * would have told a maintainer that bye handling was covered when nothing touches it.
+ */
 function gamesCsv(): string {
   const header = [
     "game_id", "season", "game_type", "week", "gameday", "gametime",
@@ -69,7 +76,17 @@ const POSITIONS = ["WR", "RB", "TE", "QB"] as const;
  * curve entirely and falling back to the pooled one, which is a difference no rounding can
  * hide.
  */
-const PER_POSITION: Record<string, number> = { WR: 12, RB: 7, TE: 12, QB: 12 };
+const PER_POSITION: Record<string, number> = { WR: 45, RB: 7, TE: 40, QB: 25 };
+
+/**
+ * Kickers, who exist to exercise the two branches with the most scar tissue.
+ *
+ * `scoreOffense` scores a kicking line as zero, so `modelled` — not the row count — is what
+ * decides they have no model value, and `OUTCOME_QUANTILES` marks their band `placeholder`.
+ * Without one on the board the provenance assertion can only ever see `measured` and the
+ * `modelled` guard is never taken.
+ */
+const KICKERS = 3;
 
 interface Fixture {
   id: string;
@@ -121,7 +138,21 @@ const SAME_NAME: Fixture[] = [
   { id: "00-018002", name: "Chris Jones", position: "RB", volume: 5.8, adp: 52 },
 ];
 
-const ALL: Fixture[] = [...PLAYERS, OUTLIER, ...SAME_NAME];
+const KICKER_PLAYERS: Fixture[] = Array.from({ length: KICKERS }, (_, i) => ({
+  id: `00-017${String(i).padStart(3, "0")}`,
+  name: `K Player${i}`,
+  position: "K",
+  volume: 0,
+  adp: 150 + i * 5,
+}));
+
+const ALL: Fixture[] = [...PLAYERS, OUTLIER, ...SAME_NAME, ...KICKER_PLAYERS];
+
+/** Defences never appear on a roster file; they are synthesised from the market board. */
+const DEFENCES = [
+  { name: "Philadelphia Eagles", adp: 130 },
+  { name: "Dallas Cowboys", adp: 140 },
+];
 
 /** Season roster: the players the board can contain at all. */
 function rosterCsv(): string {
@@ -167,9 +198,22 @@ function nflverse(): NflverseProvider {
   });
 }
 
-/** An ADP feed whose rows are supplied by the caller, so duplicates can be injected. */
-function adp(rows: Array<Record<string, unknown>>): AdpProvider {
-  return new AdpProvider(async () => JSON.stringify({ status: "Success", players: rows }));
+/**
+ * An ADP feed that answers per season.
+ *
+ * Season-aware rather than one payload for every request, because the curve must be fitted
+ * on a season that has already been played — never on the one being drafted. A fake that
+ * ignores the URL cannot tell those apart, and the leakage invariant is then untestable.
+ */
+function adp(
+  rows: Array<Record<string, unknown>>,
+  perSeason: Record<number, Array<Record<string, unknown>>> = {},
+): AdpProvider {
+  return new AdpProvider(async (url) => {
+    const season = Number(/year=(\d+)/.exec(url)?.[1] ?? 0);
+    const players = perSeason[season] ?? rows;
+    return JSON.stringify({ status: "Success", players });
+  });
 }
 
 const market = (name: string, position: string, adpValue: number) => ({
@@ -190,16 +234,20 @@ interface Recorded {
 /** Records mutations instead of performing them, like the projection tests do. */
 function recordingCtx() {
   const calls: Recorded[] = [];
+  let pruneCalls = 0;
   const ctx = {
     runMutation: async (
       ref: FunctionReference<"mutation", "internal">,
       args: Record<string, unknown>,
     ) => {
       calls.push({ fn: getFunctionName(ref), args });
-      // `pruneBoard` is drained in a loop until it reports no more.
-      return getFunctionName(ref) === "draft:pruneBoard"
-        ? { deleted: 0, more: false }
-        : "job_1";
+      // `pruneBoard` reports more work the first time, so the drain loop is exercised
+      // rather than assumed. A stub that always says "no more" never runs the loop at all.
+      if (getFunctionName(ref) === "draft:pruneBoard") {
+        pruneCalls += 1;
+        return { deleted: 1, more: pruneCalls < 2 };
+      }
+      return "job_1";
     },
   } as unknown as Parameters<typeof runBuildDraftBoard>[0];
   return { ctx, calls };
@@ -208,8 +256,13 @@ function recordingCtx() {
 interface BoardRow {
   playerId: string;
   name: string;
+  position: string;
+  modelPoints: number | null;
   blendedPoints: number;
   marketPoints: number | null;
+  adp: number | null;
+  p10: number;
+  p90: number;
   quantileProvenance: string;
 }
 
@@ -230,13 +283,21 @@ async function build(adpRows: Array<Record<string, unknown>>) {
 }
 
 /** One market row per rostered player — the healthy feed. */
-const ONE_ROW_EACH = ALL.map((f) => market(f.name, f.position, f.adp));
+const ONE_ROW_EACH = [
+  ...ALL.map((f) => market(f.name, f.position, f.adp)),
+  ...DEFENCES.map((d) => market(d.name, "DEF", d.adp)),
+];
 
 describe("runBuildDraftBoard", () => {
   it("builds a board with a price for every rostered player", async () => {
     const { result, rows } = await build(ONE_ROW_EACH);
-    expect(result.players).toBe(ALL.length);
-    expect(rows.map((r) => r.playerId).sort()).toEqual(ALL.map((f) => f.id).sort());
+    // Rostered players plus the defences, which never appear on a roster file and are
+    // synthesised from the market board so a league that starts one can draft one.
+    expect(result.players).toBe(ALL.length + DEFENCES.length);
+    expect(rows.filter((r) => r.position === "DST")).toHaveLength(DEFENCES.length);
+    for (const f of ALL) {
+      expect(rows.some((r) => r.playerId === f.id)).toBe(true);
+    }
     for (const row of rows) expect(row.marketPoints).not.toBeNull();
   });
 
@@ -249,11 +310,21 @@ describe("runBuildDraftBoard", () => {
       .filter((f) =>
         ["draft:upsertBoardBatch", "draft:publishBoard", "draft:pruneBoard"].includes(f),
       );
-    expect(order.at(-2)).toBe("draft:publishBoard");
-    expect(order.at(-1)).toBe("draft:pruneBoard");
+    // More than one batch, or the ordering this names cannot be violated: with a single
+    // write, publishing "after every batch" and publishing "after the last one" are the
+    // same event, and moving the publish inside the loop changes nothing.
+    const writes = order.filter((f) => f === "draft:upsertBoardBatch").length;
+    expect(writes).toBeGreaterThan(1);
+
+    // Publish strictly after the last write, and prune only after publish.
     expect(order.indexOf("draft:publishBoard")).toBeGreaterThan(
       order.lastIndexOf("draft:upsertBoardBatch"),
     );
+    expect(order.indexOf("draft:pruneBoard")).toBeGreaterThan(
+      order.indexOf("draft:publishBoard"),
+    );
+    // And the prune drains rather than running once.
+    expect(order.filter((f) => f === "draft:pruneBoard").length).toBeGreaterThan(1);
   });
 
   it("does not let a duplicated market row bend the curve that prices everyone else", async () => {
@@ -330,20 +401,61 @@ describe("runBuildDraftBoard", () => {
     const moved = a.some((price, i) => Math.abs(price - b[i]) > 1e-6);
     expect(moved).toBe(true);
 
-    // And both same-named players are on the board with a price of their own.
+    // And each same-named player carries his *own* market row, not the other's. Asserting
+    // only that the price is non-null lets a last-write-wins index through: the receiver
+    // silently inherits the back's adp, spread and bye, and both rows still look priced.
     for (const player of SAME_NAME) {
       const row = withBoth.rows.find((r) => r.playerId === player.id);
       expect(row).toBeDefined();
       expect(row!.marketPoints).not.toBeNull();
+      expect(row!.adp).toBe(player.adp);
     }
   });
 
-  it("records where each player's weekly spread came from", async () => {
-    // Every row must say whether its band was measured or assumed, so nothing can present
-    // an assumed range as evidence later.
+  it("labels an assumed weekly band as assumed, and a measured one as measured", async () => {
+    // `expect(["measured","placeholder"]).toContain(x)` restates the union the validator
+    // already enforces — it passes for every row and would keep passing if a kicker's
+    // assumed band were labelled measured, which is the defect worth catching. The fixture
+    // carries kickers and defences precisely so both labels actually occur.
     const { rows } = await build(ONE_ROW_EACH);
-    for (const row of rows) {
-      expect(["measured", "placeholder"]).toContain(row.quantileProvenance);
+
+    const skill = rows.filter((r) => ["WR", "RB", "TE", "QB"].includes(r.position));
+    const assumed = rows.filter((r) => ["K", "DST"].includes(r.position));
+    expect(skill.length).toBeGreaterThan(0);
+    expect(assumed.length).toBeGreaterThan(0);
+
+    for (const row of skill) expect(row.quantileProvenance).toBe("measured");
+    for (const row of assumed) expect(row.quantileProvenance).toBe("placeholder");
+  });
+
+  it("prices a kicker off the market alone, because the model cannot score one", async () => {
+    // `scoreOffense` scores a kicking line as zero, so a kicker with plenty of history
+    // still has no model opinion. The guard has to key on the position, not the row count —
+    // that distinction is why every veteran kicker was once marked down to 80% of his price.
+    const { rows } = await build(ONE_ROW_EACH);
+    const kickers = rows.filter((r) => r.position === "K");
+    expect(kickers.length).toBe(KICKERS);
+    for (const kicker of kickers) {
+      expect(kicker.modelPoints).toBeNull();
+      expect(kicker.marketPoints).not.toBeNull();
+      expect(kicker.blendedPoints).toBeCloseTo(kicker.marketPoints!, 6);
+    }
+  });
+
+  it("blends the two estimates at the published weight", async () => {
+    // The blend is what this function exists to produce, and comparing two runs of the same
+    // code cannot constrain it — both sides move together. Asserted against the formula.
+    // Without this, dropping the model half entirely leaves every test green.
+    const { rows } = await build(ONE_ROW_EACH);
+    const blended = rows.filter(
+      (r) => r.modelPoints !== null && r.marketPoints !== null,
+    );
+    expect(blended.length).toBeGreaterThan(20);
+    for (const row of blended) {
+      expect(row.blendedPoints).toBeCloseTo(
+        MODEL_BLEND_WEIGHT * row.modelPoints! + (1 - MODEL_BLEND_WEIGHT) * row.marketPoints!,
+        2,
+      );
     }
   });
 
