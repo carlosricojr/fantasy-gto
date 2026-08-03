@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_ADP_STDEV,
   type MarketPlayer,
   normalCdf,
   normalizeLeagueSetup,
@@ -245,5 +246,65 @@ describe("normalizeLeagueSetup", () => {
     );
     expect(setup.teams).toBe(14);
     expect(setup.rounds).toBe(20);
+  });
+});
+
+/**
+ * The coercion boundary, and the market's published assumption.
+ *
+ * `normalizeLeagueSetup` is the one place a string from a number input becomes a number,
+ * and `DEFAULT_ADP_STDEV` is what the survival model assumes when the market publishes no
+ * dispersion. Neither was pinned: the coercion could stop coercing and the assumption could
+ * change value, both silently.
+ */
+describe("normalizeLeagueSetup coerces what the controls actually produce", () => {
+  it("reads a numeric string, which is what a number input yields", () => {
+    // The docstring is explicit that the controls feeding this produce "1.5", "" and
+    // "abc". A guard that stops converting strings sends every one of them to the
+    // fallback, so the setup screen silently ignores what was typed.
+    expect(normalizeLeagueSetup({ teams: "12", slot: "3", rounds: "15" })).toEqual({
+      teams: 12,
+      slot: 3,
+      rounds: 15,
+    });
+  });
+
+  it("rounds a fraction rather than rejecting it", () => {
+    expect(normalizeLeagueSetup({ teams: 12, slot: "1.5", rounds: 15 }).slot).toBe(2);
+    expect(normalizeLeagueSetup({ teams: "11.4", slot: 1, rounds: 15 }).teams).toBe(11);
+  });
+
+  it("falls back only for what is genuinely unreadable", () => {
+    const setup = normalizeLeagueSetup({ teams: "abc", slot: "", rounds: undefined });
+    expect(setup.teams).toBe(2);
+    expect(setup.slot).toBe(1);
+    expect(setup.rounds).toBe(1);
+  });
+});
+
+describe("the market's dispersion assumption", () => {
+  it("is the value the survival model documents", () => {
+    // Nothing pinned this. It is read where the market publishes no spread, so changing it
+    // moves every survival probability for every unranked player on the board.
+    expect(DEFAULT_ADP_STDEV).toBe(12);
+    // A player at his own ADP is a coin flip, whatever the spread.
+    expect(survivalProbability({ adp: 40, adpStdev: null }, 40, 300)).toBeCloseTo(0.5, 6);
+    // One standard deviation past it is the normal tail.
+    expect(survivalProbability({ adp: 40, adpStdev: null }, 52, 300)).toBeCloseTo(
+      0.158655,
+      5,
+    );
+  });
+
+  it("treats a published zero spread as no spread, not as the default", () => {
+    // `lib/sources/adp.ts` deliberately stores a published zero rather than defaulting it,
+    // so this is real data. `?? DEFAULT_ADP_STDEV` would leave it at zero; `|| ...` would
+    // silently replace it with 12 and make a certainty look like a coin flip.
+    //
+    // Zero is floored to 0.5 by the model, so a player one pick past his ADP is all but
+    // certainly gone.
+    expect(survivalProbability({ adp: 40, adpStdev: 0 }, 41, 300)).toBeLessThan(0.05);
+    // With the default spread instead, the same pick is nearly even.
+    expect(survivalProbability({ adp: 40, adpStdev: 12 }, 41, 300)).toBeGreaterThan(0.4);
   });
 });

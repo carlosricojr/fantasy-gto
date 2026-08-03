@@ -396,3 +396,34 @@ describe("findNamesInText orders by confidence", () => {
     }
   });
 });
+
+/**
+ * What `normalizeName` keeps and what it throws away.
+ *
+ * It builds the key for the per-player market index, so what survives normalisation decides
+ * which players are found at all. Two mutants changed that silently: narrowing the
+ * character class drops digits from names that carry them, and requiring more than one
+ * character per token drops initials — which is exactly how OCR and hand-typed input render
+ * "A.J." and "T.J.", the module's own documented damage model.
+ */
+describe("normalizeName keeps what identifies a player", () => {
+  it("keeps digits, which some names carry", () => {
+    // "San Francisco 49ers" is a real board entry: defences are named by team.
+    expect(normalizeName("San Francisco 49ers")).toBe("sanfrancisco49ers");
+    expect(normalizeName("Robert Griffin III")).toBe("robertgriffin");
+  });
+
+  it("keeps single-character tokens, which is how initials arrive", () => {
+    // Dropping tokens of length one turns "A. J. Brown" into "brown" — a different player
+    // from "ajbrown", so the index misses him entirely.
+    expect(normalizeName("A. J. Brown")).toBe("ajbrown");
+    expect(normalizeName("A.J. Brown")).toBe("ajbrown");
+    expect(normalizeName("T. J. Hockenson")).toBe("tjhockenson");
+  });
+
+  it("agrees across the spellings the sources actually use", () => {
+    const forms = ["A.J. Brown", "AJ Brown", "A. J. Brown", "a.j. brown"];
+    const keys = new Set(forms.map(normalizeName));
+    expect(keys.size).toBe(1);
+  });
+});

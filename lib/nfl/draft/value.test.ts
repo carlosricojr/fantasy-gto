@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MIN_AVAILABILITY_FOR_RATE,
+  emaRate,
   MIN_CURVE_SAMPLES,
   adpImpliedPoints,
   fitAdpCurve,
@@ -11,7 +12,7 @@ import {
   perGameRate,
   seasonProjection,
 } from "./value";
-import { MODEL_BLEND_WEIGHT } from "./config";
+import { AVAILABILITY_FLOOR, GAMES_IN_SEASON, MODEL_BLEND_WEIGHT } from "./config";
 import { rosterUtility } from "../../core/roster-utility";
 
 /**
@@ -338,5 +339,53 @@ describe("fitAdpCurves, per position", () => {
       adpImpliedPoints(9, "TE", oneShort)!,
       1,
     );
+  });
+});
+
+/**
+ * The two functions every season projection is built from.
+ *
+ * `emaRate` weights a player's history and `expectedGames` turns last season's availability
+ * into this season's games. Both feed `seasonProjection`, which feeds the blend, which is
+ * the board. Neither was pinned to a value, so the EMA could seed from the wrong game and
+ * the availability ramp could start from the wrong floor with nothing objecting.
+ */
+describe("emaRate", () => {
+  it("seeds from the first game and weights the most recent most", () => {
+    // Seeding from the second game instead leaves a one-game history undefined, which
+    // turns the stored projection into NaN, and weights every longer history wrongly.
+    expect(emaRate([10], 0.3)).toBe(10);
+    // 0.3 * 20 + 0.7 * 10 = 13
+    expect(emaRate([10, 20], 0.3)).toBeCloseTo(13, 10);
+    // 0.3 * 0 + 0.7 * 13 = 9.1
+    expect(emaRate([10, 20, 0], 0.3)).toBeCloseTo(9.1, 10);
+    expect(emaRate([], 0.3)).toBe(0);
+  });
+
+  it("weights recent games above old ones", () => {
+    const improving = emaRate([5, 5, 5, 20], 0.4);
+    const declining = emaRate([20, 5, 5, 5], 0.4);
+    expect(improving).toBeGreaterThan(declining);
+  });
+});
+
+describe("expectedGames", () => {
+  it("ramps from the documented floor to a full season", () => {
+    // A player who played nothing is projected for the floor, not for nothing — the
+    // distinction the config's comment turns on. Absolute values, so a shifted ramp or a
+    // clamp that lets the floor drift is visible.
+    expect(expectedGames(0)).toBeCloseTo(GAMES_IN_SEASON * AVAILABILITY_FLOOR, 10);
+    expect(expectedGames(GAMES_IN_SEASON)).toBeCloseTo(GAMES_IN_SEASON, 10);
+    expect(expectedGames(-3)).toBeCloseTo(GAMES_IN_SEASON * AVAILABILITY_FLOOR, 10);
+    expect(expectedGames(GAMES_IN_SEASON + 10)).toBeCloseTo(GAMES_IN_SEASON, 10);
+  });
+
+  it("is monotonic between the two ends", () => {
+    let previous = -Infinity;
+    for (let played = 0; played <= GAMES_IN_SEASON; played += 1) {
+      const games = expectedGames(played);
+      expect(games).toBeGreaterThan(previous);
+      previous = games;
+    }
   });
 });
