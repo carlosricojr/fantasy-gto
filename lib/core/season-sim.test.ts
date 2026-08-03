@@ -556,3 +556,105 @@ describe("roundRobinSchedule", () => {
     expect(Math.max(...games) - Math.min(...games)).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * The rotation, and what decides a seed.
+ *
+ * `roundRobinSchedule` is the fixture list every simulated season is played over, and the
+ * seeding comparator decides who reaches the bracket. Both had mutants that produce a
+ * complete, plausible season that is simply the wrong one.
+ */
+describe("roundRobinSchedule rotates properly", () => {
+  it("plays a different fixture list every week of the cycle", () => {
+    // `size - 1` is the cycle length. Off by one and the rotation overruns, so
+    // `rotation.slice(n)` comes back empty and several weeks silently repeat an earlier
+    // one — two of fourteen, in a twelve-team league.
+    const schedule = roundRobinSchedule(12, 14);
+    const fingerprints = schedule.map((week) =>
+      week
+        .map(([h, a]) => `${Math.min(h, a)}v${Math.max(h, a)}`)
+        .sort()
+        .join(","),
+    );
+    // Eleven distinct rounds in a twelve-team cycle, then it repeats from the top.
+    expect(new Set(fingerprints.slice(0, 11)).size).toBe(11);
+    // Week 11 restarts the cycle, so it matches week 0 and not week 10.
+    expect(fingerprints[11]).toBe(fingerprints[0]);
+    expect(fingerprints[11]).not.toBe(fingerprints[10]);
+    expect(fingerprints[12]).toBe(fingerprints[1]);
+  });
+
+  it("gives every team a game every week in an even league", () => {
+    for (const week of roundRobinSchedule(12, 14)) {
+      const playing = week.flat();
+      expect(playing.length).toBe(12);
+      expect(new Set(playing).size).toBe(12);
+    }
+  });
+});
+
+describe("seeding reads records first, then points", () => {
+  it("seeds a worse record below a better one however many points it scored", () => {
+    // `wins || points || tiebreak` becomes `(wins && points) || tiebreak` by precedence,
+    // which drops the record entirely and seeds on points alone.
+    //
+    // High points and a poor record have to actually diverge for that to be visible, and
+    // scoring hugely every week does not do it — it wins. Team 1 blows two weeks out and
+    // loses the other twelve narrowly, so it leads the league on points and trails it on
+    // record. Team 0 wins almost everything by a small margin.
+    const config: LeagueConfig = { ...CONFIG, playoffTeams: 2, scenarios: 1 };
+    const pad = Array.from({ length: config.playoffWeeks.length }, () => 0);
+    const week = (regular: number[]) => [[...regular, ...pad]];
+
+    const blowouts = [0, 1];
+    const scores = [
+      week(Array.from({ length: 14 }, () => 60)),
+      week(Array.from({ length: 14 }, (_, w) => (blowouts.includes(w) ? 900 : 10))),
+      week(Array.from({ length: 14 }, () => 40)),
+      week(Array.from({ length: 14 }, () => 40)),
+    ];
+
+    const outcomes = simulateLeague(scores, config);
+
+    // Team 1 leads on points by a wide margin and trails on record — the fixture is only
+    // meaningful if both are true, so both are asserted.
+    const totals = outcomes.map((o) => o.expectedPoints);
+    expect(Math.max(...totals)).toBe(totals[1]);
+    expect(outcomes[1].expectedWins).toBeLessThan(outcomes[0].expectedWins);
+
+    // Record decides the bracket, so the points leader does not qualify.
+    expect(outcomes[0].playoffProbability).toBe(1);
+    expect(outcomes[1].playoffProbability).toBe(0);
+  });
+
+  it("shares the places fairly when records and points are both identical", () => {
+    // Every game a tie and every total equal, so neither the record nor the points clause
+    // can separate anyone and the scenario-dependent shuffle key is all that is left. That
+    // key exists because seeding by array index handed our team — always index 0 — every
+    // tie, and our title probability came out at exactly 1.0.
+    //
+    // Over many scenarios the two places must therefore be shared, not owned. A comparator
+    // turned into a sum is positive for every pair, which is inconsistent: the sort leaves
+    // the array alone and the first two indices take every place in every scenario.
+    const config: LeagueConfig = { ...CONFIG, playoffTeams: 2, scenarios: 200 };
+    const weeks = config.weeks.length + config.playoffWeeks.length;
+    const one = Array.from({ length: weeks }, (_, w) => 10 + w);
+    const scores = Array.from({ length: 4 }, () =>
+      Array.from({ length: config.scenarios }, () => [...one]),
+    );
+
+    const outcomes = simulateLeague(scores, config);
+
+    // The fixture is only meaningful if nothing else can separate them.
+    expect(new Set(outcomes.map((o) => o.expectedWins)).size).toBe(1);
+    expect(new Set(outcomes.map((o) => o.expectedPoints)).size).toBe(1);
+
+    // Two places, shared rather than owned.
+    const total = outcomes.reduce((n, o) => n + o.playoffProbability, 0);
+    expect(total).toBeCloseTo(2, 6);
+    for (const outcome of outcomes) {
+      expect(outcome.playoffProbability).toBeGreaterThan(0.2);
+      expect(outcome.playoffProbability).toBeLessThan(0.8);
+    }
+  });
+});;
