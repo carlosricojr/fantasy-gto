@@ -233,6 +233,11 @@ export function sampleFuture(
   );
   const perceived = new Map<string, number>();
   for (const player of state.available) {
+    // `??` and `||` are indistinguishable here, and for a stated reason rather than a
+    // failure to find one: they differ only when `adp` is 0, and `parseAdp` drops any row
+    // with `adp <= 0` before it can reach a board (lib/sources/adp.ts). A caller could
+    // still construct one by hand, which is why this is `??` — it is the form that stays
+    // correct if that invariant ever moves.
     const adp = player.adp ?? maxAdp + unrankedPadding;
     const stdev = Math.max(player.adpStdev ?? DEFAULT_ADP_STDEV, 0.5);
     perceived.set(player.id, adp + stdev * standardNormal(rng));

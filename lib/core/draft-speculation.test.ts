@@ -905,3 +905,111 @@ describe("choosing among cached entries", () => {
     expect(resolveFromCache(empty, actual).kind).toBe("miss");
   });
 });
+
+/**
+ * How an unranked player is placed, and how the anticipated list is ordered and bounded.
+ *
+ * These decide which futures get precomputed at all. An unranked player placed at the top
+ * of the board instead of after it would have the cache preparing for drafts nobody is
+ * having; an ordering that stops being by probability spends the budget on the unlikeliest
+ * futures; and a budget that is off by one either wastes work or silently drops the future
+ * most worth having.
+ */
+describe("placing a player the market has no opinion about", () => {
+  it("puts him behind everyone the market has ranked", () => {
+    // `maxAdp + padding` is the placement, and it only shows at depth: with a 60-player
+    // ranked board he sits at ADP 84, so no shallow sample can reach him. Reducing it to
+    // `maxAdp - padding` puts him at 36 and taking the running *minimum* instead of the
+    // maximum puts him at 24 — both still behind eight picks, which is why a shallow
+    // fixture cannot tell them apart.
+    //
+    // Measured over 120 seeds at 45 picks: 0 correct, 109 with the sign flipped, 120 with
+    // the reduction inverted.
+    const ranked = Array.from({ length: 60 }, (_, i) => ({
+      ...player(`p${i}`, "RB", 10),
+      adp: i + 1,
+      adpStdev: 6,
+    }));
+    const unranked = { ...player("UNRANKED", "RB", 10), adp: null, adpStdev: null };
+
+    const state = canonicalizeState({
+      teams: [
+        { id: "me", name: "me", roster: [], remainingPicks: [61] },
+        ...Array.from({ length: 7 }, (_, i) => ({
+          id: `t${i}`,
+          name: `t${i}`,
+          roster: [],
+          remainingPicks: [i + 1],
+        })),
+      ],
+      myTeamIndex: 0,
+      available: [unranked, ...ranked],
+      rosterSize: 10,
+    });
+
+    const before = Array.from({ length: 45 }, (_, k) => ({ team: (k % 7) + 1 }));
+    let taken = 0;
+    for (let seed = 1; seed <= 120; seed += 1) {
+      const future = sampleFuture(state, before, createRng(seed));
+      if (!future.available.some((p) => p.id === "UNRANKED")) taken += 1;
+    }
+    expect(taken).toBeLessThan(10);
+  });
+});
+
+describe("the anticipated list", () => {
+  it("comes back most likely first", () => {
+    // `precomputeRecommendations` walks this in order and stops at the budget, so an
+    // ordering that is not by probability spends the budget on the least likely futures.
+    const anticipated = anticipateStates(
+      canonicalizeState(baseState()),
+      [{ team: 1 }, { team: 2 }],
+      200,
+      createRng(1),
+    );
+    expect(anticipated.length).toBeGreaterThan(1);
+    for (let i = 1; i < anticipated.length; i += 1) {
+      expect(anticipated[i - 1].probability).toBeGreaterThanOrEqual(
+        anticipated[i].probability,
+      );
+    }
+    // Probabilities are shares of the samples drawn, so they sum to one.
+    const total = anticipated.reduce((n, a) => n + a.probability, 0);
+    expect(total).toBeCloseTo(1, 6);
+  });
+
+  it("precomputes exactly the budget it was given, taking the likeliest", () => {
+    // Off by one either way: `maxStates - 1` drops the most likely future, `+ 1` spends
+    // work the caller did not authorise.
+    const built = baseState();
+    const anticipated = anticipateStates(
+      canonicalizeState(built),
+      [{ team: 1 }, { team: 2 }],
+      200,
+      createRng(1),
+    );
+    expect(anticipated.length).toBeGreaterThan(3);
+
+    const cache = precomputeRecommendations(built, anticipated, CONFIG, 42, {
+      maxStates: 3,
+      candidateLimit: 2,
+    });
+    expect(cache.entries).toHaveLength(3);
+    expect(cache.entries.map((e) => e.signature)).toEqual(
+      anticipated.slice(0, 3).map((a) => a.signature),
+    );
+  });
+
+  it("precomputes nothing when the budget is zero", () => {
+    const built = baseState();
+    const anticipated = anticipateStates(
+      canonicalizeState(built),
+      [{ team: 1 }],
+      50,
+      createRng(1),
+    );
+    expect(
+      precomputeRecommendations(built, anticipated, CONFIG, 42, { maxStates: 0 }).entries,
+    ).toHaveLength(0);
+  });
+});
