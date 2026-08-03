@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   MIN_AVAILABILITY_FOR_RATE,
+  MIN_CURVE_SAMPLES,
+  adpImpliedPoints,
+  fitAdpCurve,
+  fitAdpCurves,
   blendedSeasonValue,
   expectedGames,
   perGameRate,
@@ -184,5 +188,155 @@ describe("perGameRate against the real simulator", () => {
     const single = rosterUtility([seasonPlayer("a", 120, 0.8)], SLOTS, CONFIG, 12);
     const double = rosterUtility([seasonPlayer("a", 240, 0.8)], SLOTS, CONFIG, 12);
     expect(double.expectedPoints / single.expectedPoints).toBeCloseTo(2, 1);
+  });
+});
+
+/**
+ * The market curve.
+ *
+ * None of this was tested. A mutation run put `fitAdpCurve` at the bottom of the repo, and
+ * the survivors were not edge cases: computing `meanY` by folded subtraction, flipping the
+ * intercept's sign, inverting the curve, or switching the per-position system off entirely
+ * all left every test green. Each of those reprices the whole board — this is the function
+ * that turns a draft slot into points, so an error here is not one wrong player, it is
+ * every player.
+ *
+ * What made it invisible is that nothing pinned an *absolute* number. The convex tests
+ * compare one board against another and re-derive the blend from the row's own
+ * `marketPoints`, so a uniformly wrong market is perfectly self-consistent. These fit a
+ * curve to points that lie exactly on a known line and check the line comes back.
+ */
+describe("fitAdpCurve", () => {
+  /** Points on `y = 300 - 50·ln(adp)` exactly, so the fit has one right answer. */
+  const onTheLine = (adps: readonly number[], position = "WR") =>
+    adps.map((adp) => ({
+      adp,
+      actualSeasonPoints: 300 - 50 * Math.log(adp),
+      position,
+    }));
+
+  it("recovers the line its samples were drawn from", () => {
+    // Exact, not approximate. Every arithmetic mutant in the fit — the two means, the two
+    // accumulator seeds, the loop bounds, the covariance and variance terms, and the
+    // intercept — moves one of these two numbers.
+    const curve = fitAdpCurve(onTheLine([1, 2, 5, 12, 24, 50, 80, 200]), 2024);
+    expect(curve).not.toBeNull();
+    expect(curve!.slope).toBeCloseTo(-50, 6);
+    expect(curve!.intercept).toBeCloseTo(300, 6);
+    expect(curve!.sampleSize).toBe(8);
+  });
+
+  it("recovers a steeper line too, so a shrunk slope cannot pass", () => {
+    // A wrong mean leaves the covariance alone but inflates the variance, which shrinks
+    // the slope toward zero rather than breaking it outright. One line cannot show that;
+    // two of visibly different steepness can.
+    const steep = [1, 2, 5, 12, 24, 50, 80, 200].map((adp) => ({
+      adp,
+      actualSeasonPoints: 400 - 90 * Math.log(adp),
+      position: "QB",
+    }));
+    const curve = fitAdpCurve(steep, 2024);
+    expect(curve!.slope).toBeCloseTo(-90, 6);
+    expect(curve!.intercept).toBeCloseTo(400, 6);
+  });
+
+  it("refuses a fit it cannot make rather than returning a flat line", () => {
+    expect(fitAdpCurve([], 2024)).toBeNull();
+    expect(fitAdpCurve(onTheLine([10]), 2024)).toBeNull();
+    // Every sample at one draft slot: no spread in x, so no slope exists.
+    expect(fitAdpCurve(onTheLine([10, 10, 10, 10]), 2024)).toBeNull();
+    // Non-positive ADP and non-finite points are dropped before the count is taken.
+    expect(
+      fitAdpCurve(
+        [
+          { adp: 0, actualSeasonPoints: 100, position: "WR" },
+          { adp: -5, actualSeasonPoints: 100, position: "WR" },
+          { adp: 10, actualSeasonPoints: Number.NaN, position: "WR" },
+          { adp: 20, actualSeasonPoints: 50, position: "WR" },
+        ],
+        2024,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("adpImpliedPoints", () => {
+  const curves = fitAdpCurves(
+    [1, 2, 5, 12, 24, 50, 80, 200].map((adp) => ({
+      adp,
+      actualSeasonPoints: 300 - 50 * Math.log(adp),
+      position: "WR",
+    })),
+    2024,
+  );
+
+  it("prices a slot at the value the curve says", () => {
+    // Absolute numbers, computed by hand from `300 - 50·ln(adp)`. A test that re-derives
+    // them from the curve it is checking would pass against an inverted one.
+    expect(adpImpliedPoints(1, "WR", curves)).toBeCloseTo(300, 2);
+    expect(adpImpliedPoints(5, "WR", curves)).toBeCloseTo(219.53, 2);
+    expect(adpImpliedPoints(24, "WR", curves)).toBeCloseTo(141.1, 2);
+    expect(adpImpliedPoints(200, "WR", curves)).toBeCloseTo(35.08, 2);
+  });
+
+  it("falls as the draft slot rises, which is the whole premise", () => {
+    // The sign flip that made the last player on the board the most valuable.
+    const prices = [1, 5, 24, 80, 200].map((adp) => adpImpliedPoints(adp, "WR", curves)!);
+    for (let i = 1; i < prices.length; i += 1) {
+      expect(prices[i]).toBeLessThan(prices[i - 1]);
+    }
+  });
+
+  it("never returns a negative price, and says nothing when it knows nothing", () => {
+    expect(adpImpliedPoints(100_000, "WR", curves)).toBe(0);
+    expect(adpImpliedPoints(0, "WR", curves)).toBe(0);
+    expect(adpImpliedPoints(10, "WR", { byPosition: {}, pooled: null, season: 2024 }))
+      .toBeNull();
+  });
+});
+
+describe("fitAdpCurves, per position", () => {
+  const bucket = (position: string, n: number, base: number, slope: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const adp = 2 + i * 7;
+      return { adp, actualSeasonPoints: base - slope * Math.log(adp), position };
+    });
+
+  it("fits a curve per position, and they price a slot differently", () => {
+    // Inverting the null check switched the whole per-position system off, leaving every
+    // player on the pooled curve — the mis-specification the module docstring records as
+    // the difference between the market looking beatable and the market looking correct.
+    const curves = fitAdpCurves(
+      [...bucket("WR", 10, 300, 50), ...bucket("QB", 10, 400, 90)],
+      2024,
+    );
+    expect(Object.keys(curves.byPosition).sort()).toEqual(["QB", "WR"]);
+
+    const wr = adpImpliedPoints(5, "WR", curves)!;
+    const qb = adpImpliedPoints(5, "QB", curves)!;
+    expect(Math.abs(qb - wr)).toBeGreaterThan(20);
+
+    // And each differs from what the pooled curve alone would have said.
+    const pooledOnly = { ...curves, byPosition: {} };
+    expect(adpImpliedPoints(5, "QB", pooledOnly)).not.toBeCloseTo(qb, 1);
+  });
+
+  it("needs MIN_CURVE_SAMPLES before it will fit a position at all", () => {
+    // One short and the position falls back to pooled, which reprices it. Raising the
+    // threshold silently does that to every thin position.
+    const withEnough = fitAdpCurves(
+      [...bucket("WR", 10, 300, 50), ...bucket("TE", MIN_CURVE_SAMPLES, 250, 30)],
+      2024,
+    );
+    const oneShort = fitAdpCurves(
+      [...bucket("WR", 10, 300, 50), ...bucket("TE", MIN_CURVE_SAMPLES - 1, 250, 30)],
+      2024,
+    );
+    expect(Object.keys(withEnough.byPosition)).toContain("TE");
+    expect(Object.keys(oneShort.byPosition)).not.toContain("TE");
+    expect(adpImpliedPoints(9, "TE", withEnough)).not.toBeCloseTo(
+      adpImpliedPoints(9, "TE", oneShort)!,
+      1,
+    );
   });
 });

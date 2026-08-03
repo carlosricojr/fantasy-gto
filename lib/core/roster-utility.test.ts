@@ -370,3 +370,65 @@ describe("simulateAvailability", () => {
     expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
   });
 });
+
+/**
+ * The shape of an absence, not just how often one happens.
+ *
+ * `simulateAvailability` solves a two-state chain so that absences *cluster* — a player who
+ * misses this week is likely to miss the next. That clustering is the entire reason it is a
+ * chain rather than an independent coin flip per week, because a roster is hurt far more by
+ * one four-week absence than by four scattered ones.
+ *
+ * The realised-rate test cannot see it. Setting `r` to zero makes the chain absorbing —
+ * a player is fit all season or out all season — and the long-run rate still lands on
+ * target, so every existing assertion passes while the variance of a season's score rises
+ * by roughly half and the recommended pick changes.
+ */
+describe("simulateAvailability absence structure", () => {
+  const SEASON = Array.from({ length: 17 }, (_, i) => i + 1);
+
+  /** Absence spells and total missed weeks over many independent seasons. */
+  function spells(availability: number, scenarios = 400) {
+    let missed = 0;
+    let runs = 0;
+    let seasonsEntirelyMissed = 0;
+    for (let scenario = 0; scenario < scenarios; scenario += 1) {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability }),
+        SEASON,
+        3,
+        createRng(scenario + 1),
+      );
+      let previousOut = false;
+      let missedThisSeason = 0;
+      for (const fit of weeks) {
+        if (!fit) {
+          missed += 1;
+          missedThisSeason += 1;
+          if (!previousOut) runs += 1;
+        }
+        previousOut = !fit;
+      }
+      if (missedThisSeason === weeks.length) seasonsEntirelyMissed += 1;
+    }
+    return { missed, runs, seasonsEntirelyMissed, scenarios };
+  }
+
+  it("produces absences of about the length it was asked for", () => {
+    // `meanAbsenceWeeks` is 3 here, and a spell averages ~2.7 weeks. Absorbing the chain
+    // sends this to 17 — the whole season — while leaving the rate untouched.
+    const { missed, runs } = spells(0.85);
+    expect(runs).toBeGreaterThan(0);
+    const meanSpell = missed / runs;
+    expect(meanSpell).toBeGreaterThan(1.5);
+    expect(meanSpell).toBeLessThan(5);
+  });
+
+  it("almost never loses a player for a whole season at ordinary availability", () => {
+    // Measured at 0.03% on the real chain and 14.6% with the chain absorbing. A tool that
+    // wipes out one starter in seven whole seasons is not modelling injury, it is modelling
+    // a coin flip on the draft itself.
+    const { seasonsEntirelyMissed, scenarios } = spells(0.85);
+    expect(seasonsEntirelyMissed / scenarios).toBeLessThan(0.02);
+  });
+});
