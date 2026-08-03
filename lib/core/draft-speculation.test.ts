@@ -828,3 +828,80 @@ describe("sampleFuture follows the market", () => {
     expect(new Set(taken).size).toBeGreaterThan(4);
   });
 });
+
+/**
+ * Which cached entry gets served, and whether an empty one can be.
+ *
+ * `precomputeRecommendations` stores entries most-likely-first, so among two futures that
+ * are equally far from the real board the earlier one is the more probable. `<` keeps it;
+ * `<=` takes the last equidistant entry instead, which is the least likely of them. And the
+ * length guard is what stops an entry that has nothing to recommend from being served as an
+ * answer — inverted, it does the opposite in both directions.
+ */
+describe("choosing among cached entries", () => {
+  /** Two anticipated futures, most likely first, built through the real code path. */
+  const twoEquidistant = () => {
+    const built = baseState();
+    const pool = board();
+
+    const futureWhere = (takenId: string, probability: number) => {
+      const state = baseState();
+      const taken = pool.find((p) => p.id === takenId)!;
+      state.teams[1].roster = [taken];
+      state.teams[1].remainingPicks = state.teams[1].remainingPicks.slice(1);
+      state.available = pool.filter((p) => p.id !== takenId);
+      const canonical = canonicalizeState(state);
+      return { state: canonical, signature: stateSignature(canonical), probability };
+    };
+
+    // Descending probability, which is the order `anticipateStates` emits and the order
+    // `precomputeRecommendations` preserves.
+    const cache = precomputeRecommendations(
+      built,
+      [futureWhere("WR0", 0.6), futureWhere("WR1", 0.3)],
+      CONFIG,
+      42,
+      { candidateLimit: 2 },
+    );
+    return { cache, pool };
+  };
+
+  it("serves the likelier of two equally close futures", () => {
+    // A third, different future: both cached entries are exactly one player away from it,
+    // so distance cannot separate them and only their order can.
+    const { cache, pool } = twoEquidistant();
+    const actual = baseState();
+    const taken = pool.find((p) => p.id === "WR2")!;
+    actual.teams[1].roster = [taken];
+    actual.teams[1].remainingPicks = actual.teams[1].remainingPicks.slice(1);
+    actual.available = pool.filter((p) => p.id !== "WR2");
+
+    const resolved = resolveFromCache(cache, actual);
+    expect(resolved.kind).toBe("approximate");
+    // The entry built from WR0 is the more likely one and is stored first.
+    expect(resolved.recommendations).toEqual(cache.entries[0].recommendations);
+  });
+
+  it("never serves an entry that has nothing to recommend", () => {
+    // A cache whose entries are all empty must produce a miss, not an empty ranking
+    // presented as an approximation.
+    const built = baseState();
+    const empty = precomputeRecommendations(
+      built,
+      anticipateStates(built, [{ team: 1 }, { team: 2 }], 4, createRng(1)),
+      CONFIG,
+      42,
+      { candidateLimit: 3, compute: () => [] },
+    );
+    expect(empty.entries.length).toBeGreaterThan(0);
+
+    const actual = baseState();
+    const pool = board();
+    const taken = pool[pool.length - 1];
+    actual.teams[1].roster = [taken];
+    actual.teams[1].remainingPicks = actual.teams[1].remainingPicks.slice(1);
+    actual.available = pool.filter((p) => p.id !== taken.id);
+
+    expect(resolveFromCache(empty, actual).kind).toBe("miss");
+  });
+});
