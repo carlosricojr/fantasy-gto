@@ -427,3 +427,47 @@ describe("normalizeName keeps what identifies a player", () => {
     expect(keys.size).toBe(1);
   });
 });
+
+/**
+ * The thresholds `matchName` compares against.
+ *
+ * A name is only reported above `MIN_MATCH_CONFIDENCE`, only accepted when it leads the
+ * runner-up by `MATCH_AMBIGUITY_MARGIN`, and only considered at all when the text is at
+ * least four characters. Each of those is a boundary, and each could move by one with
+ * nothing objecting — which changes which picks a screen-read attributes and which it
+ * refuses.
+ */
+describe("matchName's boundaries", () => {
+  it("needs four characters before it will guess at all", () => {
+    // Shorter than that and a fragment matches half the league. Tested against a low
+    // confidence floor so the *length* guard is what decides — at the normal floor "puka"
+    // is refused for its score (4/9) and the boundary would be invisible.
+    expect(matchName("Puka", UNIVERSE, 0.4)?.candidate.id).toBe("6");
+    expect(matchName("Puk", UNIVERSE, 0.01)).toBeNull();
+    expect(matchName("aj", UNIVERSE, 0.01)).toBeNull();
+  });
+
+  it("reports a match at the floor and refuses one below it", () => {
+    // Confidence is compared with `<`, so a score exactly at the floor is reported. A
+    // shifted comparison silently changes which reads are trusted.
+    const exact = matchName("Puka Nacua", UNIVERSE, 1);
+    expect(exact?.candidate.id).toBe("6");
+    // A perfect match scores 1, so a floor above 1 can never be met.
+    expect(matchName("Puka Nacua", UNIVERSE, 1.01)).toBeNull();
+  });
+
+  it("refuses two candidates that are equally close", () => {
+    // The documented case: "Bijan Robinson" and "Brian Robinson Jr." normalise 0.846
+    // similar. With one character of damage the two land inside the margin and the text
+    // genuinely does not say which player it is.
+    expect(matchName("Bran Robinson", UNIVERSE)).toBeNull();
+    // A clean read of either is unambiguous.
+    expect(matchName("Bijan Robinson", UNIVERSE)?.candidate.id).toBe("4");
+    expect(matchName("Brian Robinson", UNIVERSE)?.candidate.id).toBe("5");
+  });
+
+  // Not tested here: `score > best.confidence` versus `>=`. With two candidates scoring
+  // identically the ambiguity margin refuses the match either way, so the two forms are
+  // indistinguishable through this function's public result. Recorded rather than covered
+  // by an assertion that would pass regardless.
+});

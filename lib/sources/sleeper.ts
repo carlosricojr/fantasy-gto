@@ -106,6 +106,12 @@ export class SleeperDraftProvider {
 export function parseSettings(payload: unknown): SleeperDraftSettings | null {
   if (typeof payload !== "object" || payload === null) return null;
   const root = payload as Record<string, unknown>;
+  // `??` rather than `||` by preference, not by necessity: the two are equivalent here and
+  // provably so. They differ only when `settings` is falsy but not nullish — 0, "" or
+  // false — and for each of those, `??` keeps the primitive and every property read comes
+  // back undefined, while `||` substitutes `{}` and every property read comes back
+  // undefined. Both then fail the count checks below and return null. No input separates
+  // them, which is why a mutation run leaves this one standing.
   const settings = (root.settings ?? {}) as Record<string, unknown>;
 
   const teams = toInt(settings.teams);

@@ -277,3 +277,58 @@ describe("seats above the league", () => {
     expect(parsePicks([pick(0)])).toEqual([]);
   });
 });
+
+/**
+ * The boundaries on every count Sleeper publishes.
+ *
+ * Each of these is a field the board is built from, and each had a boundary that could move
+ * by one without anything objecting — a zero-team league accepted, round one nulled, a
+ * missing settings object treated as an empty one rather than as missing.
+ */
+describe("count boundaries", () => {
+  const withSettings = (settings: Record<string, unknown>) =>
+    parseSettings({ type: "snake", settings });
+
+  it("accepts the smallest real league and rejects anything below it", () => {
+    // `teams <= 0` guards the bottom. One step either way and either a zero-team league
+    // parses, or a one-team league is refused.
+    expect(withSettings({ teams: 1, rounds: 1 })).not.toBeNull();
+    expect(withSettings({ teams: 0, rounds: 15 })).toBeNull();
+    expect(withSettings({ teams: -2, rounds: 15 })).toBeNull();
+    expect(withSettings({ teams: 12, rounds: 0 })).toBeNull();
+    expect(withSettings({ teams: 12, rounds: -1 })).toBeNull();
+  });
+
+  it("refuses a payload with no settings rather than inventing defaults", () => {
+    // `root.settings ?? {}` reads a *missing* settings object as empty, which then fails
+    // the count checks. `||` would do the same for a settings object that is legitimately
+    // falsy-but-present, and both must end in null rather than in a guessed league.
+    expect(parseSettings({ type: "snake" })).toBeNull();
+    expect(parseSettings({ type: "snake", settings: null })).toBeNull();
+  });
+
+  it("keeps round one, which is the most common round in any draft", () => {
+    // `value < 1` is the boundary. `<= 1` nulls round one — every first-round pick, the
+    // only round that certainly exists.
+    const [first] = parsePicks([
+      { pick_no: 1, draft_slot: 1, round: 1, metadata: { first_name: "A", last_name: "B" } },
+    ]);
+    expect(first.round).toBe(1);
+  });
+
+  it("reads a name from either field, and refuses when neither is usable", () => {
+    // `first_name` and `last_name` are separate fields upstream; a pick with only one is
+    // ordinary, and a pick with neither cannot be attributed to anybody.
+    expect(
+      parsePicks([{ pick_no: 1, draft_slot: 1, metadata: { last_name: "Ogunbowale" } }])[0]
+        .playerName,
+    ).toBe("Ogunbowale");
+    expect(
+      parsePicks([{ pick_no: 1, draft_slot: 1, metadata: { first_name: "Cooper" } }])[0]
+        .playerName,
+    ).toBe("Cooper");
+    expect(
+      parsePicks([{ pick_no: 1, draft_slot: 1, metadata: { first_name: 42, last_name: 7 } }]),
+    ).toEqual([]);
+  });
+});
