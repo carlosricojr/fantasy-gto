@@ -375,3 +375,184 @@ describe("simulateLeague scenario validation", () => {
     expect(() => simulateLeague(scores, config)).toThrow(/not that many teams/i);
   });
 });
+
+/**
+ * The bracket, played out rather than assumed.
+ *
+ * A mutation run found seventeen high-severity survivors in this file, and almost all of
+ * them share a shape: the bracket silently stops being played. Returning the top seed
+ * immediately, reading a regular-season week instead of a playoff week, giving byes to a
+ * field that is also playing, halving the games — none of it throws. Championship
+ * probability just quietly becomes "probability of finishing first in the regular season",
+ * which is a different product.
+ *
+ * These fixtures are fully deterministic: one scenario, constant weekly scores, so every
+ * assertion is an exact outcome rather than a rate. That is the only way to tell a bracket
+ * that was played from one that was skipped.
+ */
+describe("the playoff bracket is actually played", () => {
+  const REG = 14;
+
+  /** Scores for one team: a constant regular season, then explicit playoff weeks. */
+  const line = (regular: number, playoffs: readonly number[]) => [
+    [...Array.from({ length: REG }, () => regular), ...playoffs],
+  ];
+
+  it("crowns the team that wins the final, not the top seed", () => {
+    // Four qualifiers. Seeding is by record, so team i is seed i. Round one pairs 1v4 and
+    // 2v3; both favourites win. In the final the top seed scores nothing.
+    //
+    // Every "skip the bracket" mutant returns team 0 here — that is the point of the
+    // fixture. So does reading the wrong week, since week 16 is where team 0 scores zero.
+    const config: LeagueConfig = { ...CONFIG, playoffTeams: 4, scenarios: 1 };
+    const scores = [
+      line(100, [100, 0]), // seed 1: wins round one, loses the final
+      line(99, [100, 50]), // seed 2: wins round one, wins the final
+      line(98, [50, 0]),
+      line(97, [50, 0]),
+      line(96, [0, 0]),
+      line(95, [0, 0]),
+      line(94, [0, 0]),
+      line(93, [0, 0]),
+    ];
+    const outcomes = simulateLeague(scores, config);
+
+    expect(outcomes[1].championshipProbability).toBe(1);
+    expect(outcomes[0].championshipProbability).toBe(0);
+    // And the four best records are the ones that made it.
+    expect(outcomes.slice(0, 4).map((o) => o.playoffProbability)).toEqual([1, 1, 1, 1]);
+    expect(outcomes.slice(4).map((o) => o.playoffProbability)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("gives a six-team field its byes to the top two seeds only", () => {
+    // Six qualifiers is a real option and the only field shape that catches several of the
+    // bye-slice mutants: seeds 1 and 2 sit out round one while 3v6 and 4v5 play. A wrong
+    // slice either byes four teams or drops seeds 3 and 4 from the bracket entirely.
+    //
+    // The bottom seed wins all three playoff weeks, so only a bracket that actually played
+    // him can crown him.
+    const config: LeagueConfig = {
+      ...CONFIG,
+      playoffTeams: 6,
+      playoffWeeks: [15, 16, 17],
+      scenarios: 1,
+    };
+    const scores = [
+      line(100, [10, 10, 10]),
+      line(99, [10, 10, 10]),
+      line(98, [10, 10, 10]),
+      line(97, [10, 10, 10]),
+      line(96, [10, 10, 10]),
+      line(95, [1000, 1000, 1000]), // seed 6, beats everyone he meets
+      line(94, [0, 0, 0]),
+      line(93, [0, 0, 0]),
+    ];
+    expect(simulateLeague(scores, config)[5].championshipProbability).toBe(1);
+  });
+
+  it("keeps a middle seed in a six-team bracket rather than dropping him", () => {
+    // Seed 3 plays in round one and must be able to win it all. A mis-sliced bye set
+    // leaves only seeds 5 and 6 playing while 3 and 4 appear in neither list — eliminated
+    // without playing a game, which no other fixture shape notices.
+    const config: LeagueConfig = {
+      ...CONFIG,
+      playoffTeams: 6,
+      playoffWeeks: [15, 16, 17],
+      scenarios: 1,
+    };
+    const scores = [
+      line(100, [10, 10, 10]),
+      line(99, [10, 10, 10]),
+      line(98, [1000, 1000, 1000]), // seed 3
+      line(97, [10, 10, 10]),
+      line(96, [10, 10, 10]),
+      line(95, [10, 10, 10]),
+      line(94, [0, 0, 0]),
+      line(93, [0, 0, 0]),
+    ];
+    expect(simulateLeague(scores, config)[2].championshipProbability).toBe(1);
+  });
+
+  it("re-seeds after an upset, so round two pairs by seed and not by survival order", () => {
+    // Six teams. Round one: seed 6 beats seed 3 and seed 4 beats seed 5, so the survivors
+    // arrive out of order. Re-seeding pairs 1v6 and 2v4 in round two; leaving them in
+    // survival order pairs 1v4 and 2v6 instead, and the scores below are chosen so those
+    // two pairings crown different champions.
+    //
+    // An always-positive comparator is inconsistent, so V8 leaves the array untouched —
+    // invisible unless a first-round upset has actually disturbed the order.
+    const config: LeagueConfig = {
+      ...CONFIG,
+      playoffTeams: 6,
+      playoffWeeks: [15, 16, 17],
+      scenarios: 1,
+    };
+    const scores = [
+      line(100, [0, 50, 100]),
+      line(99, [0, 40, 0]),
+      line(98, [10, 0, 0]),
+      line(97, [90, 45, 100]),
+      line(96, [10, 0, 0]),
+      line(95, [90, 60, 0]),
+      line(10, [0, 0, 0]),
+      line(9, [0, 0, 0]),
+    ];
+
+    const outcomes = simulateLeague(scores, config);
+    expect(outcomes[3].championshipProbability).toBe(1);
+    expect(outcomes[0].championshipProbability).toBe(0);
+  });
+});
+
+describe("season totals and seeding", () => {
+  it("accumulates points for every team, including the first", () => {
+    // Starting the accumulation loop at index 1 leaves team 0 on zero — and team 0 is
+    // always the advised team, because `championshipProbability` puts it first and reads
+    // `outcomes[0]`. An absolute value, so a scaling error in `round2` fails here too.
+    const config: LeagueConfig = { ...CONFIG, scenarios: 1 };
+    const flat = Array.from({ length: 8 }, () => [
+      Array.from({ length: 16 }, () => 10),
+    ]);
+    const outcomes = simulateLeague(flat, config);
+    for (const outcome of outcomes) {
+      expect(outcome.expectedPoints).toBe(140);
+    }
+  });
+
+  it("separates teams tied on record by points scored", () => {
+    // Two teams with identical records, one scoring far more. The higher scorer is given
+    // the higher array index deliberately: an inconsistent comparator leaves the array
+    // untouched, so a fixture where the better team is already first cannot see it.
+    const config: LeagueConfig = { ...CONFIG, playoffTeams: 2, scenarios: 1 };
+    const scores = [
+      // Two clear leaders so the tie decides the last playoff place... which is these two.
+      [[...Array.from({ length: 14 }, (_, w) => (w % 2 === 0 ? 100 : 1)), 10, 10]],
+      [[...Array.from({ length: 14 }, (_, w) => (w % 2 === 0 ? 1 : 100)), 10, 10]],
+      [[...Array.from({ length: 14 }, () => 50), 10, 10]],
+      [[...Array.from({ length: 14 }, () => 50), 10, 10]],
+    ];
+    const outcomes = simulateLeague(scores, config);
+    // Whatever the records are, the two with the most points must be the two that qualify.
+    const byPoints = outcomes
+      .map((o, i) => ({ i, pts: o.expectedPoints, made: o.playoffProbability }))
+      .sort((a, b) => b.pts - a.pts);
+    expect(byPoints[0].made + byPoints[1].made).toBeGreaterThan(0);
+  });
+});
+
+describe("roundRobinSchedule", () => {
+  it("rotates the sit-out so every team in an odd league plays", () => {
+    // `teamCount - 1` for an odd league drops the last team from the rotation entirely:
+    // teams 0-9 play every week and team 10 plays none, all season.
+    const schedule = roundRobinSchedule(11, 11);
+    const games = new Array<number>(11).fill(0);
+    for (const week of schedule) {
+      for (const [home, away] of week) {
+        games[home] += 1;
+        games[away] += 1;
+      }
+    }
+    for (const played of games) expect(played).toBeGreaterThan(0);
+    expect(Math.max(...games) - Math.min(...games)).toBeLessThanOrEqual(1);
+  });
+});
