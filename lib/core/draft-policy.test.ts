@@ -747,17 +747,47 @@ describe("re-completing the opponent who held the candidate", () => {
     return { star, available: [star, ...filler] };
   };
 
-  const seatedSoThat = (ownerIndex: number): DraftTeam[] =>
-    Array.from({ length: TEAMS }, (_, i) => ({
+  /**
+   * Seats every team exactly once, with `ownerIndex` on the clock first and us last.
+   *
+   * The first version of this assigned `i === ownerIndex ? 1 : i` and handed seat 1 to two
+   * different teams — so team 1 always took the first pick regardless, the holder was
+   * always the first opponent, and a mutant that finds the *wrong* opponent produced
+   * identical output. I recorded that as an unclosable gap. It was a broken fixture.
+   */
+  const seatedSoThat = (ownerIndex: number): DraftTeam[] => {
+    const seat = (i: number) =>
+      i === 0 ? TEAMS : i === ownerIndex ? 1 : i === 1 ? ownerIndex : i;
+    const seats = Array.from({ length: TEAMS }, (_, i) => seat(i));
+    // A collision here silently changes which team is on the clock, which is the whole
+    // variable these tests turn on.
+    expect(new Set(seats).size).toBe(TEAMS);
+    return Array.from({ length: TEAMS }, (_, i) => ({
       id: `t${i}`,
       name: `Team ${i}`,
       roster: [],
-      remainingPicks: snakePicks(
-        i === ownerIndex ? 1 : i === 0 ? TEAMS : i,
-        TEAMS,
-        ROUNDS,
-      ),
+      remainingPicks: snakePicks(seats[i], TEAMS, ROUNDS),
     }));
+  };
+
+  it("repairs the opponent who actually holds him, wherever he is seated", () => {
+    // The owner search matches on identity. Inverted, it matches the first opponent holding
+    // any *other* player — index 0 in every ordinary state — so the real holder keeps the
+    // star and we play him too.
+    //
+    // Seating the holder at index 4 rather than 1 is what makes "the right opponent" and
+    // "the first opponent" different. Measured at seed 13: 0.7533 correct, 0.4267 with the
+    // search inverted, so 0.6 separates them with room on both sides.
+    const { available } = starFixture();
+    const recs = recommendByChampionship(
+      { teams: seatedSoThat(4), myTeamIndex: 0, available, rosterSize: ROUNDS },
+      CONFIG,
+      13,
+      3,
+    );
+    expect(recs.find((r) => r.player.id === "STAR")!.championshipProbability)
+      .toBeGreaterThan(0.6);
+  });
 
   it("leaves the rest of that opponent's roster intact", () => {
     // The opponent who loses the candidate keeps everyone else. Filtering *to* him instead
@@ -799,19 +829,15 @@ describe("re-completing the opponent who held the candidate", () => {
     expect(recs.length).toBeGreaterThan(0);
   });
 
-  // Two mutants in this branch are deliberately NOT claimed as covered, because I could
-  // not build a fixture that separates them and a test that passes either way is worse
-  // than none:
+  // One mutant in this branch is still not claimed as covered: replacing the pool filter's
+  // comparison with `!== null` never removes anything, so the opponent's replacement can be
+  // drafted by them and by us. Measured separation at seed 13 is 0.7667 against 0.76 — one
+  // scenario in 150, indistinguishable from noise, and raising `scenarios` for one test
+  // costs more than the assertion is worth. It needs a fixture where the replacement itself
+  // is decisive.
   //
-  //  - inverting the owner search (`p.id === forced.id` to `!==`) repairs the first
-  //    opponent holding any other player instead of the real holder. Measured at seed 13
-  //    with the holder seated at index 1 and at index 4, and with a second strong player
-  //    on the board so the replacement carries weight: the output is identical to six
-  //    decimal places in every arrangement tried.
-  //  - replacing the pool filter's comparison with `!== null` never removes anything, so
-  //    the replacement can be drafted by the opponent and by us. Measured separation is
-  //    0.7667 against 0.76 — one scenario in 150, indistinguishable from sampling noise.
-  //
-  // Both need a fixture where the identity of the repaired opponent changes the league's
-  // strength materially. That is a real gap and it is recorded rather than papered over.
+  // The owner-search mutant was recorded here as unclosable too. That was wrong, and worth
+  // saying: `seatedSoThat` had a seat collision, so the holder was always the first
+  // opponent and no arrangement could distinguish them. The fixture was broken, not the
+  // mutant equivalent.
 });
