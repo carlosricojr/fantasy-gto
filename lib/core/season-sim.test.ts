@@ -9,6 +9,7 @@ import {
   roundRobinSchedule,
   sampleTeamWeeklyScores,
   simulateLeague,
+  tieBreakKey,
 } from "./season-sim";
 
 /**
@@ -657,4 +658,182 @@ describe("seeding reads records first, then points", () => {
       expect(outcome.playoffProbability).toBeLessThan(0.8);
     }
   });
-});;
+});
+
+/**
+ * The edges of the schedule and the bracket.
+ *
+ * Everything above exercises a normal league — eight to twelve teams, four to six
+ * qualifiers, a bracket two or three rounds deep. These are the sizes either side of that,
+ * and the guards that decide which sizes are allowed at all. Each one below was a surviving
+ * mutant: a boundary that could be moved by one without a single assertion changing.
+ */
+describe("league sizes at the boundary", () => {
+  const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
+  const cfg: LeagueConfig = {
+    slots: SLOTS,
+    weeks,
+    playoffWeeks: [15, 16],
+    playoffTeams: 4,
+    scenarios: 1,
+    meanAbsenceWeeks: 3,
+  };
+  /** `n` teams, every one of them scoring `points` in every week of every scenario. */
+  const flat = (n: number, points: (team: number) => number, extraWeeks = 2) =>
+    Array.from({ length: n }, (_, t) => [
+      [...weeks, ...Array.from({ length: extraWeeks }, (_, i) => 15 + i)].map(() =>
+        points(t),
+      ),
+    ]);
+
+  it("plays a two-team league rather than treating it as too small to schedule", () => {
+    // The guard reads `teamCount < 2`, and two is the smallest number of teams that can
+    // play each other. Moved by one it returns a season of empty weeks: nobody plays,
+    // every record is 0-0, and the standings are decided entirely by the tiebreak key.
+    const schedule = roundRobinSchedule(2, 3);
+    expect(schedule).toEqual([
+      [[0, 1]],
+      [[0, 1]],
+      [[0, 1]],
+    ]);
+  });
+
+  it("returns empty weeks below two teams instead of pairing somebody with nobody", () => {
+    for (const teamCount of [0, 1]) {
+      expect(roundRobinSchedule(teamCount, 3)).toEqual([[], [], []]);
+    }
+  });
+
+  it("builds exactly the number of weeks asked for", () => {
+    // Nothing asserted the length, so the loop bound could produce a fifteenth week of a
+    // fourteen-week season. The simulation reads `schedule[w]` for `w < weeks.length`, so
+    // the extra week is invisible there — but `roundRobinSchedule` is exported and the
+    // count is the one thing a caller passes in.
+    expect(roundRobinSchedule(12, 14)).toHaveLength(14);
+    expect(roundRobinSchedule(12, 1)).toHaveLength(1);
+    expect(roundRobinSchedule(12, 0)).toHaveLength(0);
+  });
+
+  it("allows a one-team playoff field, and crowns that team", () => {
+    // `playoffTeams < 1` rejects zero and below. One is coherent — the regular season
+    // decides everything and the leader is champion with no games played — and moving the
+    // guard by one turns a valid league into an error.
+    const outcomes = simulateLeague(
+      flat(8, (t) => 100 - t),
+      { ...cfg, playoffTeams: 1 },
+    );
+    expect(outcomes[0].playoffProbability).toBe(1);
+    expect(outcomes[0].championshipProbability).toBe(1);
+    expect(outcomes.slice(1).every((o) => o.playoffProbability === 0)).toBe(true);
+  });
+
+  it("plays the final of a two-team bracket instead of handing it to the top seed", () => {
+    // A field of exactly two is the one bracket size where "return the top seed" and "play
+    // the round" agree on the number of survivors, so only the identity of the champion
+    // separates them. Team 0 wins the regular season and is seed 1; team 1 wins the final.
+    const scores = Array.from({ length: 8 }, (_, t) => [
+      [...weeks.map(() => 100 - t), t === 1 ? 200 : 1],
+    ]);
+    const outcomes = simulateLeague(scores, {
+      ...cfg,
+      playoffTeams: 2,
+      playoffWeeks: [15],
+    });
+    expect(outcomes[0].playoffProbability).toBe(1);
+    expect(outcomes[1].playoffProbability).toBe(1);
+    expect(outcomes[1].championshipProbability).toBe(1);
+    expect(outcomes[0].championshipProbability).toBe(0);
+  });
+
+  it("counts the playoff weeks a score array has to cover", () => {
+    // `weeksNeeded` is the regular season plus the bracket. Subtracting instead of adding
+    // makes it twelve for a fourteen-week season, so a team carrying no playoff scores at
+    // all passes the check and the bracket then reads `undefined` — which compares false
+    // against everything, so the lower seed wins every playoff game it is in.
+    const short = Array.from({ length: 8 }, () => [weeks.map(() => 10)]);
+    expect(() => simulateLeague(short, cfg)).toThrow(/season needs 16/);
+
+    const exact = flat(8, () => 10);
+    expect(() => simulateLeague(exact, cfg)).not.toThrow();
+  });
+
+  it("refuses a fractional or zero scenario count", () => {
+    // Both halves of `!isInteger(n) || n < 1` matter and neither was pinned. With `&&`, a
+    // fractional count reaches the per-team check and fails there with a message about the
+    // wrong thing; with the bound at zero, a count of zero runs no scenarios at all and
+    // every rate comes back 0/0.
+    const scores = flat(8, () => 10);
+    expect(() => simulateLeague(scores, { ...cfg, scenarios: 2.5 })).toThrow(
+      /division by zero/,
+    );
+    // Teams supplying zero scenarios each, so the per-team dimension check agrees and only
+    // the scenario guard is left to catch it.
+    const none = Array.from({ length: 8 }, () => []);
+    expect(() => simulateLeague(none, { ...cfg, scenarios: 0 })).toThrow(
+      /division by zero/,
+    );
+  });
+});
+
+describe("the tiebreak key is a fixed function, not just any function", () => {
+  it("seeds a fully tied league the same way every run", () => {
+    // `tieBreakKey` decides the whole table when nothing else can separate the teams, and
+    // its three constants are the sort of thing that can be retyped without any test
+    // noticing: the distribution stays uniform, so every statistical assertion above still
+    // passes. What changes is *which* teams qualify — silently, between releases, for a
+    // league whose scores are identical.
+    //
+    // These are golden values, measured from the current implementation. They are not
+    // derived from anything and there is nothing to check them against; the point is that
+    // they cannot change without this test saying so.
+    const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
+    const tied = Array.from({ length: 8 }, () => [[...weeks, 15, 16].map(() => 0)]);
+    const outcomes = simulateLeague(tied, {
+      slots: SLOTS,
+      weeks,
+      playoffWeeks: [15, 16],
+      playoffTeams: 4,
+      scenarios: 1,
+      meanAbsenceWeeks: 3,
+    });
+
+    expect(outcomes.map((o) => o.playoffProbability)).toEqual([0, 1, 1, 1, 1, 0, 0, 0]);
+    expect(outcomes.map((o) => o.championshipProbability)).toEqual([
+      0, 0, 0, 0, 1, 0, 0, 0,
+    ]);
+  });
+
+  it("returns the same numbers it returned when these were written down", () => {
+    // The seeding assertion above catches two of the three constants and both of the
+    // shifts by one bit — but not the last shift, which changes only the low sixteen bits
+    // of the key. Two teams' keys have to agree in their top sixteen bits before that can
+    // reorder anything, which is about one pair in 65536; a fixture big enough to hit it
+    // reliably would be a fixture nobody could read.
+    //
+    // So the values themselves are pinned. Measured from the implementation, not derived:
+    // if a constant is retyped these change, and that is the whole point.
+    expect([
+      [0, 0],
+      [0, 1],
+      [0, 7],
+      [1, 0],
+      [5, 3],
+      [399, 11],
+    ].map(([s, t]) => tieBreakKey(s, t))).toEqual([
+      3111652103, 1747885168, 2327151746, 247943768, 3965910931, 3655643294,
+    ]);
+  });
+
+  it("stays inside the unsigned 32-bit range the sort assumes", () => {
+    // The comparator subtracts two keys. A negative key would still sort, but the values
+    // are documented as unsigned and the final `>>> 0` is what makes that true.
+    for (let s = 0; s < 50; s += 1) {
+      for (let t = 0; t < 12; t += 1) {
+        const key = tieBreakKey(s, t);
+        expect(Number.isInteger(key)).toBe(true);
+        expect(key).toBeGreaterThanOrEqual(0);
+        expect(key).toBeLessThanOrEqual(0xffffffff);
+      }
+    }
+  });
+});

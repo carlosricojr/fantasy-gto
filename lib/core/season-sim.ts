@@ -111,8 +111,15 @@ export function sampleTeamWeeklyScores(
  *
  * Deterministic, so a seeded run reproduces, and uncorrelated with team index, so no
  * position in the array is favoured.
+ *
+ * Exported only so its output can be pinned. Every property this function is supposed to
+ * have — uniform, stable, independent of team index — survives changing any of the three
+ * constants, so a league-level assertion cannot tell one hash from another: the seedings
+ * differ but they are equally fair, and nothing fails. The final shift is worse still,
+ * because it only alters the low sixteen bits and so almost never changes the *ordering*
+ * of a handful of teams. A table of golden values is the only thing that notices.
  */
-function tieBreakKey(scenario: number, team: number): number {
+export function tieBreakKey(scenario: number, team: number): number {
   let hash = Math.imul(scenario + 1, 0x9e3779b1) ^ Math.imul(team + 1, 0x85ebca6b);
   hash = Math.imul(hash ^ (hash >>> 15), 0xc2b2ae35);
   return (hash ^ (hash >>> 16)) >>> 0;
@@ -287,6 +294,14 @@ function playBracket(
   if (qualified.length === 1) return qualified[0];
 
   let field = [...qualified];
+  // Both halves of this condition are load-bearing for readability and neither is
+  // load-bearing for the result, which is worth stating so nobody spends an afternoon
+  // finding that out again. `simulateLeague` has already refused a bracket with too few
+  // weeks, so the field always reaches one at or before `playoffWeeks.length` rounds — and
+  // a round played by a single team pairs it with itself and re-elects it. Loosening
+  // either comparison, or making it an `||`, therefore returns the same champion. Only
+  // *tightening* the field bound to `> 2` changes anything, by skipping the final; that
+  // one is covered.
   for (let round = 0; round < config.playoffWeeks.length && field.length > 1; round += 1) {
     const week = regularWeeks + round;
     // Byes belong in the first round, and only enough games are played to reduce the field

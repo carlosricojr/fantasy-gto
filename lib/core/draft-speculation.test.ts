@@ -926,11 +926,9 @@ describe("placing a player the market has no opinion about", () => {
     // Measured over 120 seeds at 45 picks: 0 correct, 109 with the sign flipped, 120 with
     // the reduction inverted.
     const ranked = Array.from({ length: 60 }, (_, i) => ({
-      ...player(`p${i}`, "RB", 10),
-      adp: i + 1,
-      adpStdev: 6,
+      ...player(`p${i}`, "RB", 10, i + 1),
     }));
-    const unranked = { ...player("UNRANKED", "RB", 10), adp: null, adpStdev: null };
+    const unranked = { ...player("UNRANKED", "RB", 10, 1), adp: null, adpStdev: null };
 
     const state = canonicalizeState({
       teams: [
