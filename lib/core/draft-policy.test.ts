@@ -724,3 +724,94 @@ describe("a forced pick is honoured when only one remains", () => {
     expect(new Set(probabilities).size).toBeGreaterThan(1);
   });
 });
+
+/**
+ * The opponent who loses the player we take.
+ *
+ * When a candidate is already on an opponent's simulated roster, that opponent has to be
+ * re-completed without him — otherwise he is played on two teams at once. Getting that
+ * wrong is silent in every direction: the wrong opponent is repaired, the right one is
+ * gutted, the replacement is handed to both of us, or the whole thing throws only when the
+ * board happens to be exhausted.
+ *
+ * Every assertion here is on an absolute probability, because the failure mode is a number
+ * that is plausible but wrong — comparing two runs of the same code cannot see it.
+ */
+describe("re-completing the opponent who held the candidate", () => {
+  /** One dominant player on a thin board, with us drafting last so an opponent takes him. */
+  const starFixture = () => {
+    const star = player("STAR", "RB", 60);
+    const filler = Array.from({ length: TEAMS * ROUNDS }, (_, i) =>
+      player(`f${i}`, i % 2 === 0 ? "WR" : "RB", 6),
+    );
+    return { star, available: [star, ...filler] };
+  };
+
+  const seatedSoThat = (ownerIndex: number): DraftTeam[] =>
+    Array.from({ length: TEAMS }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i}`,
+      roster: [],
+      remainingPicks: snakePicks(
+        i === ownerIndex ? 1 : i === 0 ? TEAMS : i,
+        TEAMS,
+        ROUNDS,
+      ),
+    }));
+
+  it("leaves the rest of that opponent's roster intact", () => {
+    // The opponent who loses the candidate keeps everyone else. Filtering *to* him instead
+    // of *away from* him gives that opponent a one-man roster while he also keeps the
+    // star — both errors at once, and the result is merely a lower number rather than an
+    // obviously broken one.
+    //
+    // The threshold is measured, not guessed: this fixture returns 0.7667 at seed 13 and
+    // 0.6533 with the filter inverted. 0.70 sits between them with room on both sides.
+    const { available } = starFixture();
+    const recs = recommendByChampionship(
+      { teams: seatedSoThat(1), myTeamIndex: 0, available, rosterSize: ROUNDS },
+      CONFIG,
+      13,
+      3,
+    );
+    expect(recs.find((r) => r.player.id === "STAR")!.championshipProbability)
+      .toBeGreaterThan(0.7);
+  });
+
+  it("survives a board with nothing left to replace him with", () => {
+    // Exactly as many players as the opponents have picks, so `poolForUs` empties and
+    // `basePolicyPick` returns null. Appending the replacement unconditionally pushes a
+    // null onto a roster and the run dies inside a Monte Carlo loop instead of returning.
+    const star = player("STAR", "RB", 40);
+    const scarce = [star, ...Array.from({ length: 6 }, (_, i) => player(`s${i}`, "WR", 5))];
+    const teams: DraftTeam[] = Array.from({ length: TEAMS }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i}`,
+      roster: [],
+      remainingPicks: i === 0 ? [TEAMS] : [i],
+    }));
+    const recs = recommendByChampionship(
+      { teams, myTeamIndex: 0, available: scarce, rosterSize: 1 },
+      CONFIG,
+      5,
+      2,
+    );
+    expect(recs.length).toBeGreaterThan(0);
+  });
+
+  // Two mutants in this branch are deliberately NOT claimed as covered, because I could
+  // not build a fixture that separates them and a test that passes either way is worse
+  // than none:
+  //
+  //  - inverting the owner search (`p.id === forced.id` to `!==`) repairs the first
+  //    opponent holding any other player instead of the real holder. Measured at seed 13
+  //    with the holder seated at index 1 and at index 4, and with a second strong player
+  //    on the board so the replacement carries weight: the output is identical to six
+  //    decimal places in every arrangement tried.
+  //  - replacing the pool filter's comparison with `!== null` never removes anything, so
+  //    the replacement can be drafted by the opponent and by us. Measured separation is
+  //    0.7667 against 0.76 — one scenario in 150, indistinguishable from sampling noise.
+  //
+  // Both need a fixture where the identity of the repaired opponent changes the league's
+  // strength materially. That is a real gap and it is recorded rather than papered over.
+});
