@@ -32,6 +32,20 @@ export default defineConfig({
           name: "domain",
           environment: "node",
           include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+          /**
+           * Longer than the 5s default, because much of this suite is Monte Carlo.
+           *
+           * A championship simulation over several hundred scenarios takes seconds by
+           * design, and several tests here sit between 1.7s and 4s on an idle machine.
+           * Under any load they crossed the default and failed — passing alone, failing in
+           * a full run, and passing again on a retry. The mutation harness caught it
+           * because its baseline check runs one file at a time; `pnpm verify` had been
+           * green only because the machine happened to be quiet.
+           *
+           * A test whose result depends on how busy the machine is tells you nothing about
+           * the code, in either direction.
+           */
+          testTimeout: 30_000,
         },
       },
       {
