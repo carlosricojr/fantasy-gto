@@ -829,15 +829,179 @@ describe("re-completing the opponent who held the candidate", () => {
     expect(recs.length).toBeGreaterThan(0);
   });
 
-  // One mutant in this branch is still not claimed as covered: replacing the pool filter's
-  // comparison with `!== null` never removes anything, so the opponent's replacement can be
-  // drafted by them and by us. Measured separation at seed 13 is 0.7667 against 0.76 — one
-  // scenario in 150, indistinguishable from noise, and raising `scenarios` for one test
-  // costs more than the assertion is worth. It needs a fixture where the replacement itself
-  // is decisive.
-  //
-  // The owner-search mutant was recorded here as unclosable too. That was wrong, and worth
-  // saying: `seatedSoThat` had a seat collision, so the holder was always the first
-  // opponent and no arrangement could distinguish them. The fixture was broken, not the
-  // mutant equivalent.
+  it("does not let us draft the replacement it just gave the opponent", () => {
+    // The pool filter is the only thing stopping the replacement from being drafted twice.
+    // The star fixture cannot see it, because there the replacement is interchangeable
+    // junk and taking it costs nothing — 0.7667 against 0.76, one scenario in 150.
+    //
+    // Here the replacement is decisive: we hold six starters and no tight end, so TEGOOD
+    // is the only player on the board who fills a hole in our lineup. Forcing STAR hands
+    // him to the opponent, and drafting him ourselves as well is worth a great deal.
+    // Measured at seed 13 on this fixture: 0.2133 correct, 0.4267 with the filter
+    // neutered, and 2082.97 expected points against 2471.95. The threshold sits between
+    // those, and is asserted on both quantities.
+    //
+    // I recorded this mutant as unclosable twice, then wrote this fixture with a bound of
+    // 0.5 that both sides satisfy — a third pass at the same mistake. Measure the
+    // separation, then choose the threshold; never the other way round.
+    const star = player("STAR", "RB", 60);
+    const teGood = player("TEGOOD", "TE", 30);
+    const junk = Array.from({ length: 12 }, (_, i) => player(`j${i}`, "WR", 1));
+
+    const settled = (prefix: string): DraftTeam => ({
+      id: prefix,
+      name: prefix,
+      roster: [
+        player(`${prefix}qb`, "QB", 20),
+        player(`${prefix}rb1`, "RB", 20),
+        player(`${prefix}rb2`, "RB", 20),
+        player(`${prefix}wr1`, "WR", 20),
+        player(`${prefix}wr2`, "WR", 20),
+        player(`${prefix}te`, "TE", 20),
+        player(`${prefix}fx`, "RB", 20),
+      ],
+      remainingPicks: [],
+    });
+
+    const teams: DraftTeam[] = [
+      {
+        id: "me",
+        name: "me",
+        // Six starters and no tight end, with two picks left.
+        roster: [
+          player("mqb", "QB", 18),
+          player("mrb1", "RB", 18),
+          player("mrb2", "RB", 18),
+          player("mwr1", "WR", 18),
+          player("mwr2", "WR", 18),
+          player("mfx", "RB", 18),
+        ],
+        remainingPicks: [2, 3],
+      },
+      { ...settled("o0"), remainingPicks: [1] },
+      ...Array.from({ length: 6 }, (_, i) => settled(`o${i + 1}`)),
+    ];
+
+    const recs = recommendByChampionship(
+      { teams, myTeamIndex: 0, available: [star, teGood, ...junk], rosterSize: 8 },
+      CONFIG,
+      13,
+      3,
+    );
+    const forStar = recs.find((r) => r.player.id === "STAR")!;
+    expect(forStar).toBeDefined();
+    expect(forStar.championshipProbability).toBeLessThan(0.3);
+    expect(forStar.expectedPoints).toBeLessThan(2200);
+  });
+
+  // Every mutant in this branch is now covered. The note that used to stand here recorded
+  // two of them as unclosable; both claims were wrong, one because of a seat collision in
+  // the fixture and one because the replacement was interchangeable. Neither was a
+  // property of the code.
+});
+
+/**
+ * The order the ranking comes back in.
+ *
+ * `recs[0]` is the headline "Take X" on the draft screen, so the comparator producing it
+ * is as user-visible as any number in the product. Four mutants lived in it: dropping the
+ * playoff tie-break, dropping expected points, inverting the tied/untied grouping, and
+ * turning a difference into a sum so the comparator is inconsistent and the order becomes
+ * whatever the engine's sort happens to do.
+ *
+ * All four are caught by asserting the documented contract across the whole ranking rather
+ * than checking one fixture's leader — a leader can come out right by luck.
+ */
+describe("the ranking follows its documented order", () => {
+  const riskyBoard = () =>
+    board().map((p, i) => ({ ...p, availability: 0.32 + ((i * 37) % 68) / 100 }));
+
+  const rankingOn = (available: PlayerRisk[], seed: number, limit: number) =>
+    recommendByChampionship(
+      { teams: freshTeams(), myTeamIndex: 0, available, rosterSize: ROUNDS },
+      CONFIG,
+      seed,
+      limit,
+    );
+
+  // Computed once and shared. Each of these is a full championship simulation per
+  // candidate, so recomputing them per test pushed the file past its budget.
+  const rankings = [rankingOn(riskyBoard(), 7, 5), rankingOn(board(), 21, 5)];
+
+  it("puts every tied candidate above every untied one", () => {
+    for (const recs of rankings) {
+      const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
+      if (firstUntied === -1) continue;
+      for (let i = firstUntied; i < recs.length; i += 1) {
+        expect(recs[i].tiedWithLeader).toBe(false);
+      }
+    }
+  });
+
+  it("orders the tied group by playoff odds, then points, then id", () => {
+    for (const recs of rankings) {
+      const tied = recs.filter((r) => r.tiedWithLeader);
+      expect(tied.length).toBeGreaterThan(1);
+      for (let i = 1; i < tied.length; i += 1) {
+        const a = tied[i - 1];
+        const b = tied[i];
+        expect(a.playoffProbability).toBeGreaterThanOrEqual(b.playoffProbability);
+        if (a.playoffProbability === b.playoffProbability) {
+          expect(a.expectedPoints).toBeGreaterThanOrEqual(b.expectedPoints);
+          if (a.expectedPoints === b.expectedPoints) {
+            expect(a.player.id < b.player.id).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("returns a completely tied field in id order, not input order", () => {
+    // Three candidates who can never score: every probability and total is identical, so
+    // only the final id tiebreak decides. Listed id-descending, so input order disagrees.
+    const full = [
+      player("s1", "QB", 20),
+      player("s2", "RB", 15),
+      player("s3", "RB", 14),
+      player("s4", "WR", 13),
+      player("s5", "WR", 12),
+      player("s6", "TE", 10),
+      player("s7", "RB", 11),
+    ];
+    const teams = freshTeams().map((t, i) =>
+      i === 0 ? { ...t, roster: full, remainingPicks: [1] } : t,
+    );
+    const recs = recommendByChampionship(
+      {
+        teams,
+        myTeamIndex: 0,
+        available: [player("cc", "TE", 0), player("bb", "TE", 0), player("aa", "TE", 0)],
+        rosterSize: 8,
+      },
+      CONFIG,
+      4,
+      3,
+    );
+    expect(recs.map((r) => r.player.id)).toEqual(["aa", "bb", "cc"]);
+  });
+});
+
+describe("the base policy's tie-break", () => {
+  it("takes the first of the tied maxima, not the last", () => {
+    // On an empty roster QB0, RB0, WR0 and TE0 add exactly the same lineup value, so this
+    // is purely about which tied maximum wins. Ties are the normal case on a real board,
+    // so flipping `>` to `>=` changes essentially every pick in every completion.
+    expect(basePolicyPick([], board(), SLOTS)?.id).toBe("QB0");
+  });
+
+  it("weights a projection by availability, not against it", () => {
+    // Every player on the standard board shares one availability, which makes `mean *
+    // avail` and `mean / avail` order-identically — so the window comparator could invert
+    // the weighting entirely and nothing noticed. This board has a real spread.
+    const risky = board().map((p, i) => ({
+      ...p,
+      availability: 0.32 + ((i * 37) % 68) / 100,
+    }));
+    expect(basePolicyPick([], risky, SLOTS)?.id).toBe("TE1");
+  });
 });
