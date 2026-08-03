@@ -316,6 +316,11 @@ describe("matchName is unchanged by its length prune", () => {
     return a.join("");
   };
 
+  // An explicit timeout, because this is deliberately exhaustive: 2,187 comparisons, each
+  // running two full passes over an 81-player universe. It takes about five seconds on an
+  // idle machine, which is exactly vitest's default — so under any load it flaked, passing
+  // alone and failing in the full run. A test that depends on how busy the machine is
+  // tells you nothing about the code.
   it("agrees with the unpruned implementation on every case", () => {
     let checked = 0;
     for (const candidate of universe) {
@@ -332,7 +337,7 @@ describe("matchName is unchanged by its length prune", () => {
     }
     // Guards against the loops silently covering nothing.
     expect(checked).toBeGreaterThan(2000);
-  });
+  }, 30_000);
 });
 
 describe("the normalisation cache follows an array that grew", () => {
