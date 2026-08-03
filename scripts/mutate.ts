@@ -390,8 +390,20 @@ function assertVitestExists(): void {
   }
 }
 
+/** The file with one mutant applied. */
+function applyMutant(original: string, mutant: Mutant): string {
+  const lines = original.split("\n");
+  lines[mutant.line - 1] = mutant.after;
+  return lines.join("\n");
+}
+
 /**
  * Whether a mutated source still parses as TypeScript.
+ *
+ * A mutant that does not parse is not a mutant. `<` inside a generic — `Set<string>`
+ * becoming `Set<=string>` — is the common case, and it used to be counted as a *kill*:
+ * vitest cannot load the module, exits non-zero, and `runTests` reads a non-zero exit as
+ * the tests having objected. Every one inflated the score for a change no test ever saw.
  *
  * Uses the compiler's own parser rather than a heuristic, because the cases that matter are
  * exactly the ones a textual rule gets wrong: `a <= b` is valid and `Set<=string>` is not,
@@ -533,7 +545,15 @@ async function main(): Promise<void> {
   for (const file of files) {
     const path = join(process.cwd(), file);
     const original = readFileSync(path, "utf8");
-    const mutants = mutantsFor(file, original).slice(0, limit);
+    // Parse-filtered *before* the limit is applied, so `--limit N` means N mutants that
+    // actually run. Slicing first let discarded ones eat the budget: on lib/nfl/teams.ts
+    // the first six generated mutants are all generic brackets, so `--limit 6` tested
+    // nothing and then reported "no mutable sites" for a file with 19 mutants, eleven of
+    // them fine. The count of what was dropped is known here rather than accumulated.
+    const generated = mutantsFor(file, original);
+    const parseable = generated.filter((m) => parses(applyMutant(original, m)));
+    unparseable += generated.length - parseable.length;
+    const mutants = parseable.slice(0, limit);
     const tests = coveringTests(file, allTests, ownOnly);
     process.stdout.write(
       `\n${file}  (${mutants.length} mutants, ${tests.length} covering test file(s))\n`,
@@ -563,21 +583,7 @@ async function main(): Promise<void> {
     // changed. A single mutable pointer to the file in flight cannot get that wrong.
 
     for (const mutant of mutants) {
-      const lines = original.split("\n");
-      lines[mutant.line - 1] = mutant.after;
-      const mutatedSource = lines.join("\n");
-
-      // A mutant that does not parse is not a mutant. `<` inside a generic — `Set<string>`
-      // becoming `Set<=string>` — is the common case, and it was being counted as a *kill*:
-      // vitest cannot load the module, exits non-zero, and `runTests` reads that as the
-      // tests having objected. Every one of those inflated the score for a change no test
-      // ever saw. Discarded rather than scored, and counted separately so the number is
-      // visible instead of implied.
-      if (!parses(mutatedSource)) {
-        unparseable += 1;
-        continue;
-      }
-
+      const mutatedSource = applyMutant(original, mutant);
       let green = false;
       try {
         // Set immediately before the write and cleared by the restore, so the pointer is
@@ -613,8 +619,13 @@ async function main(): Promise<void> {
   if (tested === 0) {
     process.stdout.write(
       `\n${"=".repeat(70)}\n` +
-        `No mutants were generated, so nothing was measured. Check the targets: a file\n` +
-        `of only types and re-exports has no mutable sites.\n${"=".repeat(70)}\n`,
+        (unparseable > 0
+          ? `Nothing was measured: all ${unparseable} generated mutant(s) failed to parse\n` +
+            `and were discarded. With --limit, raise it — the discarded ones are often\n` +
+            `clustered at the top of a file.\n`
+          : `No mutants were generated, so nothing was measured. Check the targets: a\n` +
+            `file of only types and re-exports has no mutable sites.\n`) +
+        `${"=".repeat(70)}\n`,
     );
     process.exitCode = 1;
     return;
