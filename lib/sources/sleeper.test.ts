@@ -112,6 +112,19 @@ describe("parsePicks", () => {
     expect(picks[0].team).toBe("DET");
   });
 
+  it("carries the platform's own player id, and only when it is one", () => {
+    // The id is how a pick is de-duplicated across polls. Inverting the type check turns
+    // every real pick's id into null — Sleeper documents it as a string — while letting
+    // non-string junk through into a field typed `string | null`.
+    expect(parsePicks(PICKS)[0].playerId).toBe("9509");
+    expect(parsePicks(PICKS)[1].playerId).toBe("6786");
+    expect(
+      parsePicks([
+        { pick_no: 1, draft_slot: 1, player_id: 6786, metadata: { first_name: "A", last_name: "B" } },
+      ])[0].playerId,
+    ).toBeNull();
+  });
+
   it("skips a pick with no usable name rather than inventing one", () => {
     const picks = parsePicks([
       { pick_no: 1, draft_slot: 1, metadata: {} },

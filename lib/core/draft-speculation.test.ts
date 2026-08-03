@@ -650,3 +650,109 @@ describe("cached recommendations are sealed", () => {
     expect(entry.recommendations[0].player.weeklyMean).toBe(originalMean);
   });
 });
+
+/**
+ * The three things the cache is built on.
+ *
+ * Canonicalisation is what makes a hit exact — the same position assembled in a different
+ * order must produce the same signature. The digest is what makes two positions distinct.
+ * And `allowApproximate` is the caller's choice between a stale answer and none. Each had a
+ * mutant that survived, and each of those is silent rather than loud.
+ */
+describe("canonicalizeState actually sorts", () => {
+  it("puts the pool and every roster in id order", () => {
+    // Changing the comparator's -1 to -0 turns this into a no-op: JavaScript reads -0 as
+    // "equal", so the sort never swaps and both lists stay in the caller's order. Nothing
+    // throws; cache hits simply stop being exact.
+    const state = baseState();
+    state.available = [...state.available].reverse();
+    state.teams[1].roster = [state.available[3], state.available[1], state.available[2]];
+
+    const canonical = canonicalizeState(state);
+    const ids = canonical.available.map((p) => p.id);
+    expect(ids).toEqual([...ids].sort());
+    for (const team of canonical.teams) {
+      const rosterIds = team.roster.map((p) => p.id);
+      expect(rosterIds).toEqual([...rosterIds].sort());
+    }
+  });
+});
+
+describe("digestIds reads every character", () => {
+  it("separates ids that differ only in their first character", () => {
+    // Starting the hash loop at index 1 skips the first character of every string, so
+    // these collide — two different players become one position as far as the cache is
+    // concerned, and a cached answer is served for a board that is not the one it describes.
+    expect(digestIds(["ab"])).not.toBe(digestIds(["bb"]));
+    expect(digestIds(["1234", "x"])).not.toBe(digestIds(["2234", "x"]));
+  });
+
+  it("separates ids that differ only in their last character", () => {
+    expect(digestIds(["ab"])).not.toBe(digestIds(["ac"]));
+  });
+});
+
+describe("allowApproximate is an opt-in", () => {
+  const cacheAndMiss = () => {
+    const built = baseState();
+    const cache = precomputeRecommendations(
+      built,
+      anticipateStates(built, [{ team: 1 }, { team: 2 }], 5, createRng(1)),
+      CONFIG,
+      42,
+      { candidateLimit: 4 },
+    );
+    // A future the cache did not anticipate, so only the approximate path can serve it.
+    const actual = baseState();
+    const pool = board();
+    const takenA = pool[pool.length - 1];
+    const takenB = pool[pool.length - 2];
+    actual.teams[1].roster = [takenA];
+    actual.teams[2].roster = [takenB];
+    actual.teams[1].remainingPicks = actual.teams[1].remainingPicks.slice(1);
+    actual.teams[2].remainingPicks = actual.teams[2].remainingPicks.slice(1);
+    actual.available = pool.filter((p) => p.id !== takenA.id && p.id !== takenB.id);
+    return { cache, actual };
+  };
+
+  it("computes rather than approximating when the caller says not to", () => {
+    // Inverting the opt-in hands the cached approximate entry to a caller who explicitly
+    // asked not to have one — "I would rather wait than be told something stale".
+    const { cache, actual } = cacheAndMiss();
+    // Guard first, so this cannot pass because the state was never approximable.
+    expect(resolveFromCache(cache, actual).kind).toBe("approximate");
+
+    const refused = recommendWithCache(cache, actual, CONFIG, 42, {
+      allowApproximate: false,
+      candidateLimit: 4,
+    });
+    expect(refused.kind).not.toBe("approximate");
+    expect(refused.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it("serves the approximation when the caller asks for one", () => {
+    const { cache, actual } = cacheAndMiss();
+    const served = recommendWithCache(cache, actual, CONFIG, 42, {
+      allowApproximate: true,
+      candidateLimit: 4,
+    });
+    expect(served.kind).toBe("approximate");
+  });
+
+  it("still returns a computed ranking on a genuine miss", () => {
+    // A miss must carry a freshly computed answer, not an empty list. Inverting the
+    // short-circuit returns the cache's `{kind:"miss", recommendations: []}` straight
+    // through, so the board silently shows nothing.
+    const mismatched = baseState();
+    mismatched.rosterSize = ROUNDS + 3;
+    const resolved = recommendWithCache(
+      { builtFrom: "nothing", entries: [] },
+      mismatched,
+      CONFIG,
+      42,
+      { candidateLimit: 3 },
+    );
+    expect(resolved.kind).toBe("miss");
+    expect(resolved.recommendations.length).toBeGreaterThan(0);
+  });
+});

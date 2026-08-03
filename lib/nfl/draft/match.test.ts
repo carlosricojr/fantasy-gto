@@ -348,3 +348,48 @@ describe("the normalisation cache follows an array that grew", () => {
     expect(matchName("Puka Nacua", universe)?.candidate.id).toBe("2");
   });
 });
+
+/**
+ * The two numbers this module reports.
+ *
+ * `similarity` is the confidence the interface shows and the thresholds are compared
+ * against, and `findNamesInText` returns its answers best-first so the caller can trust the
+ * head of the list. Neither was pinned: dividing by the *shorter* string instead of the
+ * longer one changed 5,711 of 12,000 damaged spellings without a single test objecting, and
+ * turning the sort comparator into a sum left the results in insertion order.
+ */
+describe("similarity is normalised by the longer string", () => {
+  it("scores a prefix against its extension by the length of the extension", () => {
+    // Three edits over a length of six is a half. Dividing by the shorter string instead
+    // gives 1 - 3/3 = 0, which fails everything rather than scoring it.
+    expect(similarity("abc", "abcdef")).toBeCloseTo(0.5, 10);
+    expect(similarity("puka", "pukanacua")).toBeCloseTo(4 / 9, 10);
+    expect(similarity("", "abcd")).toBeCloseTo(0, 10);
+    expect(similarity("same", "same")).toBeCloseTo(1, 10);
+  });
+
+  it("reports a confidence a caller can act on", () => {
+    // `Bijan Robnsn` is two deletions from `bijanrobinson` (13 characters).
+    const match = matchName("Bijan Robnsn", UNIVERSE);
+    expect(match?.candidate.id).toBe("4");
+    expect(match?.confidence).toBeCloseTo(11 / 13, 10);
+  });
+});
+
+describe("findNamesInText orders by confidence", () => {
+  it("returns the most confident match first", () => {
+    // A clean read and a damaged one in the same line. Best-first is what lets a caller
+    // trust the head of the list; a comparator that never reorders leaves insertion order,
+    // which is the order the *text* happened to use.
+    const found = findNamesInText(
+      "1.01 Bijan Robnsn RB ATL 1.02 Puka Nacua WR LAR",
+      UNIVERSE,
+    );
+    expect(found.length).toBeGreaterThan(1);
+    expect(found[0].candidate.id).toBe("6");
+    expect(found[0].confidence).toBeGreaterThan(found[1].confidence);
+    for (let i = 1; i < found.length; i += 1) {
+      expect(found[i - 1].confidence).toBeGreaterThanOrEqual(found[i].confidence);
+    }
+  });
+});
