@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildSlots } from "../nfl/roster";
 import {
+  BASE_POLICY_WIDTH,
   type DraftPolicyState,
   type DraftTeam,
   basePolicyPick,
@@ -578,5 +579,148 @@ describe("recommendByChampionship input validation", () => {
         ),
       ).toThrow(/not one of the/);
     }
+  });
+});
+
+/**
+ * The base policy, which the improvement guarantee is stated relative to.
+ *
+ * `completeDraft` plays it out for every team at every remaining pick, so an error here is
+ * not one bad pick — it is the league the objective is measured against. A mutation run
+ * found the contender window, the availability weighting and the depth tiebreak all
+ * unpinned, and none of them fails loudly: they just make the simulated league wrong.
+ */
+describe("basePolicyPick", () => {
+  it("never lets the contender window exclude the best player on the board", () => {
+    // Narrowing to the top `BASE_POLICY_WIDTH` is a cost optimisation, so its whole
+    // contract is that it changes nothing. Slicing from index 1 drops the highest-projected
+    // player at every pick — and because he stays the best, he is skipped for ever.
+    const dominant = player("STAR", "RB", 60);
+    const pool = [...board(), dominant];
+    expect(basePolicyPick([], pool, SLOTS)?.id).toBe("STAR");
+  });
+
+  it("gives the same answer with the window as without it", () => {
+    // The invariant that makes the optimisation safe. Asserted for an empty, a partial and
+    // a full roster, because the lineup baseline changes which player wins.
+    const pool = board();
+    const narrowed = [...pool]
+      .sort((a, b) => b.weeklyMean * b.availability - a.weeklyMean * a.availability)
+      .slice(0, BASE_POLICY_WIDTH);
+
+    const rosters: PlayerRisk[][] = [
+      [],
+      [player("r1", "RB", 15), player("r2", "WR", 14)],
+      [
+        player("r1", "QB", 20),
+        player("r2", "RB", 15),
+        player("r3", "RB", 14),
+        player("r4", "WR", 13),
+        player("r5", "WR", 12),
+        player("r6", "TE", 10),
+      ],
+    ];
+    for (const roster of rosters) {
+      expect(basePolicyPick(roster, pool, SLOTS)?.id).toBe(
+        basePolicyPick(roster, narrowed, SLOTS)?.id,
+      );
+    }
+  });
+
+  it("prefers the durable player when the points are equal", () => {
+    // Availability multiplies the projection. Dividing by it instead inverts the
+    // preference everywhere at once — prefilter, base policy and shortlist all start
+    // favouring the injury-prone player.
+    const full = [
+      player("qb", "QB", 20),
+      player("rb1", "RB", 15),
+      player("rb2", "RB", 14),
+      player("wr1", "WR", 13),
+      player("wr2", "WR", 12),
+      player("te", "TE", 10),
+      player("fx", "RB", 11),
+    ];
+    const durable = player("durable", "WR", 6, { availability: 0.95 });
+    const fragile = player("fragile", "WR", 6, { availability: 0.45 });
+    // Both orders, so a tie broken by argument order cannot pass this.
+    expect(basePolicyPick(full, [durable, fragile], SLOTS)?.id).toBe("durable");
+    expect(basePolicyPick(full, [fragile, durable], SLOTS)?.id).toBe("durable");
+  });
+
+  it("takes the better bench player when neither can start", () => {
+    // The depth tiebreak. With its sign flipped, the policy takes the *worst* player on
+    // the board once the lineup is full — the opposite of what it is for.
+    const full = [
+      player("qb", "QB", 20),
+      player("rb1", "RB", 15),
+      player("rb2", "RB", 14),
+      player("wr1", "WR", 13),
+      player("wr2", "WR", 12),
+      player("te", "TE", 10),
+      player("fx", "RB", 11),
+    ];
+    const better = player("better", "TE", 8);
+    const worse = player("worse", "TE", 2);
+    expect(basePolicyPick(full, [better, worse], SLOTS)?.id).toBe("better");
+    expect(basePolicyPick(full, [worse, better], SLOTS)?.id).toBe("better");
+  });
+
+  it("fills every starting slot across a run of picks", () => {
+    // An invalid comparator in the window leaves the top of the board unordered, which
+    // shows up as a roster that never fills its slots.
+    let roster: PlayerRisk[] = [];
+    let pool = board();
+    for (let i = 0; i < SLOTS.length; i += 1) {
+      const pick = basePolicyPick(roster, pool, SLOTS)!;
+      expect(pick).not.toBeNull();
+      roster = [...roster, pick];
+      pool = pool.filter((p) => p.id !== pick.id);
+    }
+    for (const slot of SLOTS) {
+      expect(roster.some((p) => slot.eligiblePositions.includes(p.position))).toBe(true);
+    }
+  });
+});
+
+describe("the shortlist is the top of the board", () => {
+  it("simulates the highest-value candidates, not an arbitrary four", () => {
+    // The shortlist comparator sorts by marginal starting value. Turned into a sum it is
+    // positive for every pair, so `sort` leaves the board in its original order and the
+    // four players simulated are simply the first four.
+    const recs = recommendByChampionship(
+      { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
+      CONFIG,
+      9,
+      4,
+    );
+    // On an empty roster every position is open, so the best of each is what a lineup
+    // gains most from.
+    expect(recs.map((r) => r.player.id).sort()).toEqual(["QB0", "RB0", "TE0", "WR0"]);
+  });
+});
+
+describe("a forced pick is honoured when only one remains", () => {
+  it("seats the candidate on the last pick of the draft", () => {
+    // `picksLeft > 1` drops the forced candidate exactly when one pick is left, so every
+    // candidate is scored as the roster the base policy would have built anyway — and all
+    // of them come back identical.
+    // Forced to a player the base policy would never choose, so "it was seated" and "the
+    // policy happened to pick him" cannot be confused. The first player on the board is
+    // exactly what the policy takes anyway, which is how the first version of this passed.
+    const unwanted = board()[board().length - 1];
+    expect(basePolicyPick([], board(), SLOTS)?.id).not.toBe(unwanted.id);
+    expect(
+      completeOwnRoster([], 1, board(), SLOTS, unwanted, 10).map((p) => p.id),
+    ).toEqual([unwanted.id]);
+
+    const teams = freshTeams().map((t) => ({ ...t, remainingPicks: t.remainingPicks.slice(-1) }));
+    const recs = recommendByChampionship(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 1 },
+      CONFIG,
+      17,
+      3,
+    );
+    const probabilities = recs.map((r) => r.championshipProbability);
+    expect(new Set(probabilities).size).toBeGreaterThan(1);
   });
 });
