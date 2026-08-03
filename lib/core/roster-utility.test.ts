@@ -432,3 +432,47 @@ describe("simulateAvailability absence structure", () => {
     expect(seasonsEntirelyMissed / scenarios).toBeLessThan(0.02);
   });
 });
+
+/**
+ * Reproducibility, pinned to actual numbers.
+ *
+ * Most of what survived a mutation run here lives in `playerStream`'s hash constants, and
+ * it is tempting to call those equivalent: change one and the stream is different but just
+ * as random, so no distributional assertion can tell. That reasoning is wrong. They are not
+ * equivalent — they change every number the simulation produces — they are merely invisible
+ * to any test that only checks a distribution.
+ *
+ * And determinism for a seed is load-bearing rather than incidental. Common random numbers
+ * depend on it, so does the memo cache, so does the speculative cache, and so does every
+ * figure in `docs/draft-validation.md`. An accidental change to the generator silently
+ * moves all of them.
+ *
+ * So these are golden values, in the same spirit as `published-draft-metrics.json`: they
+ * are what this code produces today. They are *meant* to fail if the generator changes.
+ * When that happens deliberately, re-run and update them in the same commit — and expect
+ * to re-run the backtest too, because the same change moves those figures.
+ */
+describe("the simulation is reproducible", () => {
+  const roster = [
+    player("rb1", "RB", 14),
+    player("rb2", "RB", 13, { availability: 0.8, byeWeek: 7 }),
+    player("wr1", "WR", 12),
+  ];
+
+  it("returns the same numbers for the same seed", () => {
+    const utility = rosterUtility(roster, SLOTS, CONFIG, 5);
+    expect(utility.expectedPoints).toBe(498.39);
+    expect(utility.standardError).toBe(4.04);
+    expect(utility.expectedEmptySlots).toBe(3.7);
+    expect(utility.expectedByWeek.slice(0, 3)).toEqual([37.01, 36.15, 36.06]);
+  });
+
+  it("returns the same marginal value for the same seed", () => {
+    expect(marginalUtility(roster, player("rb3", "RB", 7), SLOTS, CONFIG, 5)).toBe(48.48);
+  });
+
+  it("gives a different answer for a different seed, so the seed is real", () => {
+    // Guards the pair above from passing because the seed is ignored entirely.
+    expect(rosterUtility(roster, SLOTS, CONFIG, 6).expectedPoints).not.toBe(498.39);
+  });
+});
