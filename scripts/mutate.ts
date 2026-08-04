@@ -198,52 +198,94 @@ interface Mutant {
   after: string;
 }
 
+/**
+ * Blanks every comment and string literal in one line, keeping its length.
+ *
+ * Offsets found in the result are valid in the real line, so a mutator can search the
+ * masked text and edit the original. Anything masked is text rather than code: a comment
+ * containing "true", "Math.min" or a number used to produce a mutant that edits the comment
+ * and nothing else, which every test passes and which is then reported as a surviving gap —
+ * noise indistinguishable from a real finding.
+ *
+ * This replaced four separate passes — strings, then trailing `//`, then balanced
+ * `/* ... *\/`, then a dangling `/*` — which between them still missed the case that
+ * matters most, because none of them carried state to the next line. A block comment
+ * opening *after* code never set the flag at all:
+ *
+ *     const cap = 5; /* keep
+ *       it at >= 5 *\/
+ *
+ * The second line does not begin with `*` or `/*`, so it was treated as code and the `>=`
+ * inside the comment was an eligible site. One pass that walks the line and returns the
+ * state it ends in cannot have that shape of bug.
+ *
+ * The scan is interleaved rather than layered, which the passes could not be: a `//` inside
+ * a string is not a comment, and a quote inside a comment does not open a string.
+ */
+function maskComments(
+  line: string,
+  startsInBlockComment: boolean,
+): { masked: string; inBlockComment: boolean } {
+  const out = line.split("");
+  const blank = (from: number, to: number): void => {
+    for (let k = from; k < to; k += 1) out[k] = " ";
+  };
+
+  let i = 0;
+  if (startsInBlockComment) {
+    const close = line.indexOf("*/");
+    if (close === -1) {
+      blank(0, line.length);
+      return { masked: out.join(""), inBlockComment: true };
+    }
+    blank(0, close + 2);
+    i = close + 2;
+  }
+
+  while (i < line.length) {
+    const ch = line[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < line.length && line[j] !== ch) {
+        // A backslash escapes the next character, including the closing quote.
+        j += line[j] === "\\" ? 2 : 1;
+      }
+      const end = Math.min(j + 1, line.length);
+      blank(i, end);
+      i = end;
+      continue;
+    }
+    if (ch === "/" && line[i + 1] === "/") {
+      blank(i, line.length);
+      return { masked: out.join(""), inBlockComment: false };
+    }
+    if (ch === "/" && line[i + 1] === "*") {
+      // From `i + 2`, so `/*/` reads as an unterminated opener rather than as a complete
+      // comment that happens to share its middle character.
+      const close = line.indexOf("*/", i + 2);
+      if (close === -1) {
+        blank(i, line.length);
+        return { masked: out.join(""), inBlockComment: true };
+      }
+      blank(i, close + 2);
+      i = close + 2;
+      continue;
+    }
+    i += 1;
+  }
+  return { masked: out.join(""), inBlockComment: false };
+}
+
 function mutantsFor(file: string, source: string): Mutant[] {
   const lines = source.split("\n");
   const out: Mutant[] = [];
   let inBlockComment = false;
 
   lines.forEach((line, index) => {
-    const trimmed = line.trim();
-    const opensBlock = trimmed.startsWith("/*");
-    const mutable = isMutableLine(line, inBlockComment || opensBlock);
-    if (opensBlock && !trimmed.includes("*/")) inBlockComment = true;
-    if (trimmed.includes("*/")) inBlockComment = false;
-    if (!mutable) return;
-
-    // Blanked to the same length, so offsets found here are valid in the real line.
-    // Strings first, then any trailing `//` comment. Without the second step a comment
-    // containing "true", "Math.min" or a number produced a mutant that edits only the
-    // comment, which every test passes and which is then reported as a surviving gap —
-    // noise that looks exactly like a real finding.
-    const withoutStrings = line.replace(
-      /"[^"]*"|'[^']*'|`[^`]*`/g,
-      (m) => " ".repeat(m.length),
-    );
-    const commentAt = withoutStrings.indexOf("//");
-    const withoutLineComment =
-      commentAt === -1
-        ? withoutStrings
-        : withoutStrings.slice(0, commentAt) +
-          " ".repeat(withoutStrings.length - commentAt);
-    // And any `/* ... */` fragment sitting beside code. `isMutableLine` only rejects a
-    // line whose *trimmed* text starts with `/*`, so `const cap = 5; /* keep >= 5 */`
-    // was mutable and the `>=` inside the comment was an eligible site — a mutant that
-    // edits comment text, which nothing can object to and which is then reported as a
-    // survivor indistinguishable from a real gap.
-    const withoutBlocks = withoutLineComment.replace(/\/\*[\s\S]*?\*\//g, (m) =>
-      " ".repeat(m.length),
-    );
-    // And a `/*` that opens after code and never closes on this line. `isMutableLine`
-    // accepts such a line because its trimmed text does not start with `/*`, and
-    // `inBlockComment` only turns on for the lines that follow — so everything after the
-    // opener was an eligible site producing comment-only mutants.
-    const danglingBlock = withoutBlocks.indexOf("/*");
-    const masked =
-      danglingBlock === -1
-        ? withoutBlocks
-        : withoutBlocks.slice(0, danglingBlock) +
-          " ".repeat(withoutBlocks.length - danglingBlock);
+    const startedInComment = inBlockComment;
+    const { masked, inBlockComment: endsInComment } = maskComments(line, inBlockComment);
+    inBlockComment = endsInComment;
+    if (!isMutableLine(line, startedInComment)) return;
 
     for (const mutator of MUTATORS) {
       for (const site of mutator.sites(masked)) {
@@ -666,16 +708,27 @@ async function main(): Promise<void> {
   // limit that excluded everything. Printing a score for it is the sixth version of the
   // mistake this file already guards against five times.
   if (tested === 0) {
-    process.stdout.write(
-      `\n${"=".repeat(70)}\n` +
-        (unparseable > 0
-          ? `Nothing was measured: all ${unparseable} generated mutant(s) failed to parse\n` +
-            `and were discarded. With --limit, raise it — the discarded ones are often\n` +
-            `clustered at the top of a file.\n`
-          : `No mutants were generated, so nothing was measured. Check the targets: a\n` +
-            `file of only types and re-exports has no mutable sites.\n`) +
-        `${"=".repeat(70)}\n`,
-    );
+    // Three different causes, and naming the wrong one sends the reader to the wrong place.
+    // Skipped files come first because they are the only cause that is about the *targets*
+    // rather than about this harness, and the list of them is the answer — without it the
+    // output says nothing was measured and not which modules or why.
+    const cause =
+      skipped.length > 0
+        ? `Nothing was measured: no test file was found for ${skipped.length} of the ` +
+          `${files.length} target(s):\n` +
+          skipped.map((f) => `  ${f}\n`).join("") +
+          `Either they are genuinely untested, or this harness cannot see their tests.\n`
+        : unmeasured.length > 0
+          ? `Nothing was measured: all ${unmeasured.length} mutant(s) were run and none of\n` +
+            `them produced a verdict. The test command is timing out or being killed — this\n` +
+            `is a machine or configuration problem, not a result.\n`
+          : unparseable > 0
+            ? `Nothing was measured: all ${unparseable} generated mutant(s) failed to parse\n` +
+              `and were discarded. With --limit, raise it — the discarded ones are often\n` +
+              `clustered at the top of a file.\n`
+            : `No mutants were generated, so nothing was measured. Check the targets: a\n` +
+              `file of only types and re-exports has no mutable sites.\n`;
+    process.stdout.write(`\n${"=".repeat(70)}\n${cause}${"=".repeat(70)}\n`);
     process.exitCode = 1;
     return;
   }
