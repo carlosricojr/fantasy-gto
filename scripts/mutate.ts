@@ -634,12 +634,31 @@ function runTests(files: readonly string[]): TestOutcome {
     });
     return "green";
   } catch (error) {
-    // `execFileSync` reports a timeout or a signal kill through `signal`/`code`, and a
-    // genuine test failure through a non-zero `status`. Anything without a numeric status
-    // never produced a verdict.
-    const failure = error as { status?: number | null; signal?: string | null; code?: string };
-    if (typeof failure.status === "number") return "red";
-    return "inconclusive";
+    // `execFileSync` reports a process-level timeout or a signal kill through
+    // `signal`/`code`, and a test failure through a non-zero `status`. Anything without a
+    // numeric status never produced a verdict.
+    const failure = error as {
+      status?: number | null;
+      signal?: string | null;
+      code?: string;
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+    if (typeof failure.status !== "number") return "inconclusive";
+
+    // A non-zero status is not enough on its own, because vitest's *own* per-test timeout
+    // exits with status 1 — the same code as an assertion that failed. On a loaded machine
+    // a test that normally takes four seconds takes thirty-five, and the mutant it was
+    // running against is then recorded as caught by a test that never reached an assertion.
+    // That is the inflation this distinction exists to prevent, arriving through the one
+    // door an exit code cannot see.
+    //
+    // Conservative on purpose: a run containing a timeout is discarded even if something
+    // else in it genuinely failed. Discarding costs a mutant; the other direction costs the
+    // number its meaning.
+    const output = `${String(failure.stdout ?? "")}${String(failure.stderr ?? "")}`;
+    if (/timed out in \d+ms/i.test(output)) return "inconclusive";
+    return "red";
   }
 }
 
