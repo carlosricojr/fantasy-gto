@@ -445,8 +445,20 @@ function runAll(): boolean {
  * every mutant looks killed, and the run reports a perfect score having tested nothing.
  * It did exactly that for 1,287 mutants before this was noticed.
  */
-function runTests(files: readonly string[]): boolean {
-  if (files.length === 0) return true;
+/**
+ * Whether the tests passed — or whether they got to answer at all.
+ *
+ * `red` means the suite ran and objected. `inconclusive` means it never finished: a
+ * timeout, an out-of-memory kill, a signal. Those are not the same thing, and collapsing
+ * them was silently inflating the score. Every failure used to read as "mutant killed", so
+ * on a loaded machine — a build in another checkout, anything holding the CPU — a run that
+ * timed out counted as a test objecting to the mutation. The busier the machine, the better
+ * the code looked.
+ */
+type TestOutcome = "green" | "red" | "inconclusive";
+
+function runTests(files: readonly string[]): TestOutcome {
+  if (files.length === 0) return "green";
   assertVitestExists();
   try {
     execFileSync(VITEST, ["run", "--project", "domain", "--silent=true", ...files], {
@@ -454,9 +466,14 @@ function runTests(files: readonly string[]): boolean {
       stdio: "pipe",
       timeout: 180_000,
     });
-    return true;
-  } catch {
-    return false;
+    return "green";
+  } catch (error) {
+    // `execFileSync` reports a timeout or a signal kill through `signal`/`code`, and a
+    // genuine test failure through a non-zero `status`. Anything without a numeric status
+    // never produced a verdict.
+    const failure = error as { status?: number | null; signal?: string | null; code?: string };
+    if (typeof failure.status === "number") return "red";
+    return "inconclusive";
   }
 }
 
@@ -507,7 +524,7 @@ async function main(): Promise<void> {
   const probe = files
     .map((file) => coveringTests(file, allTests, ownOnly))
     .find((tests) => tests.length > 0);
-  if (probe !== undefined && !runTests(probe)) {
+  if (probe !== undefined && runTests(probe) !== "green") {
     process.stdout.write(
       `  the per-mutant command fails on unmutated source: ${probe.join(" ")}\n` +
         "  every mutant would report as killed. Fix the invocation.\n",
@@ -519,9 +536,16 @@ async function main(): Promise<void> {
 
   const survivors: Mutant[] = [];
   const skipped: string[] = [];
+  const unmeasured: Mutant[] = [];
   let killed = 0;
   let unparseable = 0;
   let tested = 0;
+  // How many mutants have run since the baseline was last confirmed. It is checked once
+  // before the run, which proves the invocation worked *then* and says nothing about an
+  // hour later on a machine that has since filled up. Re-confirming periodically is what
+  // makes the score a statement about the tests rather than about the load average.
+  let sinceBaseline = 0;
+  const BASELINE_EVERY = 25;
 
   // The file currently carrying a mutant, so an interrupt restores that one and only that
   // one. The handlers are installed once.
@@ -584,7 +608,7 @@ async function main(): Promise<void> {
 
     for (const mutant of mutants) {
       const mutatedSource = applyMutant(original, mutant);
-      let green = false;
+      let outcome: TestOutcome = "green";
       try {
         // Set immediately before the write and cleared by the restore, so the pointer is
         // non-null for exactly the window in which a file on disk is corrupted.
@@ -593,13 +617,24 @@ async function main(): Promise<void> {
         writeFileSync(backupPathFor(path), original);
         inFlight = { path, original };
         writeFileSync(path, mutatedSource);
-        tested += 1;
-        green = runTests(tests);
+        outcome = runTests(tests);
+        // One retry: a single unlucky run is the common case, and re-running costs less
+        // than discarding a mutant.
+        if (outcome === "inconclusive") outcome = runTests(tests);
       } finally {
         restoreInFlight();
       }
 
-      if (green) {
+      if (outcome === "inconclusive") {
+        // Scored in neither direction. Calling it killed is the failure this distinction
+        // exists to prevent, and calling it survived would invent a gap.
+        unmeasured.push(mutant);
+        process.stdout.write("?");
+        continue;
+      }
+
+      tested += 1;
+      if (outcome === "green") {
         survivors.push(mutant);
         process.stdout.write(`  SURVIVED  :${mutant.line} ${mutant.mutator}\n`);
         process.stdout.write(`            ${mutant.before.trim().slice(0, 96)}\n`);
@@ -607,6 +642,20 @@ async function main(): Promise<void> {
       } else {
         killed += 1;
         process.stdout.write(".");
+      }
+
+      sinceBaseline += 1;
+      if (sinceBaseline >= BASELINE_EVERY) {
+        sinceBaseline = 0;
+        if (runTests(tests) !== "green") {
+          process.stdout.write(
+            `\n\nThe unmutated baseline stopped passing part-way through ${file}.\n` +
+              "Everything measured since the last confirmation is unreliable, so no score\n" +
+              "is printed. Re-run when the machine is quiet.\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
       }
     }
     process.stdout.write("\n");
@@ -636,6 +685,13 @@ async function main(): Promise<void> {
     `\n${"=".repeat(70)}\n` +
       `mutants ${tested}   killed ${killed}   survived ${survivors.length}   ` +
       `score ${score.toFixed(1)}%\n` +
+      (unmeasured.length > 0
+        ? `${unmeasured.length} mutant(s) never produced a verdict — the test run was ` +
+          `killed by a\ntimeout or a signal, twice each. They are excluded from the score ` +
+          `rather than\ncounted as killed. A run with many of these was measured on a busy ` +
+          `machine and\nthe score above is over the rest:\n` +
+          unmeasured.map((m) => `  ${m.file}:${m.line}  ${m.mutator}\n`).join("")
+        : "") +
       (unparseable > 0
         ? `${unparseable} generated mutant(s) did not parse and were discarded rather ` +
           `than scored.\n`
