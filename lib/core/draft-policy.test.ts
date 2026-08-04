@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { buildSlots } from "../nfl/roster";
 import {
-  BASE_POLICY_WIDTH,
+  type ChampionshipRecommendation,
   type DraftPolicyState,
   type DraftTeam,
   basePolicyPick,
   completeDraft,
   completeOwnRoster,
+  orderRecommendations,
   recommendByChampionship,
 } from "./draft-policy";
 import { snakePicks } from "./draft";
@@ -591,22 +592,57 @@ describe("recommendByChampionship input validation", () => {
  * unpinned, and none of them fails loudly: they just make the simulated league wrong.
  */
 describe("basePolicyPick", () => {
-  it("never lets the contender window exclude the best player on the board", () => {
-    // Narrowing to the top `BASE_POLICY_WIDTH` is a cost optimisation, so its whole
-    // contract is that it changes nothing. Slicing from index 1 drops the highest-projected
-    // player at every pick — and because he stays the best, he is skipped for ever.
+  it("never lets the prefilter exclude the best player on the board", () => {
+    // Narrowing the field is a cost optimisation, so its whole contract is that it changes
+    // nothing. Dropping the highest-projected player skips him at every pick — and because
+    // he stays the best, he is skipped for ever.
     const dominant = player("STAR", "RB", 60);
     const pool = [...board(), dominant];
     expect(basePolicyPick([], pool, SLOTS)?.id).toBe("STAR");
   });
 
-  it("gives the same answer with the window as without it", () => {
-    // The invariant that makes the optimisation safe. Asserted for an empty, a partial and
-    // a full roster, because the lineup baseline changes which player wins.
+  it("takes the player who fills an empty slot over deep bench at a full one", () => {
+    // The prefilter used to be the top forty by `weeklyMean * availability`, which is the
+    // quantity the marginal-value objective exists to correct — so a player worth having
+    // for his position rather than his projection fell out of the window and was never
+    // considered. Here every slot but quarterback is filled and the only quarterback on the
+    // board is sixty-first by raw projection.
+    //
+    // This is not a near miss. Under the window the completion below spent all three
+    // remaining picks on bench backs and started the season with an empty quarterback slot,
+    // in the rollout that every recommendation in this module is measured against.
+    const roster = [
+      player("rbA", "RB", 18),
+      player("rbB", "RB", 17),
+      player("wrA", "WR", 16),
+      player("wrB", "WR", 15),
+      player("teA", "TE", 14),
+      player("flx", "RB", 13),
+    ];
+    const depth = Array.from({ length: 60 }, (_, i) => player(`rb${i}`, "RB", 12 - i * 0.1));
+    const pool = [...depth, player("theQB", "QB", 5)];
+
+    expect(basePolicyPick(roster, pool, SLOTS)?.id).toBe("theQB");
+    const completed = completeOwnRoster(roster, 3, pool, SLOTS, null, 9);
+    expect(completed.map((p) => p.id)).toContain("theQB");
+  });
+
+  it("gives the same answer with the prefilter as without it", () => {
+    // The invariant that makes the optimisation safe, and the one the window did not have.
+    // Asserted for an empty, a partial and a full roster, because the lineup baseline
+    // changes which player wins.
+    //
+    // `narrowed` is the prefilter's own rule — best available at each position — so this
+    // says the dominance argument holds for the boards below rather than restating it.
     const pool = board();
-    const narrowed = [...pool]
-      .sort((a, b) => b.weeklyMean * b.availability - a.weeklyMean * a.availability)
-      .slice(0, BASE_POLICY_WIDTH);
+    const bestAt = new Map<string, PlayerRisk>();
+    for (const p of pool) {
+      const held = bestAt.get(p.position);
+      if (held === undefined || p.weeklyMean * p.availability > held.weeklyMean * held.availability) {
+        bestAt.set(p.position, p);
+      }
+    }
+    const narrowed = pool.filter((p) => bestAt.get(p.position) === p);
 
     const rosters: PlayerRisk[][] = [
       [],
@@ -1003,5 +1039,313 @@ describe("the base policy's tie-break", () => {
       availability: 0.32 + ((i * 37) % 68) / 100,
     }));
     expect(basePolicyPick([], risky, SLOTS)?.id).toBe("TE1");
+  });
+});
+
+/**
+ * The ordering rule, on its own.
+ *
+ * Reaching these branches through `recommendByChampionship` means finding a roster and a
+ * seed whose simulated title odds happen to land in the arrangement under test. The
+ * fixtures above do that for the common cases and cannot do it for the rest — a mutation
+ * run left the whole final comparator standing, because the boards it was run against
+ * never produced two candidates that were both outside the noise band and disagreed about
+ * which was better.
+ */
+describe("orderRecommendations", () => {
+  const rec = (
+    id: string,
+    championshipProbability: number,
+    standardError: number,
+    playoffProbability = 0.5,
+    expectedPoints = 100,
+  ): ChampionshipRecommendation => ({
+    player: player(id, "RB", 10),
+    championshipProbability,
+    deltaVsBaseline: 0,
+    playoffProbability,
+    expectedPoints,
+    standardError,
+    tiedWithLeader: false,
+  });
+
+  it("returns an empty board unchanged", () => {
+    expect(orderRecommendations([])).toEqual([]);
+  });
+
+  it("flags a lone candidate as tied with the leader, because it is the leader", () => {
+    // The early return is for the empty case. Moved by one it also catches a
+    // single-candidate board, which then reports `tiedWithLeader: false` — a candidate
+    // presented as measurably worse than itself.
+    const [only] = orderRecommendations([rec("solo", 0.2, 0.01)]);
+    expect(only.tiedWithLeader).toBe(true);
+  });
+
+  it("orders two candidates outside the noise band by title odds, not by playoff odds", () => {
+    // The branch that decides the untied group. `a || b` becoming `a && b` reads as
+    // "whenever the title odds differ, ignore them and use the smoother signal", which is
+    // the exact inverse of the rule; a sum in place of the difference is positive for every
+    // pair and makes the comparator inconsistent.
+    //
+    // Three candidates, because two is not enough: the leader is always tied with itself,
+    // so a board of two never has two untied entries to compare. Playoff odds are set
+    // against title odds so the two rules disagree.
+    // Given with the two untied candidates the wrong way round. A comparator that returns
+    // a positive number for every pair — which a sum in place of the difference does —
+    // never moves anything left, so an input that already reads correctly would pass.
+    const ordered = orderRecommendations([
+      rec("leader", 0.5, 0.001, 0.99, 300),
+      rec("worse", 0.1, 0.001, 0.9, 200),
+      rec("better", 0.3, 0.001, 0.1, 100),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["leader", "better", "worse"]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, false, false]);
+  });
+
+  it("puts the tied group above the untied one whatever order they arrive in", () => {
+    // Given in the wrong order on purpose. A comparator that returns zero for a
+    // tied-versus-untied pair leaves a stable sort exactly as it found it, so a fixture
+    // that was already in the right order would pass against it.
+    const ordered = orderRecommendations([
+      rec("untied", 0.1, 0.001),
+      rec("tied", 0.5, 0.001),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["tied", "untied"]);
+  });
+
+  it("counts a candidate exactly on the edge of the band as tied", () => {
+    // `<=`, not `<`. The values are powers of two so the comparison is exact rather than
+    // nearly exact: the gap is 0.5 − 0.25 = 0.25 and the two standard errors sum to
+    // exactly the same 0.25. Every other fixture here sits clear of the edge, which is why
+    // nothing noticed the boundary could move.
+    //
+    // Which way it should fall is a judgement, and it is made in the candidate's favour:
+    // the flag says "this may not be distinguishable from the leader", so the doubtful
+    // case belongs inside it.
+    const ordered = orderRecommendations([
+      rec("lead", 0.5, 0.125),
+      rec("edge", 0.25, 0.125),
+    ]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true]);
+  });
+
+  it("orders the tied group by playoff odds, then points, then id", () => {
+    // All three within one standard error of the leader, so every one of them is tied and
+    // the title odds are not consulted at all.
+    const ordered = orderRecommendations([
+      rec("c", 0.2, 0.5, 0.4, 100),
+      rec("b", 0.2, 0.5, 0.6, 100),
+      rec("a", 0.2, 0.5, 0.6, 120),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["a", "b", "c"]);
+    expect(ordered.every((r) => r.tiedWithLeader)).toBe(true);
+  });
+
+  it("breaks a total tie by id, so the order does not depend on the input order", () => {
+    const ordered = orderRecommendations([
+      rec("zz", 0.2, 0.5),
+      rec("aa", 0.2, 0.5),
+      rec("mm", 0.2, 0.5),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["aa", "mm", "zz"]);
+  });
+
+  it("measures the noise band against the leader, not against the neighbour", () => {
+    // The band is `leader − candidate <= leaderError + candidateError`. With errors of
+    // 0.02 each it is 0.04 wide: 0.32 is inside it and 0.29 is not — but 0.29 *is* within
+    // 0.04 of 0.32, so a band measured from the neighbour instead of the leader would call
+    // it tied. That reading is the intransitive one the partition exists to avoid.
+    //
+    // The gaps are 0.02 and 0.05 rather than anything landing on 0.04, because these are
+    // binary floats: `0.34 - 0.3` is 0.040000000000000036, which is not `<= 0.04`. A
+    // fixture sitting on the boundary would be testing the representation.
+    const ordered = orderRecommendations([
+      rec("lead", 0.34, 0.02),
+      rec("inside", 0.32, 0.02),
+      rec("outside", 0.29, 0.02),
+    ]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true, false]);
+  });
+});
+
+describe("the depth tiebreak inside the prefilter", () => {
+  it("prices a bench candidate below anyone who improves the lineup", () => {
+    // `after - before + mean * availability * 1e-3`. The scale matters: at 1e-2 a bench
+    // player projected at 20 is worth 0.18, which beats a starter who adds 0.15 to the
+    // solved lineup — so the filter would rank depth above the starting eleven. At 1e-3 it
+    // is worth 0.018 and cannot.
+    const roster = [
+      player("qb", "QB", 20),
+      player("rb1", "RB", 19),
+      player("rb2", "RB", 18),
+      player("wr1", "WR", 17),
+      player("wr2", "WR", 16),
+      player("te1", "TE", 15),
+      player("flex", "RB", 14.9),
+    ];
+    // `bench` cannot crack the lineup: every slot he is eligible for holds someone better.
+    // `starter` beats the weakest flex by a tenth of a point, so he improves it barely.
+    const bench = player("bench", "RB", 14.8);
+    const starter = player("starter", "RB", 15.0);
+    expect(basePolicyPick(roster, [bench, starter], SLOTS)?.id).toBe("starter");
+  });
+
+  it("separates bench candidates by projection when none of them can start", () => {
+    // With the tiebreak removed every one of these scores exactly zero, the sort is stable,
+    // and the shortlist is whatever arrived first — so the objective would never be shown
+    // the best player available and the recommendation would be an artefact of board order.
+    //
+    // Asserted through the shortlist rather than through `basePolicyPick`, because the
+    // prefilter there keeps one player per position and two bench backs never meet. The
+    // shortlist ranks the whole board, which is where this term does its work.
+    const roster = [
+      player("qb", "QB", 20),
+      player("rb1", "RB", 19),
+      player("rb2", "RB", 18),
+      player("wr1", "WR", 17),
+      player("wr2", "WR", 16),
+      player("te1", "TE", 15),
+      player("flex", "RB", 14.9),
+    ];
+    const teams = freshTeams().map((t, i) =>
+      i === 0 ? { ...t, roster, remainingPicks: [1] } : t,
+    );
+    // Every one of these is behind the flex, so none of them changes the solved lineup.
+    // Listed weakest-first, so board order disagrees with projection order.
+    const bench = Array.from({ length: 6 }, (_, i) => player(`b${i}`, "RB", 5 + i));
+    const recs = recommendByChampionship(
+      { teams, myTeamIndex: 0, available: bench, rosterSize: 8 },
+      CONFIG,
+      17,
+      1,
+    );
+    expect(recs.map((r) => r.player.id)).toEqual(["b5"]);
+  });
+});
+
+describe("a forced pick cannot overfill a roster", () => {
+  const full = () => [
+    player("f1", "QB", 20),
+    player("f2", "RB", 19),
+    player("f3", "RB", 18),
+  ];
+
+  it("refuses to seat one into a team already at its roster size", () => {
+    // The forced branch skips the pick loop, so every bound the loop applies has to be
+    // repeated here or it is not applied at all. Seated anyway, the team fields more
+    // players than the teams it plays for the whole simulated season.
+    const teams = freshTeams().map((t, i) =>
+      i === 0 ? { ...t, roster: full(), remainingPicks: [] } : t,
+    );
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 3 },
+      SLOTS,
+      player("EXTRA", "WR", 30),
+    );
+    expect(rosters[0]).toHaveLength(3);
+    expect(rosters[0].map((p) => p.id)).not.toContain("EXTRA");
+  });
+
+  it("still seats one when there is room, so the bound is not simply refusing", () => {
+    // The other side of the same boundary. Without this the guard could reject everything
+    // and the test above would still pass.
+    const teams = freshTeams().map((t, i) =>
+      i === 0 ? { ...t, roster: full(), remainingPicks: [] } : t,
+    );
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 4 },
+      SLOTS,
+      player("EXTRA", "WR", 30),
+    );
+    expect(rosters[0].map((p) => p.id)).toContain("EXTRA");
+  });
+
+  it("refuses to seat a player the team already holds", () => {
+    const held = full();
+    const teams = freshTeams().map((t, i) =>
+      i === 0 ? { ...t, roster: held, remainingPicks: [] } : t,
+    );
+    const rosters = completeDraft(
+      { teams, myTeamIndex: 0, available: board(), rosterSize: 6 },
+      SLOTS,
+      held[1],
+    );
+    expect(rosters[0].filter((p) => p.id === held[1].id)).toHaveLength(1);
+  });
+});
+
+describe("the shortlist is exactly as long as it says", () => {
+  it("returns the number of candidates it was asked for", () => {
+    // `candidateLimit` is what keeps a recommendation inside a draft clock — every entry
+    // is a full season simulation. Nothing pinned the count, so it could quietly evaluate
+    // one more or one fewer than asked.
+    const state: DraftPolicyState = {
+      teams: freshTeams(),
+      myTeamIndex: 0,
+      available: board(),
+      rosterSize: ROUNDS,
+    };
+    expect(recommendByChampionship(state, CONFIG, 3, 1)).toHaveLength(1);
+    expect(recommendByChampionship(state, CONFIG, 3, 4)).toHaveLength(4);
+  });
+
+  it("evaluates at least one candidate however small the limit is", () => {
+    // `Math.max(limit, 1)`: a zero or negative limit returns no recommendation at all,
+    // which reads on screen as "there is nothing worth taking".
+    const state: DraftPolicyState = {
+      teams: freshTeams(),
+      myTeamIndex: 0,
+      available: board(),
+      rosterSize: ROUNDS,
+    };
+    expect(recommendByChampionship(state, CONFIG, 3, 0)).toHaveLength(1);
+    expect(recommendByChampionship(state, CONFIG, 3, -5)).toHaveLength(1);
+  });
+
+  it("cannot return more candidates than the board holds", () => {
+    const teams = freshTeams();
+    const state: DraftPolicyState = {
+      teams,
+      myTeamIndex: 0,
+      available: [player("a", "RB", 10), player("b", "WR", 9)],
+      rosterSize: ROUNDS,
+    };
+    expect(recommendByChampionship(state, CONFIG, 3, 8)).toHaveLength(2);
+  });
+});
+
+describe("the prefilter's own boundaries", () => {
+  it("keeps the first of two exactly tied players at a position", () => {
+    // The prefilter takes one player per position, so which of several exact ties it keeps
+    // is the pick. Evaluating the whole board would have kept the first; keeping the last
+    // instead makes the answer depend on the order the board arrived in.
+    expect(
+      basePolicyPick([], [player("first", "RB", 10), player("second", "RB", 10)], SLOTS)
+        ?.id,
+    ).toBe("first");
+  });
+
+  it("scales the depth tiebreak so it cannot outweigh a real lineup gain", () => {
+    // `mean * availability * 1e-3`. The multiplier has to be small enough that depth never
+    // beats the starting eleven and large enough to separate two bench players, and only
+    // the second half of that was pinned.
+    //
+    // This roster fills every slot. `starter` improves the flex by 0.05 of a point;
+    // `bench` is a second quarterback who cannot start at all but is projected at 20. At
+    // 1e-3 the tiebreak is worth 0.02 and `starter` wins on the 0.05 he adds. At 1e-2 it is
+    // worth 0.2, and a player who cannot get on the field outranks one who improves it —
+    // measured, not assumed: with the constant changed this fixture returns `bench`.
+    const roster = [
+      player("qb", "QB", 20, { availability: 1 }),
+      player("rb1", "RB", 19, { availability: 1 }),
+      player("rb2", "RB", 18, { availability: 1 }),
+      player("wr1", "WR", 17, { availability: 1 }),
+      player("wr2", "WR", 16, { availability: 1 }),
+      player("te1", "TE", 15, { availability: 1 }),
+      player("flx", "RB", 14.0, { availability: 1 }),
+    ];
+    const starter = player("starter", "RB", 14.05, { availability: 1 });
+    const bench = player("bench", "QB", 20.0, { availability: 1 });
+    expect(basePolicyPick(roster, [bench, starter], SLOTS)?.id).toBe("starter");
   });
 });

@@ -106,13 +106,45 @@ export interface ChampionshipRecommendation {
 export const CHAMPIONSHIP_CANDIDATES = 10;
 
 /**
- * How many of the best available players the base policy considers at each pick.
+ * The players a base-policy pick can possibly be: the best available at each position.
  *
- * The base policy takes the best available, and a player outside the top of the board by
- * raw scoring cannot be that. Widening this does not change the completion; narrowing it
- * far would, because a position run can push a genuinely good player down the list.
+ * This replaced a window over the top forty by raw projection, which was not the cost
+ * optimisation it was documented as. The window is sorted by `weeklyMean * availability` —
+ * the very quantity the marginal-value objective exists to correct — so a player whose
+ * worth is positional rather than raw falls out of it. Measured: a roster with every slot
+ * filled but quarterback, and a board of sixty backs plus one quarterback, spent all three
+ * remaining picks on bench backs and started the season with the quarterback slot empty.
+ * That is the baseline every improvement in this module is quoted against.
+ *
+ * Restricting to the best at each position is lossless rather than a wider guess.
+ * `toCompetitor` values a player at `weeklyMean * availability` and nothing else, so two
+ * players at one position differ to the lineup solver in that number alone: the better of
+ * them is eligible for every slot the worse one is and worth at least as much in it, so
+ * the solved total cannot fall by preferring him. The depth tiebreak is the same quantity
+ * scaled, so it agrees rather than competing. The best at a position therefore dominates
+ * every other player at it, and no player this drops could have won.
+ *
+ * It is also cheaper than what it replaced — one lineup solve per position instead of
+ * forty — and it no longer answers differently depending on how long the board is. The old
+ * form evaluated the board in its own order when it was short and in projection order when
+ * it was long, so which of two exactly tied players won changed with the board's length.
  */
-export const BASE_POLICY_WIDTH = 40;
+function contendersFor(available: readonly PlayerRisk[]): PlayerRisk[] {
+  const best = new Map<string, PlayerRisk>();
+  for (const candidate of available) {
+    const held = best.get(candidate.position);
+    // Strictly greater, so the first of several tied bests at a position is the one kept —
+    // which is what evaluating the whole board in order would also have done.
+    if (
+      held === undefined ||
+      candidate.weeklyMean * candidate.availability >
+        held.weeklyMean * held.availability
+    ) {
+      best.set(candidate.position, candidate);
+    }
+  }
+  return available.filter((candidate) => best.get(candidate.position) === candidate);
+}
 
 /**
  * Marginal starting-lineup value, used only to narrow the field.
@@ -131,15 +163,23 @@ function toCompetitor(p: PlayerRisk) {
   };
 }
 
+/**
+ * `baseline` is the roster's own lineup value, which does not depend on the candidate.
+ * Solving it once per pick rather than once per contender halves the rollout.
+ *
+ * It was optional, defaulting to solving the same expression here. Both call sites always
+ * passed it, and both passed `solveLineup(slots, roster.map(toCompetitor)).totalPoints` —
+ * the fallback, character for character. So the default could never produce a different
+ * number and there was nothing to test; it is now required, which is what the callers were
+ * already doing.
+ */
 function prefilterValue(
   roster: readonly PlayerRisk[],
   candidate: PlayerRisk,
   slots: readonly RosterSlot[],
-  baseline?: number,
+  baseline: number,
 ): number {
-  // `baseline` is the roster's own lineup value, which does not depend on the candidate.
-  // Solving it once per pick rather than once per contender halves the rollout.
-  const before = baseline ?? solveLineup(slots, roster.map(toCompetitor)).totalPoints;
+  const before = baseline;
   const after = solveLineup(
     slots,
     [...roster, candidate].map(toCompetitor),
@@ -147,6 +187,21 @@ function prefilterValue(
   // A player who does not crack the lineup still has worth as depth; the tiny tiebreak
   // keeps the filter from discarding every bench candidate before the objective is
   // consulted, which is where depth is actually priced.
+  //
+  // The constant is a one-sided bound, not a tuned value. It has to be positive — at zero
+  // every bench player scores the same and the shortlist becomes board order — and small
+  // enough that depth cannot outrank a real lineup gain, which 1e-2 is not: a second
+  // quarterback projected at 20 then beats a player who improves the starting lineup.
+  // Anything below 1e-3 behaves identically, because shrinking it scales every bench value
+  // by the same factor and only ever favours the player who improves the lineup. Both
+  // bounds are pinned; the exact value between them is not a behaviour.
+  //
+  // `after - before` and `after + before` give the same ordering, so no test can tell them
+  // apart: `before` is the same number for every candidate compared in one call, and both
+  // callers use this only to rank. The subtraction is still the right expression — it is
+  // what makes the value "what this player adds" rather than "twice the lineup plus what
+  // this player adds" — but it is not a behaviour, and it is recorded here so nobody
+  // spends a second afternoon trying to pin it.
   return after - before + candidate.weeklyMean * candidate.availability * 1e-3;
 }
 
@@ -161,16 +216,11 @@ export function basePolicyPick(
   available: readonly PlayerRisk[],
   slots: readonly RosterSlot[],
 ): PlayerRisk | null {
-  // Only the strongest players on the board can win a base-policy pick, so the rest are
-  // not evaluated. Without this the completion solves a lineup for every one of several
-  // hundred players at each of a hundred-odd remaining picks, for every candidate — which
-  // was the whole cost of a recommendation.
-  const contenders =
-    available.length <= BASE_POLICY_WIDTH
-      ? available
-      : [...available]
-          .sort((a, b) => b.weeklyMean * b.availability - a.weeklyMean * a.availability)
-          .slice(0, BASE_POLICY_WIDTH);
+  // Only one player per position can win a base-policy pick, so the rest are not
+  // evaluated. Without this the completion solves a lineup for every one of several hundred
+  // players at each of a hundred-odd remaining picks, for every candidate — which was the
+  // whole cost of a recommendation.
+  const contenders = contendersFor(available);
 
   const baseline = solveLineup(slots, roster.map(toCompetitor)).totalPoints;
   let best: PlayerRisk | null = null;
@@ -435,6 +485,21 @@ export function recommendByChampionship(
     })
     .map((r) => ({ ...r, tiedWithLeader: false }));
 
+  return orderRecommendations(ranked);
+}
+
+/**
+ * Marks what is statistically level with the leader, then orders the board.
+ *
+ * Separated from the simulation above so it can be tested on its own. Reaching these
+ * branches through `recommendByChampionship` means finding a roster and a seed whose
+ * simulated title odds happen to land in the arrangement under test, which is neither
+ * reliable nor readable; the ordering itself is a pure function of five numbers per
+ * candidate and belongs in one.
+ */
+export function orderRecommendations(
+  ranked: ChampionshipRecommendation[],
+): ChampionshipRecommendation[] {
   if (ranked.length === 0) return ranked;
 
   // Partition against the true maximum rather than sorting with the tie rule directly.
@@ -445,6 +510,10 @@ export function recommendByChampionship(
   // `Array.prototype.sort` given a cycle may return anything, and it could put the 12%
   // candidate first while the 16% one placed third. Establishing the leader first makes
   // the comparison well-defined.
+  //
+  // Which of several equal-probability entries `reduce` settles on does not matter: only
+  // `championshipProbability` and `standardError` are read from it, and the latter is
+  // `sqrt(p(1-p)/n)` rounded — a function of the former. Equal probability, equal error.
   const best = ranked.reduce((a, b) =>
     b.championshipProbability > a.championshipProbability ? b : a,
   );
@@ -457,6 +526,8 @@ export function recommendByChampionship(
   // Everything statistically level with the leader is ordered by playoff probability,
   // which is roughly a coin flip rather than a one-in-twelve event and so resolves at the
   // sample sizes a draft clock allows. Everything below it is ordered on title odds.
+  // The final clause never compares a candidate with itself — `ranked` holds one entry per
+  // player — so `<` and `<=` are the same function here.
   const bySmootherSignal = (a: ChampionshipRecommendation, b: ChampionshipRecommendation) =>
     b.playoffProbability - a.playoffProbability ||
     b.expectedPoints - a.expectedPoints ||
