@@ -112,7 +112,14 @@ export function buildMarketIndex<T extends MarketRow>(
   };
 }
 
-/** Levenshtein distance, iterative with a single row of state. */
+/**
+ * Levenshtein distance, iterative with a single row of state.
+ *
+ * The row index starts at one because row zero is the initial `previous`. Starting it at
+ * zero instead is harmless rather than wrong: that row compares `a[-1]`, which equals
+ * nothing, and every cell then resolves to `previous[j-1] + 1 === j`, reproducing the row
+ * it started from. Worth stating, because it looks like an off-by-one and is not one.
+ */
 export function editDistance(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
@@ -229,6 +236,12 @@ export function matchName<T extends MatchCandidate>(
   // `minConfidence - MATCH_AMBIGUITY_MARGIN` then for any returnable `best` that
   // difference already exceeds the margin, so the candidate cannot suppress a match
   // either. The bound is exact rather than heuristic: skipping is provably invisible.
+  //
+  // Which is also why the comparison itself cannot be pinned by a test. Skipping one more
+  // candidate — the one scoring exactly at the floor — is invisible for the same reason,
+  // and skipping none at all is invisible by construction, since the prune is an
+  // optimisation over a result that does not depend on it. Only a prune that removes a
+  // candidate *above* the floor changes an answer, and that one is covered.
   const floor = minConfidence - MATCH_AMBIGUITY_MARGIN;
 
   for (let i = 0; i < candidates.length; i += 1) {
@@ -282,7 +295,16 @@ export function findNamesInText<T extends MatchCandidate>(
 
   const bestById = new Map<string, NameMatch<T>>();
 
+  // Four is the longest name this can assemble — "Amon-Ra St. Brown" arrives as four
+  // tokens — and it is a real limit rather than a spare margin: a five-word name would not
+  // be found. Widening it costs a pass over the text and finds nothing, because any
+  // five-word phrase is longer than every candidate and the length prune rejects it before
+  // the comparison.
   for (let size = 4; size >= 1; size -= 1) {
+    // `start + size <= words.length` keeps the window inside the text. Overrunning it is
+    // harmless rather than wrong — `slice` past the end returns a short phrase or an empty
+    // one, and `matchName` refuses anything under four characters — so only a bound that
+    // stops *early* loses a match, which is the last row of a scanned board.
     for (let start = 0; start + size <= words.length; start += 1) {
       const phrase = words.slice(start, start + size).join(" ");
       const match = matchName(phrase, candidates, minConfidence);

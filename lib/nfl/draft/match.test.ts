@@ -471,3 +471,96 @@ describe("matchName's boundaries", () => {
   // indistinguishable through this function's public result. Recorded rather than covered
   // by an assertion that would pass regardless.
 });
+
+/**
+ * Edit distance, past the cases a name matcher happens to exercise.
+ *
+ * Every match in this file goes through `similarity`, which divides this by a length — so a
+ * distance that is wrong by one usually still lands the same side of a 0.82 confidence
+ * floor and nothing fails. The base cases and the loop bounds need asserting directly.
+ */
+describe("editDistance is the distance, not an approximation of it", () => {
+  it("agrees with the worked example everyone checks against", () => {
+    expect(editDistance("kitten", "sitting")).toBe(3);
+    expect(editDistance("saturday", "sunday")).toBe(3);
+    expect(editDistance("flaw", "lawn")).toBe(2);
+  });
+
+  it("handles a single character against a longer string", () => {
+    // The empty-string shortcuts are `a.length === 0` and `b.length === 0`. Moved to one,
+    // they return the other string's whole length for any single-character input: "a"
+    // against "abc" would be 3 rather than 2, and every one-letter token in a scanned
+    // board would be scored against the wrong distance.
+    expect(editDistance("a", "abc")).toBe(2);
+    expect(editDistance("abc", "a")).toBe(2);
+    expect(editDistance("a", "b")).toBe(1);
+    expect(editDistance("a", "a")).toBe(0);
+  });
+
+  it("is symmetric, which the single row of state does not make obvious", () => {
+    const pairs = [
+      ["chase", "chace"],
+      ["ajbrown", "amonrastbrown"],
+      ["kennethwalker", "kenwalker"],
+      ["", "abc"],
+      ["x", "xyz"],
+    ] as const;
+    for (const [a, b] of pairs) {
+      expect(editDistance(a, b)).toBe(editDistance(b, a));
+    }
+  });
+
+  it("counts each kind of edit once", () => {
+    expect(editDistance("abc", "abd")).toBe(1); // substitution
+    expect(editDistance("abc", "abcd")).toBe(1); // insertion
+    expect(editDistance("abcd", "abc")).toBe(1); // deletion
+    expect(editDistance("abc", "xyz")).toBe(3); // nothing in common
+  });
+
+  it("never exceeds the length of the longer string", () => {
+    // The bound `similarity` relies on to stay inside [0, 1]. A loop that starts or stops
+    // one step out breaks it without any single case looking obviously wrong.
+    const words = ["", "a", "ab", "abc", "abcd", "xyz", "abcde", "bacd"];
+    for (const a of words) {
+      for (const b of words) {
+        const d = editDistance(a, b);
+        expect(d).toBeGreaterThanOrEqual(Math.abs(a.length - b.length));
+        expect(d).toBeLessThanOrEqual(Math.max(a.length, b.length));
+        expect(similarity(a, b)).toBeGreaterThanOrEqual(0);
+        expect(similarity(a, b)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
+describe("findNamesInText reads phrases of every length", () => {
+  it("finds a one-word name", () => {
+    // The window shrinks from four words down to one. Stopping at two never matches a
+    // player by surname alone, which is how half a scanned board reads.
+    const found = findNamesInText("Nacua", UNIVERSE, 0.4);
+    expect(found.map((m) => m.candidate.id)).toEqual(["6"]);
+  });
+
+  it("finds a four-word name", () => {
+    // "Amon-Ra St. Brown" arrives from OCR as four separate tokens. A window one shorter
+    // never assembles it, and the player with the longest name on the board is the one
+    // that stops being findable.
+    const found = findNamesInText("RB Amon Ra St Brown BYE", UNIVERSE, 0.8);
+    expect(found.map((m) => m.candidate.id)).toContain("7");
+  });
+
+  it("reads a phrase at the very end of the text", () => {
+    // `start + size <= words.length`. Anything that moves that bound drops the last window,
+    // so the final row of a scanned board goes missing — the one place nobody looks.
+    const found = findNamesInText("QB1 RB1 WR1 Puka Nacua", UNIVERSE, 0.8);
+    expect(found.map((m) => m.candidate.id)).toEqual(["6"]);
+  });
+
+  it("keeps single-character tokens, which carry the initials", () => {
+    // "A.J. Brown" splits into "A", "J", "Brown" once the punctuation is separators.
+    // Dropping one-character words leaves "brown", which is closer to "Amon-Ra St. Brown"
+    // than the length prune admits and matches nobody at the normal floor.
+    const found = findNamesInText("A J Brown", UNIVERSE, 0.8);
+    expect(found.map((m) => m.candidate.id)).toEqual(["2"]);
+  });
+});
