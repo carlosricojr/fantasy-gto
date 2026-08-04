@@ -476,3 +476,157 @@ describe("the simulation is reproducible", () => {
     expect(rosterUtility(roster, SLOTS, CONFIG, 6).expectedPoints).not.toBe(498.39);
   });
 });
+
+/**
+ * The arithmetic of the accumulation, on a roster with nothing random in it.
+ *
+ * Every other test here runs hundreds of scenarios of a stochastic simulation and asserts
+ * an inequality, which is the right shape for the questions they ask and a poor one for
+ * arithmetic: a running total that starts at one instead of zero moves a 400-scenario mean
+ * by 0.0025 and nothing notices. These fixtures remove the randomness — an ironman with no
+ * bye and identical quantiles — so every number is exactly predictable.
+ */
+describe("the totals are accumulated from zero", () => {
+  const CERTAIN: Partial<PlayerRisk> = { p10: 1, p90: 1, availability: 1, byeWeek: null };
+  const flatConfig: UtilityConfig = { weeks: [1, 2, 3], scenarios: 4, meanAbsenceWeeks: 3 };
+
+  it("totals exactly what a deterministic roster scores", () => {
+    // p10 = p90 = 1 fits a lognormal with zero spread, so every weekly draw is the
+    // projection. Two backs and a receiver fill all three slots: 10 + 8 + 6 a week, three
+    // weeks, 72 points, in every scenario.
+    const roster = [
+      player("rb1", "RB", 10, CERTAIN),
+      player("rb2", "RB", 8, CERTAIN),
+      player("wr1", "WR", 6, CERTAIN),
+    ];
+    const utility = rosterUtility(roster, SLOTS, flatConfig, 1);
+    expect(utility.expectedPoints).toBe(72);
+    expect(utility.rawExpectedPoints).toBeCloseTo(72, 10);
+    expect(utility.expectedByWeek).toEqual([24, 24, 24]);
+    expect(utility.expectedEmptySlots).toBe(0);
+  });
+
+  it("reports no standard error when there is nothing to be uncertain about", () => {
+    // Every scenario returns the same total, so the variance is zero. It is computed as
+    // `E[x²] − E[x]²` and floored at zero, which is there for floating-point noise — a
+    // floor of one instead reports a standard error of half a point on a roster that
+    // cannot vary.
+    const roster = [
+      player("rb1", "RB", 10, CERTAIN),
+      player("rb2", "RB", 8, CERTAIN),
+      player("wr1", "WR", 6, CERTAIN),
+    ];
+    expect(rosterUtility(roster, SLOTS, flatConfig, 1).standardError).toBe(0);
+  });
+
+  it("counts the slots a short roster leaves empty, and no more", () => {
+    // One back for two back slots and no receiver: one empty slot a week from the second
+    // back slot, one from the receiver slot, three weeks.
+    const utility = rosterUtility(
+      [player("rb1", "RB", 10, CERTAIN)],
+      SLOTS,
+      flatConfig,
+      1,
+    );
+    expect(utility.expectedEmptySlots).toBe(6);
+    expect(utility.expectedPoints).toBe(30);
+  });
+
+  it("reports zeros for an empty roster, not near-zeros", () => {
+    const utility = rosterUtility([], SLOTS, flatConfig, 1);
+    expect(utility.expectedPoints).toBe(0);
+    expect(utility.rawExpectedPoints).toBe(0);
+    expect(utility.standardError).toBe(0);
+    expect(utility.expectedByWeek).toEqual([0, 0, 0]);
+    expect(utility.expectedEmptySlots).toBe(SLOTS.length * flatConfig.weeks.length);
+  });
+});
+
+describe("fitLognormal's floors", () => {
+  it("survives a zero or negative tenth percentile", () => {
+    // `Math.max(p10, 1e-6)`. A published p10 of zero is real — it is what a player who
+    // sometimes scores nothing looks like — and `log(0)` is `-Infinity`, which propagates
+    // through every weekly draw as `NaN` and silently zeroes a season.
+    for (const p10 of [0, -1]) {
+      const { mu, sigma } = fitLognormal(p10, 1.9);
+      expect(Number.isFinite(mu)).toBe(true);
+      expect(Number.isFinite(sigma)).toBe(true);
+      expect(sigma).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps the ninetieth percentile above the tenth", () => {
+    // `Math.max(p90, low * 1.000001)`. Equal or inverted quantiles arrive from a source
+    // that publishes a single value for a position; dividing rather than multiplying puts
+    // `high` below `low`, and `log(high / low)` is then negative — a negative sigma, which
+    // reflects every draw about the median instead of spreading it.
+    for (const [p10, p90] of [
+      [1, 1],
+      [1.9, 0.269],
+      [0.5, 0.5],
+    ]) {
+      const { sigma } = fitLognormal(p10, p90);
+      expect(sigma).toBeGreaterThan(0);
+      expect(Number.isFinite(sigma)).toBe(true);
+    }
+    // The nudge is deliberately tiny: equal quantiles mean no spread, and this must not
+    // invent one. A hundredth of a point of sigma on a 15-point projection is noise.
+    expect(fitLognormal(1, 1).sigma).toBeLessThan(1e-5);
+  });
+});
+
+describe("the absence chain stays a probability", () => {
+  it("still realises the availability it was given when an absence is under a week", () => {
+    // `r = 1 / max(meanAbsenceWeeks, 1)` is the chance of returning each week, so it has to
+    // stay at or below one — `rng.next()` never reaches one, so any `r` above it means
+    // "certain to return" and the chain no longer has the steady state `q` was solved for.
+    //
+    // The realised rate is what breaks, not the clustering, and only for short absences at
+    // high availability: `q = r(1 - a)/a` cancels `r` out of `r / (q + r)` exactly, so the
+    // rate self-corrects for any `r` the comparison can actually express. Measured over
+    // 40 seasons of 200 weeks: 0.9005 with the floor, 0.6897 without it. A player asked to
+    // play nine weeks in ten plays seven.
+    const weeks = Array.from({ length: 200 }, (_, i) => i + 1);
+    for (const [availability, meanAbsenceWeeks] of [
+      [0.9, 0.25],
+      [0.8, 0.5],
+    ] as const) {
+      let played = 0;
+      for (let scenario = 0; scenario < 40; scenario += 1) {
+        played += simulateAvailability(
+          player("fragile", "RB", 10, { availability }),
+          weeks,
+          meanAbsenceWeeks,
+          createRng(scenario),
+        ).filter(Boolean).length;
+      }
+      expect(played / (40 * weeks.length)).toBeCloseTo(availability, 2);
+    }
+  });
+
+  it("keeps a one-week mean absence to about one week", () => {
+    // The other side of the same floor. Raising it to two leaves the realised rate alone —
+    // `q` cancels `r` out of the steady state — and doubles how long each absence lasts,
+    // which is the whole reason absences are modelled as a chain rather than a coin flip.
+    const season = Array.from({ length: 17 }, (_, i) => i + 1);
+    let missed = 0;
+    let runs = 0;
+    for (let scenario = 0; scenario < 400; scenario += 1) {
+      let previousOut = false;
+      for (const fit of simulateAvailability(
+        player("p", "RB", 10, { availability: 0.85 }),
+        season,
+        1,
+        createRng(scenario + 1),
+      )) {
+        if (!fit) {
+          missed += 1;
+          if (!previousOut) runs += 1;
+        }
+        previousOut = !fit;
+      }
+    }
+    expect(runs).toBeGreaterThan(0);
+    expect(missed / runs).toBeLessThan(1.5);
+  });
+});

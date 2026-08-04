@@ -78,11 +78,6 @@ export interface UtilityConfig {
   meanAbsenceWeeks: number;
 }
 
-export const DEFAULT_UTILITY_CONFIG: Omit<UtilityConfig, "weeks"> = {
-  scenarios: 200,
-  meanAbsenceWeeks: 3,
-};
-
 export interface RosterUtility {
   /** Expected total points across the fantasy season, from the best lineup each week. */
   expectedPoints: number;
@@ -364,6 +359,9 @@ function countEmptySlots(
         id: entry.player.id,
         name: entry.player.name,
         position: entry.player.position,
+        // Any constant does; only which slots fill is being counted, and `solveLineup`
+        // seats an eligible player whatever he is worth. Deliberately not the player's
+        // projection, so this cannot be misread as a points calculation.
         projectedPoints: 1,
         availability: "active" as const,
       }));
