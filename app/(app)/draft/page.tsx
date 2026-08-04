@@ -47,15 +47,6 @@ import { useRecommendations } from "./use-recommendations";
 
 const SEED = 20260731;
 
-/**
- * League sizes a board is built for.
- *
- * ADP is published per league size, so a board is not transferable and offering a size
- * that was never built is a dead end on the first screen. Mirrors
- * `DRAFT_BOARD_LEAGUE_SIZES` in `convex/ingest.ts`.
- */
-
-
 /** Scenarios per recommendation. 600 resolves the ordering; 300 leaves the top few tied. */
 const SCENARIOS = 600;
 

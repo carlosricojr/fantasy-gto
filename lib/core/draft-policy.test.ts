@@ -1349,3 +1349,28 @@ describe("the prefilter's own boundaries", () => {
     expect(basePolicyPick(roster, [bench, starter], SLOTS)?.id).toBe("starter");
   });
 });
+
+const RECOMMENDATION: Omit<ChampionshipRecommendation, "player"> = {
+  championshipProbability: 0.2,
+  deltaVsBaseline: 0,
+  playoffProbability: 0.5,
+  expectedPoints: 100,
+  standardError: 0.001,
+  tiedWithLeader: false,
+};
+
+describe("orderRecommendations leaves its argument alone", () => {
+  it("does not sort or flag the list it was given", () => {
+    // It is exported, so a caller can hold its own reference. It used to write
+    // `tiedWithLeader` onto the caller's objects and sort the caller's array in place.
+    const given = [
+      { ...RECOMMENDATION, player: player("low", "RB", 1), championshipProbability: 0.1 },
+      { ...RECOMMENDATION, player: player("high", "RB", 1), championshipProbability: 0.5 },
+    ];
+    const before = given.map((r) => `${r.player.id}:${String(r.tiedWithLeader)}`);
+    const ordered = orderRecommendations(given);
+
+    expect(ordered.map((r) => r.player.id)).toEqual(["high", "low"]);
+    expect(given.map((r) => `${r.player.id}:${String(r.tiedWithLeader)}`)).toEqual(before);
+  });
+});

@@ -316,7 +316,7 @@ describe("matchName is unchanged by its length prune", () => {
     return a.join("");
   };
 
-  // Deliberately exhaustive: 2,187 comparisons, each running two full passes over an
+  // Deliberately exhaustive: 2,916 comparisons, each running two full passes over an
   // 81-player universe, about five seconds on an idle machine. The domain project raises
   // the timeout for exactly this reason — see vitest.config.mts.
   it("agrees with the unpruned implementation on every case", () => {
@@ -333,8 +333,11 @@ describe("matchName is unchanged by its length prune", () => {
         }
       }
     }
-    // Guards against the loops silently covering nothing.
-    expect(checked).toBeGreaterThan(2000);
+    // Exact, not a lower bound. `> 2000` let the stated figure drift from the real one
+    // without failing, which is how the comment came to say 2,187 for a loop that runs
+    // 81 candidates x 12 damage levels x 3 thresholds.
+    expect(checked).toBe(universe.length * 12 * 3);
+    expect(checked).toBe(2916);
   });
 });
 

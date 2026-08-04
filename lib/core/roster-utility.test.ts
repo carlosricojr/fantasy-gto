@@ -491,9 +491,15 @@ describe("the totals are accumulated from zero", () => {
   const flatConfig: UtilityConfig = { weeks: [1, 2, 3], scenarios: 4, meanAbsenceWeeks: 3 };
 
   it("totals exactly what a deterministic roster scores", () => {
-    // p10 = p90 = 1 fits a lognormal with zero spread, so every weekly draw is the
-    // projection. Two backs and a receiver fill all three slots: 10 + 8 + 6 a week, three
-    // weeks, 72 points, in every scenario.
+    // p10 = p90 = 1 is as close to no spread as `fitLognormal` allows: it nudges the
+    // ninetieth percentile up by a millionth so the fit stays well defined, leaving a
+    // sigma of 3.9e-7. That is not zero, and the equality below does not rest on it being
+    // zero — `solveLineup` quantises each week's total to two decimals, which is 500 times
+    // coarser than the largest deviation the nudge can produce. Measured over 10,000
+    // weekly draws: not one differs from 24 at all.
+    //
+    // Two backs and a receiver fill all three slots: 10 + 8 + 6 a week, three weeks, 72
+    // points, in every scenario.
     const roster = [
       player("rb1", "RB", 10, CERTAIN),
       player("rb2", "RB", 8, CERTAIN),

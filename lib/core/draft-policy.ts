@@ -500,7 +500,13 @@ export function recommendByChampionship(
 export function orderRecommendations(
   ranked: ChampionshipRecommendation[],
 ): ChampionshipRecommendation[] {
-  if (ranked.length === 0) return ranked;
+  if (ranked.length === 0) return [];
+
+  // Copied, because this is exported: it used to write `tiedWithLeader` onto the caller's
+  // objects and sort the caller's array. `recommendByChampionship` hands it a freshly built
+  // list so nothing was affected, but a function whose whole job is to order a list should
+  // not also edit one.
+  const ordered = ranked.map((entry) => ({ ...entry }));
 
   // Partition against the true maximum rather than sorting with the tie rule directly.
   //
@@ -514,10 +520,10 @@ export function orderRecommendations(
   // Which of several equal-probability entries `reduce` settles on does not matter: only
   // `championshipProbability` and `standardError` are read from it, and the latter is
   // `sqrt(p(1-p)/n)` rounded — a function of the former. Equal probability, equal error.
-  const best = ranked.reduce((a, b) =>
+  const best = ordered.reduce((a, b) =>
     b.championshipProbability > a.championshipProbability ? b : a,
   );
-  for (const entry of ranked) {
+  for (const entry of ordered) {
     entry.tiedWithLeader =
       best.championshipProbability - entry.championshipProbability <=
       best.standardError + entry.standardError;
@@ -533,7 +539,7 @@ export function orderRecommendations(
     b.expectedPoints - a.expectedPoints ||
     (a.player.id < b.player.id ? -1 : 1);
 
-  return ranked.sort((a, b) => {
+  return ordered.sort((a, b) => {
     if (a.tiedWithLeader !== b.tiedWithLeader) return a.tiedWithLeader ? -1 : 1;
     if (a.tiedWithLeader) return bySmootherSignal(a, b);
     return (

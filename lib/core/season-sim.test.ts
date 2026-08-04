@@ -182,13 +182,18 @@ describe("championship probability is not expected points", () => {
     const field = Array.from({ length: 7 }, (_, i) => roster(`f${i}`, 10));
     const fieldScores = field.map((r, i) => sampleTeamWeeklyScores(r, CONFIG, 200 + i));
 
+    // Both rosters carry the tag "t", for the reason the test above states: `playerStream`
+    // keys each player's random stream on his *id*, so a shared seed alone does not pair
+    // two samples — only a shared id does. With different tags these were independent
+    // draws and the volatility was being measured against that independent noise rather
+    // than against itself.
     const steady = sampleTeamWeeklyScores(
-      roster("steady", 20, { p10: 0.85, p90: 1.15 }),
+      roster("t", 20, { p10: 0.85, p90: 1.15 }),
       CONFIG,
       60,
     );
     const volatile = sampleTeamWeeklyScores(
-      roster("volatile", 20, { p10: 0.15, p90: 2.4 }),
+      roster("t", 20, { p10: 0.15, p90: 2.4 }),
       CONFIG,
       60,
     );

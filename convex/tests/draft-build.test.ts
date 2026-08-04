@@ -58,20 +58,21 @@ function gamesCsv(): string {
 }
 
 /**
- * The player set.
+ * The player set. Counts are in `PER_POSITION` below.
  *
- * Twelve at each modelled position, because `fitAdpCurves` needs `MIN_CURVE_SAMPLES` (8)
- * before it will fit a curve for one — below that everything collapses to the pooled fit
- * and a change to one position's samples cannot be observed. An earlier version of this
- * file used three players total and could not see the difference it was written to test.
+ * Every modelled position except running back carries far more than `MIN_CURVE_SAMPLES`
+ * (8), because `fitAdpCurves` needs that many before it will fit a curve for one — below
+ * that everything collapses to the pooled fit and a change to one position's samples
+ * cannot be observed. An earlier version of this file used three players total and could
+ * not see the difference it was written to test.
  */
 const POSITIONS = ["WR", "RB", "TE", "QB"] as const;
 
 /**
- * Twelve at most positions, seven at running back.
+ * Well clear of `MIN_CURVE_SAMPLES` everywhere except running back, which sits at seven.
  *
- * Seven is one short of `MIN_CURVE_SAMPLES`, so the running-back curve exists only if the
- * same-named running back below is also sampled. That turns "one sample was silently
+ * Seven is one short of `MIN_CURVE_SAMPLES` (8), so the running-back curve exists only if
+ * the same-named running back below is also sampled. That turns "one sample was silently
  * dropped" — normally a small wobble in a fitted slope — into the position losing its
  * curve entirely and falling back to the pooled one, which is a difference no rounding can
  * hide.
