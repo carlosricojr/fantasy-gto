@@ -49,10 +49,14 @@ const SLOT_LABELS: Readonly<Record<string, string>> = {
 export function buildSlots(counts: Readonly<Record<string, number>>): RosterSlot[] {
   const slots: RosterSlot[] = [];
   for (const kind of Object.keys(SLOT_ELIGIBILITY)) {
+    // `??` and `||` agree: the only falsy number a count can be is zero, which is the
+    // fallback anyway.
     const count = counts[kind] ?? 0;
     for (let i = 1; i <= count; i += 1) {
       slots.push({
         id: count === 1 ? kind.toLowerCase() : `${kind.toLowerCase()}${i}`,
+        // `??` and `||` agree here too, for a weaker reason: no label is the empty string.
+        // Kept as `??` so it stays correct if one ever is.
         label: SLOT_LABELS[kind] ?? kind,
         eligiblePositions: SLOT_ELIGIBILITY[kind],
       });
@@ -100,6 +104,10 @@ export const DEFAULT_TEMPLATE = STANDARD_TEMPLATE;
 
 /** Looks up a template by id, falling back to the default rather than throwing. */
 export function rosterTemplateById(id: string | null | undefined): RosterTemplate {
+  // `find` returns a template or `undefined`, and a template is always truthy, so `??` and
+  // `||` cannot differ. Searching a list rather than indexing an object is deliberate: `id`
+  // arrives from `sessionStorage`, and a property lookup would resolve `constructor` to
+  // something truthy and hand it back as a roster shape.
   return ROSTER_TEMPLATES.find((template) => template.id === id) ?? DEFAULT_TEMPLATE;
 }
 
