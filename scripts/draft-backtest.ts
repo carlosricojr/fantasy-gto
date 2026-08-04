@@ -135,20 +135,32 @@ async function loadSeason(season: number): Promise<Map<string, PlayerSeason>> {
 }
 
 async function loadAdp(season: number) {
-  const raw = await cached(
-    ADP_CACHE_DIR,
-    `adp_${SCORING_ID}_${LEAGUE_TEAMS}_${season}.json`,
-    adpUrl(SCORING_ID, LEAGUE_TEAMS, season),
-  );
-  const entries = parseAdp(JSON.parse(raw));
+  const name = `adp_${SCORING_ID}_${LEAGUE_TEAMS}_${season}.json`;
+  const raw = await cached(ADP_CACHE_DIR, name, adpUrl(SCORING_ID, LEAGUE_TEAMS, season));
+
+  // Unparseable is the same problem as the error envelope below and needs the same
+  // treatment, which it was not getting: `JSON.parse` threw before the cleanup could run,
+  // so a truncated write — an interrupted run, a full disk — or an HTML error page poisoned
+  // the cache permanently. Every later run read the same file and failed the same way, and
+  // the only fix was to know to clear the directory by hand.
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    rmSync(join(ADP_CACHE_DIR, name), { force: true });
+    throw new Error(
+      `The cached ADP board for ${season} is not valid JSON. It has been deleted; run ` +
+        `this again to download a fresh one.`,
+    );
+  }
+
+  const entries = parseAdp(payload);
   if (entries === null) {
     // The error envelope arrives with HTTP 200, so `cached` has already written it to
     // disk. Left there it is served for every later run, and the failure becomes
     // permanent until somebody clears the directory by hand — a cached "no board" that
     // looks identical to genuinely having no board.
-    rmSync(join(ADP_CACHE_DIR, `adp_${SCORING_ID}_${LEAGUE_TEAMS}_${season}.json`), {
-      force: true,
-    });
+    rmSync(join(ADP_CACHE_DIR, name), { force: true });
     throw new Error(
       `No ADP published for ${season}. The backtest needs both a tuning and an ` +
         `evaluation season with a market board.`,

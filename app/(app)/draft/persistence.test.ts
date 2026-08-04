@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_ROUNDS, type PersistedDraft, parsePersistedDraft } from "./persistence";
+import {
+  MAX_ROUNDS,
+  type PersistedDraft,
+  nextPick,
+  parsePersistedDraft,
+  recordPick,
+  undoPick,
+} from "./persistence";
 
 /**
  * Restoring a draft.
@@ -169,5 +176,79 @@ describe("parsePersistedDraft", () => {
     // record keyed by "1" does not answer a lookup for 1.
     const parsed = parsePersistedDraft(stored({ picks: { 7: "p" } }));
     expect(parsed?.picks[7]).toBe("p");
+  });
+});
+
+/**
+ * Recording and undoing a pick, on the state the updater is handed.
+ *
+ * These were inline in the page and read `currentPick` from the render closure, so a second
+ * click arriving before React re-rendered still saw the previous pick number. The
+ * `drafted.has(playerId)` guard covered a repeated click on the *same* player and nothing
+ * else: two different players clicked quickly wrote the same key, the first was silently
+ * overwritten, and the player it dropped stayed on the board and kept being recommended.
+ */
+describe("recordPick", () => {
+  it("puts a player at the first empty pick", () => {
+    expect(recordPick({}, "a", 10)).toEqual({ 1: "a" });
+    expect(recordPick({ 1: "a" }, "b", 10)).toEqual({ 1: "a", 2: "b" });
+  });
+
+  it("gives two players in a row two different picks", () => {
+    // The race, as it reaches the reducer: both calls start from the same state. Applied in
+    // sequence — which is what a functional updater guarantees — the second must see the
+    // first. Reading the pick number from a render closure is what broke that.
+    const first = recordPick({}, "a", 10);
+    const second = recordPick(first, "b", 10);
+    expect(second).toEqual({ 1: "a", 2: "b" });
+    expect(Object.keys(second)).toHaveLength(2);
+  });
+
+  it("refuses a player who is already on a roster", () => {
+    const state = { 1: "a", 2: "b" };
+    expect(recordPick(state, "a", 10)).toBe(state);
+    expect(recordPick(state, "b", 10)).toBe(state);
+  });
+
+  it("refuses a pick past the end of the draft", () => {
+    const full = { 1: "a", 2: "b" };
+    expect(recordPick(full, "c", 2)).toBe(full);
+  });
+
+  it("fills a gap left by an undo before extending", () => {
+    // `nextPick` is "first empty", not "one past the last", so an undo in the middle is
+    // refilled rather than skipped.
+    expect(recordPick({ 1: "a", 3: "c" }, "b", 10)).toEqual({ 1: "a", 2: "b", 3: "c" });
+  });
+});
+
+describe("undoPick", () => {
+  it("removes the most recent pick", () => {
+    expect(undoPick({ 1: "a", 2: "b" }, 10)).toEqual({ 1: "a" });
+  });
+
+  it("removes two picks when called twice, not one", () => {
+    // The same staleness in the other direction: two rapid undos both deleted the same key.
+    expect(undoPick(undoPick({ 1: "a", 2: "b", 3: "c" }, 10), 10)).toEqual({ 1: "a" });
+  });
+
+  it("does nothing on an empty draft", () => {
+    const empty = {};
+    expect(undoPick(empty, 10)).toBe(empty);
+  });
+
+  it("removes the last pick of a finished draft", () => {
+    expect(undoPick({ 1: "a", 2: "b" }, 2)).toEqual({ 1: "a" });
+  });
+});
+
+describe("nextPick", () => {
+  it("runs one past the end when every pick is in", () => {
+    expect(nextPick({ 1: "a", 2: "b" }, 2)).toBe(3);
+  });
+
+  it("is the first gap, not the count", () => {
+    expect(nextPick({ 1: "a", 3: "c" }, 10)).toBe(2);
+    expect(nextPick({}, 10)).toBe(1);
   });
 });

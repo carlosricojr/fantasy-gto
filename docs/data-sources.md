@@ -145,6 +145,14 @@ https://fantasyfootballcalculator.com/api/v1/adp/{ppr|half-ppr|standard}?teams={
 Public, unauthenticated, JSON. The 2026 PPR/12-team board returns **247 players**, each
 carrying `adp`, `stdev`, `high`, `low`, `times_drafted`, and `bye`.
 
+Not all 247 reach our board with a price: the deployment recorded in the README counted
+**244**. A published ADP has to join to a roster player by name *and* position before it
+can be priced, and `buildMarketIndex` refuses a name it cannot separate — two players who
+normalise the same way and share a position are both dropped rather than one of them
+guessed at. The three-player difference has not been attributed to specific names; it is
+recorded here as a difference rather than explained, because the run that produced 244 is
+not one this repository can reproduce offline.
+
 The standard deviation is the reason this source was chosen over the alternatives. Without
 dispersion, ADP reads as a deadline, and a draft strategy built on a deadline reaches for
 players who would have lasted another full round. `lib/core/draft.ts` turns `adp` and

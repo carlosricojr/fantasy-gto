@@ -88,6 +88,12 @@ export function useRecommendations(): RecommendationState & {
       if (reply.id < latestApplied.current) return;
       latestApplied.current = reply.id;
 
+      // A superseded reply carries no answer, because the worker skipped a request a newer
+      // one had already replaced. Applying it would blank the panel for the gap until that
+      // newer answer lands; the right thing is to keep what is on screen and keep waiting.
+      // The newest request in a burst is never superseded, so something always arrives.
+      if (reply.superseded === true) return;
+
       setState({
         recommendations: reply.error === undefined ? reply.recommendations : [],
         stale: reply.id < latestSent.current,

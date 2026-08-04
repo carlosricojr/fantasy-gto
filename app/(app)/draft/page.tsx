@@ -9,6 +9,9 @@ import {
   PLAYOFF_FIELDS,
   type PersistedDraft,
   parsePersistedDraft,
+  nextPick,
+  recordPick,
+  undoPick,
 } from "./persistence";
 import { useQuery } from "convex/react";
 
@@ -221,12 +224,7 @@ export default function DraftPage() {
   // recorded against one of those is never marked as taken — he stays on the board and
   // keeps being recommended after he is gone.
   const totalPicks = setup.teams * setup.rounds;
-  const currentPick = useMemo(() => {
-    for (let pick = 1; pick <= totalPicks; pick += 1) {
-      if (picks[pick] === undefined) return pick;
-    }
-    return totalPicks + 1;
-  }, [picks, totalPicks]);
+  const currentPick = useMemo(() => nextPick(picks, totalPicks), [picks, totalPicks]);
 
   const onTheClock = pickOwners.get(currentPick) === 0;
 
@@ -317,23 +315,16 @@ export default function DraftPage() {
 
   const drafted = useMemo(() => new Set(Object.values(picks)), [picks]);
 
+  // Both of these do their work inside the updater, on the state it is handed. Reading
+  // `currentPick` from this render instead let two clicks arriving before a re-render write
+  // the same key: the second player overwrote the first, and the first stayed on the board.
   function record(playerId: string): void {
-    // A stale recommendation panel keeps a live Pick button next to a player who has just
-    // been taken, and a double tap on a phone is the ordinary way to hit it twice. Without
-    // this the same player lands on two rosters and is scored twice, while the player
-    // actually taken at that pick is never recorded and stays on the board.
-    if (drafted.has(playerId)) return;
-    if (currentPick > totalPicks) return;
-    setPicks((previous) => ({ ...previous, [currentPick]: playerId }));
+    setPicks((previous) => recordPick(previous, playerId, totalPicks));
     setSearch("");
   }
 
   function undo(): void {
-    setPicks((previous) => {
-      const next = { ...previous };
-      delete next[currentPick - 1];
-      return next;
-    });
+    setPicks((previous) => undoPick(previous, totalPicks));
   }
 
   if (!seasonLoading && season === null) {

@@ -30,11 +30,40 @@ export interface RecommendResponse {
   cached: boolean;
   elapsedMs: number;
   error?: string;
+  /** Set when a newer request arrived before this one ran, so nothing was computed. */
+  superseded?: boolean;
 }
 
 const store = new LruMemoStore(256);
 
+/**
+ * The newest request id this worker has been handed.
+ *
+ * Every `draftState` change posts a request and each one is computed to completion, so a
+ * run of quick picks queues a simulation per pick and the board's *current* answer waits
+ * behind all of them. Three picks in a second is three seconds before the panel is right,
+ * and every one of those seconds is spent on a position the user has already left.
+ *
+ * The queue cannot be inspected, so the skip happens the only way it can: the handler
+ * records the id and defers the work by a task, which lets every already-queued message
+ * take its turn first. By the time the deferred work runs, `latestId` is the newest request
+ * there is, and anything older than it can be answered without being computed.
+ *
+ * A superseded request still gets a reply. `use-recommendations` sets `loading` on send and
+ * clears it on receipt, so a request that is silently dropped leaves the panel spinning for
+ * ever — the same failure the catch below exists to prevent.
+ */
+let latestId = -1;
+
 self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
+  const incoming = (event.data as Partial<RecommendRequest> | null)?.id;
+  if (typeof incoming === "number" && Number.isFinite(incoming) && incoming > latestId) {
+    latestId = incoming;
+  }
+  setTimeout(() => handle(event), 0);
+});
+
+function handle(event: MessageEvent<RecommendRequest>): void {
   const startedAt = Date.now();
   // Destructured inside the guard, not above it. A malformed message threw here, before
   // the try, so the worker posted no reply at all and the requester sat on `loading: true`
@@ -71,6 +100,21 @@ self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
     }
     const { state, config, seed, candidateLimit } = request as RecommendRequest;
 
+    // Superseded while it waited. Answered rather than dropped, and answered emptily rather
+    // than staleley: `use-recommendations` compares ids and will discard this the moment
+    // the newer reply lands, but it has to land *something* to clear the loading flag.
+    if (id < latestId) {
+      const superseded: RecommendResponse = {
+        id,
+        recommendations: [],
+        cached: false,
+        elapsedMs: Date.now() - startedAt,
+        superseded: true,
+      };
+      self.postMessage(superseded);
+      return;
+    }
+
     const result = recommendMemoized(
       store,
       state,
@@ -97,4 +141,4 @@ self.addEventListener("message", (event: MessageEvent<RecommendRequest>) => {
     };
     self.postMessage(response);
   }
-});
+}

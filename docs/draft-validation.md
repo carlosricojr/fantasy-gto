@@ -49,11 +49,11 @@ exactly what makes a published figure meaningless.
 | 0.8 | 0.5371 |
 | 1 | 0.5151 |
 
-Every weight in `BLEND_WEIGHTS`, not a selection — the text calls 0.2 the best of the
-values swept, so a table missing three of them invites the reader to check a sweep that is
-not the one the script runs. These figures also moved with the tie correction recorded
-below, and were stale here until it was noticed that only the evaluation table had been
-updated.
+Every weight in `BLEND_WEIGHTS` is listed, not a selection of them. That matters because
+the text calls 0.2 the best of the values swept: an abridged table would invite the reader
+to check a sweep that is not the one the script runs. Three were missing here once, and
+these figures were also left stale by the tie correction below, which for a while updated
+only the evaluation table.
 
 The model keeps a small weight for a reason that does not depend on beating the market:
 **it prices players the market has not.** Around two thirds of rostered skill players have
@@ -98,19 +98,20 @@ handicapping the baseline.**
   measured. Doing it honestly needs simulated opponents, and a simulation that assumed
   opponents draft by ADP would largely be marking its own homework.
 
-  Worse than unmeasured, one failure is *known*. The recommendation compares taking a
-  player now against waiting until your **next** pick only. That is the standard "value
-  over next available" argument and it is sound early, when positions genuinely run out
-  between your turns. It degrades late: once every position is abundant, waiting appears
-  free everywhere, every score collapses toward zero, and the ordering is decided by
-  whatever is largest in absolute terms. A simulated fourteen-round draft finished with a
-  starting slot unfilled rather than taking the obvious replacement-level player for it.
+  This paragraph used to describe a *known* planning flaw: that the recommendation compared
+  taking a player now against waiting until your next pick only, so late in a draft — once
+  every position is abundant — waiting looked free everywhere and a simulated season
+  finished with a starting slot unfilled. That was true of the value-over-next-available
+  engine, which no longer exists. `recommendByChampionship` scores the **completed** roster
+  by playing the season out, which is precisely the fix that paragraph said had not been
+  made, and the unfilled-slot case is now a test.
 
-  The fix is to score the completed roster rather than a single pick. A greedy completion
-  was tried and is not a correct approximation — it inverted the recommendation on a case
-  the unit tests pin, so it was not shipped. Until this is solved, **treat the ordering as
-  advice about scarcity in the early and middle rounds, and check your own empty slots
-  late.** The board shows them.
+  What remains is an approximation, and a smaller one. The completion is greedy: our own
+  remaining picks and every opponent's are filled by `basePolicyPick`, best available by
+  marginal starting value, rather than by anything that looks ahead. Opponents who draft
+  differently from that produce a different board than the one each candidate was scored
+  against. That is a reason the *magnitudes* are soft; it is not a reason to distrust the
+  late rounds specifically, which is what this section used to say.
 - **`AVAILABILITY_FLOOR` (0.5) is judgement, not measurement.** It is documented as such
   where it is defined. `BENCH_VALUE_WEIGHT` was too, and no longer exists — the objective
   that needed a bench discount was replaced by one that values depth by playing the season

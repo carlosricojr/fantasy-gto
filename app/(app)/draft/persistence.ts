@@ -140,3 +140,55 @@ function parsePicks(value: unknown, totalPicks: number): Record<number, string> 
 function whole(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
+
+/**
+ * The pick now on the clock: the first without a player recorded against it.
+ *
+ * Exported, and taken as an argument rather than read from a component's render scope,
+ * because both the button handlers and the display need it and they must not disagree.
+ * They did: `record` and `undo` computed it once per render and used that value inside a
+ * functional state update, so two clicks landing before React re-rendered both saw the
+ * *previous* pick number. Two different players clicked quickly wrote the same key and the
+ * first was silently overwritten — the board showed one pick where two had been made, and
+ * the player it dropped stayed available and kept being recommended.
+ *
+ * Derived from the state the updater was handed, it cannot be stale by construction.
+ */
+export function nextPick(
+  picks: Readonly<Record<number, string>>,
+  totalPicks: number,
+): number {
+  for (let pick = 1; pick <= totalPicks; pick += 1) {
+    if (picks[pick] === undefined) return pick;
+  }
+  // One past the end, which is how the caller knows the draft is finished.
+  return totalPicks + 1;
+}
+
+/** Records a player at whatever pick is on the clock, or returns the state unchanged. */
+export function recordPick(
+  picks: Readonly<Record<number, string>>,
+  playerId: string,
+  totalPicks: number,
+): Record<number, string> {
+  // Both guards live here rather than at the call site for the same reason as `nextPick`:
+  // a check against a rendered snapshot cannot see a pick made a moment ago. A stale
+  // recommendation panel keeps a live button next to a player who has just been taken, and
+  // a double tap on a phone is the ordinary way to hit it twice.
+  if (Object.values(picks).includes(playerId)) return picks as Record<number, string>;
+  const pick = nextPick(picks, totalPicks);
+  if (pick > totalPicks) return picks as Record<number, string>;
+  return { ...picks, [pick]: playerId };
+}
+
+/** Removes the most recent pick, or returns the state unchanged when there is none. */
+export function undoPick(
+  picks: Readonly<Record<number, string>>,
+  totalPicks: number,
+): Record<number, string> {
+  const pick = nextPick(picks, totalPicks) - 1;
+  if (pick < 1) return picks as Record<number, string>;
+  const next = { ...picks };
+  delete next[pick];
+  return next;
+}

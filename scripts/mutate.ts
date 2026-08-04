@@ -407,10 +407,13 @@ function backupPathFor(path: string): string {
  */
 const LOCK_PATH = join(process.cwd(), ".mutate-lock");
 
+let ownsRunLock = false;
+
 function acquireRunLock(): boolean {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       writeFileSync(LOCK_PATH, String(process.pid), { flag: "wx" });
+      ownsRunLock = true;
       return true;
     } catch {
       const owner = Number(readFileSync(LOCK_PATH, "utf8").trim());
@@ -441,6 +444,12 @@ function isAlive(pid: number): boolean {
 }
 
 function releaseRunLock(): void {
+  // Only the process that took it may remove it. Without this test the lock was worse than
+  // nothing: a second run refused the lock, returned, and its `finally` deleted the *first*
+  // run's file — so a third run would start recovery in the middle of the first, which is
+  // the exact race this was added to prevent.
+  if (!ownsRunLock) return;
+  ownsRunLock = false;
   rmSync(LOCK_PATH, { force: true });
 }
 
