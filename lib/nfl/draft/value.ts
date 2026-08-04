@@ -29,7 +29,13 @@ import {
  * coaching changes, and rookies with no history at all.
  */
 
-/** Exponentially weighted mean, most recent last. Matches the weekly model's `ema`. */
+/**
+ * Exponentially weighted mean, most recent last. Matches the weekly model's `ema`.
+ *
+ * The loop starts at one because index zero seeds the accumulator. Starting it at zero
+ * instead is harmless: the first step would be `alpha · p[0] + (1 - alpha) · p[0]`, which
+ * is `p[0]`. It looks like an off-by-one and is not one.
+ */
 export function emaRate(perGamePoints: readonly number[], alpha: number): number {
   if (perGamePoints.length === 0) return 0;
   let accumulated = perGamePoints[0];
@@ -136,6 +142,11 @@ export function fitAdpCurve(
   const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
   const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
 
+  // Two forms here are indistinguishable from the ones written, for reasons rather than
+  // for want of a fixture. `(x - meanX)` in the covariance can be `(x + meanX)` without
+  // changing the sum, because the extra `meanX · Σ(y - meanY)` it adds is `meanX · 0`. And
+  // a single usable sample cannot reach the sample-count guard's other side: its x-variance
+  // is zero, so the guard below returns null first either way.
   let covariance = 0;
   let variance = 0;
   for (let i = 0; i < xs.length; i += 1) {
@@ -212,7 +223,9 @@ export function blendedSeasonValue(
   weight: number = MODEL_BLEND_WEIGHT,
 ): number {
   if (modelPoints === null && adpImplied === null) return 0;
-  if (adpImplied === null) return round2(modelPoints ?? 0);
+  // Each of these is reached only when the other side is present, so neither needs a
+  // fallback of its own — the pair of `null`s is already gone.
+  if (adpImplied === null) return round2(modelPoints as number);
   if (modelPoints === null) return round2(adpImplied);
   return round2(weight * modelPoints + (1 - weight) * adpImplied);
 }

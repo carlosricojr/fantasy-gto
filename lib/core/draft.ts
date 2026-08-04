@@ -69,7 +69,17 @@ export function adpDispersion(adpStdev: number | null | undefined): number {
  */
 export const UNRANKED_ADP_PADDING = 24;
 
-/** Standard normal CDF, Abramowitz & Stegun 7.1.26. Max error ~7.5e-8. */
+/**
+ * Standard normal CDF, Abramowitz & Stegun 7.1.26. Max error ~7.5e-8.
+ *
+ * The tests hold it to exactly that: twelve tabulated values, each within 7.5e-8. That is
+ * the strongest statement available about the six fitted constants below, and it is worth
+ * knowing what it does and does not cover. A change of 1e-6 to any of them fails; a change
+ * of 1e-7 to most of them fails; a change in the ninth decimal place of the largest does
+ * not, because the function is not claiming that much precision. Neither does `sign`
+ * treating zero as negative — the polynomial sums to one at zero, so the two branches
+ * differ there by about 1e-9.
+ */
 export function normalCdf(x: number): number {
   const sign = x < 0 ? -1 : 1;
   const z = Math.abs(x) / Math.SQRT2;

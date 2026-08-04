@@ -389,3 +389,116 @@ describe("expectedGames", () => {
     }
   });
 });
+
+describe("the least-squares fit, at its own boundaries", () => {
+  const sample = (adp: number, actualSeasonPoints: number) => ({
+    playerId: `p${adp}`,
+    position: "RB",
+    adp,
+    actualSeasonPoints,
+  });
+
+  it("fits two points exactly, which is the fewest a line needs", () => {
+    // `usable.length < 2`. Two points determine a line, so refusing them refuses a fit
+    // that is available — and this is the guard that decides whether a position gets its
+    // own curve or falls back to the pooled one.
+    const curve = fitAdpCurve([sample(1, 300), sample(Math.E, 250)], 2025);
+    expect(curve).not.toBeNull();
+    expect(curve!.slope).toBeCloseTo(-50, 9);
+    expect(curve!.intercept).toBeCloseTo(300, 9);
+  });
+
+  it("refuses a single point, which determines nothing", () => {
+    expect(fitAdpCurve([sample(5, 200)], 2025)).toBeNull();
+    expect(fitAdpCurve([], 2025)).toBeNull();
+  });
+
+  it("refuses points that all share one ADP", () => {
+    // Zero variance in x. Without the guard the slope is 0/0 and every implied price on
+    // the board becomes `NaN`, which renders as an empty cell rather than as an error.
+    expect(fitAdpCurve([sample(4, 300), sample(4, 100), sample(4, 200)], 2025)).toBeNull();
+  });
+
+  it("recovers the line exactly when the points are on one", () => {
+    const points = [1, 2, 4, 8, 16, 32].map((adp) =>
+      sample(adp, 300 - 50 * Math.log(adp)),
+    );
+    const curve = fitAdpCurve(points, 2025)!;
+    expect(curve.slope).toBeCloseTo(-50, 9);
+    expect(curve.intercept).toBeCloseTo(300, 9);
+    expect(curve.sampleSize).toBe(6);
+  });
+
+  it("reads every sample, including the first", () => {
+    // The accumulation loop. Starting it at one drops the first sample from the covariance
+    // and the variance while leaving it in the means, which tilts the curve by an amount
+    // that looks entirely plausible.
+    //
+    // Perfectly collinear points cannot show this, and the test above is exactly that:
+    // when `y - meanY` equals `slope · (x - meanX)` for every point, the slope comes out
+    // right from *any* subset, because the same terms cancel top and bottom. It needs one
+    // point off the line, and it has to be the first — which is the one a fixture built
+    // from a formula never is.
+    //
+    // The first player here is a bust: drafted at pick one, scored 120. That drags the
+    // fitted slope from -50 to -12.9, and dropping him from the sums is the difference
+    // between a curve that has seen him and one that has not.
+    const withBust = [
+      sample(1, 120),
+      sample(2, 265.34),
+      sample(4, 230.69),
+      sample(8, 196.03),
+      sample(16, 161.37),
+      sample(32, 126.71),
+    ];
+    const curve = fitAdpCurve(withBust, 2025)!;
+    expect(curve.slope).toBeCloseTo(-12.9026, 4);
+    expect(curve.intercept).toBeCloseTo(205.7152, 4);
+    expect(curve.sampleSize).toBe(6);
+  });
+
+  it("takes the covariance as a product of deviations, not a sum", () => {
+    // `(x - meanX) * (y - meanY)` summed. Adding the deviations instead sums to zero by
+    // construction, so the slope is zero and every player is priced identically wherever
+    // he is drafted — which is a board, just not one that says anything.
+    const points = [1, 2, 4, 8].map((adp) => sample(adp, 300 - 50 * Math.log(adp)));
+    expect(fitAdpCurve(points, 2025)!.slope).toBeLessThan(-1);
+  });
+});
+
+describe("the exponentially weighted mean uses the weight it was given", () => {
+  it("honours an alpha of zero rather than substituting the default", () => {
+    // `input.alpha ?? SEASON_EMA_ALPHA`. Zero is a meaningful weight — it says "the
+    // earliest game is the whole estimate" — and `||` silently replaces it with the
+    // default, which is the one value a caller passing zero has ruled out.
+    expect(emaRate([10, 20, 30], 0)).toBeCloseTo(10, 9);
+    expect(emaRate([10, 20, 30], 1)).toBeCloseTo(30, 9);
+    expect(
+      seasonProjection({ perGamePoints: [10, 20, 30], priorSeasonGames: 17, alpha: 0 }),
+    ).toBeCloseTo(seasonProjection({ perGamePoints: [10], priorSeasonGames: 17 }), 9);
+  });
+
+  it("reads every game after the first, and no fewer", () => {
+    // The loop starts at index one because index zero seeds the accumulator; starting at
+    // two skips the second game entirely. With three games and alpha 0.5 the difference is
+    // 22.5 against 25.
+    expect(emaRate([10, 20, 30], 0.5)).toBeCloseTo(22.5, 9);
+    expect(emaRate([10, 20], 0.5)).toBeCloseTo(15, 9);
+    expect(emaRate([10], 0.5)).toBeCloseTo(10, 9);
+  });
+});
+
+describe("the availability floor for a per-game rate", () => {
+  it("is the value it documents, and bites below it", () => {
+    // Dividing a season total by availability recovers a per-game rate. Near zero that
+    // division explodes: at 0.01 availability an intended 300-point season becomes a
+    // 1,700-point-per-game player, who then outranks everyone on the board.
+    expect(MIN_AVAILABILITY_FOR_RATE).toBe(0.05);
+    const atFloor = perGameRate(300, MIN_AVAILABILITY_FOR_RATE, 17);
+    expect(perGameRate(300, 0.01, 17)).toBe(atFloor);
+    expect(perGameRate(300, 0, 17)).toBe(atFloor);
+    // Just above it, the real availability is used.
+    expect(perGameRate(300, 0.06, 17)).toBeLessThan(atFloor);
+    expect(perGameRate(300, 0.5, 17)).toBeCloseTo(300 / (17 * 0.5), 9);
+  });
+});

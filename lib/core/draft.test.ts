@@ -40,6 +40,45 @@ describe("normalCdf", () => {
       expect(normalCdf(x) + normalCdf(-x)).toBeCloseTo(1, 6);
     }
   });
+
+  it("holds the error bound its docstring claims", () => {
+    // Five fitted coefficients and a sixth in the `t` substitution, none of which any
+    // assertion above could move: at five decimal places every one of them can be retyped
+    // in its last two digits and nothing fails. The docstring claims a maximum error of
+    // about 7.5e-8, so that is what is checked, against values from the standard tables.
+    //
+    // This matters because it is the survival curve. A tenth of a percent of drift on
+    // "will he last until pick 45" is not visible on screen and is not correctable by
+    // anyone using it.
+    const known: Array<[number, number]> = [
+      [-3, 0.0013498980316301],
+      [-2, 0.0227501319481792],
+      [-1.5, 0.0668072012688581],
+      [-0.5, 0.3085375387259869],
+      [0, 0.5],
+      [0.25, 0.5987063256829237],
+      [0.5, 0.6914624612740131],
+      [1, 0.8413447460685429],
+      [1.5, 0.9331927987311419],
+      [1.96, 0.9750021048517795],
+      [2, 0.9772498680518208],
+      [3, 0.9986501019683699],
+    ];
+    for (const [x, expected] of known) {
+      expect(Math.abs(normalCdf(x) - expected)).toBeLessThan(7.5e-8);
+    }
+  });
+
+  it("stays a probability, and increases", () => {
+    let previous = 0;
+    for (let x = -6; x <= 6; x += 0.05) {
+      const p = normalCdf(x);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThanOrEqual(1);
+      expect(p).toBeGreaterThanOrEqual(previous - 1e-12);
+      previous = p;
+    }
+  });
 });
 
 /** `survivalProbability` reads only the market fields, so that is all a fixture needs. */
@@ -335,5 +374,66 @@ describe("the market's dispersion assumption", () => {
     const tight = survivalProbability({ adp: 40, adpStdev: 0.1 }, 41, 300);
     expect(tight).toBeGreaterThan(0.005);
     expect(tight).toBeLessThan(0.05);
+  });
+});
+
+describe("the league-shape guards, at their boundaries", () => {
+  it("accepts the smallest coherent league and the shortest draft", () => {
+    // `teams < 1` and `rounds < 0`. Both sit one away from rejecting something valid: a
+    // one-team draft is degenerate but coherent, and a zero-round draft is the state a
+    // setup screen is in before anyone has said how long it runs.
+    expect(snakePicks(1, 1, 3)).toEqual([1, 2, 3]);
+    expect(snakePicks(1, 4, 0)).toEqual([]);
+    expect(pickOwnership(1, 1, 2).size).toBe(2);
+  });
+
+  it("refuses a league with no teams, and a draft with negative rounds", () => {
+    expect(() => snakePicks(1, 0, 3)).toThrow(/cannot have 0 teams/);
+    expect(() => snakePicks(1, 4, -1)).toThrow(/cannot have -1 rounds/);
+    expect(() => pickOwnership(0, 1, 2)).toThrow(/cannot have 0 teams/);
+  });
+
+  it("refuses a fractional league or a fractional draft length", () => {
+    // `!isInteger(x) || x < 1` — both halves. With `&&`, a fractional count passes the
+    // guard and produces fractional overall pick numbers, which `pickOwnership` then keys
+    // a Map on, so they never match the integer pick counter the board increments and
+    // every pick ends up owned by nobody.
+    expect(() => snakePicks(1, 10.5, 3)).toThrow(/cannot have 10.5 teams/);
+    expect(() => snakePicks(1, 10, 3.5)).toThrow(/cannot have 3.5 rounds/);
+    expect(() => snakePicks(1.5, 10, 3)).toThrow(/outside a 10-team league/);
+    expect(() => pickOwnership(10.5, 1, 3)).toThrow(/cannot have 10.5 teams/);
+  });
+
+  it("walks exactly as many team indices as there are teams", () => {
+    // `index < teams`. One further asks `seatForTeamIndex` for a seat outside the league,
+    // which `snakePicks` refuses — so this fails loudly rather than quietly, but only if
+    // something calls it.
+    for (const teams of [1, 2, 8, 12]) {
+      const owners = pickOwnership(teams, 1, 3);
+      expect(new Set(owners.values()).size).toBe(teams);
+      expect(owners.size).toBe(teams * 3);
+    }
+  });
+});
+
+describe("normalizeLeagueSetup's bounds are the caller's, including zero", () => {
+  it("honours a bound of zero rather than substituting its own", () => {
+    // `bounds.minTeams ?? 2`. With `||`, a caller asking for a minimum of zero silently
+    // gets two — and the three defaults differ, so the substituted value is not even
+    // consistent between the fields.
+    expect(normalizeLeagueSetup({ teams: 0 }, { minTeams: 0 }).teams).toBe(0);
+    expect(normalizeLeagueSetup({ teams: 99 }, { maxTeams: 0, minTeams: 0 }).teams).toBe(0);
+    expect(normalizeLeagueSetup({ teams: 8, rounds: 99 }, { maxRounds: 0 }).rounds).toBe(0);
+  });
+
+  it("uses its own defaults when the caller names none", () => {
+    // The three defaults, which nothing pinned. They are the bounds every draft setup gets
+    // when the caller says nothing, so each is the difference between a league the rest of
+    // the code accepts and one it does not.
+    expect(normalizeLeagueSetup({ teams: 1 }).teams).toBe(2);
+    expect(normalizeLeagueSetup({ teams: 999 }).teams).toBe(32);
+    expect(normalizeLeagueSetup({ teams: 12, rounds: 999 }).rounds).toBe(40);
+    expect(normalizeLeagueSetup({ teams: 12, rounds: 0 }).rounds).toBe(1);
+    expect(normalizeLeagueSetup({ teams: 12, slot: 0 }).slot).toBe(1);
   });
 });
