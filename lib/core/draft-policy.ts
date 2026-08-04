@@ -395,8 +395,15 @@ export function recommendByChampionship(
   const opponentRosters = baselineRosters.filter(
     (_, index) => index !== state.myTeamIndex,
   );
+  // One definition, used by both places that sample an opponent. The baseline samples every
+  // opponent once and a candidate held by an opponent resamples that one team; the two must
+  // draw from the same stream, or the comparison between them carries a change to an
+  // opponent that has nothing to do with the pick. Nothing enforced that when the offset was
+  // written out twice — and an offset that disagrees produces plausible numbers, not an
+  // error.
+  const opponentSeed = (index: number) => seed + 1000 + index;
   const baselineOpponentScores = opponentRosters.map((roster, index) =>
-    sampleTeamWeeklyScores(roster, config, seed + 1000 + index),
+    sampleTeamWeeklyScores(roster, config, opponentSeed(index)),
   );
 
   // What the rest of the league is expected to take, so our own rollout draws from the
@@ -438,7 +445,7 @@ export function recommendByChampionship(
     scores[owner] = sampleTeamWeeklyScores(
       replacement === null ? without : [...without, replacement],
       config,
-      seed + 1000 + owner,
+      opponentSeed(owner),
     );
     return { scores, replacementId: replacement?.id ?? null };
   };
@@ -482,8 +489,7 @@ export function recommendByChampionship(
         expectedPoints: outcome.expectedPoints,
         standardError: round4(Math.sqrt((p * (1 - p)) / config.scenarios)),
       };
-    })
-    .map((r) => ({ ...r, tiedWithLeader: false }));
+    });
 
   return orderRecommendations(ranked);
 }
@@ -498,7 +504,7 @@ export function recommendByChampionship(
  * candidate and belongs in one.
  */
 export function orderRecommendations(
-  ranked: ChampionshipRecommendation[],
+  ranked: ReadonlyArray<Omit<ChampionshipRecommendation, "tiedWithLeader">>,
 ): ChampionshipRecommendation[] {
   if (ranked.length === 0) return [];
 
@@ -506,7 +512,10 @@ export function orderRecommendations(
   // objects and sort the caller's array. `recommendByChampionship` hands it a freshly built
   // list so nothing was affected, but a function whose whole job is to order a list should
   // not also edit one.
-  const ordered = ranked.map((entry) => ({ ...entry }));
+  const ordered: ChampionshipRecommendation[] = ranked.map((entry) => ({
+    ...entry,
+    tiedWithLeader: false,
+  }));
 
   // Partition against the true maximum rather than sorting with the tie rule directly.
   //
@@ -533,7 +542,10 @@ export function orderRecommendations(
   // which is roughly a coin flip rather than a one-in-twelve event and so resolves at the
   // sample sizes a draft clock allows. Everything below it is ordered on title odds.
   // The final clause never compares a candidate with itself — `ranked` holds one entry per
-  // player — so `<` and `<=` are the same function here.
+  // player — so `<` and `<=` are the same function here, and the `1` arm can be `0` without
+  // changing any ordering: it is only ever reached as "greater", and `Array.prototype.sort`
+  // needs no more than the "strictly less" signal. Not antisymmetric, and not observably
+  // wrong; the same is true of the `1` in the tied-versus-untied branch below.
   const bySmootherSignal = (a: ChampionshipRecommendation, b: ChampionshipRecommendation) =>
     b.playoffProbability - a.playoffProbability ||
     b.expectedPoints - a.expectedPoints ||

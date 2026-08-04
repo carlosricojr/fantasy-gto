@@ -68,6 +68,9 @@ export function adpDispersion(adpStdev: number | null | undefined): number {
  * first overall pick.
  */
 export const UNRANKED_ADP_PADDING = 24;
+// Two rounds of a twelve-team draft, and a judgement rather than a measurement — what is
+// testable is that an unranked player lands behind everyone the market has priced, which
+// is asserted, and not that the gap is 24 rather than 23.
 
 /**
  * Standard normal CDF, Abramowitz & Stegun 7.1.26. Max error ~7.5e-8.

@@ -318,6 +318,11 @@ export function anticipateStates(
       signature,
       probability: count / samples,
     }))
+    // Signatures are the map's own keys, so no two are equal and the `1` arm is only ever
+    // reached as "greater". Replacing it with `0` leaves a comparator that is not
+    // antisymmetric — the specification permits any result — and `Array.prototype.sort`
+    // orders it correctly regardless, because it only ever needs the "strictly less"
+    // signal. Same shape as `byId` above, and equally untestable.
     .sort((a, b) => b.probability - a.probability || (a.signature < b.signature ? -1 : 1));
 }
 

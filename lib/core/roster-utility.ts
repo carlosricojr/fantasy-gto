@@ -106,6 +106,10 @@ export interface RosterUtility {
  * lognormal whose median matched it would systematically over-project.
  */
 export function fitLognormal(p10: number, p90: number): { mu: number; sigma: number } {
+  // Both floors are one-sided bounds rather than tuned values. `low` must be positive, or
+  // `log` returns -Infinity and every draw from this fit is NaN; any positive value small
+  // against a real quantile does equally well. `high` must exceed `low`, or sigma is zero
+  // or negative; the multiplier only has to be the smallest step that guarantees it.
   const low = Math.max(p10, 1e-6);
   const high = Math.max(p90, low * 1.000001);
   const sigma = Math.log(high / low) / (2 * Z_90);

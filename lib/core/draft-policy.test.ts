@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildSlots } from "../nfl/roster";
 import {
+  CHAMPIONSHIP_CANDIDATES,
   type ChampionshipRecommendation,
   type DraftPolicyState,
   type DraftTeam,
@@ -1372,5 +1373,47 @@ describe("orderRecommendations leaves its argument alone", () => {
 
     expect(ordered.map((r) => r.player.id)).toEqual(["high", "low"]);
     expect(given.map((r) => `${r.player.id}:${String(r.tiedWithLeader)}`)).toEqual(before);
+  });
+});
+
+describe("availability is priced into the lineup, not just into the shortlist", () => {
+  it("prefers the durable player when the fragile one is a bigger name", () => {
+    // `toCompetitor` values a player at `weeklyMean * availability` — his contribution to a
+    // week he might not play. Dividing instead inverts that: a player who plays half the
+    // season becomes worth *double*, and the boom-or-bust injury risk on every board goes
+    // from a discount to a premium.
+    //
+    // The prefilter uses the same expression, so both candidates have to be at different
+    // positions for this to be visible at all — otherwise only one of them is a contender
+    // and the lineup solve never compares them. Measured: multiplied gives `durableOk`,
+    // divided gives `fragileStar`.
+    //
+    // 20 x 0.5 = 10 against 12 x 0.95 = 11.4, but 20 / 0.5 = 40 against 12 / 0.95 = 12.6.
+    const roster = [
+      player("qb", "QB", 20, { availability: 1 }),
+      player("rb1", "RB", 19, { availability: 1 }),
+      player("rb2", "RB", 18, { availability: 1 }),
+      player("wr1", "WR", 17, { availability: 1 }),
+      player("wr2", "WR", 16, { availability: 1 }),
+      player("te1", "TE", 15, { availability: 1 }),
+    ];
+    const fragileStar = player("fragileStar", "RB", 20, { availability: 0.5 });
+    const durableOk = player("durableOk", "WR", 12, { availability: 0.95 });
+    expect(basePolicyPick(roster, [fragileStar, durableOk], SLOTS)?.id).toBe("durableOk");
+  });
+});
+
+describe("the default candidate limit", () => {
+  it("evaluates ten candidates when the caller names no limit", () => {
+    // `CHAMPIONSHIP_CANDIDATES` is what a caller gets by saying nothing, and every one of
+    // those is a full season simulation — so it is simultaneously the answer's breadth and
+    // the recommendation's cost. Nothing pinned it.
+    const recs = recommendByChampionship(
+      { teams: freshTeams(), myTeamIndex: 0, available: board(), rosterSize: ROUNDS },
+      { ...CONFIG, scenarios: 20 },
+      3,
+    );
+    expect(CHAMPIONSHIP_CANDIDATES).toBe(10);
+    expect(recs).toHaveLength(CHAMPIONSHIP_CANDIDATES);
   });
 });

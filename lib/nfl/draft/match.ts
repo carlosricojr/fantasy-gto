@@ -224,6 +224,9 @@ export function matchName<T extends MatchCandidate>(
   if (needle.length < 4) return null;
 
   let best: NameMatch<T> | null = null;
+  // Any starting value does: the first candidate to pass the prune finds `best` null and
+  // overwrites this with `best?.confidence ?? 0`, and if none does, `best` stays null and
+  // the runner-up is never read.
   let runnerUp = 0;
 
   const normalized = normalizedNames(candidates);
@@ -268,6 +271,12 @@ export function matchName<T extends MatchCandidate>(
   // An ambiguous match is worse than none. Two players whose names are nearly equally
   // close means the text does not identify either — the real case is a shared surname
   // where OCR dropped or damaged the first name.
+  //
+  // `<` and `<=` are the same function on every input this can receive, and that is a
+  // proof rather than a shrug. A confidence is `1 - d / L` for whole `d` and `L`, so the
+  // difference of two of them is a difference of two such rationals; searched exhaustively
+  // for `L` up to 40 — well past the longest normalised name — no pair differs by exactly
+  // the double nearest 0.1. The boundary this comparison sits on is not reachable.
   if (best.confidence - runnerUp < MATCH_AMBIGUITY_MARGIN) return null;
 
   return best;
