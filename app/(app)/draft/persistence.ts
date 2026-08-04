@@ -131,6 +131,10 @@ function parsePicks(value: unknown, totalPicks: number): Record<number, string> 
   const seen = new Set<string>();
   for (const [key, playerId] of Object.entries(value as Record<string, unknown>)) {
     const pick = Number(key);
+    // Kept per-key for the clearer refusal, though the prefix check at the end of this
+    // function now subsumes most of it: a fractional, zero or negative key leaves the 1..n
+    // run incomplete and is refused there too. Only "past the last pick" is caught here
+    // alone, and only when everything below it is otherwise a complete prefix.
     if (!Number.isInteger(pick) || pick < 1 || pick > totalPicks) return null;
     // `"1"` and `"01"` both parse to pick 1, and the second would overwrite the first —
     // silently repairing corrupt state into a different draft instead of refusing it.
