@@ -526,23 +526,41 @@ describe("season totals and seeding", () => {
   });
 
   it("separates teams tied on record by points scored", () => {
-    // Two teams with identical records, one scoring far more. The higher scorer is given
-    // the higher array index deliberately: an inconsistent comparator leaves the array
-    // untouched, so a fixture where the better team is already first cannot see it.
+    // This fixture had to be rebuilt: the previous one did not contain the situation the
+    // test is named for. Its two highest scorers tied on record *and* on points, so the
+    // hash decided between them and the points clause was never consulted, and the team
+    // that actually took the second place did so on the best record in the league. The
+    // assertion — that the two top scorers' playoff probabilities sum above zero — passed
+    // on one of them qualifying, which is what it did.
+    //
+    // Teams 1 and 2 are constructed to finish level on record and apart on points. They
+    // draw with each other every time they meet, both lose to team 0, and both beat team 3
+    // — except once, where team 3 is given a single big week so that team 2 drops one game
+    // and the two records converge on 6.5. Team 1's extra ten points a week fall only in
+    // the weeks it plays team 0, where it loses either way, so they change the total and
+    // no result. Measured: 6.5 wins each, 1450 points against 1400.
     const config: LeagueConfig = { ...CONFIG, playoffTeams: 2, scenarios: 1 };
-    const scores = [
-      // Two clear leaders so the tie decides the last playoff place... which is these two.
-      [[...Array.from({ length: 14 }, (_, w) => (w % 2 === 0 ? 100 : 1)), 10, 10]],
-      [[...Array.from({ length: 14 }, (_, w) => (w % 2 === 0 ? 1 : 100)), 10, 10]],
-      [[...Array.from({ length: 14 }, () => 50), 10, 10]],
-      [[...Array.from({ length: 14 }, () => 50), 10, 10]],
+    const line = (f: (week: number) => number) => [
+      [...Array.from({ length: 14 }, (_, w) => f(w)), 10, 10],
     ];
-    const outcomes = simulateLeague(scores, config);
-    // Whatever the records are, the two with the most points must be the two that qualify.
-    const byPoints = outcomes
-      .map((o, i) => ({ i, pts: o.expectedPoints, made: o.playoffProbability }))
-      .sort((a, b) => b.pts - a.pts);
-    expect(byPoints[0].made + byPoints[1].made).toBeGreaterThan(0);
+    const outcomes = simulateLeague(
+      [
+        line(() => 1000),
+        line((w) => (w % 3 === 1 ? 110 : 100)),
+        line(() => 100),
+        line((w) => (w === 1 ? 500 : 0)),
+      ],
+      config,
+    );
+
+    // The premise, asserted rather than assumed: level on record, apart on points.
+    expect(outcomes[1].expectedWins).toBe(outcomes[2].expectedWins);
+    expect(outcomes[1].expectedPoints).toBeGreaterThan(outcomes[2].expectedPoints);
+
+    // So the points clause is the only thing that can decide the second place, and it does.
+    expect(outcomes[0].playoffProbability).toBe(1);
+    expect(outcomes[1].playoffProbability).toBe(1);
+    expect(outcomes[2].playoffProbability).toBe(0);
   });
 });
 
