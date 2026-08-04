@@ -354,10 +354,17 @@ worth more than the individual fixes.
   the blend marked them down by the model's full weight. This is the rookie markdown
   reappearing for a different population — the fix is that "does the model have an opinion"
   is a question about the position, not the row count.
-- **Kickers and defences were priced off the pooled curve.** The market spells them `PK`
-  and `DEF`; the lookups used `K` and `DST`, so no per-position curve was ever found. The
-  pooled curve is the mis-specification this document already records as measurably wrong,
-  and it was contaminated too, since those zero-scoring rows were in the fit.
+- **Kickers and defences were dragging the pooled curve down.** The market spells them
+  `PK` and `DEF` while the lookups used `K` and `DST`, so no per-position curve was ever
+  found for them — and, worse, their rows were in the pooled fit. `scoreOffense` scores a
+  kicking line as zero, so that fit was being pulled toward false zeros for every other
+  position that falls back to it.
+
+  Only that half is fixed. They are excluded from the fit and no longer contaminate it, and
+  they are still *priced* off the pooled curve, deliberately: a curve fitted from their own
+  rows would be fitted from those same false zeros. The pooled curve remains the
+  mis-specification this document records as measurably wrong, and for a position the model
+  cannot value it is the honest treatment rather than a defect left standing.
 - **Our own team won every tie.** The circle-method schedule holds team 0 fixed, so it
   occupied the home position in all fourteen weeks, and ties went to the home side. In a
   fully tied league that gave team 0 fourteen wins to everyone else's six — and, since

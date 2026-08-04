@@ -312,8 +312,6 @@ export default function DraftPage() {
     return prefix.slice(0, 8);
   }, [search, draftState]);
 
-  const drafted = useMemo(() => new Set(Object.values(picks)), [picks]);
-
   // Both of these do their work inside the updater, on the state it is handed. Reading
   // `currentPick` from this render instead let two clicks arriving before a re-render write
   // the same key: the second player overwrote the first, and the first stayed on the board.
