@@ -186,11 +186,12 @@ const DEFAULT_TARGETS = [
  * that cannot load, which the suite reports as a failure — a kill that proves nothing
  * about the tests.
  */
-function isMutableLine(line: string, inBlockComment: boolean): boolean {
+function isMutableLine(line: string): boolean {
   const trimmed = line.trim();
-  if (inBlockComment) return false;
-  if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
-  if (trimmed.startsWith("/*")) return false;
+  // Comments no longer need testing for here — `maskNonCode` blanks them, so a comment line
+  // simply yields no sites. What is left is the lines that *are* code and still must not be
+  // touched.
+  if (trimmed === "") return false;
   if (trimmed.startsWith("import ") || trimmed.startsWith("export {")) return false;
   if (trimmed.startsWith("export type") || trimmed.startsWith("export interface")) {
     return false;
@@ -207,93 +208,90 @@ interface Mutant {
 }
 
 /**
- * Blanks every comment and string literal in one line, keeping its length.
+ * Blanks every comment and every string or template *text* in a file, keeping offsets.
  *
- * Offsets found in the result are valid in the real line, so a mutator can search the
+ * Offsets found in the result are valid in the real source, so a mutator can search the
  * masked text and edit the original. Anything masked is text rather than code: a comment
  * containing "true", "Math.min" or a number used to produce a mutant that edits the comment
  * and nothing else, which every test passes and which is then reported as a surviving gap —
  * noise indistinguishable from a real finding.
  *
- * This replaced four separate passes — strings, then trailing `//`, then balanced
- * `/* ... *\/`, then a dangling `/*` — which between them still missed the case that
- * matters most, because none of them carried state to the next line. A block comment
- * opening *after* code never set the flag at all:
+ * The parser does this, rather than a hand-rolled scan of one line at a time. Three
+ * versions of that scan shipped and each missed a case the next had to add: a trailing
+ * `//`, a balanced `/* ... *\/` beside code, a `/*` that opens after code. Rewriting it as
+ * a single stateful pass fixed the third and still could not see a template literal
+ * spanning lines — the text on its second line reads as code, so `true` inside a message
+ * becomes a mutant nothing can object to.
  *
- *     const cap = 5; /* keep
- *       it at >= 5 *\/
- *
- * The second line does not begin with `*` or `/*`, so it was treated as code and the `>=`
- * inside the comment was an eligible site. One pass that walks the line and returns the
- * state it ends in cannot have that shape of bug.
- *
- * The scan is interleaved rather than layered, which the passes could not be: a `//` inside
- * a string is not a comment, and a quote inside a comment does not open a string.
+ * `createSourceFile` knows all of it, including which parts of a template are text and
+ * which are substituted expressions. `${...}` stays mutable, which the line-at-a-time
+ * version could not manage either: it blanked whole templates and lost every site inside
+ * one.
  */
-function maskComments(
-  line: string,
-  startsInBlockComment: boolean,
-): { masked: string; inBlockComment: boolean } {
-  const out = line.split("");
-  const blank = (from: number, to: number): void => {
-    for (let k = from; k < to; k += 1) out[k] = " ";
+function maskNonCode(source: string): string {
+  const masked: string[] = source.split("").map((c) => (c === "\n" ? "\n" : " "));
+  const file = ts.createSourceFile(
+    "mask.ts",
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+
+  // Text inside these is not code, whatever it looks like. `TemplateHead`, `Middle` and
+  // `Tail` are the literal parts of a template; the `${...}` between them are ordinary
+  // expressions and arrive as their own tokens, so they stay.
+  const isText = (kind: ts.SyntaxKind): boolean =>
+    kind === ts.SyntaxKind.StringLiteral ||
+    kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+    kind === ts.SyntaxKind.RegularExpressionLiteral ||
+    kind === ts.SyntaxKind.TemplateHead ||
+    kind === ts.SyntaxKind.TemplateMiddle ||
+    kind === ts.SyntaxKind.TemplateTail;
+
+  // Written as "blank everything, then copy the tokens back" rather than "find the comments
+  // and blank them". Comments are trivia: they are not in the tree, so they cannot be
+  // enumerated from it, and a standalone `ts.createScanner` cannot be trusted to find them
+  // either — it has no parser context, so a template literal desynchronises it and it runs
+  // to the end of the file. Measured on `draft-memo.ts`: 7 comments found out of dozens,
+  // and mutants that edited comment text were reported as survivors.
+  //
+  // Everything the parser did *not* claim as a token is whitespace or a comment, and
+  // blanking whitespace changes nothing. So the complement is exactly the right mask, and
+  // it cannot miss a comment by construction.
+  const keep = (node: ts.Node): void => {
+    // JSDoc is trivia that the parser nevertheless puts in the tree, so the walk would
+    // copy a `/** ... */` block back as though it were code — and ` * ` in its margin is a
+    // `times->div` site, which is how a mutant came to rewrite the first line of this
+    // file's own docstring and be reported as surviving.
+    if (
+      node.kind >= ts.SyntaxKind.FirstJSDocNode &&
+      node.kind <= ts.SyntaxKind.LastJSDocNode
+    ) {
+      return;
+    }
+    const children = node.getChildren(file);
+    if (children.length === 0) {
+      if (isText(node.kind)) return;
+      const start = node.getStart(file);
+      for (let i = start; i < node.getEnd(); i += 1) masked[i] = source[i];
+      return;
+    }
+    for (const child of children) keep(child);
   };
+  keep(file);
 
-  let i = 0;
-  if (startsInBlockComment) {
-    const close = line.indexOf("*/");
-    if (close === -1) {
-      blank(0, line.length);
-      return { masked: out.join(""), inBlockComment: true };
-    }
-    blank(0, close + 2);
-    i = close + 2;
-  }
-
-  while (i < line.length) {
-    const ch = line[i];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      let j = i + 1;
-      while (j < line.length && line[j] !== ch) {
-        // A backslash escapes the next character, including the closing quote.
-        j += line[j] === "\\" ? 2 : 1;
-      }
-      const end = Math.min(j + 1, line.length);
-      blank(i, end);
-      i = end;
-      continue;
-    }
-    if (ch === "/" && line[i + 1] === "/") {
-      blank(i, line.length);
-      return { masked: out.join(""), inBlockComment: false };
-    }
-    if (ch === "/" && line[i + 1] === "*") {
-      // From `i + 2`, so `/*/` reads as an unterminated opener rather than as a complete
-      // comment that happens to share its middle character.
-      const close = line.indexOf("*/", i + 2);
-      if (close === -1) {
-        blank(i, line.length);
-        return { masked: out.join(""), inBlockComment: true };
-      }
-      blank(i, close + 2);
-      i = close + 2;
-      continue;
-    }
-    i += 1;
-  }
-  return { masked: out.join(""), inBlockComment: false };
+  return masked.join("");
 }
 
 function mutantsFor(file: string, source: string): Mutant[] {
   const lines = source.split("\n");
+  const maskedLines = maskNonCode(source).split("\n");
   const out: Mutant[] = [];
-  let inBlockComment = false;
 
   lines.forEach((line, index) => {
-    const startedInComment = inBlockComment;
-    const { masked, inBlockComment: endsInComment } = maskComments(line, inBlockComment);
-    inBlockComment = endsInComment;
-    if (!isMutableLine(line, startedInComment)) return;
+    const masked = maskedLines[index];
+    if (!isMutableLine(line)) return;
 
     for (const mutator of MUTATORS) {
       for (const site of mutator.sites(masked)) {
@@ -394,6 +392,58 @@ function backupPathFor(path: string): string {
  * never looked at and stays mutated. `git status` would eventually show it, but only to
  * somebody looking; an unattended `git add -A` or a CI step would not.
  */
+/**
+ * One run at a time, repository-wide.
+ *
+ * Recovery restores every backup it finds, which is right for a run that died and wrong for
+ * a run that is still going: a second `pnpm mutate` started mid-run would restore the
+ * first's source, delete its backup, and leave it testing pristine code and reporting every
+ * remaining mutant as surviving. `wx` on the backup does not prevent that, because the
+ * recovery has already removed the file the flag would have collided with.
+ *
+ * The lock holds a pid. An existing lock whose owner is alive is a reason to stop; one
+ * whose owner is gone is the stale marker that makes recovery safe, which is exactly the
+ * situation recovery exists for.
+ */
+const LOCK_PATH = join(process.cwd(), ".mutate-lock");
+
+function acquireRunLock(): boolean {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      writeFileSync(LOCK_PATH, String(process.pid), { flag: "wx" });
+      return true;
+    } catch {
+      const owner = Number(readFileSync(LOCK_PATH, "utf8").trim());
+      if (Number.isInteger(owner) && owner > 0 && isAlive(owner)) {
+        process.stderr.write(
+          `Another mutation run is active (pid ${owner}). Two runs share one checkout and\n` +
+            `would restore each other's source mid-test, so this one is stopping. If that\n` +
+            `process is gone, delete ${relative(process.cwd(), LOCK_PATH)}.\n`,
+        );
+        return false;
+      }
+      // Stale: its owner is gone. Clear it and try once more.
+      rmSync(LOCK_PATH, { force: true });
+    }
+  }
+  return false;
+}
+
+/** Whether a pid is a live process. Signal 0 checks without delivering anything. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means it exists and belongs to somebody else, which still counts as alive.
+    return (error as { code?: string }).code === "EPERM";
+  }
+}
+
+function releaseRunLock(): void {
+  rmSync(LOCK_PATH, { force: true });
+}
+
 function recoverAbandonedMutants(): string[] {
   const recovered: string[] = [];
   for (const backup of backupsUnder(process.cwd())) {
@@ -585,6 +635,26 @@ async function main(): Promise<void> {
   const targets = args.filter((a) => a.endsWith(".ts"));
   const files = targets.length > 0 ? targets : DEFAULT_TARGETS;
 
+  // Before recovery, which is the operation two concurrent runs corrupt each other with.
+  if (!acquireRunLock()) {
+    process.exitCode = 1;
+    return;
+  }
+
+  // Targets come from the command line and decide where this reads and writes. `../..`
+  // resolves outside the checkout, and a run interrupted there leaves both the mutated file
+  // and its backup somewhere recovery does not look.
+  const outside = files.filter((f) => !isInsideRepo(join(process.cwd(), f)));
+  if (outside.length > 0) {
+    process.stderr.write(
+      `Refusing target(s) outside the repository, or reached through a link: ` +
+        `${outside.join(", ")}\n`,
+    );
+    releaseRunLock();
+    process.exitCode = 1;
+    return;
+  }
+
   const recovered = recoverAbandonedMutants();
   if (recovered.length > 0) {
     process.stdout.write(
@@ -655,10 +725,17 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", () => {
     restoreInFlight();
+    releaseRunLock();
     process.exit(130);
+  });
+  process.on("SIGTERM", () => {
+    restoreInFlight();
+    releaseRunLock();
+    process.exit(143);
   });
   process.on("uncaughtException", (error) => {
     restoreInFlight();
+    releaseRunLock();
     throw error;
   });
 
@@ -844,4 +921,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+// The lock must go however this exits: a normal return, a throw, or a signal. Left behind,
+// it makes the next run refuse to start for a process that is no longer there — recoverable
+// (the pid is checked) but confusing, and the pid could since have been reused.
+void main().finally(releaseRunLock);

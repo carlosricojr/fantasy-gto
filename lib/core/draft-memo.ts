@@ -70,6 +70,12 @@ export function leagueFingerprint(
     `seed=${seed}`,
     // The shortlist length changes both how many recommendations come back and which,
     // so an answer computed for three candidates must not be served to a request for ten.
+    //
+    // `??` and `||` agree here for every value a caller can pass: `candidateLimit` is a
+    // count, and `recommendByChampionship` raises anything under one to one, so a zero that
+    // `||` would render as "default" produces the same recommendation as the default would
+    // only by coincidence — the key would collide for `0` and `undefined`, which are
+    // genuinely different requests. `??` is what keeps them apart if that clamp moves.
     `cand=${candidateLimit ?? "default"}`,
   ].join(";");
 }
