@@ -1,7 +1,7 @@
 import { type Rng, standardNormal } from "./rng";
 import type { PlayerRisk } from "./roster-utility";
 import type { LeagueConfig } from "./season-sim";
-import { DEFAULT_ADP_STDEV, UNRANKED_ADP_PADDING } from "./draft";
+import { UNRANKED_ADP_PADDING, adpDispersion } from "./draft";
 import {
   type ChampionshipRecommendation,
   type DraftPolicyState,
@@ -239,10 +239,18 @@ export function sampleFuture(
     // still construct one by hand, which is why this is `??` — it is the form that stays
     // correct if that invariant ever moves.
     const adp = player.adp ?? maxAdp + unrankedPadding;
-    const stdev = Math.max(player.adpStdev ?? DEFAULT_ADP_STDEV, 0.5);
+    const stdev = adpDispersion(player.adpStdev);
     perceived.set(player.id, adp + stdev * standardNormal(rng));
   }
 
+  // Three things here cannot be told apart from their alternatives, for reasons rather than
+  // for want of a fixture. `maxAdp` above is read only as a number, so which of several
+  // players holding the largest ADP the reduce settles on is immaterial, and its seed can
+  // be anything at or below the smallest ADP a board can carry — `parseAdp` drops rows at
+  // or under zero. `standardNormal` is symmetric about zero, so subtracting the deviate
+  // samples the same distribution as adding it: different individual futures under a given
+  // seed, the same set of futures with the same probabilities. And the `?? 0` below never
+  // fires, because every player in `available` was just written into `perceived`.
   const order = [...state.available].sort(
     (a, b) => (perceived.get(a.id) ?? 0) - (perceived.get(b.id) ?? 0),
   );

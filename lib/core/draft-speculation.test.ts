@@ -1011,3 +1011,119 @@ describe("the anticipated list", () => {
     ).toHaveLength(0);
   });
 });
+
+/**
+ * Canonicalisation, asserted on the order rather than through the signature.
+ *
+ * Every test above compares two signatures, which is a fine way to say "these are the same
+ * position" and a poor way to say "the roster is sorted". A comparator that returned zero
+ * for every pair leaves both inputs in the order they arrived and the two signatures still
+ * agree whenever the inputs happen to agree — so the sort could stop sorting and only a
+ * fixture that gives the same players in *different* orders would notice.
+ */
+describe("canonicalizeState puts things in an order, not just a consistent one", () => {
+  const named = (id: string) => player(id, "RB", 10, 20);
+
+  it("sorts each roster by id", () => {
+    const state = baseState();
+    state.teams[0].roster = [named("c"), named("a"), named("b")];
+    const canonical = canonicalizeState(state);
+    expect(canonical.teams[0].roster.map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("sorts the available board by id", () => {
+    const state = baseState();
+    state.available = [named("z"), named("m"), named("a")];
+    expect(canonicalizeState(state).available.map((p) => p.id)).toEqual(["a", "m", "z"]);
+  });
+
+  it("sorts remaining picks into the order they will be made", () => {
+    // Numeric, and ascending. `a + b` in place of `a - b` is positive for every pair of
+    // pick numbers, so the sort leaves them exactly as they arrived — and `sampleFuture`
+    // then spends them out of order, seating players at picks that have already passed.
+    const state = baseState();
+    state.teams[0].remainingPicks = [40, 9, 25, 12];
+    expect(canonicalizeState(state).teams[0].remainingPicks).toEqual([9, 12, 25, 40]);
+  });
+
+  it("leaves the caller's arrays alone", () => {
+    const state = baseState();
+    const roster = [named("c"), named("a")];
+    state.teams[0].roster = roster;
+    state.teams[0].remainingPicks = [30, 10];
+    canonicalizeState(state);
+    expect(roster.map((p) => p.id)).toEqual(["c", "a"]);
+    expect(state.teams[0].remainingPicks).toEqual([30, 10]);
+  });
+});
+
+describe("sampling a future stops when the board runs out", () => {
+  it("seats nobody once every available player is taken", () => {
+    // `cursor >= order.length`. One further and the loop reads past the end, pushes
+    // `undefined` onto a roster, and the failure surfaces later as an unreadable error
+    // from inside a season simulation rather than here.
+    const state = canonicalizeState({
+      teams: [
+        { id: "me", name: "me", roster: [], remainingPicks: [4] },
+        { id: "t1", name: "t1", roster: [], remainingPicks: [1, 2, 3] },
+      ],
+      myTeamIndex: 0,
+      available: [player("only", "RB", 10, 1)],
+      rosterSize: 4,
+    });
+    // Three picks before ours, one player on the board.
+    const future = sampleFuture(
+      state,
+      [{ team: 1 }, { team: 1 }, { team: 1 }],
+      createRng(7),
+    );
+    const seated = future.teams.flatMap((t) => t.roster);
+    expect(seated).toHaveLength(1);
+    expect(seated.every((p) => p !== undefined)).toBe(true);
+    expect(future.available.map((p) => p.id)).toEqual([]);
+  });
+});
+
+describe("the anticipated futures are ordered, and the budget is a count", () => {
+  it("breaks a probability tie by signature so the order is stable", () => {
+    // Two futures of equal probability have to come out in some order, and it has to be
+    // the same order every run — the budget takes a prefix of this list, so an unstable
+    // tie means a different set of futures is precomputed each time the page loads.
+    const anticipated = anticipateStates(
+      baseState(),
+      [{ team: 1 }, { team: 2 }],
+      120,
+      createRng(3),
+    );
+    expect(anticipated.length).toBeGreaterThan(1);
+    for (let i = 1; i < anticipated.length; i += 1) {
+      const a = anticipated[i - 1];
+      const b = anticipated[i];
+      expect(a.probability).toBeGreaterThanOrEqual(b.probability);
+      if (a.probability === b.probability) {
+        expect(a.signature < b.signature).toBe(true);
+      }
+    }
+  });
+
+  it("defaults to eight precomputed states", () => {
+    // The default budget is what a page load spends when the caller says nothing. It was
+    // unpinned, so it could drift by one in either direction without any test moving —
+    // and it is the difference between covering the likely futures and not.
+    const state = baseState();
+    const anticipated = anticipateStates(state, [{ team: 1 }, { team: 2 }], 200, createRng(5));
+    // The fixture is only meaningful if there are more futures than the budget allows.
+    expect(anticipated.length).toBeGreaterThan(8);
+
+    const cache = precomputeRecommendations(state, anticipated, CONFIG, 5, {
+      compute: () => [],
+    });
+    expect(cache.entries).toHaveLength(8);
+    expect(
+      precomputeRecommendations(state, anticipated, CONFIG, 5, {
+        compute: () => [],
+        maxStates: 3,
+      }).entries,
+    ).toHaveLength(3);
+  });
+});

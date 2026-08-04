@@ -37,6 +37,29 @@ export interface MarketPlayer {
 /** Assumed ADP dispersion when the market reports none, in picks. */
 export const DEFAULT_ADP_STDEV = 12;
 
+/** Smallest dispersion this will model, so a confident market is still not a certainty. */
+export const MIN_ADP_STDEV = 0.5;
+
+/**
+ * The dispersion to use for a player, defaulting one the market did not publish.
+ *
+ * A published zero means "no spread was reported", not "this player goes at exactly his
+ * ADP". `parseAdp` says so explicitly — it leaves a missing spread at zero rather than
+ * defaulting it, on the grounds that the survival model owns that choice — and then the
+ * survival model tested for `null` and never saw one, because the ingest writes the parsed
+ * zero straight through.
+ *
+ * The effect was backwards in the worst possible direction: a player the market has said
+ * least about was modelled as the one it was most certain of. Clamped to half a pick, his
+ * survival curve is a step function, so the board reported him as certain to be gone or
+ * certain to last, and the speculative cache prepared for exactly one future in which he
+ * was taken at his ADP and no other.
+ */
+export function adpDispersion(adpStdev: number | null | undefined): number {
+  if (adpStdev == null || adpStdev <= 0) return DEFAULT_ADP_STDEV;
+  return Math.max(adpStdev, MIN_ADP_STDEV);
+}
+
 /**
  * Where a player with no ADP at all is assumed to go, relative to the last pick.
  *
@@ -74,7 +97,7 @@ export function survivalProbability(
   unrankedAdp: number,
 ): number {
   const adp = player.adp ?? unrankedAdp;
-  const stdev = Math.max(player.adpStdev ?? DEFAULT_ADP_STDEV, 0.5);
+  const stdev = adpDispersion(player.adpStdev);
   // P(draftSlot >= pick). The pick itself is not yet spent, so a player whose ADP equals
   // the current pick is a coin flip rather than gone.
   return 1 - normalCdf((pick - adp) / stdev);

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_ADP_STDEV,
+  MIN_ADP_STDEV,
+  adpDispersion,
   type MarketPlayer,
   normalCdf,
   normalizeLeagueSetup,
@@ -296,15 +298,42 @@ describe("the market's dispersion assumption", () => {
     );
   });
 
-  it("treats a published zero spread as no spread, not as the default", () => {
-    // `lib/sources/adp.ts` deliberately stores a published zero rather than defaulting it,
-    // so this is real data. `?? DEFAULT_ADP_STDEV` would leave it at zero; `|| ...` would
-    // silently replace it with 12 and make a certainty look like a coin flip.
+  it("treats a published zero spread as no spread at all", () => {
+    // This test used to assert the opposite, on the reading that a stored zero is real
+    // data meaning the market is certain. It is not. `parseAdp` writes zero when the
+    // source omits the field, and says so where it does it: "deliberately not defaulted
+    // here: the survival model owns that choice, and burying it in the parser would hide
+    // which players had no dispersion published". The survival model then tested for
+    // `null` and never saw one, because the ingest writes the parsed zero straight
+    // through — so the choice the parser delegated was never made.
     //
-    // Zero is floored to 0.5 by the model, so a player one pick past his ADP is all but
-    // certainly gone.
-    expect(survivalProbability({ adp: 40, adpStdev: 0 }, 41, 300)).toBeLessThan(0.05);
-    // With the default spread instead, the same pick is nearly even.
-    expect(survivalProbability({ adp: 40, adpStdev: 12 }, 41, 300)).toBeGreaterThan(0.4);
+    // Backwards in the worst direction: the player the market has said least about became
+    // the one it was most certain of. Floored to half a pick, his survival curve is a step
+    // function — gone one pick after his ADP, certain one pick before — and the board
+    // reported that as fact.
+    expect(survivalProbability({ adp: 40, adpStdev: 0 }, 41, 300)).toBeCloseTo(
+      survivalProbability({ adp: 40, adpStdev: null }, 41, 300),
+      12,
+    );
+    expect(survivalProbability({ adp: 40, adpStdev: 0 }, 41, 300)).toBeGreaterThan(0.4);
+    // A negative spread is not data either, and arithmetic on it produces a survival
+    // probability that runs the wrong way.
+    expect(survivalProbability({ adp: 40, adpStdev: -3 }, 41, 300)).toBeGreaterThan(0.4);
+  });
+
+  it("still believes a market that is genuinely confident", () => {
+    // The other side of it. A published spread of 0.8 is real data and stays 0.8 — the
+    // default is for absence, not for tight markets. Floored at half a pick, because a
+    // market is never a certainty and dividing by something smaller makes it one.
+    expect(adpDispersion(0.8)).toBe(0.8);
+    expect(adpDispersion(0.1)).toBe(MIN_ADP_STDEV);
+    expect(adpDispersion(null)).toBe(DEFAULT_ADP_STDEV);
+    expect(adpDispersion(undefined)).toBe(DEFAULT_ADP_STDEV);
+    expect(adpDispersion(0)).toBe(DEFAULT_ADP_STDEV);
+    expect(adpDispersion(-1)).toBe(DEFAULT_ADP_STDEV);
+    // Half a pick either side of an ADP is still not a step function.
+    const tight = survivalProbability({ adp: 40, adpStdev: 0.1 }, 41, 300);
+    expect(tight).toBeGreaterThan(0.005);
+    expect(tight).toBeLessThan(0.05);
   });
 });
