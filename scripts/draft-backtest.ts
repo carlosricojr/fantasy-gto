@@ -413,6 +413,29 @@ async function main(): Promise<void> {
     ]),
   );
 
+  // A zero correlation for the market would make the edge infinite or NaN, and it would be
+  // printed next to real figures as though it meant something. Guarding the division alone
+  // still publishes the damage: a NaN edge prints as "NaN%" beside real figures and
+  // `JSON.stringify` writes it into published-draft-metrics.json as `null`, so a documented
+  // number becomes absent without anything saying so. A negative baseline is worse than
+  // absent — it inverts the sign of `edge` relative to the `blended > adpOnly` branch,
+  // letting the script announce that blending improves on the market next to a negative
+  // percentage. Either way the evaluation universe is broken and there is no figure to
+  // report. All three, not only the baseline.
+  //
+  // Before the table, not after it. The guard used to sit below the loop that prints the
+  // three rows, so an empty universe printed a full table of `NaN` — with `topN` dividing
+  // by an empty `taken` on the way — and only then threw. The protection this comment
+  // describes did not cover the one thing it names.
+  if (!(adpOnly > 0) || !Number.isFinite(modelOnly) || !Number.isFinite(blended)) {
+    throw new Error(
+      `Rank correlations came out at market ${adpOnly}, model ${modelOnly}, blend ` +
+        `${blended}. Every published figure is relative to the market baseline and none ` +
+        `of the three is reportable unless all are finite and the baseline is positive. ` +
+        `Check that the evaluation season matched any players at all.`,
+    );
+  }
+
   process.stdout.write(
     `\n${EVALUATION_SEASON} — EVALUATION (weight frozen at ${MODEL_BLEND_WEIGHT}, ` +
       `out-of-sample)   n = ${evaluation.ids.length}\n` +
@@ -435,26 +458,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // A zero correlation for the market would make the edge infinite or NaN, and it would
-  // be printed next to real figures as though it meant something.
-  // Guarding the division alone still publishes the damage: a NaN edge prints as "NaN%"
-  // beside real figures and `JSON.stringify` writes it into published-draft-metrics.json
-  // as `null`, so a documented number becomes absent without anything saying so. A
-  // negative baseline is worse than absent — it inverts the sign of `edge` relative to the
-  // `blended > adpOnly` branch, letting the script announce that blending improves on the
-  // market next to a negative percentage. Either way the evaluation universe is broken and
-  // there is no figure to report.
-  // All three, not only the baseline. A NaN or negative `modelOnly` or `blended` prints
-  // beside real figures and is written into published-draft-metrics.json, where a
-  // documented number becoming `null` says nothing about why.
-  if (!(adpOnly > 0) || !Number.isFinite(modelOnly) || !Number.isFinite(blended)) {
-    throw new Error(
-      `Rank correlations came out at market ${adpOnly}, model ${modelOnly}, blend ` +
-        `${blended}. Every published figure is relative to the market baseline and none ` +
-        `of the three is reportable unless all are finite and the baseline is positive. ` +
-        `Check that the evaluation season matched any players at all.`,
-    );
-  }
   const edge = ((blended - adpOnly) / adpOnly) * 100;
   const top24 = {
     market: topN(evaluation, evaluation.market, 24),

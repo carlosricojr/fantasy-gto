@@ -52,10 +52,13 @@ export interface CanonicalState {
 /**
  * Puts a state into a form where equal positions are literally equal.
  *
- * Roster order carries no meaning in fantasy, but it determines the order random draws are
- * consumed in, so the same roster in a different order scores differently. Sorting first
- * makes the simulation a function of the position rather than of how the position was
- * assembled, which is both correct and what allows a cache hit to be exact.
+ * So that two ways of writing down the same position produce the same signature, and
+ * therefore hit the same cache entry. That is the whole of it, and it is worth being exact
+ * because this used to claim more: that roster order determines the order random draws are
+ * consumed, so the same roster in a different order scores differently. That stopped being
+ * true when `playerStream` began keying each player's stream on his own id — order changes
+ * nothing about the simulation, only about the signature. Asserted in the tests, so the
+ * claim fails rather than rots if the streams ever change.
  */
 export function canonicalizeState(state: DraftPolicyState): CanonicalState {
   const byId = (a: PlayerRisk, b: PlayerRisk) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);

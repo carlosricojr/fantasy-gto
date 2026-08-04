@@ -502,3 +502,42 @@ describe("the availability floor for a per-game rate", () => {
     expect(perGameRate(300, 0.5, 17)).toBeCloseTo(300 / (17 * 0.5), 9);
   });
 });
+
+describe("a non-finite ADP does not erase a curve or a price", () => {
+  it("drops an infinite or NaN sample instead of fitting NaN to everything", () => {
+    // `adp > 0` admits `Infinity`, and `Math.log(Infinity)` is `Infinity` — which makes the
+    // mean, the covariance and the variance all `NaN`. One unusable row does not skew the
+    // fit, it erases it, and every player on the board is then priced at `NaN`, which
+    // renders as an empty cell rather than as an error.
+    const clean = [1, 2, 4, 8].map((adp) => ({
+      position: "RB",
+      adp,
+      actualSeasonPoints: 300 - 50 * Math.log(adp),
+    }));
+    const dirty = [
+      ...clean,
+      { position: "RB", adp: Number.POSITIVE_INFINITY, actualSeasonPoints: 100 },
+      { position: "RB", adp: Number.NaN, actualSeasonPoints: 100 },
+    ];
+    const curve = fitAdpCurve(dirty, 2025)!;
+    expect(curve.sampleSize).toBe(4);
+    expect(curve.slope).toBeCloseTo(-50, 9);
+    expect(curve.intercept).toBeCloseTo(300, 9);
+  });
+
+  it("prices a non-finite ADP at zero rather than at NaN or Infinity", () => {
+    const curves = fitAdpCurves(
+      [1, 2, 4, 8, 16, 32, 64, 128].map((adp) => ({
+        position: "RB",
+        adp,
+        actualSeasonPoints: 300 - 50 * Math.log(adp),
+      })),
+      2025,
+    );
+    expect(adpImpliedPoints(Number.POSITIVE_INFINITY, "RB", curves)).toBe(0);
+    expect(adpImpliedPoints(Number.NaN, "RB", curves)).toBe(0);
+    expect(adpImpliedPoints(-1, "RB", curves)).toBe(0);
+    // A real ADP still prices normally, so the guard is not simply refusing everything.
+    expect(adpImpliedPoints(4, "RB", curves)).toBeGreaterThan(0);
+  });
+});

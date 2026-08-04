@@ -372,3 +372,20 @@ describe("the settings a draft cannot be read without", () => {
     })).toBeNull();
   });
 });
+
+describe("a league too large to build pick numbers for", () => {
+  it("refuses a team or round count that is an allocation rather than a league", () => {
+    // `toInt` accepts any integer-valued number, so this is a well-formed payload — and
+    // carried through to `snakePicks` and `pickOwnership` it is one array entry per round
+    // and one map entry per pick, which is 10^18 of them.
+    const base = { type: "snake", status: "complete" };
+    expect(parseSettings({ ...base, settings: { teams: 1e9, rounds: 1e9 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 33, rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12, rounds: 41 } })).toBeNull();
+    // The largest league the rest of the product accepts still parses.
+    expect(parseSettings({ ...base, settings: { teams: 32, rounds: 40 } })).toMatchObject({
+      teams: 32,
+      rounds: 40,
+    });
+  });
+});

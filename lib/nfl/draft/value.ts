@@ -134,7 +134,13 @@ export function fitAdpCurve(
   samples: readonly AdpCurveSample[],
   season: number,
 ): AdpCurve | null {
-  const usable = samples.filter((s) => s.adp > 0 && Number.isFinite(s.actualSeasonPoints));
+  // `Number.isFinite` on both sides. `adp > 0` admits `Infinity`, whose log is `Infinity`,
+  // which makes the mean, the covariance and the variance all `NaN` — so one unusable row
+  // does not skew the curve, it erases it, and `adpImpliedPoints` then prices every player
+  // at `NaN`. `Number.isFinite` also excludes `NaN` itself, which `NaN > 0` already did.
+  const usable = samples.filter(
+    (s) => Number.isFinite(s.adp) && s.adp > 0 && Number.isFinite(s.actualSeasonPoints),
+  );
   if (usable.length < 2) return null;
 
   const xs = usable.map((s) => Math.log(s.adp));
@@ -198,7 +204,10 @@ export function adpImpliedPoints(
   position: string,
   curves: AdpCurveSet,
 ): number | null {
-  if (adp <= 0) return 0;
+  // Non-finite as well as non-positive. An `Infinity` here reaches `Math.log` and returns
+  // `Infinity`, and a `NaN` fails `<= 0` and propagates: both put a value on the board that
+  // renders as an empty cell rather than as an error.
+  if (!Number.isFinite(adp) || adp <= 0) return 0;
   const curve = curves.byPosition[position.toUpperCase()] ?? curves.pooled;
   if (curve === undefined || curve === null) return null;
   return round2(Math.max(0, curve.intercept + curve.slope * Math.log(adp)));

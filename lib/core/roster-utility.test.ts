@@ -636,3 +636,45 @@ describe("the absence chain stays a probability", () => {
     expect(missed / runs).toBeLessThan(1.5);
   });
 });
+
+describe("the simulation does not depend on how a roster was assembled", () => {
+  it("returns the same numbers forwards, reversed and shuffled", () => {
+    // `playerStream` keys each player's random stream on his id, so the order players sit
+    // in an array cannot change what any of them draws. Two places said otherwise —
+    // `canonicalizeState`'s docstring and `docs/draft-validation.md` — and both were
+    // describing a version of this module that consumed one shared stream in roster order.
+    //
+    // Canonicalisation is still needed, for the signature rather than for the result: two
+    // ways of writing the same position have to produce one cache key. This test is what
+    // keeps the corrected claim honest — if the streams ever stop being per-player, it
+    // fails here rather than quietly making the documentation wrong again.
+    // A bye they share and an availability under one, so weeks genuinely go unfilled —
+    // an ironman roster with no byes matches trivially and would prove nothing.
+    const risky = { byeWeek: 7, availability: 0.9 };
+    const roster = [
+      player("a", "RB", 18, risky),
+      player("b", "RB", 14, risky),
+      player("c", "WR", 12, risky),
+      player("d", "WR", 9, risky),
+    ];
+    const config: UtilityConfig = { weeks: WEEKS, scenarios: 300, meanAbsenceWeeks: 3 };
+    const forward = rosterUtility(roster, SLOTS, config, 5);
+    const reversed = rosterUtility([...roster].reverse(), SLOTS, config, 5);
+    const shuffled = rosterUtility(
+      [roster[2], roster[0], roster[3], roster[1]],
+      SLOTS,
+      config,
+      5,
+    );
+
+    for (const other of [reversed, shuffled]) {
+      expect(other.rawExpectedPoints).toBe(forward.rawExpectedPoints);
+      expect(other.expectedEmptySlots).toBe(forward.expectedEmptySlots);
+      expect(other.expectedByWeek).toEqual(forward.expectedByWeek);
+      expect(other.standardError).toBe(forward.standardError);
+    }
+    // The fixture is only meaningful if the roster is doing something: an empty or
+    // fully-covered one would match trivially.
+    expect(forward.expectedEmptySlots).toBeGreaterThan(0);
+  });
+});

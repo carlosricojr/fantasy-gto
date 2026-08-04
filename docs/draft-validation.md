@@ -7,8 +7,8 @@ The headline is negative, and it shaped the design.
 
 ## Our model does not beat the market, and the blend does not either
 
-Held-out 2024, over the 151 players with both a market price and two prior seasons of
-production:
+Held-out 2024, over the 151 players with both a market price and at least one prior game
+in the two preceding seasons:
 
 | Method | Spearman vs actual 2024 points | Mean actual points, top 24 | top 48 |
 | --- | --- | --- | --- |
@@ -212,9 +212,11 @@ matched to season results:
 | Veterans | 144 | 0.4455 |
 
 These two figures are **not** on the same basis as the headline table above. They were
-measured over a 168-player universe that does not require two prior seasons of history —
-the headline table's 151 players do — and under the pooled ADP curve and the pre-tie
-`spearman`, both since corrected. The veteran figure being 0.4455, identical to the pooled
+measured over a 168-player universe, under the pooled ADP curve and the pre-tie `spearman`,
+both since corrected. The universes differ because the join between the ADP board and the
+roster changed — `buildMarketIndex` refuses a name it cannot separate by position, where
+the hand-rolled map it replaced dropped both players — and not because of any difference in
+how much history a player needed. Both require the same thing: at least one prior game. The veteran figure being 0.4455, identical to the pooled
 curve's market score quoted earlier, is that coincidence and not the same measurement.
 
 They are left as measured rather than restated, because the argument they support is a gap
@@ -309,9 +311,13 @@ no memo.
   sampled from the same ADP dispersion the survival model uses, states are deduplicated,
   and the likeliest are solved in order until the budget runs out.
 
-States are canonicalised before either cache sees them, because roster order is meaningless
-in fantasy but determines the order random draws are consumed — so without it, the same
-position computes differently depending on how it was assembled.
+States are canonicalised before either cache sees them, so that two ways of writing down
+the same position produce the same signature and therefore the same cache key. It is a
+hit-rate measure, not a correctness one: this paragraph used to say that roster order
+determines the order random draws are consumed and so changes the result, which stopped
+being true when each player got a stream keyed on his own id. Measured — the same roster
+forwards, reversed and shuffled returns 560.2807 points every time — and now asserted, so
+the claim fails rather than rots if the streams ever change.
 
 A cached answer is served **only on an exact signature match**, which is verified rather
 than assumed. Anything else is `approximate` (and labelled, with what differs) or `miss`.

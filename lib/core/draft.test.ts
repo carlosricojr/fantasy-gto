@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_ADP_STDEV,
+  MAX_DRAFT_ROUNDS,
+  MAX_LEAGUE_TEAMS,
   MIN_ADP_STDEV,
   adpDispersion,
   type MarketPlayer,
@@ -435,5 +437,27 @@ describe("normalizeLeagueSetup's bounds are the caller's, including zero", () =>
     expect(normalizeLeagueSetup({ teams: 12, rounds: 999 }).rounds).toBe(40);
     expect(normalizeLeagueSetup({ teams: 12, rounds: 0 }).rounds).toBe(1);
     expect(normalizeLeagueSetup({ teams: 12, slot: 0 }).slot).toBe(1);
+  });
+});
+
+describe("the ceiling on a league this builds pick numbers for", () => {
+  it("refuses a draft large enough to be an allocation rather than a league", () => {
+    // These numbers reach here from a parsed response body. One array entry per round and
+    // one map entry per pick means an unbounded pair is a memory request, not a draft.
+    expect(() => snakePicks(1, 1e9, 1e9)).toThrow(/past what this builds/);
+    expect(() => snakePicks(1, MAX_LEAGUE_TEAMS + 1, 10)).toThrow(/past what this builds/);
+    expect(() => snakePicks(1, 12, MAX_DRAFT_ROUNDS + 1)).toThrow(/past what this builds/);
+    expect(() => pickOwnership(1e9, 1, 1e9)).toThrow(/past what this builds/);
+  });
+
+  it("still builds the largest league the setup screen allows", () => {
+    // The bound is the one `normalizeLeagueSetup` already clamps to, so it refuses nothing
+    // the product accepts. A ceiling below that would break real drafts silently.
+    expect(snakePicks(1, MAX_LEAGUE_TEAMS, MAX_DRAFT_ROUNDS)).toHaveLength(MAX_DRAFT_ROUNDS);
+    expect(pickOwnership(MAX_LEAGUE_TEAMS, 1, MAX_DRAFT_ROUNDS).size).toBe(
+      MAX_LEAGUE_TEAMS * MAX_DRAFT_ROUNDS,
+    );
+    const setup = normalizeLeagueSetup({ teams: 999, slot: 1, rounds: 999 });
+    expect(() => snakePicks(setup.slot, setup.teams, setup.rounds)).not.toThrow();
   });
 });

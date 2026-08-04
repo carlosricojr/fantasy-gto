@@ -1,7 +1,15 @@
 import { execFileSync } from "node:child_process";
 import ts from "typescript";
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 
 /**
  * Mutation testing.
@@ -390,6 +398,13 @@ function recoverAbandonedMutants(): string[] {
   const recovered: string[] = [];
   for (const backup of backupsUnder(process.cwd())) {
     const path = backup.slice(0, -BACKUP_SUFFIX.length);
+    if (!isInsideRepo(backup) || !isInsideRepo(path)) {
+      process.stdout.write(
+        `  refusing to restore through ${relative(process.cwd(), backup)}: it or its ` +
+          `target resolves outside the repository.\n`,
+      );
+      continue;
+    }
     writeFileSync(path, readFileSync(backup, "utf8"));
     rmSync(backup, { force: true });
     recovered.push(relative(process.cwd(), path));
@@ -397,12 +412,38 @@ function recoverAbandonedMutants(): string[] {
   return recovered;
 }
 
-/** Every `.mutate-backup` under `root`, skipping directories a mutant cannot be in. */
+/**
+ * Whether a path is a real file inside the checkout, following no links.
+ *
+ * Recovery writes to a path derived from a filename it found on disk, so the filename
+ * decides where the write lands. A `something.ts.mutate-backup` that is a symlink — or
+ * whose `something.ts` is one — would have this restoring through it to wherever it points,
+ * which for a checkout somebody else prepared is any file this process can write.
+ *
+ * `lstatSync` rather than `statSync`, because the question is whether the entry *is* a
+ * link, not what it resolves to. A path that does not exist yet is inside the repository if
+ * its parent is, which is what lets a backup be created for a file that has none.
+ */
+function isInsideRepo(path: string): boolean {
+  const root = realpathSync(process.cwd());
+  const parent = realpathSync(dirname(path));
+  if (parent !== root && !parent.startsWith(root + sep)) return false;
+  return !existsSync(path) || !lstatSync(path).isSymbolicLink();
+}
+
+/**
+ * Every `.mutate-backup` under `root`, skipping directories a mutant cannot be in.
+ *
+ * Symlinks are skipped in both roles: `isDirectory()` is already false for a linked
+ * directory so the walk never follows one, and a linked file is not collected, so recovery
+ * is never handed a path whose name and destination disagree.
+ */
 function backupsUnder(root: string): string[] {
   const skip = new Set(["node_modules", ".git", ".next", "dist", "coverage"]);
   const found: string[] = [];
   const walk = (dir: string): void => {
     for (const item of readdirSync(dir, { withFileTypes: true })) {
+      if (item.isSymbolicLink()) continue;
       if (item.isDirectory()) {
         if (!skip.has(item.name)) walk(join(dir, item.name));
       } else if (item.name.endsWith(BACKUP_SUFFIX)) {
@@ -560,21 +601,34 @@ async function main(): Promise<void> {
     return;
   }
 
-  // The same invocation the mutants use, on unmutated source. Without this the baseline
+  // Every distinct per-mutant invocation, on unmutated source. Without this the baseline
   // proves only that *some* way of running the tests works, and a broken per-mutant
   // command reports every mutant killed and a flawless score.
-  const probe = files
-    .map((file) => coveringTests(file, allTests, ownOnly))
-    .find((tests) => tests.length > 0);
-  if (probe !== undefined && runTests(probe) !== "green") {
-    process.stdout.write(
-      `  the per-mutant command fails on unmutated source: ${probe.join(" ")}\n` +
-        "  every mutant would report as killed. Fix the invocation.\n",
-    );
-    process.exitCode = 1;
-    return;
+  //
+  // Every *distinct* one, not the first: different files select different test sets, and
+  // checking one of them left the rest unproven. The periodic re-check inside the run does
+  // not close that either — it fires every 25 mutants, so a file with fewer than 25 is
+  // never re-confirmed at all, and a set that was red from the start would report a clean
+  // sweep of kills. This is the same shape of mistake as checking a suite once and calling
+  // it measured, which is what the rest of this file exists to avoid.
+  const commands = new Map<string, readonly string[]>();
+  for (const file of files) {
+    const tests = coveringTests(file, allTests, ownOnly);
+    if (tests.length > 0) commands.set([...tests].sort().join(" "), tests);
   }
-  process.stdout.write("  green, and the per-mutant command agrees.\n");
+  for (const tests of commands.values()) {
+    if (runTests(tests) !== "green") {
+      process.stdout.write(
+        `  the per-mutant command fails on unmutated source: ${tests.join(" ")}\n` +
+          "  every mutant measured with it would report as killed. Fix the invocation.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+  process.stdout.write(
+    `  green, and all ${commands.size} per-mutant command(s) agree.\n`,
+  );
 
   const survivors: Mutant[] = [];
   const skipped: string[] = [];
@@ -656,7 +710,12 @@ async function main(): Promise<void> {
         // non-null for exactly the window in which a file on disk is corrupted.
         // Backup first, mutate second. Between these two writes the file on disk is
         // wrong, and that is the only window a hard kill can land in.
-        writeFileSync(backupPathFor(path), original);
+        // `wx`: fails if anything is already there rather than writing through it. The
+        // only thing that should ever sit at this path is a backup from a run that died,
+        // and `recoverAbandonedMutants` has already cleared those — so a collision here is
+        // either a concurrent run or a file somebody else put in the way, and both are
+        // reasons to stop rather than to overwrite.
+        writeFileSync(backupPathFor(path), original, { flag: "wx" });
         inFlight = { path, original };
         writeFileSync(path, mutatedSource);
         outcome = runTests(tests);

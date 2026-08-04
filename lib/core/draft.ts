@@ -117,6 +117,21 @@ export function survivalProbability(
 }
 
 /**
+ * The largest league and draft this will build pick numbers for.
+ *
+ * Not a preference — a bound on allocation. `snakePicks` builds one entry per round and
+ * `pickOwnership` a map entry per pick, so a team count and a round count that arrive from
+ * outside decide how much memory this asks for. Sleeper's settings are parsed from a
+ * response body, and `toInt` accepts any integer-valued number: `1e9` teams and `1e9`
+ * rounds is a well-formed payload and an allocation of 10^18 entries.
+ *
+ * Thirty-two and forty are the same ceilings `normalizeLeagueSetup` already clamps the
+ * setup screen to, so this refuses nothing the product accepts.
+ */
+export const MAX_LEAGUE_TEAMS = 32;
+export const MAX_DRAFT_ROUNDS = 40;
+
+/**
  * Picks a manager owns in a snake draft, as overall pick numbers.
  *
  * `slot` must be within the league. Outside it the arithmetic still produces numbers — a
@@ -139,6 +154,14 @@ export function snakePicks(
   }
   if (!Number.isInteger(rounds) || rounds < 0) {
     throw new Error(`A draft cannot have ${rounds} rounds.`);
+  }
+  if (teams > MAX_LEAGUE_TEAMS || rounds > MAX_DRAFT_ROUNDS) {
+    throw new Error(
+      `A ${teams}-team, ${rounds}-round draft is past what this builds pick numbers ` +
+        `for (${MAX_LEAGUE_TEAMS} teams, ${MAX_DRAFT_ROUNDS} rounds). The numbers are ` +
+        `one array entry per round and one map entry per pick, so an unbounded pair from ` +
+        `outside is an allocation rather than a league.`,
+    );
   }
   if (!Number.isInteger(slot) || slot < 1 || slot > teams) {
     throw new Error(
@@ -178,8 +201,8 @@ export function normalizeLeagueSetup(
   bounds: { minTeams?: number; maxTeams?: number; maxRounds?: number } = {},
 ): LeagueSetup {
   const minTeams = bounds.minTeams ?? 2;
-  const maxTeams = bounds.maxTeams ?? 32;
-  const maxRounds = bounds.maxRounds ?? 40;
+  const maxTeams = bounds.maxTeams ?? MAX_LEAGUE_TEAMS;
+  const maxRounds = bounds.maxRounds ?? MAX_DRAFT_ROUNDS;
 
   const teams = clampWhole(raw.teams, minTeams, maxTeams, minTeams);
   return {

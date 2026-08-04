@@ -1,3 +1,4 @@
+import { MAX_DRAFT_ROUNDS, MAX_LEAGUE_TEAMS } from "../core/draft";
 import { type ProviderResult, failed, ok } from "../core/providers";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
@@ -119,7 +120,13 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
   // The null tests are what make the comparisons well-typed; they are not what rejects a
   // missing value. `null <= 0` is true — `null` coerces to zero — so either comparison
   // alone already refuses an unreadable field, and dropping a null test changes nothing.
+  //
+  // The upper bounds are the ones that matter for a payload from outside. `toInt` accepts
+  // any integer-valued number, so `{"teams": 1e9, "rounds": 1e9}` is a well-formed response
+  // and, carried through to `snakePicks` and `pickOwnership`, an allocation of 10^18
+  // entries. Refused here as well as there, because this is the trust boundary.
   if (teams === null || rounds === null || teams <= 0 || rounds <= 0) return null;
+  if (teams > MAX_LEAGUE_TEAMS || rounds > MAX_DRAFT_ROUNDS) return null;
 
   // `type` decides the pick order, which puts it in the same class as teams and rounds:
   // defaulting it produces a complete-looking board that attributes real players to the
