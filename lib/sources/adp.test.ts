@@ -222,3 +222,63 @@ describe("position whitespace", () => {
     expect(entry?.position).toBe("RB");
   });
 });
+
+describe("the board's own boundaries", () => {
+  it("serves a board with one player on it", async () => {
+    // `entries.length === 0` is the empty check. Moved by one it reports a single-player
+    // board as "empty", which is what a season's first published board looks like.
+    const provider = new AdpProvider(async () =>
+      JSON.stringify({
+        status: "Success",
+        players: [{ name: "Only Player", position: "RB", team: "KC", adp: 1, stdev: 1 }],
+      }),
+    );
+    const result = await provider.forSeason(2026, "ppr", 12);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toHaveLength(1);
+  });
+
+  it("skips a null row instead of dying on it", () => {
+    // `typeof item !== "object" || item === null`. `typeof null` is "object", so with `&&`
+    // the first test is false for a null row, the guard never fires, and the next line
+    // reads a property off null — a TypeError out of a parser whose whole contract is to
+    // return null rather than throw.
+    const entries = parseAdp({
+      status: "Success",
+      players: [
+        null,
+        undefined,
+        "a string",
+        42,
+        { name: "Real Player", position: "RB", team: "KC", adp: 10 },
+      ],
+    });
+    expect(entries?.map((e) => e.name)).toEqual(["Real Player"]);
+  });
+
+  it("keeps the first overall pick, and drops a zero", () => {
+    // `adp <= 0`. One step either way and the board loses its first pick or gains a player
+    // the market never priced.
+    const entries = parseAdp({
+      status: "Success",
+      players: [
+        { name: "First Overall", position: "RB", adp: 1 },
+        { name: "Half A Pick", position: "WR", adp: 0.5 },
+        { name: "Unpriced", position: "TE", adp: 0 },
+        { name: "Negative", position: "QB", adp: -2 },
+      ],
+    });
+    expect(entries?.map((e) => e.name)).toEqual(["First Overall", "Half A Pick"]);
+  });
+
+  it("keeps week one as a bye week", () => {
+    // `value <= 0 ? null`. Week one is a real bye in some seasons and the first value the
+    // guard could swallow if it moved.
+    const bye = (value: unknown) =>
+      parseAdp({ players: [{ name: "A Player", position: "RB", adp: 10, bye: value }] })?.[0]
+        .bye;
+    expect(bye(1)).toBe(1);
+    expect(bye(0)).toBeNull();
+    expect(bye(-1)).toBeNull();
+  });
+});

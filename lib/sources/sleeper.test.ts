@@ -332,3 +332,43 @@ describe("count boundaries", () => {
     ).toEqual([]);
   });
 });
+
+describe("the settings a draft cannot be read without", () => {
+  it("refuses each of the four ways teams and rounds can be unusable", () => {
+    // `teams === null || rounds === null || teams <= 0 || rounds <= 0`. Four independent
+    // reasons joined by `||`; turning any one into `&&` lets that case through, and a
+    // draft with zero rounds or an unreadable team count produces a board that looks
+    // complete and attributes real players to managers who do not exist.
+    const base = { type: "snake", status: "complete", settings: { teams: 12, rounds: 15 } };
+    expect(parseSettings({ ...base, settings: { rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 0, rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12, rounds: 0 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: -1, rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12, rounds: -1 } })).toBeNull();
+    // The fixture is only meaningful if the unbroken version is accepted.
+    expect(parseSettings(base)).not.toBeNull();
+  });
+
+  it("reads a whole number sent as a string, and refuses an empty one", () => {
+    // `value.trim() !== ""` guards the string branch. Inverted, a numeric string falls
+    // through to `NaN` and every field parses as null — while an *empty* string becomes
+    // `Number("")`, which is 0, an integer, and therefore a perfectly acceptable team
+    // count of zero.
+    expect(parseSettings({
+      type: "snake",
+      status: "complete",
+      settings: { teams: "12", rounds: "15" },
+    })).toMatchObject({ teams: 12, rounds: 15 });
+    expect(parseSettings({
+      type: "snake",
+      status: "complete",
+      settings: { teams: "", rounds: "15" },
+    })).toBeNull();
+    expect(parseSettings({
+      type: "snake",
+      status: "complete",
+      settings: { teams: "  ", rounds: "15" },
+    })).toBeNull();
+  });
+});

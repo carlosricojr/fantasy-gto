@@ -445,3 +445,51 @@ describe("LruMemoStore capacity", () => {
     expect(store.stats.evictions).toBe(1);
   });
 });
+
+describe("the memo key cannot be made to collide", () => {
+  it("separates the league part from the state part", () => {
+    // The key is `leagueFingerprint || stateSignature`. Both halves are built from values
+    // a caller supplies, so the separator is the only thing stopping the end of one from
+    // being read as the start of the other — a collision would serve one league's answer
+    // to another, which is the single worst thing this store can do.
+    //
+    // Asserted by construction rather than by pinning the separator's spelling: two
+    // different (league, state) pairs must produce two different keys, whatever the
+    // separator is.
+    const state = baseState();
+    const other = baseState();
+    other.teams[0].remainingPicks = [99];
+
+    const keys = new Set([
+      memoKey(CONFIG, 1, state),
+      memoKey(CONFIG, 1, other),
+      memoKey(CONFIG, 2, state),
+      memoKey({ ...CONFIG, scenarios: CONFIG.scenarios + 1 }, 1, state),
+      memoKey(CONFIG, 1, state, 4),
+      memoKey(CONFIG, 1, state, 12),
+    ]);
+    expect(keys.size).toBe(6);
+  });
+
+  it("gives the same key to the same request", () => {
+    const state = baseState();
+    expect(memoKey(CONFIG, 1, state, 6)).toBe(memoKey(CONFIG, 1, state, 6));
+  });
+});
+
+describe("the store's default capacity", () => {
+  it("holds 512 entries before it starts evicting", () => {
+    // The default is what every caller that says nothing gets, and nothing pinned it. Too
+    // small and a draft evicts the future it just prepared; too large and a long session
+    // grows without bound, which is the reason the class exists.
+    const store = new LruMemoStore();
+    for (let i = 0; i < 512; i += 1) store.set(`k${i}`, []);
+    expect(store.stats.evictions).toBe(0);
+
+    // Nothing has been read, so the least recently used entry is still the first written.
+    store.set("k512", []);
+    expect(store.stats.evictions).toBe(1);
+    expect(store.get("k0")).toBeUndefined();
+    expect(store.get("k1")).toBeDefined();
+  });
+});

@@ -75,6 +75,14 @@ export function leagueFingerprint(
 }
 
 /** The full memo key: which problem, and which position within it. */
+/**
+ * The cache key: which league is being solved, and from which position.
+ *
+ * The two halves are joined by a separator, and no test pins which separator — what
+ * matters is that two different requests cannot produce one key, which is asserted
+ * directly. Any separator neither half can contain satisfies that, so the character is a
+ * choice rather than a behaviour.
+ */
 export function memoKey(
   config: LeagueConfig,
   seed: number,

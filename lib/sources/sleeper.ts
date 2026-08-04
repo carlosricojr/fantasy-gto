@@ -116,6 +116,9 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
 
   const teams = toInt(settings.teams);
   const rounds = toInt(settings.rounds);
+  // The null tests are what make the comparisons well-typed; they are not what rejects a
+  // missing value. `null <= 0` is true — `null` coerces to zero — so either comparison
+  // alone already refuses an unreadable field, and dropping a null test changes nothing.
   if (teams === null || rounds === null || teams <= 0 || rounds <= 0) return null;
 
   // `type` decides the pick order, which puts it in the same class as teams and rounds:
