@@ -278,6 +278,8 @@ export function completeOwnRoster(
   const roomForForced =
     picksLeft > 0 &&
     (rosterSize === undefined || out.length < rosterSize) &&
+    // `?? ""` and `|| ""` agree here: the only falsy id is the empty string, which both
+    // forms leave as the empty string.
     !taken.has(forcedFirstPick?.id ?? "");
   if (forcedFirstPick !== null && roomForForced) {
     out.push(forcedFirstPick);
@@ -447,6 +449,11 @@ export function recommendByChampionship(
       config,
       opponentSeed(owner),
     );
+    // `??` rather than `||`, and the two do differ — for a player whose id is the empty
+    // string, `||` would report "no replacement" and leave him in our pool as well as on
+    // the opponent's roster, which is the double-count this branch exists to remove.
+    // Nothing on a real board carries an empty id, so no test separates them; `??` is the
+    // form that stays correct if one ever does.
     return { scores, replacementId: replacement?.id ?? null };
   };
 
@@ -512,6 +519,9 @@ export function orderRecommendations(
   // objects and sort the caller's array. `recommendByChampionship` hands it a freshly built
   // list so nothing was affected, but a function whose whole job is to order a list should
   // not also edit one.
+  // The flag's value here is arbitrary — the loop below assigns every entry
+  // unconditionally — and it is present only because the type requires it before `best` is
+  // known. `true` would behave identically.
   const ordered: ChampionshipRecommendation[] = ranked.map((entry) => ({
     ...entry,
     tiedWithLeader: false,
