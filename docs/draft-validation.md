@@ -1,7 +1,21 @@
 # Draft valuation — what was measured
 
-The sole authority for any claim the draft board makes about ranking players. Reproduce it
-all with `pnpm draft-backtest`.
+The sole authority for any claim the draft board makes about ranking players.
+
+Not all of it comes from one command, and saying so matters: a reader who runs
+`pnpm draft-backtest`, finds no timing table, and reads that as drift has been misled by
+this page rather than by the code.
+
+- `pnpm draft-backtest` writes `published-draft-metrics.json` and reproduces the Spearman
+  table, the top-24 and top-48 means, the blend-weight sweep, the sample size, and the edge
+  against the market. `lib/nfl/draft/published-metrics.test.ts` fails if this document and
+  that file disagree.
+- The timing table, the variance and league-dependence measurements, and the
+  order-independence figure come from the simulation and are pinned by `pnpm test` — each
+  is named where it appears.
+- The rookie-versus-veteran split was measured once, on an earlier universe and an earlier
+  estimator, and is left as measured rather than restated. The paragraph beneath it says
+  why.
 
 The headline is negative, and it shaped the design.
 

@@ -21,9 +21,14 @@ const doc = readFileSync(join(__dirname, "../../../docs/draft-validation.md"), "
 
 /** The number in a given column of the row whose first cell contains `label`. */
 function tableValue(label: string, column: number): number {
+  // Anchored to the *first* cell, which is what the docstring above says and what the
+  // implementation did not do. A later table whose second column happened to mention the
+  // same method would be matched first, and every figure below would then be read out of
+  // the wrong table without anything failing. This file exists to catch document drift, so
+  // its own check should be as narrow as its description.
   const row = doc
     .split("\n")
-    .find((line) => line.startsWith("|") && line.includes(label));
+    .find((line) => line.startsWith("|") && line.split("|")[1]?.trim().includes(label));
   if (row === undefined) throw new Error(`No table row mentioning "${label}"`);
   const cells = row.split("|").map((c) => c.trim());
   // `cells[0]` is the empty string before the leading pipe.

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { parseCsv, num, str } from "@/lib/nfl/csv";
@@ -71,7 +78,21 @@ async function cached(dir: string, file: string, url: string): Promise<string> {
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) throw new Error(`${url} responded ${response.status}`);
   const text = await response.text();
-  writeFileSync(path, text);
+
+  // Written to a neighbouring temporary path and renamed, because a rename within one
+  // filesystem is atomic: a reader sees the whole file or no file. Writing straight to the
+  // final path leaves a truncated one behind if the process stops mid-write or the disk
+  // fills, and line 69 then serves it on every later run.
+  //
+  // The ADP path happens to recover — `JSON.parse` rejects a truncated payload — but the
+  // nflverse CSV has no such guard. `parseCsv` reads a truncated file as a shorter season,
+  // so `loadSeason` returns fewer player-weeks and the run writes
+  // `published-draft-metrics.json` over a partial season without an error anywhere. A
+  // published figure that is quietly wrong is the one outcome this script exists to
+  // prevent.
+  const temporary = `${path}.partial-${String(process.pid)}`;
+  writeFileSync(temporary, text);
+  renameSync(temporary, path);
   return text;
 }
 

@@ -844,7 +844,20 @@ async function main(): Promise<void> {
         // and `recoverAbandonedMutants` has already cleared those — so a collision here is
         // either a concurrent run or a file somebody else put in the way, and both are
         // reasons to stop rather than to overwrite.
-        writeFileSync(backupPathFor(path), original, { flag: "wx" });
+        try {
+          writeFileSync(backupPathFor(path), original, { flag: "wx" });
+        } catch (cause) {
+          // Named rather than left as a raw EEXIST. Every other stop in this file says what
+          // went wrong on the way out; this one propagated a filesystem error through
+          // `main` and ended the run with a stack trace.
+          throw new Error(
+            `Something is already at ${relative(process.cwd(), backupPathFor(path))}. ` +
+              `Recovery cleared every backup at startup and the run lock is held, so this ` +
+              `is a file left in the way rather than another run. Nothing in ${file} was ` +
+              `mutated.`,
+            { cause },
+          );
+        }
         inFlight = { path, original };
         writeFileSync(path, mutatedSource);
         outcome = runTests(tests);
