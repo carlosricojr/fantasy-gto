@@ -84,9 +84,18 @@ describe("docs/draft-validation.md quotes the published metrics", () => {
   it("keeps the blend weight the document names in step with the one measured", () => {
     // The label cell reads "Blend, weight 0.2", so the weight is parsed out of it rather
     // than read as a column.
-    const row = doc.split("\n").find((line) => line.includes("Blend, weight"));
+    // The same leading-pipe predicate `tableValue` uses. Without it any prose sentence
+    // mentioning the blend matches first — and this document does discuss the blend in
+    // prose — so the weight would be read out of a paragraph rather than out of the table
+    // this test is named for.
+    const row = doc
+      .split("\n")
+      .find((line) => line.startsWith("|") && line.includes("Blend, weight"));
     const weight = row?.match(/Blend, weight ([\d.]+)/)?.[1];
     expect(weight).toBeDefined();
     expect(Number(weight)).toBeCloseTo(metrics.chosenBlendWeight, 4);
+    // And it is the table row, not a paragraph. The document mentions the blend in prose
+    // above the table, so a lookup without the leading-pipe test reads the wrong line.
+    expect(row?.startsWith("|")).toBe(true);
   });
 });

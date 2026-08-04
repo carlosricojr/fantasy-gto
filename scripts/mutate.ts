@@ -500,7 +500,16 @@ function recoverAbandonedMutants(): string[] {
  */
 function isInsideRepo(path: string): boolean {
   const root = realpathSync(process.cwd());
-  const parent = realpathSync(dirname(path));
+  // A parent that cannot be resolved is not inside the repository, and resolving it would
+  // throw ENOENT out of here — past the caller's named refusal and out through `main`, so a
+  // mistyped target ended the run with a filesystem stack trace instead of being told which
+  // path was refused. Every other non-zero exit in this file names its cause.
+  let parent: string;
+  try {
+    parent = realpathSync(dirname(path));
+  } catch {
+    return false;
+  }
   if (parent !== root && !parent.startsWith(root + sep)) return false;
   return !existsSync(path) || !lstatSync(path).isSymbolicLink();
 }
