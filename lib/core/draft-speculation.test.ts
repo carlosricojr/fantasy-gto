@@ -12,6 +12,7 @@ import {
   canonicalizeState,
   digestIds,
   digestPlayers,
+  playerFingerprint,
   precomputeRecommendations,
   recommendWithCache,
   resolveFromCache,
@@ -1125,5 +1126,82 @@ describe("the anticipated futures are ordered, and the budget is a count", () =>
         maxStates: 3,
       }).entries,
     ).toHaveLength(3);
+  });
+});
+
+/**
+ * The player fingerprint, at the precision it actually keeps.
+ *
+ * These sites were invisible until the mutation harness stopped blanking whole template
+ * literals: the fingerprint is built entirely inside one, so every constant in it — the
+ * `toFixed(4)` on the two float fields especially — was unreachable by any mutant. It is
+ * what decides whether a cached answer is served for a board, so a precision that is too
+ * coarse serves one player's answer for another and one that is too fine misses every hit.
+ */
+describe("playerFingerprint keeps four decimals, and that is a decision", () => {
+  const base = player("p1", "RB", 12.5, 20);
+
+  it("separates two players whose projections differ where it can be seen", () => {
+    // A tenth of a point a week is fifteen points a season. If the fingerprint cannot see
+    // that, a cache built for one board is served for a different one.
+    expect(playerFingerprint({ ...base, weeklyMean: 12.5 })).not.toBe(
+      playerFingerprint({ ...base, weeklyMean: 12.6 }),
+    );
+    expect(playerFingerprint({ ...base, weeklyMean: 12.5 })).not.toBe(
+      playerFingerprint({ ...base, weeklyMean: 12.5001 }),
+    );
+    expect(playerFingerprint({ ...base, availability: 0.9 })).not.toBe(
+      playerFingerprint({ ...base, availability: 0.9001 }),
+    );
+  });
+
+  it("ignores a difference below the precision it keeps", () => {
+    // The other half of the choice. Two numbers that agree to four decimals are the same
+    // player as far as the simulation is concerned — `weeklyMean` arrives from a blend of
+    // rounded inputs, so binary noise in the last bits is not a new board. Widening the
+    // precision turns every such pair into a cache miss.
+    expect(playerFingerprint({ ...base, weeklyMean: 12.5 })).toBe(
+      playerFingerprint({ ...base, weeklyMean: 12.500001 }),
+    );
+    expect(playerFingerprint({ ...base, availability: 0.9 })).toBe(
+      playerFingerprint({ ...base, availability: 0.900001 }),
+    );
+  });
+
+  it("distinguishes every field it claims to carry", () => {
+    const variants: Array<Partial<PlayerRisk>> = [
+      { id: "other" },
+      { position: "WR" },
+      { weeklyMean: 13 },
+      { p10: 0.3 },
+      { p90: 2 },
+      { byeWeek: 9 },
+      { availability: 0.5 },
+      { adp: 21 },
+      { adpStdev: 7 },
+    ];
+    const seen = new Set([playerFingerprint(base)]);
+    for (const variant of variants) seen.add(playerFingerprint({ ...base, ...variant }));
+    expect(seen.size).toBe(variants.length + 1);
+  });
+
+  it("tells a missing field from a present one", () => {
+    // `?? "-"` rather than `|| "-"`. For `byeWeek` and `adp` the two agree, because a
+    // published zero is nulled before it reaches a board. For `adpStdev` they do not: a
+    // zero is what `parseAdp` writes when the market published no spread, so `||` would
+    // render it as absent and give two boards one fingerprint.
+    //
+    // `adpDispersion` then treats zero and null identically, so those two boards do compute
+    // the same answer — this is a cache that misses where it could hit, not one that serves
+    // a wrong answer. Pinned in the safe direction on purpose.
+    expect(playerFingerprint({ ...base, adpStdev: 0 })).not.toBe(
+      playerFingerprint({ ...base, adpStdev: null }),
+    );
+    expect(playerFingerprint({ ...base, byeWeek: null })).not.toBe(
+      playerFingerprint({ ...base, byeWeek: 5 }),
+    );
+    expect(playerFingerprint({ ...base, adp: null })).not.toBe(
+      playerFingerprint({ ...base, adp: 1 }),
+    );
   });
 });
