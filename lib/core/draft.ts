@@ -109,6 +109,11 @@ export function survivalProbability(
   pick: number,
   unrankedAdp: number,
 ): number {
+  // `??` rather than `||`, for the same reason `parseAdp` gives: they differ only when
+  // `adp` is 0, and a published zero is dropped before it can reach a board. This is the
+  // form that stays correct if that ever changes — a player at pick 0 is not an unranked
+  // player, and treating him as one would put the consensus first overall pick at the back
+  // of the board.
   const adp = player.adp ?? unrankedAdp;
   const stdev = adpDispersion(player.adpStdev);
   // P(draftSlot >= pick). The pick itself is not yet spent, so a player whose ADP equals
