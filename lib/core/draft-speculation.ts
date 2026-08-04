@@ -199,7 +199,19 @@ export interface SpeculativeEntry {
 }
 
 export interface SpeculativeCache {
-  /** Signature of the state the cache was built from, so a stale cache is detectable. */
+  /**
+   * Signature of the state the cache was built from. Provenance, not a guard.
+   *
+   * It used to say "so a stale cache is detectable", which invites exactly the wrong fix:
+   * comparing it against the current signature would disable the cache outright. The whole
+   * point is that it is built from the position *before* the opponents pick and resolved
+   * against the position *after*, so the two signatures are never meant to agree.
+   *
+   * What guards a hit is per-entry and stricter than any whole-cache test could be: the
+   * seat, the roster size, our own roster signature, `sameBoard` over every player the two
+   * states share, and every recommended player still being available. Those are in
+   * `resolveFromCache`.
+   */
   builtFrom: string;
   entries: SpeculativeEntry[];
 }

@@ -525,7 +525,7 @@ describe("a non-finite ADP does not erase a curve or a price", () => {
     expect(curve.intercept).toBeCloseTo(300, 9);
   });
 
-  it("prices a non-finite ADP at zero rather than at NaN or Infinity", () => {
+  it("has no market opinion about a non-finite ADP, rather than pricing him at nothing", () => {
     const curves = fitAdpCurves(
       [1, 2, 4, 8, 16, 32, 64, 128].map((adp) => ({
         position: "RB",
@@ -534,10 +534,18 @@ describe("a non-finite ADP does not erase a curve or a price", () => {
       })),
       2025,
     );
-    expect(adpImpliedPoints(Number.POSITIVE_INFINITY, "RB", curves)).toBe(0);
-    expect(adpImpliedPoints(Number.NaN, "RB", curves)).toBe(0);
+    // `null`, not `0`. Zero is a price — "worth nothing" — and `blendedSeasonValue` blends
+    // it in, marking the player down by the model's full complement. That is the rookie
+    // markdown the blend was written to avoid, reintroduced through a different door.
+    expect(adpImpliedPoints(Number.POSITIVE_INFINITY, "RB", curves)).toBeNull();
+    expect(adpImpliedPoints(Number.NaN, "RB", curves)).toBeNull();
+    expect(blendedSeasonValue(200, adpImpliedPoints(Number.NaN, "RB", curves))).toBe(200);
+
+    // A non-positive ADP keeps returning zero: it is not a real pick number either, but it
+    // is what the curve's own domain check has always answered and nothing upstream can
+    // produce it — `parseAdp` drops any row at or under zero.
     expect(adpImpliedPoints(-1, "RB", curves)).toBe(0);
     // A real ADP still prices normally, so the guard is not simply refusing everything.
-    expect(adpImpliedPoints(4, "RB", curves)).toBeGreaterThan(0);
+    expect(adpImpliedPoints(4, "RB", curves)!).toBeGreaterThan(0);
   });
 });

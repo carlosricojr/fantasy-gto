@@ -109,8 +109,13 @@ describe("rosterUtility", () => {
       player("rb1", "RB", 14, { byeWeek: 7 }),
       player("rb2", "RB", 13, { byeWeek: 7 }),
     ];
+    // The same id on purpose. `playerStream` keys each player's random stream on his id, so
+    // two candidates named differently are two independent draws and the bye effect is
+    // being measured against that noise rather than isolated from it. Sharing the id pairs
+    // the draws and leaves `byeWeek` as the only difference — the rule the volatility test
+    // above documents, applied here too.
     const cover = player("rb3", "RB", 8, { byeWeek: 11 });
-    const clash = player("rb4", "RB", 8, { byeWeek: 7 });
+    const clash = player("rb3", "RB", 8, { byeWeek: 7 });
 
     const coverGain = marginalUtility(shared, cover, SLOTS, CONFIG, 11);
     const clashGain = marginalUtility(shared, clash, SLOTS, CONFIG, 11);

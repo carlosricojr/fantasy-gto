@@ -204,10 +204,17 @@ export function adpImpliedPoints(
   position: string,
   curves: AdpCurveSet,
 ): number | null {
-  // Non-finite as well as non-positive. An `Infinity` here reaches `Math.log` and returns
-  // `Infinity`, and a `NaN` fails `<= 0` and propagates: both put a value on the board that
-  // renders as an empty cell rather than as an error.
-  if (!Number.isFinite(adp) || adp <= 0) return 0;
+  // Non-finite is not a price, it is an unusable input, and the two must not return the
+  // same thing. `0` here means "the market values him at nothing", which `blendedSeasonValue`
+  // blends in and marks the player down by the model's full complement — the exact rookie
+  // markdown that function's docstring exists to describe. `null` means "no market opinion",
+  // and the model's estimate then stands alone.
+  //
+  // This guard returned `0` for both when it was added, one round of review ago. It fixed
+  // an `Infinity` reaching `Math.log` and produced a subtler version of the bug the module
+  // was already written to avoid.
+  if (!Number.isFinite(adp)) return null;
+  if (adp <= 0) return 0;
   const curve = curves.byPosition[position.toUpperCase()] ?? curves.pooled;
   if (curve === undefined || curve === null) return null;
   return round2(Math.max(0, curve.intercept + curve.slope * Math.log(adp)));

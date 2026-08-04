@@ -150,9 +150,31 @@ describe("parsePersistedDraft", () => {
   });
 
   it("refuses a pick number past the end of the draft", () => {
-    // 12 teams over 15 rounds is 180 picks. Pick 181 belongs to no seat.
-    expect(parsePersistedDraft(stored({ picks: { 180: "p" } }))).not.toBeNull();
-    expect(parsePersistedDraft(stored({ picks: { 181: "p" } }))).toBeNull();
+    // 12 teams over 15 rounds is 180 picks; pick 181 belongs to no seat. The valid case has
+    // to be a full 1..180, because picks are also required to be a prefix — a lone pick 180
+    // is a different kind of corrupt, and using it here would test the wrong guard.
+    const full = Object.fromEntries(
+      Array.from({ length: 180 }, (_, i) => [i + 1, `p${i + 1}`]),
+    );
+    expect(parsePersistedDraft(stored({ picks: full }))).not.toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { ...full, 181: "extra" } }))).toBeNull();
+  });
+
+  it("refuses picks with a gap in them", () => {
+    // Each key passing its own range check is not enough. `{"5": "someone"}` satisfies every
+    // per-key test, and then `nextPick` puts pick 1 on the clock while a player sits at
+    // pick 5: recording fills 1 through 4 and stops, so the board reads as five picks made
+    // and one of them is a player nobody chose at a turn nobody took. `undoPick` cannot
+    // repair it either — from a lone pick 5 it computes pick 0 and refuses.
+    expect(parsePersistedDraft(stored({ picks: { 5: "a" } }))).toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { 1: "a", 3: "c" } }))).toBeNull();
+    expect(parsePersistedDraft(stored({ picks: { 2: "b" } }))).toBeNull();
+    // A genuine prefix, and an empty draft, are both fine.
+    expect(parsePersistedDraft(stored({ picks: { 1: "a", 2: "b" } }))?.picks).toEqual({
+      1: "a",
+      2: "b",
+    });
+    expect(parsePersistedDraft(stored({ picks: {} }))?.picks).toEqual({});
   });
 
   it("refuses the same player drafted twice", () => {
@@ -174,7 +196,9 @@ describe("parsePersistedDraft", () => {
   it("keeps pick numbers as numbers, not the strings JSON turns keys into", () => {
     // `Object.entries` hands back string keys. The board indexes picks by number, and a
     // record keyed by "1" does not answer a lookup for 1.
-    const parsed = parsePersistedDraft(stored({ picks: { 7: "p" } }));
+    const parsed = parsePersistedDraft(
+      stored({ picks: { 1: "a", 2: "b", 3: "c", 4: "d", 5: "e", 6: "f", 7: "p" } }),
+    );
     expect(parsed?.picks[7]).toBe("p");
   });
 });

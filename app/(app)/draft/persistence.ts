@@ -140,6 +140,20 @@ function parsePicks(value: unknown, totalPicks: number): Record<number, string> 
     seen.add(playerId);
     out[pick] = playerId;
   }
+
+  // And they must be the picks 1..n with no gaps. Each key passing its own range check is
+  // not enough: `{"5":"someone"}` satisfies every test above, and then `nextPick` puts pick
+  // 1 on the clock while a player sits at pick 5. Recording fills 1, 2, 3, 4 and stops —
+  // `nextPick` returns 6 — so the board reads as five picks made and one of them is a
+  // player nobody chose at a turn nobody took. `undoPick` cannot repair it either: from
+  // `{"5":...}` it computes pick 0 and refuses.
+  //
+  // A draft is a prefix by construction, so anything else is corrupt rather than unusual,
+  // and the rule for corrupt state here is to refuse the whole restore.
+  const picked = Object.keys(out).length;
+  for (let pick = 1; pick <= picked; pick += 1) {
+    if (out[pick] === undefined) return null;
+  }
   return out;
 }
 
