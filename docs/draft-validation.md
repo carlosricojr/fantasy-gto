@@ -217,8 +217,11 @@ measured over a 168-player universe, under the pooled ADP curve and the pre-tie 
 both since corrected. The universes differ because the join between the ADP board and the
 roster changed — `buildMarketIndex` refuses a name it cannot separate by position, where
 the hand-rolled map it replaced dropped both players — and not because of any difference in
-how much history a player needed. Both require the same thing: at least one prior game. The veteran figure being 0.4455, identical to the pooled
-curve's market score quoted earlier, is that coincidence and not the same measurement.
+how much history a player needed. Both require the same thing: at least one prior game.
+
+The veteran figure of 0.4455 is the same number as the pooled curve's market score quoted
+earlier. That is a coincidence of two different measurements landing on the same four
+decimals, not one figure appearing twice.
 
 They are left as measured rather than restated, because the argument they support is a gap
 of 0.24 against a standard error of about 0.21 at n=24 — a difference no estimator change

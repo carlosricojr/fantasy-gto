@@ -348,7 +348,17 @@ function score(universe: Universe, weight: number) {
 }
 
 function topN(universe: Universe, values: Map<string, number>, n: number): number {
-  const ordered = [...universe.ids].sort((a, b) => values.get(b)! - values.get(a)!);
+  // Ties broken by id, so the figure does not depend on the order the ADP board happened to
+  // arrive in. Ties are routine rather than exotic: `seasonProjection`, `adpImpliedPoints`
+  // and `blendedSeasonValue` all round to two decimals, which is the same premise the
+  // mid-rank correction in `spearman` rests on. One straddling the boundary at rank 24 or 48
+  // changes the mean — and these means are published, so a number that moves with input
+  // order is a number the document cannot stand behind.
+  //
+  // The id order is arbitrary; that is not the point. Reproducibility is.
+  const ordered = [...universe.ids].sort(
+    (a, b) => values.get(b)! - values.get(a)! || (a < b ? -1 : a > b ? 1 : 0),
+  );
   const taken = ordered.slice(0, n);
   return taken.reduce((sum, id) => sum + universe.actual.get(id)!, 0) / taken.length;
 }

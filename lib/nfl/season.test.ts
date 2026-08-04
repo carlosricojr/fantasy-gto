@@ -10,6 +10,8 @@ import {
   latestCompletedSeason,
   resolveSeasonState,
   weeksBetween,
+  draftSeasonFor,
+  type SeasonState,
 } from "./season";
 
 const NOW = Date.parse("2026-07-30T12:00:00Z");
@@ -219,5 +221,35 @@ describe("weeksBetween", () => {
     // Callers compare against a staleness threshold, so a negative reads as recent, which
     // is right: the appearance is in the future relative to the week being projected.
     expect(weeksBetween(at(2025, 7), at(2025, 3))).toBe(-4);
+  });
+});
+
+describe("draftSeasonFor", () => {
+  const state = (over: Partial<SeasonState>): SeasonState => ({
+    season: 2026,
+    week: 1,
+    phase: "preseason",
+    isComplete: false,
+    ...over,
+  });
+
+  it("is the upcoming season through the preseason", () => {
+    // The window in which drafts actually happen. The rebuild cron used to return null
+    // here and so never built the board it exists to keep fresh.
+    expect(draftSeasonFor(state({ phase: "preseason" }))).toBe(2026);
+  });
+
+  it("is next season once this one has finished", () => {
+    expect(draftSeasonFor(state({ phase: "offseason", isComplete: true }))).toBe(2027);
+  });
+
+  it("is the current season while it is being played", () => {
+    // Nobody drafts here, but the page still renders a board for anyone looking, and it
+    // must be the season they are in rather than the next one.
+    expect(draftSeasonFor(state({ phase: "regular" }))).toBe(2026);
+  });
+
+  it("has no answer when there is no season", () => {
+    expect(draftSeasonFor(null)).toBeNull();
   });
 });

@@ -416,7 +416,15 @@ function acquireRunLock(): boolean {
       ownsRunLock = true;
       return true;
     } catch {
-      const owner = Number(readFileSync(LOCK_PATH, "utf8").trim());
+      // Read defensively: another process can clear a stale lock between the failed write
+      // above and this read, and an unguarded `readFileSync` would then throw ENOENT out of
+      // here and reject `main` with a raw filesystem error instead of simply retrying.
+      let owner = Number.NaN;
+      try {
+        owner = Number(readFileSync(LOCK_PATH, "utf8").trim());
+      } catch {
+        continue;
+      }
       if (Number.isInteger(owner) && owner > 0 && isAlive(owner)) {
         process.stderr.write(
           `Another mutation run is active (pid ${owner}). Two runs share one checkout and\n` +
@@ -429,6 +437,13 @@ function acquireRunLock(): boolean {
       rmSync(LOCK_PATH, { force: true });
     }
   }
+  // Both attempts lost the race to another starting run. Said out loud, because `main`
+  // only sets a non-zero exit code — a silent failure here reads as a run that did nothing
+  // for no reason.
+  process.stderr.write(
+    `Could not take ${relative(process.cwd(), LOCK_PATH)}: another run took it first, ` +
+      `twice.\nNothing was measured. Try again.\n`,
+  );
   return false;
 }
 

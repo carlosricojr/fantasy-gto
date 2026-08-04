@@ -32,7 +32,7 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
-import { weeksBetween } from "../lib/nfl/season";
+import { draftSeasonFor, weeksBetween } from "../lib/nfl/season";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
@@ -975,11 +975,15 @@ export const refreshDraftBoards = internalAction({
   args: {},
   handler: async (ctx): Promise<{ rebuilt: number; failed: string[] }> => {
     const season = await ctx.runQuery(api.season.current, {});
-    // Drafts happen for the season about to start. During the season the board is stale by
-    // definition and nobody is drafting from it, so this becomes a no-op rather than an
-    // expensive daily rebuild of something nobody reads.
-    const target = season === null ? null : season.isComplete ? season.season + 1 : null;
-    if (target === null) return { rebuilt: 0, failed: [] };
+    // The same season the draft page reads, from the same function, because these two
+    // disagreed: this one built only when the displayed season was complete, so through the
+    // whole preseason — the one window in which drafts happen — it rebuilt nothing.
+    //
+    // Once the season is under way the board is stale by definition and nobody is drafting
+    // from it, so that case is still a no-op rather than an expensive daily rebuild of
+    // something nobody reads.
+    const target = draftSeasonFor(season);
+    if (target === null || season?.phase === "regular") return { rebuilt: 0, failed: [] };
 
     // One provider for the whole run. `seasonRoster` and `playerWeeks` fetch and parse on
     // every call, so a fresh provider per shape re-downloaded three multi-megabyte CSVs

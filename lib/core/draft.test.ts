@@ -461,3 +461,30 @@ describe("the ceiling on a league this builds pick numbers for", () => {
     expect(() => snakePicks(setup.slot, setup.teams, setup.rounds)).not.toThrow();
   });
 });
+
+describe("normalizeLeagueSetup always returns a setup the draft accepts", () => {
+  it("clamps the fallback, not just the parsed value", () => {
+    // `clampWhole` returned `fallback` raw. With `minTeams: 0` the team count resolves to
+    // zero and an unreadable slot fell back to 1 — a seat outside a zero-team league, which
+    // `snakePicks` then rejects. The function's own docstring promises otherwise, and the
+    // promise held only for input it could read.
+    const setup = normalizeLeagueSetup(
+      { teams: 0, slot: "not a number", rounds: "also not" },
+      { minTeams: 0, maxTeams: 0, maxRounds: 0 },
+    );
+    expect(setup.teams).toBe(0);
+    expect(setup.slot).toBe(0);
+    expect(setup.rounds).toBe(0);
+  });
+
+  it("produces a draftable setup from unreadable input at the normal bounds", () => {
+    for (const raw of [
+      { teams: "abc", slot: "abc", rounds: "abc" },
+      { teams: undefined, slot: null, rounds: Number.NaN },
+      { teams: Number.POSITIVE_INFINITY, slot: -5, rounds: 1e9 },
+    ]) {
+      const setup = normalizeLeagueSetup(raw);
+      expect(() => snakePicks(setup.slot, setup.teams, setup.rounds)).not.toThrow();
+    }
+  });
+});

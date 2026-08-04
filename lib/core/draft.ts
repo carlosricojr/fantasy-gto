@@ -227,8 +227,13 @@ function clampWhole(
   fallback: number,
 ): number {
   const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(Math.round(parsed), min), max);
+  // The fallback goes through the same clamp as a parsed value. Returned raw it could
+  // escape the range this function exists to enforce: with `minTeams: 0` the team count
+  // resolves to 0, and an unreadable slot then fell back to 1 — a seat outside a zero-team
+  // league, which `snakePicks` rejects. `normalizeLeagueSetup` promises a setup the draft
+  // functions accept, and that promise was only true for readable input.
+  const clamped = Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+  return Math.min(Math.max(clamped, min), max);
 }
 
 /**

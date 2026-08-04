@@ -29,6 +29,7 @@ import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
+import { draftSeasonFor } from "@/lib/nfl/season";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
 import { perGameRate } from "@/lib/nfl/draft/value";
@@ -133,12 +134,10 @@ export default function DraftPage() {
   // season. Collapsing both to null left the page showing "Loading the board…" for ever
   // when the schedule had not been ingested, with nothing said and nothing to do.
   const seasonLoading = seasonState === undefined;
-  const season =
-    seasonState === undefined || seasonState === null
-      ? null
-      : seasonState.isComplete
-        ? seasonState.season + 1
-        : seasonState.season;
+  // The same function the rebuild cron uses, so the board being read and the board being
+  // built are always for the same season. They diverged once, and the cron was the one that
+  // was wrong: it rebuilt nothing for the whole preseason.
+  const season = seasonState === undefined ? null : draftSeasonFor(seasonState);
 
   // Lowering the league size after choosing a slot left `slot > teams`, and `snakePicks`
   // then produced the pick set of a different seat. Because the owner map is written
@@ -498,10 +497,10 @@ export default function DraftPage() {
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div>
-          {!recommender.supported ? (
+          {recommender.unavailable !== null ? (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              This browser has no Web Worker support, so recommendations are unavailable.
-              The board below still works.
+              {recommender.unavailable}, so recommendations are unavailable. The board below
+              still works.
             </p>
           ) : null}
 

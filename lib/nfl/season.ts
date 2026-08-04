@@ -168,3 +168,23 @@ export function describeSeasonState(state: SeasonState): string {
 export function weeksBetween(from: Period, to: Period): number {
   return (to.season - from.season) * NFL_REGULAR_SEASON_WEEKS + (to.index - from.index);
 }
+
+/**
+ * The season a draft board is for: the one about to be played.
+ *
+ * Shared by the page that reads a board and the cron that builds one, because they
+ * disagreed. The page shows `season + 1` once the displayed season is complete and `season`
+ * otherwise — which through the preseason is the season people are drafting for. The cron
+ * built `season + 1` when complete and *nothing* otherwise, so through the entire preseason
+ * — the only window in which drafts happen — it returned `rebuilt: 0` and the board it
+ * exists to refresh was never rebuilt. The README's claim that it rebuilds twice daily
+ * through the preseason was not something the code did.
+ *
+ * Whether to rebuild is a separate question from which season, and stays with the caller:
+ * once the season is under way the board is stale by definition and nobody is drafting from
+ * it, so the cron skips `regular` while the page still renders it for anyone looking.
+ */
+export function draftSeasonFor(state: SeasonState | null): number | null {
+  if (state === null) return null;
+  return state.isComplete ? state.season + 1 : state.season;
+}

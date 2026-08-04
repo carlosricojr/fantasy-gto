@@ -27,7 +27,17 @@ function tableValue(label: string, column: number): number {
   if (row === undefined) throw new Error(`No table row mentioning "${label}"`);
   const cells = row.split("|").map((c) => c.trim());
   // `cells[0]` is the empty string before the leading pipe.
-  const raw = cells[column + 1].replace(/\*/g, "");
+  const cell = cells[column + 1];
+  if (cell === undefined) {
+    // This file exists to report drift in the document readably. An edit that removes a
+    // column would otherwise surface as `Cannot read properties of undefined`, which says
+    // nothing about which table or which column.
+    throw new Error(
+      `The "${label}" row has ${cells.length - 2} column(s), so column ${column} is not ` +
+        `there.`,
+    );
+  }
+  const raw = cell.replace(/\*/g, "");
   const value = Number(raw);
   if (!Number.isFinite(value)) {
     throw new Error(`Column ${column} of the "${label}" row is not a number: ${raw}`);

@@ -49,18 +49,29 @@ export function useRecommendations(): RecommendationState & {
     seed: number,
     candidateLimit?: number,
   ) => void;
-  supported: boolean;
+  /**
+   * Why recommendations are unavailable, or `null` when they are not.
+   *
+   * A reason rather than a capability flag. Three different things used to set
+   * `supported: false` — no `Worker` constructor, a constructor that threw, and a worker
+   * that died — and the page rendered "this browser has no Web Worker support" for all
+   * three. Two of them are not about the browser at all: a Content Security Policy without
+   * `worker-src` and a bundle missing the worker chunk both produce a browser that supports
+   * workers perfectly well. Telling somebody their browser is at fault when it is not sends
+   * them to change something that will not help.
+   */
+  unavailable: string | null;
 } {
   const workerRef = useRef<Worker | null>(null);
   const nextId = useRef(0);
   const latestSent = useRef(-1);
   const latestApplied = useRef(-1);
-  const [supported, setSupported] = useState(true);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const [state, setState] = useState<RecommendationState>(IDLE);
 
   useEffect(() => {
     if (typeof Worker === "undefined") {
-      setSupported(false);
+      setUnavailable("This browser has no Web Worker support");
       return;
     }
 
@@ -76,7 +87,8 @@ export function useRecommendations(): RecommendationState & {
         type: "module",
       });
     } catch {
-      setSupported(false);
+      // The browser has workers; this one could not be constructed.
+      setUnavailable("The recommendation worker could not be started");
       return;
     }
     workerRef.current = worker;
@@ -110,9 +122,10 @@ export function useRecommendations(): RecommendationState & {
       // request posted into the void: no reply ever came, the previous answer stayed on
       // screen marked stale for ever, and the next request cleared the error message that
       // was the only sign anything was wrong. Dropping the reference routes it to the
-      // unsupported path, which the page already explains.
+      // unavailable path, which the page already explains — naming the real cause rather
+      // than blaming the browser.
       workerRef.current = null;
-      setSupported(false);
+      setUnavailable("The recommendation worker stopped");
       setState((previous) => ({
         ...previous,
         loading: false,
@@ -161,5 +174,5 @@ export function useRecommendations(): RecommendationState & {
     [],
   );
 
-  return { ...state, request, supported };
+  return { ...state, request, unavailable };
 }
