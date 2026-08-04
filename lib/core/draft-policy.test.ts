@@ -265,10 +265,15 @@ describe("recommendByChampionship", () => {
     // sqrt(p(1-p)/n), so below a half the leader carries the larger one, and an entry the
     // implementation correctly calls tied can exceed twice its own. That the doubled form
     // passed was a fact about seed 21.
-    const top = recs.find((r) => r.championshipProbability === best)!;
-    expect(recs[0].tiedWithLeader).toBe(true);
+    // No assertion that `recs[0]` is flagged tied: it cannot fail. Every tied candidate is
+    // ordered before every untied one and the leader is tied with itself whenever the
+    // standard error is positive, so the first entry carries the flag for any ranking this
+    // fixture can produce. What is checked instead is the *bound* — that the leader really
+    // is within sampling noise of the maximum, which is a fact about the numbers rather
+    // than about the ordering that put it first.
+    const leader = recs.find((r) => r.championshipProbability === best)!;
     expect(best - recs[0].championshipProbability).toBeLessThanOrEqual(
-      top.standardError + recs[0].standardError + 1e-9,
+      leader.standardError + recs[0].standardError + 1e-9,
     );
 
     const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
@@ -284,7 +289,6 @@ describe("recommendByChampionship", () => {
     }
 
     // And the flag itself is honest: tied means within the combined standard errors.
-    const leader = recs.find((r) => r.championshipProbability === best)!;
     for (const r of recs) {
       const within =
         best - r.championshipProbability <= leader.standardError + r.standardError;
