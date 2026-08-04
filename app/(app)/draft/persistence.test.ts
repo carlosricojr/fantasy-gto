@@ -252,3 +252,87 @@ describe("nextPick", () => {
     expect(nextPick({}, 10)).toBe(1);
   });
 });
+
+/**
+ * The boundaries of what will be restored, and of the pick helpers.
+ *
+ * A restore that accepts one field too many puts a board on screen that the rest of the
+ * code refuses, and a restore that rejects one too few loses a draft in progress. Each of
+ * these was a surviving mutant: every guard could be moved by one, and the two comparisons
+ * in the pick helpers could be loosened, without a single assertion changing.
+ */
+describe("parsePersistedDraft boundaries", () => {
+  const valid = {
+    teams: 12,
+    rounds: 15,
+    slot: 3,
+    playoffTeams: 4,
+    scoringId: "ppr",
+    templateId: "standard",
+    started: true,
+    picks: {},
+  };
+  const parse = (over: Record<string, unknown>) =>
+    parsePersistedDraft(JSON.stringify({ ...valid, ...over }));
+
+  it("restores the longest draft it allows, and refuses one longer", () => {
+    expect(parse({ rounds: MAX_ROUNDS })?.rounds).toBe(MAX_ROUNDS);
+    expect(parse({ rounds: MAX_ROUNDS + 1 })).toBeNull();
+    expect(MAX_ROUNDS).toBe(30);
+  });
+
+  it("refuses a playoff field the lists do not offer", () => {
+    // Refused by the `PLAYOFF_FIELDS` whitelist, which is the guard that actually fires.
+    // The `playoffTeams >= teams` line below it cannot be reached while the lists are 4 or
+    // 6 against 8 through 14 — the source says so — and this test does not pretend to
+    // cover it. Asserting a rejection that a *different* guard produces would read as
+    // coverage of the cross-field check and be none.
+    expect(parse({ teams: 12, playoffTeams: 12 })).toBeNull();
+    expect(parse({ teams: 12, playoffTeams: 5 })).toBeNull();
+    expect(parse({ teams: 12, playoffTeams: 6 })?.playoffTeams).toBe(6);
+    expect(parse({ teams: 8, playoffTeams: 4 })?.playoffTeams).toBe(4);
+  });
+
+  it("needs every numeric field, not just one of them", () => {
+    // Four `|| null` checks in one condition. Turned into `&&`, a single missing field
+    // passes and reaches the rest of the parse as `null`.
+    for (const missing of ["teams", "rounds", "slot", "playoffTeams"]) {
+      expect(parse({ [missing]: "not a number" })).toBeNull();
+      expect(parse({ [missing]: null })).toBeNull();
+    }
+  });
+
+  it("needs both string fields, not just one", () => {
+    expect(parse({ scoringId: 5 })).toBeNull();
+    expect(parse({ templateId: 5 })).toBeNull();
+    expect(parse({ scoringId: 5, templateId: 5 })).toBeNull();
+  });
+
+  it("treats an empty string as nothing stored, not as a payload", () => {
+    // `raw === null || raw === ""`. `JSON.parse("")` throws, so as `&&` this reaches the
+    // parse and the whole restore path fails on a key that simply has no value yet.
+    expect(parsePersistedDraft("")).toBeNull();
+    expect(parsePersistedDraft(null)).toBeNull();
+  });
+});
+
+describe("the pick helpers' own boundaries", () => {
+  it("fills the last pick of a draft rather than stopping one short", () => {
+    // `pick > totalPicks`. One tighter and the final pick of every draft can never be
+    // recorded — the board sits one short of complete with no way to finish it.
+    expect(recordPick({ 1: "a" }, "b", 2)).toEqual({ 1: "a", 2: "b" });
+    expect(recordPick({ 1: "a", 2: "b" }, "c", 2)).toEqual({ 1: "a", 2: "b" });
+  });
+
+  it("scans every pick of the draft, including the last", () => {
+    // The loop bound in `nextPick`. As `<` the final pick is never offered, so a full board
+    // reports the same number as one with its last pick still open.
+    expect(nextPick({ 1: "a" }, 2)).toBe(2);
+    expect(nextPick({ 1: "a", 2: "b" }, 2)).toBe(3);
+  });
+
+  it("undoes the first pick rather than refusing it", () => {
+    // `pick < 1`. One looser and the first pick of a draft can never be taken back.
+    expect(undoPick({ 1: "a" }, 10)).toEqual({});
+  });
+});

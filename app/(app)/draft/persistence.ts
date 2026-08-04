@@ -65,6 +65,9 @@ export interface PersistedDraft {
  * exactly the silent wrongness this whole feature is written to avoid.
  */
 export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
+  // The empty-string test is a fast path rather than a behaviour: `JSON.parse("")` throws
+  // and the catch below returns null anyway. Kept because "nothing stored yet" is the
+  // ordinary case and reads better than an exception.
   if (raw === null || raw === "") return null;
 
   let payload: unknown;
@@ -98,6 +101,9 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (playoffTeams >= teams) return null;
 
   const { scoringId, templateId, started } = row;
+  // Both tested here for the message they give a reader, not because either is load-bearing
+  // on its own: a non-string of either kind fails the `some(...)` membership check below,
+  // since no preset id equals a number.
   if (typeof scoringId !== "string" || typeof templateId !== "string") return null;
   if (typeof started !== "boolean") return null;
   // An unknown preset would silently fall back to the default, scoring the whole board
