@@ -35,6 +35,7 @@ import { matchName } from "@/lib/nfl/draft/match";
 import { perGameRate } from "@/lib/nfl/draft/value";
 import {
   leadingPanel,
+  nextArmed,
   panelOrder,
   shouldRevealLead,
   type Panel,
@@ -270,7 +271,11 @@ export default function DraftPage() {
       previous: previousLead.current,
       current: lead,
     });
-    if (restored) previousLead.current = lead;
+    previousLead.current = nextArmed({
+      settled: restored,
+      previous: previousLead.current,
+      current: lead,
+    });
     if (!reveal) return;
 
     // Keys stop the swap remounting these panels; they do not stop it blurring them.
@@ -286,8 +291,16 @@ export default function DraftPage() {
       wasFocused.isConnected &&
       (active === null || active === document.body)
     ) {
-      // `preventScroll` so this does not fight the scroll below.
-      wasFocused.focus({ preventScroll: true });
+      // No `preventScroll`: the browser brings it into view, and the scroll below is
+      // skipped. The panel that loses focus is always the one being *demoted* — React
+      // flags the previously-first child for placement — so scrolling to the promoted
+      // panel instead would park the viewport at the top of the page with the focus ring
+      // two or three screens below it, off-screen and with nothing marking where the
+      // keyboard is. Following focus is the only reading of "reveal" that serves someone
+      // who is not looking at the scrollbar.
+      wasFocused.focus();
+      lastFocused.current = null;
+      return;
     }
     // Consumed either way. Restoring focus fires `focusin`, which would otherwise write
     // this same element straight back and leave it armed for a swap the user had nothing
@@ -299,6 +312,11 @@ export default function DraftPage() {
     // "the record panel leads" suppressed it on the turn coming back to you — where the
     // recommendations, two or three screens of them, are inserted above where you are
     // standing and nothing tells you the page grew upward.
+    //
+    // Reached when there was no focus to reclaim, which is the ordinary case: recording a
+    // pick unmounts the control that was clicked — every Draft button when the turn leaves
+    // you, the search results when `record` clears the query — so by the time this runs
+    // the remembered node is already gone.
     //
     // The first *rendered* panel, which is not always the leading one: `Recommendations`
     // renders nothing when it has no candidates, so a lead of "recommendations" can leave
@@ -639,22 +657,32 @@ export default function DraftPage() {
     </section>
   );
 
+  // One sentence for both the subtitle and the live region below, so the thing announced
+  // and the thing shown cannot drift apart.
+  const turnSummary = draftComplete
+    ? "Draft complete."
+    : onTheClock
+      ? `Pick ${currentPick} — you are on the clock.`
+      : // Not `Pick 2 — Seat 2.`, which states a fact and asks for nothing. Eleven picks
+        // in twelve belong to somebody else, and during every one of them the only thing
+        // this screen can do is be told what that person took.
+        `Pick ${currentPick} — ${clockLabel} on the clock. Record their pick below.`;
 
   return (
-    <PageShell
-      title="Draft"
-      subtitle={
-        currentPick > totalPicks
-          ? "Draft complete."
-          : onTheClock
-            ? `Pick ${currentPick} — you are on the clock.`
-            : // Not `Pick 2 — Seat 2.`, which states a fact and asks for nothing.
-              // Eleven picks in twelve belong to somebody else, and during every one
-              // of them the only thing this screen can do is be told what that person
-              // took.
-              `Pick ${currentPick} — ${clockLabel} on the clock. Record their pick below.`
-      }
-    >
+    <PageShell title="Draft" subtitle={turnSummary}>
+      {/* The turn changing rearranges this page under the reader: the two panels swap, and
+          the viewport moves to whichever now leads. Sighted users see that happen. Without
+          this, nobody else was told — the subtitle that names whose pick it is is a plain
+          paragraph, so a screen reader would announce nothing at all and leave the user on
+          a page whose running order had silently changed beneath them.
+
+          `polite`, so it waits for a pause rather than cutting across whatever is being
+          read, and it is the same sentence the subtitle shows rather than a second wording
+          to keep in step. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {turnSummary}
+      </p>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="flex flex-col gap-6">
           {recommender.unavailable !== null ? (
@@ -697,8 +725,11 @@ export default function DraftPage() {
               building them again. Rendered as bare fragments the children reconcile by
               index, the element type at each index changes on every turn, and both
               subtrees remount. Keys do not preserve focus across the move — the effect
-              above handles that — but they do preserve the search box's contents and
-              everything else the DOM holds rather than React. */}
+              above handles that — and they are not what keeps the search box's contents
+              either, since `search` is state on this component and survives regardless.
+              What they hold is what lives in the DOM rather than in React: caret and
+              selection inside that input, an in-flight IME composition, and the scroll
+              offset of anything inside the panels. */}
           <div ref={panelsRef} className="flex flex-col gap-6">
             {panelOrder({ onTheClock, draftComplete }).map((panel) => (
               <Fragment key={panel}>

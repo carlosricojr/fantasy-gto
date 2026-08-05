@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   leadingPanel,
+  nextArmed,
   panelOrder,
   shouldRevealLead,
   type Panel,
@@ -98,7 +99,14 @@ describe("shouldRevealLead", () => {
 });
 
 describe("the transitions a draft actually makes", () => {
-  /** Replays a sequence of turn states through the component's arming rule. */
+  /**
+   * Replays a sequence of turn states through exactly what the component runs.
+   *
+   * `nextArmed` rather than a local `if (settled) previous = current`. That line used to
+   * be written out here as well as in the effect, and a copy cannot fail: dropping the
+   * guard in the component left every test in this file green while the restore-after-a-
+   * crash bug came straight back.
+   */
   function reveals(states: readonly (TurnStateInput & { settled?: boolean })[]) {
     let previous: Panel | null = null;
     const revealed: boolean[] = [];
@@ -106,7 +114,7 @@ describe("the transitions a draft actually makes", () => {
       const current = leadingPanel(state);
       const settled = state.settled ?? true;
       revealed.push(shouldRevealLead({ settled, previous, current }));
-      if (settled) previous = current;
+      previous = nextArmed({ settled, previous, current });
     }
     return revealed;
   }
@@ -169,5 +177,38 @@ describe("the transitions a draft actually makes", () => {
         { onTheClock: true, draftComplete: false },
       ]),
     ).toEqual([false, true, false, false, true]);
+  });
+});
+
+describe("nextArmed", () => {
+  it("remembers the current lead once the board is settled", () => {
+    expect(
+      nextArmed({ settled: true, previous: null, current: "record" }),
+    ).toBe("record");
+  });
+
+  // The guard that stops a restore looking like a turn change. Removing it is the
+  // regression the replay above could not see while it kept its own copy of this rule.
+  it("remembers nothing from an unsettled render", () => {
+    expect(
+      nextArmed({ settled: false, previous: null, current: "recommendations" }),
+    ).toBeNull();
+  });
+
+  it("holds the previous lead rather than the unsettled one", () => {
+    expect(
+      nextArmed({ settled: false, previous: "record", current: "recommendations" }),
+    ).toBe("record");
+  });
+});
+
+describe("leadingPanel once the draft is over", () => {
+  // `currentPick` runs one past the last pick, so nobody owns it and `onTheClock` is
+  // false. Without the draftComplete term the record panel would lead a draft with
+  // nothing left to record.
+  it("leads with recommendations, where the closing notice sits", () => {
+    expect(leadingPanel({ onTheClock: false, draftComplete: true })).toBe(
+      "recommendations",
+    );
   });
 });

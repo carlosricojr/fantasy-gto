@@ -6,8 +6,13 @@
  * successive attempts got it wrong in three different ways — scrolling the page when the
  * draft ended, scrolling it while restoring a board after a crash, and failing to scroll
  * on the one transition that most needed it — and every one of them was a mistake about
- * *this* decision, not about refs or effects. Here it is a total function over four
- * booleans and the tests below pin each case.
+ * *this* decision, not about refs or effects.
+ *
+ * All four functions are total, and between them they hold the whole decision: which
+ * panel leads, what order that puts the two in, whether a change should be shown, and
+ * what to remember for next time. The last of those matters as much as the rest — two of
+ * the three bugs above were in *when to remember*, not in what to show — so it lives here
+ * rather than inline in the component, where a test could only re-implement it.
  */
 
 export type Panel = "record" | "recommendations";
@@ -62,4 +67,24 @@ export function shouldRevealLead(input: {
   if (!input.settled) return false;
   if (input.previous === null) return false;
   return input.previous !== input.current;
+}
+
+/**
+ * What to remember as the previous lead.
+ *
+ * Only a settled render arms it. Mounting shows the defaults — slot one, so the first
+ * pick is yours — and the stored board lands a tick later, possibly with an opponent on
+ * the clock. Arming on the unsettled render makes that restore indistinguishable from a
+ * turn passing, and the page scroll-jumps while recovering from a crash.
+ *
+ * A fold rather than a line in the effect, so the tests exercise the same code the
+ * component runs. When this was `if (settled) previous = current` in one place and again
+ * in the test helper, dropping the guard left all the tests passing.
+ */
+export function nextArmed(input: {
+  readonly settled: boolean;
+  readonly previous: Panel | null;
+  readonly current: Panel;
+}): Panel | null {
+  return input.settled ? input.current : input.previous;
 }
