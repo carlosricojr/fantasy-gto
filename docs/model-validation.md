@@ -73,6 +73,76 @@ and the reason is the same fact the clustering exists for.
 Edges by set: development **2.13%**, tuning **2.93%**, holdout 2.74%. They are close, which
 is the useful signal — the model is not carried by one favourable stretch.
 
+## Decision metrics
+
+MAE is the wrong instrument for what this product is for. Start/sit is a **pairwise
+choice**; drafting is a **ranking**. Subtract a constant from every projection and MAE moves
+while every ordering is untouched; nudge two close projections past each other and MAE barely
+notices while a user starts the wrong player. So the backtest also measures the decision.
+
+Estimators are in `lib/core/decisions.ts` and are sport-agnostic. Figures below are from
+`pnpm backtest`, model against the prior-games-mean baseline, on the same predictions the
+MAE tables are built from.
+
+### Pairwise start/sit accuracy
+
+Every pair of players in the same week at the same position — the choice a lineup actually
+poses. Pairs whose outcomes tied exactly are dropped; there is nothing to be right about.
+
+| Set | pairs | model correct | baseline correct | points forgone per decision |
+| --- | --- | --- | --- | --- |
+| Development 2013–2021 | 678,970 | **64.73%** | 63.01% | model 2.567, baseline 2.785 |
+| Tuning 2022–2024 | 220,660 | **65.46%** | 63.94% | model 2.436, baseline 2.617 |
+
+On development, the model gives up **0.218 fewer points per decision** than the baseline
+(SE 0.0059 clustered on the pair, 95% CI 0.2066 to 0.2298). The interval is optimistic:
+clustering on the unordered pair removes the largest dependency — the same two players
+meeting week after week — but one player's bad season still correlates every pair he
+appears in, and no multi-way clustered estimator is implemented here.
+
+### The number that matters, stratified by how hard the call was
+
+The pooled rate is dominated by calls nobody would hesitate over. Split by the gap between
+the two projections:
+
+| Projected gap | pairs | model | baseline |
+| --- | --- | --- | --- |
+| 0–1 points | 101,351 | **51.77%** | 51.32% |
+| 1–2 | 96,182 | 55.80% | 54.49% |
+| 2–4 | 163,344 | 61.09% | 59.25% |
+| 4–8 | 205,105 | 69.50% | 67.12% |
+| 8+ | 112,988 | 80.54% | 78.14% |
+
+**On the closest calls the model is 51.77% — barely better than a coin flip, and barely
+better than the baseline's 51.32%.** Those are precisely the decisions a user consults a
+projection for. The 64.73% headline is carried by pairs where the answer was already
+obvious, and quoting it without this table would be the same kind of overclaim as leading
+with the last-3-games baseline.
+
+This is not a defect being disclosed reluctantly. It is the honest shape of the problem:
+when two players project within a point of each other, weekly variance decides, and no model
+built on public box-score data changes that.
+
+### Lineup regret
+
+Points left on the bench against a lineup set with perfect hindsight, both sides solved by
+the same optimizer so the difference is down to projections alone.
+
+| Set | roster-weeks | model | baseline |
+| --- | --- | --- | --- |
+| Development 2013–2021 | 1,582 | 19.869 pts/week (16.95% of achievable) | 22.187 (18.93%) |
+| Tuning 2022–2024 | 552 | 17.535 pts/week (15.42% of achievable) | 19.228 (16.91%) |
+
+The rosters are **synthetic** and the construction is a judgement, not a measurement: each
+week's scored players are dealt round-robin by projection rank into twelve teams, so no
+roster collects all the best players. The absolute regret depends on that choice. The
+comparison does not — both sides are dealt identical rosters.
+
+Read the level, not just the gap: a real lineup gives up **roughly a sixth** of what perfect
+hindsight would have scored, and the model recovers about two percentage points of that
+against the baseline. That is a real improvement and a small one, and it is the same story
+the MAE table tells.
+
 ## Method
 
 Data: nflverse weekly player stats for the 2011–2025 regular seasons, joined to
