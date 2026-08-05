@@ -20,7 +20,13 @@
 
     /* These compiler options are required by Convex */
     "target": "ESNext",
-    "lib": ["ES2021", "dom"],
+    /* ES2022 rather than the generated default of ES2021. Files under `lib/` are compiled
+     * by both projects, and the root one allows `esnext`, so anything newer than ES2021
+     * typechecks in CI and then fails here — where it matters, because this is the check
+     * `convex dev` and `convex deploy` run. `Object.hasOwn` did exactly that and blocked
+     * every deploy for three days while `pnpm verify` stayed green. Convex runs a current
+     * V8 isolate, so ES2022 is available at runtime; the old value was understating it. */
+    "lib": ["ES2022", "dom"],
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,

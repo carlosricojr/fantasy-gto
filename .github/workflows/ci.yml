@@ -33,6 +33,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The Convex project separately, because it compiles the same files under a
+      # different tsconfig — a narrower `lib` and no path aliases. Anything newer than
+      # ES2021 in `lib/` passes the root check and fails this one, which is the check
+      # `convex deploy` runs. `Object.hasOwn` did exactly that: three days of green CI
+      # over a deployment that could not build.
+      - name: Typecheck Convex functions
+        run: pnpm typecheck:convex
+
       - name: Lint
         run: pnpm lint
 
