@@ -324,9 +324,24 @@ describe("bootstrapPairedComparison", () => {
     expect(() => bootstrapPairedComparison([], { resamples: 100, seed: 1 })).toThrow(
       /no observations/,
     );
+    for (const resamples of [1, 0, -5, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      // Fractional truncates through the loop bound; Infinity never terminates; NaN makes
+      // the loop body unreachable and the standard deviation of an empty sample NaN. All
+      // three end as a published interval that is not a number, so none of them is allowed
+      // to be an "at least 2" near-miss.
+      expect(() =>
+        bootstrapPairedComparison(HAND_FIXTURE, { resamples, seed: 1 }),
+      ).toThrow(/at least 2 resamples as an integer/);
+    }
     expect(() =>
-      bootstrapPairedComparison(HAND_FIXTURE, { resamples: 1, seed: 1 }),
-    ).toThrow(/at least 2 resamples/);
+      bootstrapPairedComparison(
+        [
+          { cluster: "a", model: 1, baseline: 0 },
+          { cluster: "b", model: 2, baseline: 0 },
+        ],
+        { resamples: 10, seed: 1 },
+      ),
+    ).toThrow(/zero-error baseline clusters/);
     expect(() =>
       bootstrapPairedComparison([{ cluster: "a", model: 1, baseline: 2 }], {
         resamples: 100,

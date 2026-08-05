@@ -306,9 +306,12 @@ export function bootstrapPairedComparison(
   if (rows.length === 0) {
     throw new Error("bootstrapPairedComparison: no observations");
   }
-  if (options.resamples < 2) {
+  // Integer and finite, not merely "at least 2". A fractional count silently truncates
+  // through the loop bound, and `Infinity` or `NaN` would run forever or produce an empty
+  // distribution whose standard deviation is NaN — a published interval of NaN either way.
+  if (!Number.isInteger(options.resamples) || options.resamples < 2) {
     throw new Error(
-      `bootstrapPairedComparison: needs at least 2 resamples, got ${options.resamples}`,
+      `bootstrapPairedComparison: needs at least 2 resamples as an integer, got ${options.resamples}`,
     );
   }
 
@@ -343,6 +346,17 @@ export function bootstrapPairedComparison(
       model += chosen.model;
       baseline += chosen.baseline;
       count += chosen.count;
+    }
+    // A resample can in principle draw only clusters whose baseline never missed, even when
+    // the full sample's baseline mean is non-zero. The percentage would then be NaN or an
+    // infinity, and it would reach a published interval through the percentile rather than
+    // through anything that looks like an error. Refused here for the same reason
+    // `pairedComparison` refuses it, so both estimators fail the same way on the same input.
+    if (baseline === 0) {
+      throw new Error(
+        "bootstrapPairedComparison: a resample drew only zero-error baseline clusters, " +
+          "so no percentage edge exists for it",
+      );
     }
     const delta = (baseline - model) / count;
     deltas.push(delta);
