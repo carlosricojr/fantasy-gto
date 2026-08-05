@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DRAFT_STORAGE_KEY,
@@ -33,6 +33,13 @@ import { draftSeasonFor } from "@/lib/nfl/season";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
 import { perGameRate } from "@/lib/nfl/draft/value";
+import {
+  leadingPanel,
+  nextArmed,
+  panelOrder,
+  shouldRevealLead,
+  type Panel,
+} from "./panel-order";
 import { useRecommendations } from "./use-recommendations";
 
 /**
@@ -226,6 +233,105 @@ export default function DraftPage() {
   const currentPick = useMemo(() => nextPick(picks, totalPicks), [picks, totalPicks]);
 
   const onTheClock = pickOwners.get(currentPick) === 0;
+  const draftComplete = currentPick > totalPicks;
+
+  const lead = leadingPanel({ onTheClock, draftComplete });
+
+  // The two panels, and only the two panels. The scroll target is read from this
+  // container rather than tracked separately, so the page cannot scroll to something that
+  // is not one of them — the two failure notices above are siblings of the group, not of
+  // the panels.
+  const panelsRef = useRef<HTMLDivElement | null>(null);
+
+  // The element focus was on when the order last changed. Read from a listener rather
+  // than during render, because by the time the effect runs the answer is already <body>.
+  //
+  // Scoped to the panels. A document-wide listener remembers the header's nav links and
+  // theme toggle too, and the `activeElement === body` test below only establishes that
+  // *something* lost focus — not that the reorder is what lost it. On a browser that does
+  // not focus a button on tap, a toggle touched earlier in the draft stayed remembered,
+  // and the next turn change handed focus back to it: off-screen in the header, with the
+  // next Tab walking the primary nav instead of the record controls.
+  const lastFocused = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const remember = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      lastFocused.current =
+        panelsRef.current?.contains(target) === true ? target : null;
+    };
+    document.addEventListener("focusin", remember);
+    return () => document.removeEventListener("focusin", remember);
+  }, []);
+
+  const previousLead = useRef<Panel | null>(null);
+  useEffect(() => {
+    const reveal = shouldRevealLead({
+      settled: restored,
+      previous: previousLead.current,
+      current: lead,
+    });
+    previousLead.current = nextArmed({
+      settled: restored,
+      previous: previousLead.current,
+      current: lead,
+    });
+    if (!reveal) return;
+
+    // Keys stop the swap remounting these panels; they do not stop it blurring them.
+    // React 19 reorders with `insertBefore` and has no `moveBefore`, so the node is
+    // detached and reattached, and the DOM drops focus when a focused node is removed.
+    // Pressing Undo flips the order, which moves the section holding the button that was
+    // just pressed — leaving a keyboard user back at <body>, tabbing from the top of the
+    // page to reach it again. Only reclaimed if the move is what lost it.
+    const wasFocused = lastFocused.current;
+    const active = document.activeElement;
+    if (
+      wasFocused !== null &&
+      wasFocused.isConnected &&
+      (active === null || active === document.body)
+    ) {
+      // No `preventScroll`: the browser brings it into view, and the scroll below is
+      // skipped. The panel that loses focus is always the one being *demoted* — React
+      // flags the previously-first child for placement — so scrolling to the promoted
+      // panel instead would park the viewport at the top of the page with the focus ring
+      // two or three screens below it, off-screen and with nothing marking where the
+      // keyboard is. Following focus is the only reading of "reveal" that serves someone
+      // who is not looking at the scrollbar.
+      wasFocused.focus();
+      lastFocused.current = null;
+      return;
+    }
+    // Consumed either way. Restoring focus fires `focusin`, which would otherwise write
+    // this same element straight back and leave it armed for a swap the user had nothing
+    // to do with: tap something unfocusable, and the next lead change drops focus into a
+    // panel you never touched. Anything the user actually focuses re-arms it.
+    lastFocused.current = null;
+
+    // Whichever panel now leads, not whichever one we guessed would. Guarding this on
+    // "the record panel leads" suppressed it on the turn coming back to you — where the
+    // recommendations, two or three screens of them, are inserted above where you are
+    // standing and nothing tells you the page grew upward.
+    //
+    // Reached when there was no focus to reclaim, which is the ordinary case: recording a
+    // pick unmounts the control that was clicked — every Draft button when the turn leaves
+    // you, the search results when `record` clears the query — so by the time this runs
+    // the remembered node is already gone.
+    //
+    // The first *rendered* panel, which is not always the leading one: `Recommendations`
+    // renders nothing when it has no candidates, so a lead of "recommendations" can leave
+    // the record section first in the DOM. Revealing what the reader will actually see
+    // first is the behavior wanted in that case anyway.
+    const leadingNode = panelsRef.current?.firstElementChild;
+    if (!(leadingNode instanceof HTMLElement)) return;
+    leadingNode.scrollIntoView({
+      block: "start",
+      // Honor the OS setting rather than animating over it.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [restored, lead]);
 
   const clockOwner = pickOwners.get(currentPick);
   const clockLabel =
@@ -283,7 +389,6 @@ export default function DraftPage() {
 
   // Recompute whenever the board changes, including while opponents are picking — the
   // answer for a future position is worth having before the turn arrives.
-  const draftComplete = currentPick > totalPicks;
 
   useEffect(() => {
     if (!started || draftState === null) return;
@@ -482,19 +587,104 @@ export default function DraftPage() {
     );
   }
 
+  const recommendationsPanel = draftComplete ? (
+    <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+      The draft is over &mdash; every pick is recorded. Your roster is below.
+    </p>
+  ) : (
+    <Recommendations state={recommender} onPick={record} onTheClock={onTheClock} />
+  );
+
+  const recordPanel = (
+    <section>
+      {/* The *controls* are hidden once every pick is in — not the section, which still
+          has to carry Undo. `currentPick` runs one past the last pick when the draft is
+          complete, so the heading below read "Record pick 181 — Nobody" over a search
+          that could not attribute anything to a seat. Undo sits outside this wrapper
+          because correcting a mistaken *last* pick is exactly when it is needed, and
+          hiding the whole section made it unreachable at that moment. */}
+      <div className={draftComplete ? "hidden" : undefined}>
+        {/* Names whose pick this is. "Record pick 2 — Seat 2" reads as a label for a
+            row of data; the reader has to work out that it is asking them for
+            something. */}
+        <h2 className="text-sm font-medium">
+          {onTheClock
+            ? `Record pick ${currentPick} — your pick`
+            : `Record pick ${currentPick} — what ${clockLabel} took`}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
+          missing one makes every number after it wrong.
+        </p>
+        <Input
+          className="mt-3"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search a player…"
+          aria-label="Search a player to record as drafted"
+        />
+        <ul className="mt-2 space-y-1">
+          {searchResults.map((player) => (
+            <li key={player.id}>
+              <button
+                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
+                onClick={() => record(player.id)}
+              >
+                <span>
+                  {player.name}{" "}
+                  <span className="text-muted-foreground">
+                    {player.position}
+                    {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
+                  </span>
+                </span>
+                <span className="text-muted-foreground">
+                  {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {/* Gated on the pick it actually removes, not on the map being non-empty.
+          `currentPick` is the first *empty* pick, so a restored board with a gap in it
+          offered "Undo pick N" for an entry that does not exist and removed nothing
+          when pressed. */}
+      {picks[currentPick - 1] !== undefined ? (
+        <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
+          Undo pick {currentPick - 1}
+        </Button>
+      ) : null}
+    </section>
+  );
+
+  // One sentence for both the subtitle and the live region below, so the thing announced
+  // and the thing shown cannot drift apart.
+  const turnSummary = draftComplete
+    ? "Draft complete."
+    : onTheClock
+      ? `Pick ${currentPick} — you are on the clock.`
+      : // Not `Pick 2 — Seat 2.`, which states a fact and asks for nothing. Eleven picks
+        // in twelve belong to somebody else, and during every one of them the only thing
+        // this screen can do is be told what that person took.
+        `Pick ${currentPick} — ${clockLabel} on the clock. Record their pick below.`;
+
   return (
-    <PageShell
-      title="Draft"
-      subtitle={
-        currentPick > totalPicks
-          ? "Draft complete."
-          : onTheClock
-            ? `Pick ${currentPick} — you are on the clock.`
-            : `Pick ${currentPick} — ${clockLabel}.`
-      }
-    >
+    <PageShell title="Draft" subtitle={turnSummary}>
+      {/* The turn changing rearranges this page under the reader: the two panels swap, and
+          the viewport moves to whichever now leads. Sighted users see that happen. Without
+          this, nobody else was told — the subtitle that names whose pick it is is a plain
+          paragraph, so a screen reader would announce nothing at all and leave the user on
+          a page whose running order had silently changed beneath them.
+
+          `polite`, so it waits for a pause rather than cutting across whatever is being
+          read, and it is the same sentence the subtitle shows rather than a second wording
+          to keep in step. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {turnSummary}
+      </p>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div>
+        <div className="flex flex-col gap-6">
           {recommender.unavailable !== null ? (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               {recommender.unavailable}, so recommendations are unavailable. The board below
@@ -508,74 +698,45 @@ export default function DraftPage() {
             </p>
           ) : null}
 
-          {draftComplete ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              The draft is over &mdash; every pick is recorded. Your roster is below.
-            </p>
-          ) : (
-            <Recommendations
-              state={recommender}
-              onPick={record}
-              onTheClock={onTheClock}
-              clockLabel={clockLabel}
-            />
-          )}
+          {/*
+            Which of these comes first depends on whose turn it is, because on a phone the
+            first thing on the screen is the only thing on the screen.
 
-          {/* Hidden once every pick is in. `currentPick` runs one past the last pick when
-              the draft is complete, so this heading read "Record pick 181 — Nobody" and
-              offered a search that could not attribute anything to a seat. */}
-          <section className="mt-6">
-            {/* Only the recording controls are hidden once the draft is complete. Undo
-                sits below, outside this wrapper, because correcting a mistaken *last*
-                pick is exactly when it is needed and hiding the whole section made it
-                unreachable at that moment. */}
-            <div className={draftComplete ? "hidden" : undefined}>
-            <h2 className="text-sm font-medium">
-              Record pick {currentPick} &mdash; {clockLabel}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
-              missing one makes every number after it wrong.
-            </p>
-            <Input
-              className="mt-3"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search a player…"
-              aria-label="Search a player to record as drafted"
-            />
-            <ul className="mt-2 space-y-1">
-              {searchResults.map((player) => (
-                <li key={player.id}>
-                  <button
-                    className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => record(player.id)}
-                  >
-                    <span>
-                      {player.name}{" "}
-                      <span className="text-muted-foreground">
-                        {player.position}
-                        {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
-                      </span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            </div>
-            {/* Gated on the pick it actually removes, not on the map being non-empty.
-                `currentPick` is the first *empty* pick, so a restored board with a gap in
-                it offered "Undo pick N" for an entry that does not exist and removed
-                nothing when pressed. */}
-            {picks[currentPick - 1] !== undefined ? (
-              <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
-                Undo pick {currentPick - 1}
-              </Button>
-            ) : null}
-          </section>
+            The recommendation panel is a header, ten candidate rows and a footer — two or
+            three screens on a handset. Rendering it first put the recording controls below
+            all of it, so on an opponent's turn the entire visible page was a list of
+            players you cannot draft yet, and the control for the only action available was
+            somewhere past the fold. A tester with the board open on a phone concluded there
+            was no way to enter an opponent's pick at all.
+
+            That is what this ordering exists to prevent, and it is not cosmetic: a draft
+            recorded with only your own picks produces recommendations against a board that
+            does not exist, confidently and with nothing to say so.
+
+            Reordered in the DOM rather than with CSS `order`, so that what a screen reader
+            announces and where the tab sequence goes both match what is on the screen.
+          */}
+          {/* Its own element so that "the panel that leads" is exactly this container's
+              first child — which is what the effect above scrolls to. The two notices
+              above are siblings of this group, not of the panels, so a failed
+              recommendation cannot become the thing the page scrolls to.
+
+              Keyed, so React moves these two nodes rather than tearing both down and
+              building them again. Rendered as bare fragments the children reconcile by
+              index, the element type at each index changes on every turn, and both
+              subtrees remount. Keys do not preserve focus across the move — the effect
+              above handles that — and they are not what keeps the search box's contents
+              either, since `search` is state on this component and survives regardless.
+              What they hold is what lives in the DOM rather than in React: caret and
+              selection inside that input, an in-flight IME composition, and the scroll
+              offset of anything inside the panels. */}
+          <div ref={panelsRef} className="flex flex-col gap-6">
+            {panelOrder({ onTheClock, draftComplete }).map((panel) => (
+              <Fragment key={panel}>
+                {panel === "record" ? recordPanel : recommendationsPanel}
+              </Fragment>
+            ))}
+          </div>
         </div>
 
         <aside>
@@ -607,12 +768,10 @@ function Recommendations({
   state,
   onPick,
   onTheClock,
-  clockLabel,
 }: {
   state: ReturnType<typeof useRecommendations>;
   onPick: (id: string) => void;
   onTheClock: boolean;
-  clockLabel: string;
 }) {
   if (state.loading) {
     return <div className="h-32 animate-pulse rounded-lg bg-muted" aria-hidden />;
@@ -665,15 +824,17 @@ function Recommendations({
               so you did not get the player, and whoever they really took stayed on the
               board and kept being recommended.
             */}
+            {/*
+              Nothing in this slot on an opponent's turn. It held "Seat 2 picks next",
+              repeated down all ten rows, which read as the app waiting on the opponent
+              rather than on you to say what they took — the opposite of what the page
+              needs next. The heading above the panel already names whose pick it is.
+            */}
             {onTheClock ? (
               <Button size="sm" variant="outline" onClick={() => onPick(rec.player.id)}>
                 Draft
               </Button>
-            ) : (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {clockLabel} picks next
-              </span>
-            )}
+            ) : null}
           </li>
         ))}
       </ul>

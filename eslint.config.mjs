@@ -18,6 +18,7 @@ const eslintConfig = [{
     "next-env.d.ts",
     "convex/_generated/**",
     "public/sw.js",
+    ".claude/worktrees/**",
   ]
 }, ...compat.extends("next/core-web-vitals", "next/typescript")];
 
