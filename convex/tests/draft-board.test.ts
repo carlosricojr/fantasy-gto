@@ -166,6 +166,49 @@ describe("draft board publishing", () => {
     expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
   });
 
+  it("serves the newest run if a second pointer row ever appears", async () => {
+    // One row per board shape is the invariant: `publishBoard` patches when it finds one,
+    // and Convex mutations are serializable so two concurrent publishes cannot both find
+    // none. But `by_board` is not a unique index and nothing in the database enforces it —
+    // a migration or a manual write could leave two. Reading the first row would then serve
+    // whichever the index happened to return, which may be the older.
+    //
+    // Written directly through the harness, because no code path produces this state; the
+    // point is what happens if one ever does.
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 1_000,
+      rows: [row("old", 111)],
+    });
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 2_000,
+      rows: [row("new", 222)],
+    });
+    await t.run(async (ctx) => {
+      for (const publishedAt of [1_000, 2_000]) {
+        await ctx.db.insert("draftBoardRuns", {
+          sport: "nfl",
+          season: SEASON,
+          scoringId: SCORING,
+          teams: TEAMS,
+          publishedAt,
+        });
+      }
+    });
+
+    // The newer run is served, not whichever row came back first.
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000 });
+    expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
+
+    // And the next publish collapses them rather than half-updating one.
+    await t.mutation(internal.draft.publishBoard, { ...shape, computedAt: 3_000 });
+    const remaining = await t.run(async (ctx) => ctx.db.query("draftBoardRuns").collect());
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].publishedAt).toBe(3_000);
+  });
+
   it("does not let a rebuild of one league size disturb another", async () => {
     const t = convexTest(schema, modules);
     const ten = { season: SEASON, scoringId: SCORING, teams: 10 };

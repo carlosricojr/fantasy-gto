@@ -109,7 +109,16 @@ async function publishedRun(
   scoringId: string,
   teams: number,
 ): Promise<number | null> {
-  const run = await ctx.db
+  // The greatest `publishedAt`, not the first row. One row per shape is the invariant —
+  // `publishBoard` patches rather than inserting when one exists, and Convex mutations are
+  // serializable, so two concurrent publishes cannot both find none — but `by_board` is not
+  // a unique index and nothing in the database enforces it. Reading `.first()` meant that
+  // if the invariant ever broke, the board served would be whichever row the index happened
+  // to return, which could be the older one.
+  //
+  // Taking the maximum makes a corrupted state fail towards the newest board rather than an
+  // arbitrary one, and costs nothing: the range holds one row.
+  const runs = await ctx.db
     .query("draftBoardRuns")
     .withIndex("by_board", (q) =>
       q
@@ -118,8 +127,9 @@ async function publishedRun(
         .eq("scoringId", scoringId)
         .eq("teams", teams),
     )
-    .first();
-  return run === null ? null : run.publishedAt;
+    .collect();
+  if (runs.length === 0) return null;
+  return Math.max(...runs.map((run) => run.publishedAt));
 }
 
 /**
@@ -136,7 +146,7 @@ export const publishBoard = internalMutation({
     computedAt: v.number(),
   },
   handler: async (ctx, { season, scoringId, teams, computedAt }) => {
-    const existing = await ctx.db
+    const rows = await ctx.db
       .query("draftBoardRuns")
       .withIndex("by_board", (q) =>
         q
@@ -145,7 +155,20 @@ export const publishBoard = internalMutation({
           .eq("scoringId", scoringId)
           .eq("teams", teams),
       )
-      .first();
+      .collect();
+
+    // Collapsed rather than half-updated. One row per shape is the invariant and nothing in
+    // the database enforces it, so if a second ever appears — a migration, a manual write —
+    // patching only the one the index returned first would leave the other claiming to be
+    // current. The survivor carries the newest timestamp either row held.
+    const [existing, ...duplicates] = rows;
+    for (const duplicate of duplicates) {
+      if (duplicate.publishedAt > existing.publishedAt) {
+        await ctx.db.patch(existing._id, { publishedAt: duplicate.publishedAt });
+        existing.publishedAt = duplicate.publishedAt;
+      }
+      await ctx.db.delete(duplicate._id);
+    }
 
     // Monotonic. Two rebuilds for one shape can overlap — a retry, or a manual run beside
     // the cron — and if the older one publishes last the pointer retreats. `pruneBoard`
