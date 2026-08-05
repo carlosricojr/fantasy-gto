@@ -6,6 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -45,6 +46,9 @@
 
 :root {
   --radius: 0.625rem;
+  /* The one chromatic colour in an otherwise neutral palette, so it can carry emphasis
+     without competing with anything. Both values clear 4.5:1 against their background. */
+  --brand: oklch(0.52 0.14 152);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -79,6 +83,7 @@
 }
 
 .dark {
+  --brand: oklch(0.78 0.16 160);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
