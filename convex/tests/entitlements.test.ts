@@ -62,13 +62,20 @@ describe("the free-tier league cap", () => {
     await expect(createLeague(t, "user_free", "League 2")).rejects.toThrow(/Upgrade to Pro/);
   });
 
-  it("reports the plan's limit rather than the current count", async () => {
+  it("states the cap in the singular, from the shared formatter", async () => {
     const t = convexTest(schema, modules);
     await asUser(t, "user_msg").mutation(api.users.ensure, {});
     await createLeague(t, "user_msg", "L1");
-    // Singular, because the message is built from the shared formatter rather than
-    // concatenating a number onto a hard-coded "leagues".
     await expect(createLeague(t, "user_msg", "L2")).rejects.toThrow(/includes 1 league\./);
+
+    // This used to be named "reports the plan's limit rather than the current count",
+    // which it could not check then and cannot check now: rejection happens exactly when
+    // the count has reached the cap, so the two numbers are always equal here. It was
+    // 3-and-3 before and is 1-and-1 today. What this *can* prove is that the message is
+    // built by `describeLeagueCap` rather than by pasting a number next to a hard-coded
+    // "leagues" — the singular is the tell. That the phrase follows the plan rather than
+    // the count is established in `lib/billing/entitlements.test.ts`, where the function
+    // is called directly with caps the API cannot reach.
   });
 
   it("does not cap a Pro subscriber", async () => {
