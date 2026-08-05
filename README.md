@@ -33,8 +33,8 @@ Note `.convex.site`, not the `.convex.cloud` URL used by the client. Then set th
 secret on the deployment, which is a different store from `.env.local`:
 
 ```bash
-npx convex env set CLERK_WEBHOOK_SECRET whsec_...
-npx convex env set CLERK_JWT_ISSUER_DOMAIN https://your-instance.clerk.accounts.dev
+pnpm exec convex env set CLERK_WEBHOOK_SECRET whsec_...
+pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN https://your-instance.clerk.accounts.dev
 ```
 
 Subscribe the endpoint to `user.*` and `subscription.*` events.
@@ -53,12 +53,12 @@ A fresh deployment has no data, and both ingest actions are `internal` so no cli
 trigger them. Populate it from the CLI:
 
 ```bash
-npx convex dev --once                                 # push schema + functions
-npx convex run ingest:syncSchedule '{"season":2025}'  # schedule + betting lines
+pnpm exec convex dev --once                                 # push schema + functions
+pnpm exec convex run ingest:syncSchedule '{"season":2025}'  # schedule + betting lines
 
 # Projections. Pass every ruleset the interface offers, or the Half PPR and Standard
 # toggles render an empty board — projectWeek defaults to PPR alone.
-npx convex run ingest:projectWeek \
+pnpm exec convex run ingest:projectWeek \
   '{"season":2025,"week":18,"scoringIds":["ppr","half_ppr","standard"]}'
 ```
 
@@ -130,8 +130,8 @@ league, simulated against the rosters your opponents have actually drafted. Seed
 before using it:
 
 ```bash
-npx convex run ingest:syncSchedule '{"season":2026}'
-npx convex run ingest:refreshDraftBoards '{}'
+pnpm exec convex run ingest:syncSchedule '{"season":2026}'
+pnpm exec convex run ingest:refreshDraftBoards '{}'
 ```
 
 The first is needed because the page resolves its season from ingested games; without it
@@ -141,7 +141,7 @@ size in one pass — twelve boards sharing one download, where twelve separate
 combination is still available if that is all you want:
 
 ```bash
-npx convex run ingest:buildDraftBoard '{"season":2026,"scoringId":"ppr","teams":12}'
+pnpm exec convex run ingest:buildDraftBoard '{"season":2026,"scoringId":"ppr","teams":12}'
 ```
 
 **If a push fails on `draftBoard` schema validation,** the deployment holds rows written
@@ -151,9 +151,14 @@ schema:
 
 ```bash
 : > /tmp/empty.jsonl
-npx convex import --table draftBoard --replace --yes /tmp/empty.jsonl
-npx convex dev --until-success
+pnpm exec convex import --table draftBoard --replace --yes /tmp/empty.jsonl
+pnpm exec convex dev --until-success
+pnpm exec convex run ingest:refreshDraftBoards '{}'
 ```
+
+The rebuild is not optional. `dev --until-success` pushes the schema; it does not write
+application data, so without the last line the board stays empty until the cron next runs —
+twice a day, and not at all once the season is under way.
 
 Verified against a real deployment on 2026-07-31: 650 players, 244 of them carrying a
 market price. A cron rebuilds every scoring/league-size combination twice daily through the
