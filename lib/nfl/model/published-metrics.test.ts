@@ -283,6 +283,16 @@ describe("published significance", () => {
     expect(ledgerRow).toContain(String(metrics.significance.clusters));
     expect(ledgerRow).toContain(metrics.sampleSize.toLocaleString("en-US"));
 
+    // The clustering gap, stated in one direction everywhere. `/accuracy` renders this
+    // same figure, and it previously rendered the inverse — 18% against the ledger's 22%,
+    // both arithmetically right, describing one measurement with two numbers. A reader
+    // checking the page against the ledger would have found them disagreeing.
+    const widenedBy = Math.round(
+      (significance.clusteredStandardError / significance.iidStandardError - 1) * 100,
+    );
+    expect(ledgerRow).toContain(`${widenedBy}% larger`);
+    expect(validation).toContain(`${widenedBy}% larger`);
+
     // The known gap that bounds every future claim about this model.
     expect(readme).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
     expect(readme).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);

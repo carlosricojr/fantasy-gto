@@ -142,10 +142,15 @@ export default function AccuracyPage() {
   // rendering it anyway would print a negative percentage as though it were tighter.
   const clusteringWidened =
     metrics.significance.clusteredStandardError > metrics.significance.iidStandardError;
-  const tightenedBy =
-    (1 -
-      metrics.significance.iidStandardError /
-        metrics.significance.clusteredStandardError) *
+  // Stated as "the clustered error is N% larger", which is the direction the README ledger
+  // and docs/model-validation.md both record. The inverse framing — "the naive interval
+  // would look N% tighter" — is a different number for the same measurement (18 against
+  // 22), and publishing it here would put a figure on the page that no ledger row backs.
+  // Same gap, one number.
+  const widenedBy =
+    (metrics.significance.clusteredStandardError /
+      metrics.significance.iidStandardError -
+      1) *
     100;
 
   // Ranked by measured error rather than by assumption. Finishing first is what the
@@ -305,9 +310,9 @@ export default function AccuracyPage() {
                 {metrics.significance.clusters} players account for all{" "}
                 {metrics.sampleSize.toLocaleString("en-US")} of those weeks, and a player we
                 consistently misread produces the same miss over and over rather than a
-                fresh independent verdict on the model each time. Counting every week as new
-                evidence would have made this interval look{" "}
-                {tightenedBy.toFixed(0)}% tighter than it has any right to be.
+                fresh independent verdict on the model each time. Accounting for that makes
+                the error bar {widenedBy.toFixed(0)}% larger than counting every week as new
+                evidence would have.
               </p>
             )}
           </div>
