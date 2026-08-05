@@ -31,7 +31,7 @@ function escapeField(value: string): string {
   return needsQuotes ? `"${escaped}"` : escaped;
 }
 
-/** Serialises a lineup to CSV with a header row and CRLF terminators, per RFC 4180. */
+/** Serializes a lineup to CSV with a header row and CRLF terminators, per RFC 4180. */
 export function toLineupCsv(rows: readonly LineupRow[]): string {
   const lines = [HEADER.join(",")];
   for (const row of rows) {
@@ -59,7 +59,7 @@ export interface LineupParseResult {
  *
  * Tolerant by design: a spreadsheet round trip reorders columns, changes case, and adds
  * blank rows. Unknown columns are ignored and missing optional values become null, but a
- * file with no recognisable player column is reported rather than silently yielding
+ * file with no recognizable player column is reported rather than silently yielding
  * nothing.
  */
 export function fromLineupCsv(text: string): LineupParseResult {

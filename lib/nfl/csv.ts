@@ -149,7 +149,7 @@ export function num(row: CsvRow, key: string, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** Reads a string cell, normalising absent and R-style `NA` values to `""`. */
+/** Reads a string cell, normalizing absent and R-style `NA` values to `""`. */
 export function str(row: CsvRow, key: string): string {
   const raw = row[key];
   if (raw === undefined || raw === "NA") return "";

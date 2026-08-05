@@ -170,7 +170,7 @@ And calibration moves the metric further than the usage, Vegas, and matchup term
 The model was prototyped in Python before being written in TypeScript. Run against the same
 pipeline, the two agreed to 5.8512 versus 5.8507 — a difference of 0.0005 MAE, arising
 because the TypeScript model recomputes every historical score through the configurable
-scoring engine (with two-decimal quantisation) while the prototype read upstream's
+scoring engine (with two-decimal quantization) while the prototype read upstream's
 precomputed PPR column. Agreement at that tolerance is what confirmed the port was
 faithful.
 
@@ -193,7 +193,7 @@ reference is irrelevant there. From there they diverge sharply. Against the team
 prior weeks the term has a genuine interior optimum, 5.8346 at 0.5, and degrades gently on
 either side. Against the *league* average it manages only a shallow gain (5.8493 at 0.25)
 before turning and degrading steeply to 5.9393 at full weight — worse than not using the
-term at all. The cause is double-counting: a player on a high-scoring offence already
+term at all. The cause is double-counting: a player on a high-scoring offense already
 carries that team's quality in their own scoring history, so scaling by team strength again
 applies it twice. Only the game-specific deviation is new information.
 

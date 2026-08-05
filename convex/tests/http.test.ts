@@ -52,7 +52,7 @@ describe("extractPlanKey", () => {
     ).toBe("pro_monthly");
   });
 
-  it("keeps a cancelled subscription on the plan its paid period covers", () => {
+  it("keeps a canceled subscription on the plan its paid period covers", () => {
     // A cancellation runs to the end of the period already paid for — `effectivePlan`
     // keeps a canceled subscription entitled until `currentPeriodEnd`, and the README
     // promises it. So the canceled Pro item is the one describing the current period, and
@@ -87,7 +87,7 @@ describe("extractPlanKey", () => {
     // These two payloads have the same statuses in the same order and mean opposite
     // things. Status alone cannot tell them apart; the period can.
 
-    // Cancelled mid-period: the Pro item still covers today, so it is the current plan and
+    // Canceled mid-period: the Pro item still covers today, so it is the current plan and
     // the subscriber keeps what they paid for.
     expect(
       extractPlanKey(
@@ -106,7 +106,7 @@ describe("extractPlanKey", () => {
       ),
     ).toBe("pro_monthly");
 
-    // Long since cancelled: the Pro period is over and the free item is the live one.
+    // Long since canceled: the Pro period is over and the free item is the live one.
     expect(
       extractPlanKey(
         event({
@@ -276,7 +276,7 @@ describe("extractPlanKey", () => {
   });
 
   it("returns null when the payload carries no plan at all", () => {
-    // Distinct from an unrecognised key: `billing.applyClerkEvent` treats absence as "this
+    // Distinct from an unrecognized key: `billing.applyClerkEvent` treats absence as "this
     // event says nothing about the plan" and keeps the recorded one.
     expect(extractPlanKey(event({ items: [{ status: "active" }] }), NOW)).toBeNull();
     expect(extractPlanKey(event({}), NOW)).toBeNull();

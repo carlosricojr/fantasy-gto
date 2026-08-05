@@ -71,7 +71,7 @@ describe("applyClerkEvent", () => {
     expect((await asUser(t, "u2").query(api.users.me, {})).plan).toBe("free");
   });
 
-  it("honours the remainder of an already-paid period after cancellation", async () => {
+  it("honors the remainder of an already-paid period after cancellation", async () => {
     const t = convexTest(schema, modules);
     await asUser(t, "u3").mutation(api.users.ensure, {});
     await t.mutation(internal.billing.applyClerkEvent, {
@@ -86,7 +86,7 @@ describe("applyClerkEvent", () => {
     expect((await asUser(t, "u3").query(api.users.me, {})).plan).toBe("pro");
   });
 
-  it("fails closed on an unrecognised plan key and records why", async () => {
+  it("fails closed on an unrecognized plan key and records why", async () => {
     // A renamed price in the billing dashboard must never silently grant Pro, and the
     // resulting downgrade must be diagnosable rather than mysterious.
     const t = convexTest(schema, modules);
@@ -463,7 +463,7 @@ describe("applyClerkEvent", () => {
   });
 
   it("still ends a subscription on a terminal status", async () => {
-    // The counterpart: "ended" is modelled, so it must revoke rather than be preserved.
+    // The counterpart: "ended" is modeled, so it must revoke rather than be preserved.
     const t = convexTest(schema, modules);
     await asUser(t, "u_end").mutation(api.users.ensure, {});
     await t.mutation(internal.billing.applyClerkEvent, {

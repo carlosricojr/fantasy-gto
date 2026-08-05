@@ -46,7 +46,7 @@
 
 :root {
   --radius: 0.625rem;
-  /* The one chromatic colour in an otherwise neutral palette, so it can carry emphasis
+  /* The one chromatic color in an otherwise neutral palette, so it can carry emphasis
      without competing with anything. Both values clear 4.5:1 against their background. */
   --brand: oklch(0.52 0.14 152);
   --background: oklch(1 0 0);

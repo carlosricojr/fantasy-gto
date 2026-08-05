@@ -108,7 +108,7 @@ describe("survivalProbability", () => {
   });
 
   it("keeps a wide-spread player alive well past his ADP", () => {
-    // The reason dispersion is modelled at all: a spread of 12 leaves a real chance five
+    // The reason dispersion is modeled at all: a spread of 12 leaves a real chance five
     // picks later, and a draft strategy that assumed otherwise would reach too early.
     expect(survivalProbability(market(40, 12), 45, 300)).toBeGreaterThan(
       0.3,
@@ -282,7 +282,7 @@ describe("normalizeLeagueSetup", () => {
     }
   });
 
-  it("honours explicit bounds", () => {
+  it("honors explicit bounds", () => {
     const setup = normalizeLeagueSetup(
       { teams: 20, slot: 1, rounds: 100 },
       { maxTeams: 14, maxRounds: 20 },
@@ -419,7 +419,7 @@ describe("the league-shape guards, at their boundaries", () => {
 });
 
 describe("normalizeLeagueSetup's bounds are the caller's, including zero", () => {
-  it("honours a bound of zero rather than substituting its own", () => {
+  it("honors a bound of zero rather than substituting its own", () => {
     // `bounds.minTeams ?? 2`. With `||`, a caller asking for a minimum of zero silently
     // gets two — and the three defaults differ, so the substituted value is not even
     // consistent between the fields.

@@ -21,7 +21,7 @@ import { NflverseProvider } from "../lib/sources/nflverse";
 import { AdpProvider } from "../lib/sources/adp";
 import {
   DRAFTABLE_POSITIONS,
-  MODELLED_POSITIONS,
+  MODELED_POSITIONS,
   normalizeMarketPosition,
 } from "../lib/nfl/draft/config";
 import { buildMarketIndex, normalizeName } from "../lib/nfl/draft/match";
@@ -72,7 +72,7 @@ interface ProjectionRow {
  * played nothing never plays. Both are wrong, and the second is worse: it would make every
  * incoming player worthless.
  *
- * Shrinking towards a league-typical rate fixes both. The prior is worth about ten games,
+ * Shrinking toward a league-typical rate fixes both. The prior is worth about ten games,
  * so a full season moves a player most of the way to the top and a lost season does not
  * write him off.
  *
@@ -286,7 +286,7 @@ export async function runProjectWeek(
         );
       }
 
-      // An unrecognised ruleset must fail the job, not be silently dropped. Filtering it
+      // An unrecognized ruleset must fail the job, not be silently dropped. Filtering it
       // out would report success while writing no projections for that ruleset, and the
       // gap would only surface as an empty board days later.
       const rulesets = (scoringIds ?? [DEFAULT_SCORING.id]).map((id) => {
@@ -326,7 +326,7 @@ export async function runProjectWeek(
        * equivalent: `projections.forWeek` is a public query that filters on neither job
        * status nor freshness, and no page reads the job record, so rows written before a
        * failed check stay live and are served as if they were the whole week. At week 1
-       * that is a ~40-player board from the Thursday opener, with the optimiser solving
+       * that is a ~40-player board from the Thursday opener, with the optimizer solving
        * against a pool missing nearly every player a user owns.
        */
       const pending: ProjectionRow[][] = [];
@@ -689,8 +689,8 @@ export async function runBuildDraftBoard(
         // A kicking line scores zero through the offensive scorer, so including kickers
         // here would fit the curve through a band of false zeros.
         if (
-          !MODELLED_POSITIONS.includes(
-            week.competitor.position as (typeof MODELLED_POSITIONS)[number],
+          !MODELED_POSITIONS.includes(
+            week.competitor.position as (typeof MODELED_POSITIONS)[number],
           )
         ) {
           continue;
@@ -724,7 +724,7 @@ export async function runBuildDraftBoard(
       }
       const seasonPoints = seasonTotals(weeks);
       // Fitted on *our* position spelling, and only for the positions the offensive scorer
-      // can actually score. Kickers and defences get no curve of their own and are priced
+      // can actually score. Kickers and defenses get no curve of their own and are priced
       // off the pooled one — deliberately, because `scoreOffense` scores a kicking line as
       // zero, so any curve fitted from those rows would be fitted from false zeros.
       //
@@ -738,8 +738,8 @@ export async function runBuildDraftBoard(
         .map((entry) => {
           const position = normalizeMarketPosition(entry.position);
           if (
-            !MODELLED_POSITIONS.includes(
-              position as (typeof MODELLED_POSITIONS)[number],
+            !MODELED_POSITIONS.includes(
+              position as (typeof MODELED_POSITIONS)[number],
             )
           ) {
             return null;
@@ -788,27 +788,27 @@ export async function runBuildDraftBoard(
     }
 
     // Position-qualified, because a name-keyed `Map` silently hands one player another's
-    // ADP, dispersion, and bye week when two names normalise the same way. See
+    // ADP, dispersion, and bye week when two names normalize the same way. See
     // `buildMarketIndex` — it refuses a collision it cannot separate rather than guessing.
     const marketIndex = buildMarketIndex(adpResult.data, normalizeMarketPosition);
-    // Defences are not players and never appear on a roster file, so they are taken from
+    // Defenses are not players and never appear on a roster file, so they are taken from
     // the market board directly. A league that starts one has to be able to draft one.
     // Deduplicated by the id they will be written under, which every other join on this
     // path gets from `buildMarketIndex` and this one bypassed. Two rows whose names
-    // normalise the same way — a team published twice, or "Philadelphia Eagles" beside
+    // normalize the same way — a team published twice, or "Philadelphia Eagles" beside
     // "Philadelphia  Eagles" — both produce `dst-<same key>`. `upsertBoardBatch` keys on
     // `(board, playerId)`, so the second silently overwrote the first and the board kept
     // whichever ADP the feed listed last, while `withMarketPrice` and `rows.length` counted
     // the row twice and reported more players than the table actually holds.
     //
     // First wins, matching `buildMarketIndex`.
-    const defencesById = new Map<string, (typeof adpResult.data)[number]>();
+    const defensesById = new Map<string, (typeof adpResult.data)[number]>();
     for (const entry of adpResult.data) {
       if (normalizeMarketPosition(entry.position) !== "DST") continue;
       const id = `dst-${normalizeName(entry.name)}`;
-      if (!defencesById.has(id)) defencesById.set(id, entry);
+      if (!defensesById.has(id)) defensesById.set(id, entry);
     }
-    const marketDefences = [...defencesById.values()];
+    const marketDefenses = [...defensesById.values()];
 
     const rows = [];
     let withMarketPrice = 0;
@@ -826,24 +826,24 @@ export async function runBuildDraftBoard(
       // reappearing for a different population, and it also split kickers in two: one with
       // no rows at all got the full market price and outranked an identically-priced
       // veteran.
-      const modelled = MODELLED_POSITIONS.includes(
-        entry.position as (typeof MODELLED_POSITIONS)[number],
+      const modeled = MODELED_POSITIONS.includes(
+        entry.position as (typeof MODELED_POSITIONS)[number],
       );
 
       // A player neither side can value cannot be valued by anything. Listing him at zero
       // would rank him below every kicker; omitting him is honest, and he can still be
       // drafted manually.
       //
-      // Gated on `modelled`, not on the row count. Those agree for QB/RB/WR/TE, where no
+      // Gated on `modeled`, not on the row count. Those agree for QB/RB/WR/TE, where no
       // prior games means no projection — but a kicker accumulates a history row per game
       // and every one of them scores zero, so `history.length` said the model had an
-      // opinion when `modelled` was about to overrule it. A veteran kicker missing from
+      // opinion when `modeled` was about to overrule it. A veteran kicker missing from
       // this season's ADP therefore passed the guard with no model value and no market
       // value, and `blendedSeasonValue(null, null)` wrote him to the board at exactly the
       // zero this line exists to keep off it.
-      if ((!modelled || history.length === 0) && market === null) continue;
+      if ((!modeled || history.length === 0) && market === null) continue;
       const modelPoints =
-        !modelled || history.length === 0
+        !modeled || history.length === 0
           ? null
           : seasonProjection({
               perGamePoints: history,
@@ -881,9 +881,9 @@ export async function runBuildDraftBoard(
       });
     }
 
-    // Defences, synthesised from the market. They carry no model estimate at all, which
+    // Defenses, synthesized from the market. They carry no model estimate at all, which
     // the blend already handles: where the model is silent the market's price stands.
-    for (const entry of marketDefences) {
+    for (const entry of marketDefenses) {
       const marketPoints = adpImpliedPoints(entry.adp, "DST", curve);
       if (marketPoints === null) continue;
       const band = OUTCOME_QUANTILES.DST;
@@ -899,12 +899,12 @@ export async function runBuildDraftBoard(
         adp: entry.adp,
         adpStdev: entry.stdev,
         byeWeek: entry.bye,
-        // No games-played history exists for a defence; a team plays every week it is not
+        // No games-played history exists for a defense; a team plays every week it is not
         // on bye, so availability is the bye alone.
         availability: 1,
         p10: band.p10,
         p90: band.p90,
-        // A defence's band is `placeholder` in `OUTCOME_QUANTILES`, and the stored row
+        // A defense's band is `placeholder` in `OUTCOME_QUANTILES`, and the stored row
         // says so rather than leaving the reader to know it.
         quantileProvenance: band.provenance,
       });

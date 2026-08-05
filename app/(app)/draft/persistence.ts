@@ -3,7 +3,7 @@
  *
  * The board holds everything in component state, which is fine until something throws.
  * The error boundary above it offers "Try again", and `reset()` re-renders the segment —
- * which remounts this page, which reinitialises `useState`, which loses every pick the
+ * which remounts this page, which reinitializes `useState`, which loses every pick the
  * user has recorded. The boundary's own text claimed the opposite. A draft is used once a
  * year under a pick clock, and losing the board at that moment is the worst failure this
  * feature has, so the fix is to make the claim true rather than to soften it.
@@ -13,7 +13,7 @@
  * than starting empty. It also survives a reload, so both buttons on the error screen now
  * keep the picks.
  *
- * Restoration happens in an effect rather than in a `useState` initialiser. The initialiser
+ * Restoration happens in an effect rather than in a `useState` initializer. The initializer
  * runs during render, including on the server where `sessionStorage` does not exist, and
  * seeding from it would make the server and client render different markup.
  */
@@ -65,7 +65,7 @@ export interface PersistedDraft {
  * exactly the silent wrongness this whole feature is written to avoid.
  */
 export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
-  // The empty-string test is a fast path rather than a behaviour: `JSON.parse("")` throws
+  // The empty-string test is a fast path rather than a behavior: `JSON.parse("")` throws
   // and the catch below returns null anyway. Kept because "nothing stored yet" is the
   // ordinary case and reads better than an exception.
   if (raw === null || raw === "") return null;

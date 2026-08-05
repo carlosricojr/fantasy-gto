@@ -245,7 +245,7 @@ function extractEventAt(event: ClerkEvent, svixTimestamp: string): number {
 }
 
 /**
- * Normalises a period end to epoch milliseconds.
+ * Normalizes a period end to epoch milliseconds.
  *
  * Clerk sends seconds in some payloads and milliseconds in others. A value below 1e11 is
  * far too small to be a plausible millisecond timestamp, so it is treated as seconds.

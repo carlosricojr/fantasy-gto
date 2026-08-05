@@ -16,7 +16,7 @@ import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { describeSeasonState } from "@/lib/nfl/season";
 
 /**
- * The lineup optimiser.
+ * The lineup optimizer.
  *
  * Runs entirely in the browser against projections read from Convex, so it works with no
  * account and no league connected. The solver is the same pure function the server uses
@@ -51,7 +51,7 @@ export default function LineupPage() {
   // With `forWeek` uncapped this is belt-and-braces rather than load-bearing: the board
   // already contains every row for the week and ruleset. It stays because the failure it
   // prevents is silent and severe — a selected player missing from the pool disappears
-  // from the optimiser's input while their roster chip keeps rendering a placeholder, and
+  // from the optimizer's input while their roster chip keeps rendering a placeholder, and
   // the page still calls the answer the best arrangement the roster allows. Anything that
   // reintroduces a cap on the board should not also be able to reintroduce that.
   const selectedProjections = useQuery(
@@ -119,7 +119,7 @@ export default function LineupPage() {
    * Greedy comparison: highest projection into the first slot it fits.
    *
    * This is what a person does filling a lineup by hand, and it is the baseline the
-   * optimiser's headline number is measured against.
+   * optimizer's headline number is measured against.
    */
   const greedyTotal = useMemo(() => {
     const taken = new Set<string>();
@@ -157,14 +157,14 @@ export default function LineupPage() {
       <PageShell title="Lineup">
         <EmptyState
           title="No schedule loaded yet"
-          body="The optimiser needs projections. Run the ingest job to populate them."
+          body="The optimizer needs projections. Run the ingest job to populate them."
         />
       </PageShell>
     );
   }
 
   return (
-    <PageShell title="Lineup optimiser" subtitle={describeSeasonState(season)}>
+    <PageShell title="Lineup optimizer" subtitle={describeSeasonState(season)}>
       <div className="mb-4 flex flex-wrap gap-2">
         {ROSTER_TEMPLATES.map((template) => (
           <Button

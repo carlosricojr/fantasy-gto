@@ -106,7 +106,7 @@ describe("parsePicks", () => {
     expect(picks[0].playerName).toBe("Jahmyr Gibbs");
   });
 
-  it("normalises position and team casing", () => {
+  it("normalizes position and team casing", () => {
     const picks = parsePicks(PICKS);
     expect(picks[0].position).toBe("RB");
     expect(picks[0].team).toBe("DET");

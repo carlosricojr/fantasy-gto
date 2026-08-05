@@ -116,7 +116,7 @@ async function publishedRun(
   // if the invariant ever broke, the board served would be whichever row the index happened
   // to return, which could be the older one.
   //
-  // Taking the maximum makes a corrupted state fail towards the newest board rather than an
+  // Taking the maximum makes a corrupted state fail toward the newest board rather than an
   // arbitrary one, and costs nothing: the range holds one row.
   const runs = await ctx.db
     .query("draftBoardRuns")

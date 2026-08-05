@@ -15,7 +15,7 @@ import {
 } from "../../lib/billing/entitlements";
 
 /**
- * Server-side authorisation.
+ * Server-side authorization.
  *
  * Everything here runs inside Convex, where the caller's identity comes from a verified
  * Clerk JWT and cannot be supplied by the client. Entitlements are re-derived from the
@@ -84,7 +84,7 @@ export function invalid(message: string): ConvexError<AppErrorData> {
  * The signed-in user's row, or null when anonymous.
  *
  * Uses `.first()` rather than `.unique()` deliberately. Two paths create users — an
- * authenticated request and the Clerk webhook — and while Convex's serialisable mutations
+ * authenticated request and the Clerk webhook — and while Convex's serializable mutations
  * should prevent a duplicate, `.unique()` *throws* when it finds one. That would turn a
  * rare, recoverable data anomaly into a hard failure on every subsequent request from that
  * account. Reading the first row degrades instead, and the duplicate can be reconciled

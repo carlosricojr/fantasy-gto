@@ -64,7 +64,7 @@ export interface Contest {
  * NFL model.
  *
  * `spread` is expressed from the home team's perspective: positive means the home team is
- * favoured by that many points. This convention is asserted in tests because getting it
+ * favored by that many points. This convention is asserted in tests because getting it
  * backwards inverts every adjustment derived from it.
  */
 export interface MarketLine {
@@ -96,7 +96,7 @@ export interface Contribution {
 /**
  * A projection for one competitor in one period.
  *
- * `floor` and `ceiling` are quantiles of the modelled outcome distribution, not
+ * `floor` and `ceiling` are quantiles of the modeled outcome distribution, not
  * best/worst cases, and satisfy `floor <= mean <= ceiling`.
  */
 export interface Projection {

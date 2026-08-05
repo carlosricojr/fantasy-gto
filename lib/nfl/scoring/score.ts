@@ -15,7 +15,7 @@ import type {
  * throwing on ordinary data. That is what lets the whole engine be verified against real
  * upstream production in `score.test.ts`.
  *
- * Scores are quantised to two decimals. Fantasy points are compared, ranked, and summed
+ * Scores are quantized to two decimals. Fantasy points are compared, ranked, and summed
  * constantly, and raw binary floating point makes those comparisons unstable — `0.04 * 3`
  * is not `0.12`. Rounding at the component level keeps arithmetic associative enough that
  * a lineup total does not depend on the order players were added.

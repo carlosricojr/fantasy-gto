@@ -84,7 +84,7 @@ export default function DraftPage() {
   const [playoffTeams, setPlayoffTeams] = useState<number>(6);
 
   // A draft survives a remount. The error boundary's "Try again" re-renders this segment,
-  // which reinitialises every `useState` above — without this, retrying after a crash
+  // which reinitializes every `useState` above — without this, retrying after a crash
   // loses the whole board, which is precisely when the user can least afford it.
   const [restored, setRestored] = useState(false);
   useEffect(() => {
@@ -218,7 +218,7 @@ export default function DraftPage() {
     [setup],
   );
 
-  // Everything downstream reads the normalised setup, not the raw inputs. A mid-keystroke
+  // Everything downstream reads the normalized setup, not the raw inputs. A mid-keystroke
   // value that disagrees with the ownership map produces picks nobody owns, and a player
   // recorded against one of those is never marked as taken — he stays on the board and
   // keeps being recommended after he is gone.
@@ -744,7 +744,7 @@ function Caveat({
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
-      defences carry the market&rsquo;s price alone. Scoring is limited to PPR, half PPR and
+      defenses carry the market&rsquo;s price alone. Scoring is limited to PPR, half PPR and
       standard. Opponents&rsquo; unfilled roster spots are completed by a simple
       best-available rule, so early-round odds lean on that assumption more than late ones.
     </p>

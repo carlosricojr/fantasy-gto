@@ -42,7 +42,7 @@ const NO_DEFENSE: DefenseStatLine = {
 };
 
 describe("round2", () => {
-  it("quantises to two decimals", () => {
+  it("quantizes to two decimals", () => {
     expect(round2(10.68)).toBe(10.68);
     expect(round2(0.045)).toBe(0.05);
     expect(round2(1 / 3)).toBe(0.33);
@@ -174,7 +174,7 @@ describe("scoreKicker", () => {
     expect(result.total).toBe(14);
   });
 
-  it("penalises misses", () => {
+  it("penalizes misses", () => {
     expect(scoreKicker({ ...NO_KICKS, made20to29: 1, missed: 2 }, PPR).total).toBe(1);
     expect(scoreKicker({ ...NO_KICKS, patMade: 3, patMissed: 1 }, PPR).total).toBe(2);
   });

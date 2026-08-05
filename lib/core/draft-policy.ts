@@ -44,7 +44,7 @@ import {
  *
  * The base policy is need-aware best-available, which is a reasonable stand-in for how the
  * remaining picks go but is not how anyone actually drafts. Opponents' completions are
- * computed once from the baseline and reused across candidates, because their behaviour
+ * computed once from the baseline and reused across candidates, because their behavior
  * barely depends on which player *we* take — one player fewer on a board of hundreds. That
  * is an approximation, and it is what makes evaluating candidates affordable.
  */
@@ -109,7 +109,7 @@ export const CHAMPIONSHIP_CANDIDATES = 10;
  * The players a base-policy pick can possibly be: the best available at each position.
  *
  * This replaced a window over the top forty by raw projection, which was not the cost
- * optimisation it was documented as. The window is sorted by `weeklyMean * availability` —
+ * optimization it was documented as. The window is sorted by `weeklyMean * availability` —
  * the very quantity the marginal-value objective exists to correct — so a player whose
  * worth is positional rather than raw falls out of it. Measured: a roster with every slot
  * filled but quarterback, and a board of sixty backs plus one quarterback, spent all three
@@ -193,14 +193,14 @@ function prefilterValue(
   // enough that depth cannot outrank a real lineup gain, which 1e-2 is not: a second
   // quarterback projected at 20 then beats a player who improves the starting lineup.
   // Anything below 1e-3 behaves identically, because shrinking it scales every bench value
-  // by the same factor and only ever favours the player who improves the lineup. Both
-  // bounds are pinned; the exact value between them is not a behaviour.
+  // by the same factor and only ever favors the player who improves the lineup. Both
+  // bounds are pinned; the exact value between them is not a behavior.
   //
   // `after - before` and `after + before` give the same ordering, so no test can tell them
   // apart: `before` is the same number for every candidate compared in one call, and both
   // callers use this only to rank. The subtraction is still the right expression — it is
   // what makes the value "what this player adds" rather than "twice the lineup plus what
-  // this player adds" — but it is not a behaviour, and it is recorded here so nobody
+  // this player adds" — but it is not a behavior, and it is recorded here so nobody
   // spends a second afternoon trying to pin it.
   return after - before + candidate.weeklyMean * candidate.availability * 1e-3;
 }
@@ -390,7 +390,7 @@ export function recommendByChampionship(
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
 
-  // Opponents are completed once. Their behaviour changes by at most one player depending
+  // Opponents are completed once. Their behavior changes by at most one player depending
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
   // eleven rosters per candidate would dominate the cost.
   const baselineRosters = completeDraft(state, config.slots, null);

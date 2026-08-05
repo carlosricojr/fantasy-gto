@@ -14,7 +14,7 @@ import {
  *
  * Idempotent. Two paths can create the same user — this mutation and the Clerk webhook —
  * and both check `by_clerk_id` before inserting. Convex indexes are **not** unique
- * constraints, so the safety here comes from mutations being serialisable: a concurrent
+ * constraints, so the safety here comes from mutations being serializable: a concurrent
  * pair is ordered, and the second sees the first's row.
  *
  * Reads use `.first()` rather than `.unique()` so that if a duplicate ever did appear it

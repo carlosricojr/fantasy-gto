@@ -211,7 +211,7 @@ export default function AccuracyPage() {
             <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
               Scaling a projection by the game&rsquo;s implied total against the league
               average is worth almost nothing, and turns harmful once you lean on it: a
-              player on a strong offence already carries that strength in their scoring
+              player on a strong offense already carries that strength in their scoring
               history, so applying it again double-counts. Measured against the
               team&rsquo;s own recent games there is a clear sweet spot. Only weeks already
               played feed it, so nothing after kickoff sneaks in.

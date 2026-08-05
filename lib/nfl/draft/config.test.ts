@@ -14,8 +14,8 @@ import { expectedGames } from "./value";
  * The market's position spellings, mapped onto ours.
  *
  * Small enough to look obviously correct, and it sits on the join between two feeds — so
- * a code that fails to normalise means a player the board cannot price, and a code that
- * normalises to the wrong thing means one priced off the wrong curve.
+ * a code that fails to normalize means a player the board cannot price, and a code that
+ * normalizes to the wrong thing means one priced off the wrong curve.
  */
 describe("normalizeMarketPosition", () => {
   it("maps the spellings the market actually publishes", () => {

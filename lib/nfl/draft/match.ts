@@ -6,7 +6,7 @@
  * quietly corrupt every recommendation after it. But the problem is not general: at any
  * moment there are a few hundred draftable players, and the question is only which of
  * *those* appears in the text. A constrained vocabulary turns a hard transcription
- * problem into a tolerable nearest-neighbour one — "Ja'Marr Chsse" has exactly one
+ * problem into a tolerable nearest-neighbor one — "Ja'Marr Chsse" has exactly one
  * plausible answer.
  *
  * Everything here is pure and works on any string, so the same matcher backs manual
@@ -52,7 +52,7 @@ export interface MarketRow {
  *
  * The naive version of this is `new Map(entries.map(e => [normalizeName(e.name), e]))`,
  * which is wrong in a way that never announces itself: `Map` takes the last write, so when
- * two players normalise to the same name one of them silently inherits the other's ADP,
+ * two players normalize to the same name one of them silently inherits the other's ADP,
  * dispersion, and bye week. Dropping generational suffixes makes that more likely, not
  * less — it is exactly what collapses a father-and-son or same-name pair into one key.
  *
@@ -67,7 +67,7 @@ export interface MarketRow {
 export interface MarketIndex<T extends MarketRow> {
   /** The one row for this player, or `null` if there is no unambiguous answer. */
   find(name: string, position: string): T | null;
-  /** Normalised names that appear on more than one row, for reporting. */
+  /** Normalized names that appear on more than one row, for reporting. */
   readonly collisions: readonly string[];
 }
 
@@ -178,7 +178,7 @@ export const AUTO_APPLY_CONFIDENCE = 0.93;
  * How far ahead the best match must be before it is trusted over the runner-up.
  *
  * Measured against a real pair rather than picked: `Bijan Robinson` and
- * `Brian Robinson Jr.` are two different players whose normalised names are 0.846
+ * `Brian Robinson Jr.` are two different players whose normalized names are 0.846
  * similar — above the confidence floor, so the floor alone cannot separate them. With one
  * character of OCR damage the two scores land 0.077 apart, and at that distance the text
  * genuinely does not say which player it is.
@@ -192,11 +192,11 @@ export const AUTO_APPLY_CONFIDENCE = 0.93;
 export const MATCH_AMBIGUITY_MARGIN = 0.1;
 
 /**
- * Normalised names for a candidate list, cached against the list itself.
+ * Normalized names for a candidate list, cached against the list itself.
  *
  * `findNamesInText` calls `matchName` once per word window across four window sizes, so on
  * a few-hundred-player universe and a screen's worth of text the same few hundred names
- * were being renormalised roughly a million times — for a result that cannot change
+ * were being renormalized roughly a million times — for a result that cannot change
  * between calls. Keyed weakly on the array so a caller that rebuilds its universe is not
  * served the old one, and so holding the cache cannot keep a dead universe alive.
  */
@@ -243,7 +243,7 @@ export function matchName<T extends MatchCandidate>(
   // Which is also why the comparison itself cannot be pinned by a test. Skipping one more
   // candidate — the one scoring exactly at the floor — is invisible for the same reason,
   // and skipping none at all is invisible by construction, since the prune is an
-  // optimisation over a result that does not depend on it. Only a prune that removes a
+  // optimization over a result that does not depend on it. Only a prune that removes a
   // candidate *above* the floor changes an answer, and that one is covered.
   const floor = minConfidence - MATCH_AMBIGUITY_MARGIN;
 
@@ -275,7 +275,7 @@ export function matchName<T extends MatchCandidate>(
   // `<` and `<=` are the same function on every input this can receive, and that is a
   // proof rather than a shrug. A confidence is `1 - d / L` for whole `d` and `L`, so the
   // difference of two of them is a difference of two such rationals; searched exhaustively
-  // for `L` up to 40 — well past the longest normalised name — no pair differs by exactly
+  // for `L` up to 40 — well past the longest normalized name — no pair differs by exactly
   // the double nearest 0.1. The boundary this comparison sits on is not reachable.
   if (best.confidence - runnerUp < MATCH_AMBIGUITY_MARGIN) return null;
 

@@ -148,7 +148,7 @@ carrying `adp`, `stdev`, `high`, `low`, `times_drafted`, and `bye`.
 Not all 247 reach our board with a price: the deployment recorded in the README counted
 **244**. A published ADP has to join to a roster player by name *and* position before it
 can be priced, and `buildMarketIndex` refuses a name it cannot separate — two players who
-normalise the same way and share a position are both dropped rather than one of them
+normalize the same way and share a position are both dropped rather than one of them
 guessed at. The three-player difference has not been attributed to specific names; it is
 recorded here as a difference rather than explained, because the run that produced 244 is
 not one this repository can reproduce offline.
@@ -232,12 +232,12 @@ misfires:
 - Plan selection is tiered. The period only discriminates *among* items whose status is
   plausibly live, so an unfamiliar or absent period cannot promote a scheduled or finished
   item over the current one. With no usable status and no usable period, it falls back to
-  `items[0]` — the behaviour that predates any of this.
+  `items[0]` — the behavior that predates any of this.
 - Zero and negative timestamps are read as absent, not as 1970.
-- An unrecognised or absent status makes the whole event uninformative: `applyClerkEvent`
+- An unrecognized or absent status makes the whole event uninformative: `applyClerkEvent`
   writes no subscription state at all and records an audit row. A payload we cannot parse
   cannot revoke a paying subscriber.
-- An unrecognised plan key resolves to free and is audited; an absent one leaves the
+- An unrecognized plan key resolves to free and is audited; an absent one leaves the
   recorded plan untouched.
 
 **What would close this.** Capture one real delivery of each of `subscription.created`,

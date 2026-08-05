@@ -8,7 +8,7 @@ import { ModeToggle } from "@/components/ui/theme-toggle";
 /**
  * Application chrome.
  *
- * Renders for signed-out visitors too, because projections and the lineup optimiser are
+ * Renders for signed-out visitors too, because projections and the lineup optimizer are
  * open. The header therefore has to handle both states rather than assuming a user, which
  * the previous version did by rendering a bare `UserButton`.
  */

@@ -259,7 +259,7 @@ function round2(value: number): number {
  * half is fitted against actual season points, which include the games players missed.
  *
  * Handing the simulator `seasonPoints / games` and an availability alongside it therefore
- * discounted twice. Measured on the shipped board, a player at 0.50 availability realised
+ * discounted twice. Measured on the shipped board, a player at 0.50 availability realized
  * 150 points of an intended 300 — and an ironman was barely touched, so the error fell
  * entirely on the injury-prone, who are exactly the players the market has already priced
  * for it.

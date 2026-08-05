@@ -87,7 +87,7 @@ export function leagueFingerprint(
  * The two halves are joined by a separator, and no test pins which separator — what
  * matters is that two different requests cannot produce one key, which is asserted
  * directly. Any separator neither half can contain satisfies that, so the character is a
- * choice rather than a behaviour.
+ * choice rather than a behavior.
  */
 export function memoKey(
   config: LeagueConfig,
@@ -236,7 +236,7 @@ export function recommendMemoized(
 /**
  * A `compute` function for `precomputeRecommendations`, backed by a store.
  *
- * Speculation and memoisation solve different halves of the same problem — one prepares
+ * Speculation and memoization solve different halves of the same problem — one prepares
  * futures that have not happened, the other remembers positions that have. Composed, a
  * future prepared for an earlier pick, or solved in somebody else's league, is free.
  */

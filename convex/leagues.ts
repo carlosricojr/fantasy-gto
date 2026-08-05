@@ -9,7 +9,7 @@ import { currentUser, invalid, notFound, requireLeagueCapacity, requireUser } fr
  *
  * The free-tier league cap is enforced here, server-side, in the same transaction that
  * creates the league. A client cannot bypass it, and a race between two concurrent creates
- * cannot exceed the cap because Convex mutations are serialisable.
+ * cannot exceed the cap because Convex mutations are serializable.
  */
 
 const slotValidator = v.object({
