@@ -61,3 +61,6 @@ scripts/__tmp_*
 # Left only if a mutation run is killed mid-test; the next run cleans it up.
 *.mutate-backup
 .mutate-lock
+
+# Agent worktrees — ephemeral checkouts, never part of the tree
+.claude/worktrees/
