@@ -81,8 +81,14 @@ Adding a sport means adding an adapter under `lib/<sport>/` that implements the 
   `String.split(",")`.
 - **The current stats release is `stats_player_week_{season}.csv`.** The older
   `player_stats` release stops at 2024 and spells several columns differently.
-- **Convex needs its own `@/*` path mapping** (`convex/tsconfig.json`). Without it, shared
-  imports silently degrade to `{}`.
+- **Nothing under `lib/` or `convex/` may import through the `@/*` alias.** It resolves
+  under Next.js and not under the three other resolvers that compile the same files — tsc
+  against `convex/tsconfig.json`, vitest, tsx, and the esbuild bundler Convex deploys with.
+  `convex/tsconfig.json` therefore carries no `paths` mapping, deliberately, and everything
+  shared imports by relative path so all four agree. This entry used to say the opposite —
+  that Convex *needs* the mapping — which was true before the imports were relative and is
+  the sort of stale guideline a reviewer will cite at you. `lib/import-alias.test.ts`
+  enforces it now, so the rule cannot rot again.
 
 ## Not built yet
 
