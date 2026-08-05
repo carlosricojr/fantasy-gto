@@ -17,5 +17,38 @@
     "season": 2024,
     "offMae": 5.882092473844083,
     "onMae": 5.834647316908539
+  },
+  "significance": {
+    "comparison": "baseline: mean of prior games",
+    "clusters": 308,
+    "meanDelta": 0.16415399823742924,
+    "clusteredStandardError": 0.04432354412310725,
+    "iidStandardError": 0.03642950998940415,
+    "degreesOfFreedom": 307,
+    "t": 3.703539540554263,
+    "pValue": 0.00025204430694651686,
+    "confidenceInterval": [
+      0.07693761689988876,
+      0.2513703795749697
+    ],
+    "percentConfidenceInterval": [
+      1.28492624761005,
+      4.198107656594791
+    ],
+    "minimumDetectableEffect": 0.12417618602967521,
+    "minimumDetectablePercent": 2.0738521309446587,
+    "bootstrap": {
+      "resamples": 2000,
+      "seed": 8675309,
+      "standardError": 0.04443948535787112,
+      "confidenceInterval": [
+        0.07690554519275836,
+        0.2515445188163361
+      ],
+      "percentConfidenceInterval": [
+        1.2920483666164129,
+        4.182722529393904
+      ]
+    }
   }
 }

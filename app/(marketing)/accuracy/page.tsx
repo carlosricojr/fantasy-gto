@@ -30,6 +30,19 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * backtest could have made the old hard-coded "Quarterbacks are our worst position" false
  * with every test still green.
  *
+ * The headline edge is shown with its confidence interval rather than alone. A point
+ * estimate quietly invites the reader to believe every digit of it, and this one is far
+ * less precise than two decimal places suggest. The interval is measured against the
+ * full-history average specifically, so it is rendered only when that is the baseline being
+ * quoted; attaching it to the other comparison would be pairing a number with an
+ * uncertainty computed for something else.
+ *
+ * The paragraph about the same players recurring is there because the alternative is worse
+ * than omitting it. Anyone who divides the spread of weekly errors by the square root of
+ * the sample gets a visibly tighter interval than the one on this page and concludes we
+ * padded it. The reason it is wider is the clustering, and saying so is cheaper than being
+ * disbelieved.
+ *
  * The one number still written literally is the "around 12" typical weekly score used to
  * give the error a sense of scale. It is deliberately rounded and illustrative rather than
  * a measurement, it is not a claim about the model, and it appears in
@@ -91,6 +104,13 @@ export default function AccuracyPage() {
   const toughest = priorGames.mae <= lastThree.mae ? priorGames : lastThree;
   const weakest = toughest === priorGames ? lastThree : priorGames;
 
+  // The interval is measured against the full-history average, so it may only be shown
+  // next to that comparison. `toughest` is chosen by measured error and could in principle
+  // land on the other baseline; if it ever did, quoting this interval beside it would be
+  // attaching an uncertainty to a number it was not computed for.
+  const [intervalLow, intervalHigh] = metrics.significance.percentConfidenceInterval;
+  const intervalApplies = toughest === priorGames;
+
   // Ranked by measured error rather than by assumption. Finishing first is what the
   // backtest says today, not something the page is entitled to assert — if a future run
   // puts a baseline ahead of us, this renders that instead of still claiming the win.
@@ -139,6 +159,13 @@ export default function AccuracyPage() {
             <dt className="mt-1 text-sm text-muted-foreground">
               {toughest.edge >= 0 ? "sharper than" : "behind"} the stronger of the two
               baselines we tried
+              {intervalApplies && (
+                <>
+                  , somewhere between{" "}
+                  <span className="tabular-nums">{intervalLow.toFixed(2)}%</span> and{" "}
+                  <span className="tabular-nums">{intervalHigh.toFixed(2)}%</span>
+                </>
+              )}
             </dt>
             <dd className="text-3xl font-semibold tracking-tight tabular-nums text-brand">
               {toughest.edge.toFixed(2)}%
@@ -213,6 +240,41 @@ export default function AccuracyPage() {
           {weakest.edge.toFixed(2)}% is real too, but leading with it would be picking the
           easier matchup and calling it a win.
         </p>
+
+        {intervalApplies && (
+          <div className="mt-6 rounded-xl border border-dashed p-5">
+            <h3 className="font-medium">How sure are we about that number?</h3>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Reasonably, and not more than that. The range we can actually defend is{" "}
+              <strong className="tabular-nums text-foreground">
+                {intervalLow.toFixed(2)}%
+              </strong>{" "}
+              to{" "}
+              <strong className="tabular-nums text-foreground">
+                {intervalHigh.toFixed(2)}%
+              </strong>{" "}
+              &mdash; an interval built this way covers the true edge nineteen times out of
+              twenty. It does not include zero, so the edge is real rather than luck &mdash;
+              but &ldquo;{toughest.edge.toFixed(2)}%&rdquo; on its own is more precision than{" "}
+              {metrics.sampleSize.toLocaleString("en-US")} player-weeks can support.
+            </p>
+            <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
+              That range is wider than the obvious arithmetic gives, on purpose. The same{" "}
+              {metrics.significance.clusters} players account for all{" "}
+              {metrics.sampleSize.toLocaleString("en-US")} of those weeks, and a player we
+              consistently misread produces the same miss over and over rather than
+              seventeen independent verdicts on the model. Treating every week as fresh
+              evidence would have made this interval look{" "}
+              {(
+                (1 -
+                  metrics.significance.iidStandardError /
+                    metrics.significance.clusteredStandardError) *
+                100
+              ).toFixed(0)}
+              % tighter than it has any right to be.
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="relative mx-auto max-w-4xl px-6 py-10">

@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  POWER_MULTIPLIER,
+  studentTQuantile,
+  studentTTwoSided,
+} from "../../core/stats";
 import metrics from "./published-metrics.json";
 
 /**
@@ -82,6 +87,137 @@ describe("published metrics", () => {
   it("covers every position the interface names", () => {
     for (const position of ["QB", "RB", "WR", "TE"]) {
       expect(metrics.perPositionMae[position as "QB"]).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * The interval published beside the headline edge.
+ *
+ * These checks matter more than the ones above, because an interval is the one figure on
+ * the page a reader cannot sanity-check by eye. A point estimate that drifts looks wrong
+ * eventually; an interval that is too narrow by a factor of 1.22 looks exactly like a
+ * correct one, and it is the number every future decision about this model gets made
+ * against.
+ *
+ * So each figure is recomputed here from the others using the same estimators the script
+ * used, rather than compared against a value written down once. That is what would catch a
+ * hand-edited artifact, a swapped standard error, or an interval left behind by a model
+ * change.
+ */
+describe("published significance", () => {
+  const { significance } = metrics;
+
+  it("differences the two MAEs it claims to difference", () => {
+    expect(significance.meanDelta).toBeCloseTo(
+      metrics.priorGamesMeanMae - metrics.modelMae,
+      10,
+    );
+    expect(significance.comparison).toContain("prior games");
+  });
+
+  it("has fewer players than player-weeks, which is why it clusters at all", () => {
+    // The whole reason the clustered standard error exists. If these were equal, every
+    // player appeared once and there would be nothing to cluster.
+    expect(significance.clusters).toBeGreaterThan(1);
+    expect(significance.clusters).toBeLessThan(metrics.sampleSize);
+    expect(significance.degreesOfFreedom).toBe(significance.clusters - 1);
+  });
+
+  it("builds t and p from the clustered standard error, not the i.i.d. one", () => {
+    // The single most consequential way this artifact could be wrong: the two standard
+    // errors differ by 22% on this sample, so a swap would still look entirely plausible
+    // while overstating every significance claim built on it.
+    expect(significance.t).toBeCloseTo(
+      significance.meanDelta / significance.clusteredStandardError,
+      10,
+    );
+    expect(significance.pValue).toBeCloseTo(
+      studentTTwoSided(significance.t, significance.degreesOfFreedom),
+      12,
+    );
+    expect(significance.pValue).toBeGreaterThan(0);
+    expect(significance.pValue).toBeLessThanOrEqual(1);
+  });
+
+  it("is the interval those figures imply", () => {
+    const half =
+      studentTQuantile(0.975, significance.degreesOfFreedom) *
+      significance.clusteredStandardError;
+    expect(significance.confidenceInterval[0]).toBeCloseTo(
+      significance.meanDelta - half,
+      10,
+    );
+    expect(significance.confidenceInterval[1]).toBeCloseTo(
+      significance.meanDelta + half,
+      10,
+    );
+    expect(significance.confidenceInterval[0]).toBeLessThan(significance.meanDelta);
+    expect(significance.confidenceInterval[1]).toBeGreaterThan(significance.meanDelta);
+  });
+
+  it("scales the percentage interval by the same baseline the edge is scaled by", () => {
+    // If these used different denominators, the interval on the page would not be an
+    // interval around the number printed next to it.
+    for (const end of [0, 1] as const) {
+      expect(significance.percentConfidenceInterval[end]).toBeCloseTo(
+        (significance.confidenceInterval[end] / metrics.priorGamesMeanMae) * 100,
+        10,
+      );
+    }
+    expect(metrics.edgeVsPriorGamesMean).toBeGreaterThan(
+      significance.percentConfidenceInterval[0],
+    );
+    expect(metrics.edgeVsPriorGamesMean).toBeLessThan(
+      significance.percentConfidenceInterval[1],
+    );
+  });
+
+  it("derives the minimum detectable effect from the standard error", () => {
+    expect(significance.minimumDetectableEffect).toBeCloseTo(
+      POWER_MULTIPLIER * significance.clusteredStandardError,
+      10,
+    );
+    expect(significance.minimumDetectablePercent).toBeCloseTo(
+      (significance.minimumDetectableEffect / metrics.priorGamesMeanMae) * 100,
+      10,
+    );
+  });
+
+  it("agrees with the bootstrap that cross-checks it", () => {
+    // A distribution-free estimate of the same quantity, from resampled players. The
+    // tolerance is 10% and describes the method rather than this run: 2,000 resamples carry
+    // a Monte Carlo error near 1.6% on a standard error, and the two estimators are not the
+    // same algebra. Agreement here is what says the analytic formula is not quietly wrong.
+    expect(significance.bootstrap.resamples).toBeGreaterThanOrEqual(2000);
+    const ratio =
+      significance.bootstrap.standardError / significance.clusteredStandardError;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+    for (const end of [0, 1] as const) {
+      expect(
+        Math.abs(
+          significance.bootstrap.percentConfidenceInterval[end] -
+            significance.percentConfidenceInterval[end],
+        ),
+      ).toBeLessThan(0.1 * significance.minimumDetectablePercent);
+    }
+  });
+
+  it("agrees with docs/model-validation.md, the sole authority for these claims", () => {
+    expect(validation).toContain(significance.clusteredStandardError.toFixed(4));
+    expect(validation).toContain(significance.iidStandardError.toFixed(4));
+    expect(validation).toContain(significance.t.toFixed(2));
+    expect(validation).toContain(significance.pValue.toFixed(5));
+    expect(validation).toContain(String(significance.clusters));
+    expect(validation).toContain(significance.minimumDetectableEffect.toFixed(4));
+    expect(validation).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
+    expect(validation).toContain(significance.bootstrap.standardError.toFixed(4));
+    for (const end of [0, 1] as const) {
+      expect(validation).toContain(significance.confidenceInterval[end].toFixed(4));
+      expect(validation).toContain(
+        `${significance.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
     }
   });
 });

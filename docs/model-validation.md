@@ -77,6 +77,88 @@ overfitted to its tuning season.
 baseline. The 8.46% figure against a last-3-game baseline is real, but quoting it while
 omitting the stronger baseline would be cherry-picking.
 
+## How certain that 2.74% is
+
+For a long time this document published a point estimate and nothing beside it, which left
+a reader no way to distinguish a measured result from a coin landing the same way twice.
+`pnpm backtest` now prints an interval and a significance test for every model-versus-
+baseline comparison, on both seasons, and `lib/nfl/model/published-metrics.json` carries
+the evaluation-season one.
+
+Two properties of the data set the method.
+
+**The comparison is paired.** The model and the baseline predict the same player-weeks, so
+the quantity to average is the per-observation difference in absolute error. Comparing the
+two MAEs as if they were independent samples throws the pairing away and inflates the
+standard error several times over.
+
+**The observations are not independent.** A player appears up to seventeen times in a
+season, and a player the model systematically misreads contributes seventeen correlated
+errors rather than seventeen pieces of evidence. The standard error is therefore clustered
+by player, using the sandwich estimator specialised to a mean. On 2025 that matters: the
+i.i.d. figure is 0.0364 and the clustered one is **22% larger** at 0.0443. A *t* statistic
+built on the naive one would have read 4.51 rather than 3.70.
+
+### 2025 — model against the prior-games-mean baseline
+
+n = 3,037 player-weeks over **308** distinct players.
+
+| Quantity | Value |
+| --- | --- |
+| ΔMAE (baseline − model) | +0.1642 points |
+| Standard error, clustered by player | **0.0443** |
+| Standard error, assuming independence | 0.0364 |
+| *t*, on 307 degrees of freedom | **3.70** |
+| Two-sided *p* | 0.00025 |
+| 95% CI on ΔMAE | [0.0769, 0.2514] |
+| **95% CI on the edge** | **1.28% to 4.20%** |
+| Minimum detectable effect, 80% power | 0.1242 (**2.07%**) |
+
+The reference distribution is Student's *t* on `G − 1` degrees of freedom, not the normal,
+because the cluster count is what the estimator has to work with. The *p*-value is computed
+as an incomplete-beta tail rather than as `2 × (1 − CDF)`, which underflows to exactly zero
+past about *t* = 8 — the last-3-games comparison below would otherwise print a *p* of 0,
+claiming infinite certainty from 308 players.
+
+Against the weaker last-3-games baseline the same run gives ΔMAE +0.5383, clustered SE
+0.0527, *t* = 10.21, *p* = 3.01e-21, and a 95% CI on the edge of 6.83% to 10.09%.
+
+### The bootstrap cross-check
+
+The analytic interval assumes the sandwich estimator is right. A block bootstrap over
+**players** — 2,000 resamples, seed 8675309, drawn from `lib/core/rng.ts` so the figure is
+reproducible rather than different every run — checks it without that assumption. Whole
+players are resampled with replacement, never individual player-weeks: resampling
+player-weeks would destroy the very correlation the clustering exists to account for and
+would agree with the naive estimator instead, an agreement proving only that both sides made
+the same mistake.
+
+It returns a standard error of 0.0444 against the analytic 0.0443, and an interval on the
+edge of 1.29% to 4.18% against 1.28% to 4.20%. The two methods agree to well within their
+own Monte Carlo error.
+
+The percentage interval is the interval on ΔMAE rescaled by the baseline MAE, which treats
+that baseline as fixed. The bootstrap recomputes both MAEs inside every resample and so
+propagates the denominator properly; that it lands in the same place is the evidence the
+approximation is harmless here.
+
+### What the interval means for future work
+
+**The 2.74% edge is real: the interval excludes zero, and comfortably.** It is also
+imprecise. The honest reading of `1.28% to 4.20%` is "a small edge, somewhere between
+barely worth having and modestly worth having", not "2.74%".
+
+The line that matters most for anything built next is the **minimum detectable effect: 0.1242
+MAE, or 2.07% of the baseline**. That is the smallest true improvement this sample could
+distinguish from noise at 80% power. On the tuning season, where the clustered SE is 0.0392,
+it is 0.1099 — 1.83%.
+
+A feature that genuinely improves weekly MAE by 1% therefore cannot be established on one
+season of this population. Measuring it anyway does not produce a weak result; it produces a
+number with roughly a coin flip's chance of pointing the right way, which looks exactly like
+a result and is not one. Any hypothesis smaller than the figure above needs a wider
+evaluation window before it is tested, not a more hopeful reading of a single season.
+
 ### Correction: lookahead bias, found in review and removed
 
 An earlier run of this backtest reported **2.29%**. That figure was contaminated.

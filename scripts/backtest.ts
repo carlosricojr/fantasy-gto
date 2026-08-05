@@ -16,6 +16,10 @@
  * - Only rosterable players are scored: at least `MIN_PRIOR_GAMES` of history and a
  *   recent average of at least `MIN_RECENT_AVERAGE`. Including deep-bench players with no
  *   usage would flatter every model equally and measure nothing.
+ * - Every model-versus-baseline difference is reported with a standard error clustered by
+ *   player, not as a bare point estimate. Player-weeks repeat the same player up to
+ *   seventeen times, so treating them as independent understates the error and overstates
+ *   how much any comparison here has established. See `lib/core/stats.ts`.
  */
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -34,6 +38,12 @@ import {
   LEAGUE_MEAN_IMPLIED_TEAM_TOTAL,
   type ModelConfig,
 } from "@/lib/nfl/model/config";
+import {
+  type PairedError,
+  bootstrapPairedComparison,
+  pairedComparison,
+  quantile,
+} from "@/lib/core/stats";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { scoreOffense } from "@/lib/nfl/scoring/score";
 import type { Position } from "@/lib/nfl/scoring/types";
@@ -47,11 +57,56 @@ import type { PlayerWeek } from "@/lib/nfl/stats/parse";
 const TUNING_SEASON = 2024;
 const EVALUATION_SEASON = 2025;
 
+/**
+ * Resamples in the block bootstrap, and the seed that drives it.
+ *
+ * The seed is arbitrary but fixed and written down, so every interval this script prints is
+ * reproducible rather than a number that shifts between runs. Two thousand resamples put
+ * the Monte Carlo error on the bootstrap standard error at roughly 1.6%, which is well
+ * inside the tolerance at which it is being used — as a distribution-free check on the
+ * analytic figure, not as a replacement for it.
+ */
+const BOOTSTRAP_RESAMPLES = 2_000;
+const BOOTSTRAP_SEED = 8_675_309;
+
 /** Where the published figures are written for the interface to import. */
 const PUBLISHED_METRICS_PATH = join(
   process.cwd(),
   "lib/nfl/model/published-metrics.json",
 );
+
+/**
+ * How certain the headline edge is.
+ *
+ * The product published `edgeVsPriorGamesMean` for a long time with nothing beside it, so a
+ * reader had no way to tell a measured result from a coin landing the same way twice. Every
+ * figure here describes the model-versus-prior-games-mean comparison on the evaluation
+ * season — the one the interface quotes.
+ */
+interface PublishedSignificance {
+  comparison: string;
+  /** Distinct players. The effective sample size, and far smaller than `sampleSize`. */
+  clusters: number;
+  /** `priorGamesMeanMae − modelMae`, in fantasy points. */
+  meanDelta: number;
+  clusteredStandardError: number;
+  /** What assuming independence would have given. Published to show the size of the gap. */
+  iidStandardError: number;
+  degreesOfFreedom: number;
+  t: number;
+  pValue: number;
+  confidenceInterval: [number, number];
+  percentConfidenceInterval: [number, number];
+  minimumDetectableEffect: number;
+  minimumDetectablePercent: number;
+  bootstrap: {
+    resamples: number;
+    seed: number;
+    standardError: number;
+    confidenceInterval: [number, number];
+    percentConfidenceInterval: [number, number];
+  };
+}
 
 /** The shape `/accuracy` and the landing page consume. */
 interface PublishedMetrics {
@@ -66,6 +121,7 @@ interface PublishedMetrics {
   perPositionMae: Record<string, number>;
   /** Measured on the tuning season, which is where calibration is fitted. */
   calibration: { season: number; onMae: number; offMae: number };
+  significance: PublishedSignificance;
 }
 const PRIOR_SEASON = 2023;
 
@@ -93,6 +149,8 @@ function mean(values: readonly number[]): number {
 }
 
 interface Evaluation {
+  /** The clustering unit. Kept per row so a comparison can be player-clustered. */
+  competitorId: string;
   position: Position;
   predicted: number;
   actual: number;
@@ -236,9 +294,20 @@ async function main(): Promise<void> {
           config,
         });
 
-        model.push({ position, predicted: projection.mean, actual });
-        allPriorMean.push({ position, predicted: mean(priorPoints), actual });
-        lastThree.push({ position, predicted: mean(priorPoints.slice(-3)), actual });
+        const competitorId = week.competitor.id;
+        model.push({ competitorId, position, predicted: projection.mean, actual });
+        allPriorMean.push({
+          competitorId,
+          position,
+          predicted: mean(priorPoints),
+          actual,
+        });
+        lastThree.push({
+          competitorId,
+          position,
+          predicted: mean(priorPoints.slice(-3)),
+          actual,
+        });
       }
     }
     return { model, allPriorMean, lastThree };
@@ -253,14 +322,92 @@ async function main(): Promise<void> {
     return mean(rows.map((r) => r.actual - r.predicted));
   }
 
-  /** Linear-interpolated quantile of a sorted copy. */
-  function quantile(values: readonly number[], q: number): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
-    const at = (sorted.length - 1) * q;
-    const lower = Math.floor(at);
-    const upper = Math.min(lower + 1, sorted.length - 1);
-    return sorted[lower] + (at - lower) * (sorted[upper] - sorted[lower]);
+  /**
+   * Pairs a model row against the baseline row for the same player-week.
+   *
+   * `evaluate` pushes all three predictors inside one loop, so index `i` is the same
+   * player-week in each. That is an invariant worth checking rather than trusting: pairing
+   * against the wrong rows would still produce a plausible mean difference and a standard
+   * error that means nothing, and nothing downstream would look wrong.
+   */
+  function paired(
+    model: readonly Evaluation[],
+    baseline: readonly Evaluation[],
+  ): PairedError[] {
+    if (model.length !== baseline.length) {
+      throw new Error(
+        `paired: ${model.length} model rows against ${baseline.length} baseline rows`,
+      );
+    }
+    return model.map((row, i) => {
+      if (baseline[i].competitorId !== row.competitorId) {
+        throw new Error(`paired: rows misaligned at ${i}`);
+      }
+      return {
+        cluster: row.competitorId,
+        model: Math.abs(row.predicted - row.actual),
+        baseline: Math.abs(baseline[i].predicted - baseline[i].actual),
+      };
+    });
+  }
+
+  /**
+   * A p-value small enough to underflow is printed as a bound, never as zero.
+   *
+   * `p = 0` would claim a certainty no finite sample supports. The bound printed instead is
+   * the smallest positive double there is, which is where the tail computation runs out —
+   * the true value is below it, and how far below is not something this arithmetic knows.
+   */
+  function formatP(p: number): string {
+    if (p === 0) return `< ${Number.MIN_VALUE.toExponential(0)}`;
+    return p < 1e-4 ? `= ${p.toExponential(2)}` : `= ${p.toFixed(4)}`;
+  }
+
+  /**
+   * Prints the difference against one baseline with its uncertainty.
+   *
+   * The minimum detectable effect is the line to read first when planning any change to the
+   * model: an effect smaller than it cannot be told from noise on this sample no matter
+   * what the run comes back with, so measuring one is not evidence, it is a coin flip with
+   * extra steps.
+   */
+  function reportComparison(
+    label: string,
+    model: readonly Evaluation[],
+    baseline: readonly Evaluation[],
+  ) {
+    const rows = paired(model, baseline);
+    const result = pairedComparison(rows);
+    const boot = bootstrapPairedComparison(rows, {
+      resamples: BOOTSTRAP_RESAMPLES,
+      seed: BOOTSTRAP_SEED,
+    });
+    const signed = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
+
+    process.stdout.write(
+      `\n  significance vs ${label}\n` +
+        `    delta MAE                 ${signed(result.meanDelta)}   ` +
+        `(${result.percentEdge >= 0 ? "+" : ""}${result.percentEdge.toFixed(2)}%)\n` +
+        `    clustered SE               ${result.standardError.toFixed(4)}   ` +
+        `G = ${result.clusters} players, n = ${result.n}\n` +
+        // Reported as a ratio rather than as "understates by x%", because it does not
+        // always understate. Clustering inflates the standard error only when a player's
+        // paired differences reinforce each other; against the last-3-games baseline they
+        // partly cancel, and the clustered figure comes out slightly smaller.
+        `    i.i.d. SE                  ${result.iidStandardError.toFixed(4)}   ` +
+        `clustered / i.i.d. = ${(result.standardError / result.iidStandardError).toFixed(2)}\n` +
+        `    t                         ${signed(result.t)}   ` +
+        `df = ${result.degreesOfFreedom}, p ${formatP(result.pValue)}\n` +
+        `    95% CI on delta MAE       [${result.interval[0].toFixed(4)}, ${result.interval[1].toFixed(4)}]\n` +
+        `    95% CI on the edge        [${result.percentInterval[0].toFixed(2)}%, ${result.percentInterval[1].toFixed(2)}%]\n` +
+        `    MDE at 80% power           ${result.minimumDetectableEffect.toFixed(4)}   ` +
+        `(${result.minimumDetectablePercent.toFixed(2)}%)\n` +
+        `    bootstrap, ${boot.resamples} resamples, seed ${boot.seed}\n` +
+        `      SE                       ${boot.standardError.toFixed(4)}\n` +
+        `      95% CI on delta MAE     [${boot.interval[0].toFixed(4)}, ${boot.interval[1].toFixed(4)}]\n` +
+        `      95% CI on the edge      [${boot.percentInterval[0].toFixed(2)}%, ${boot.percentInterval[1].toFixed(2)}%]\n`,
+    );
+    return { result, boot };
   }
 
   /**
@@ -272,6 +419,8 @@ async function main(): Promise<void> {
    * MAE table is built from.
    */
   function reportQuantiles(rows: readonly Evaluation[]): void {
+    // A position with no rows renders as NaN rather than as 0.000, which is deliberate: a
+    // zero here would read as a measured quantile of zero.
     process.stdout.write(
       `\n  outcome quantiles (actual / predicted), for floor and ceiling\n` +
         `  ${"position".padEnd(10)}${"n".padStart(6)}${"p10".padStart(9)}${"p90".padStart(9)}\n`,
@@ -325,8 +474,10 @@ async function main(): Promise<void> {
    * moment the model changes, the page states something no longer true and nothing
    * detects it.
    */
-  let publishedMetrics: Omit<PublishedMetrics, "calibration"> | null = null;
+  let publishedMetrics: Omit<PublishedMetrics, "calibration" | "significance"> | null =
+    null;
   let calibrationEffect: PublishedMetrics["calibration"] | null = null;
+  let significance: PublishedSignificance | null = null;
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
@@ -367,8 +518,40 @@ async function main(): Promise<void> {
       `  vs last 3 games: ${(((lastMae - modelMae) / lastMae) * 100).toFixed(2)}%\n`,
     );
 
+    // Both baselines, both seasons. The tuning season's figures are in-sample and are not
+    // a claim about accuracy, but their standard error is the one that sizes every future
+    // hypothesis: an effect below the MDE printed there cannot be established on a single
+    // season of this population, whichever season it is.
+    const vsPriorGamesMean = reportComparison(
+      "baseline: mean of prior games",
+      model,
+      allPriorMean,
+    );
+    reportComparison("baseline: last 3 games", model, lastThree);
+
     if (season === EVALUATION_SEASON) {
       reportQuantiles(model);
+      significance = {
+        comparison: "baseline: mean of prior games",
+        clusters: vsPriorGamesMean.result.clusters,
+        meanDelta: vsPriorGamesMean.result.meanDelta,
+        clusteredStandardError: vsPriorGamesMean.result.standardError,
+        iidStandardError: vsPriorGamesMean.result.iidStandardError,
+        degreesOfFreedom: vsPriorGamesMean.result.degreesOfFreedom,
+        t: vsPriorGamesMean.result.t,
+        pValue: vsPriorGamesMean.result.pValue,
+        confidenceInterval: [...vsPriorGamesMean.result.interval],
+        percentConfidenceInterval: [...vsPriorGamesMean.result.percentInterval],
+        minimumDetectableEffect: vsPriorGamesMean.result.minimumDetectableEffect,
+        minimumDetectablePercent: vsPriorGamesMean.result.minimumDetectablePercent,
+        bootstrap: {
+          resamples: vsPriorGamesMean.boot.resamples,
+          seed: vsPriorGamesMean.boot.seed,
+          standardError: vsPriorGamesMean.boot.standardError,
+          confidenceInterval: [...vsPriorGamesMean.boot.interval],
+          percentConfidenceInterval: [...vsPriorGamesMean.boot.percentInterval],
+        },
+      };
       publishedMetrics = {
         season,
         sampleSize: model.length,
@@ -508,16 +691,22 @@ async function main(): Promise<void> {
 
   if (publishedMetrics === null) throw new Error("evaluation season produced no metrics");
   if (calibrationEffect === null) throw new Error("calibration effect not measured");
+  if (significance === null) throw new Error("significance not measured");
   writeFileSync(
     PUBLISHED_METRICS_PATH,
-    `${JSON.stringify({ ...publishedMetrics, calibration: calibrationEffect }, null, 2)}\n`,
+    `${JSON.stringify(
+      { ...publishedMetrics, calibration: calibrationEffect, significance },
+      null,
+      2,
+    )}\n`,
   );
   process.stdout.write(
     `\n  wrote ${PUBLISHED_METRICS_PATH.replace(`${process.cwd()}/`, "")}\n`,
   );
 
   process.stdout.write(
-    "\nThe out-of-sample figure is the only one the product may quote.\n" +
+    "\nThe out-of-sample figure is the only one the product may quote, and it is quoted\n" +
+      "with the interval printed beside it rather than on its own.\n" +
       "Update docs/model-validation.md in the same commit as any model change.\n" +
       "Run with --sweeps to reproduce how the frozen parameters were chosen.\n",
   );

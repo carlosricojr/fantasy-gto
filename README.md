@@ -175,7 +175,7 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.74% better than a prior-games-mean baseline" | `pnpm backtest`, out-of-sample on 2025, n=3,037. Recorded in [`docs/model-validation.md`](docs/model-validation.md), and written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing page render directly rather than restating. `published-metrics.test.ts` asserts the artifact and the document agree. |
+| "2.74% better than a prior-games-mean baseline, 95% CI 1.28% to 4.20%" | `pnpm backtest`, out-of-sample on 2025, n=3,037 player-weeks over 308 players. The interval uses a standard error clustered by player — the same player appears up to seventeen times, and the clustered error is 22% larger than the i.i.d. one that treats each week as fresh evidence. Two-sided *p* = 0.00025, cross-checked by a seeded block bootstrap over players. Recorded in [`docs/model-validation.md`](docs/model-validation.md), and written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing page render directly rather than restating. `published-metrics.test.ts` recomputes every figure in that artifact from the others and asserts it agrees with the document. |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
@@ -287,6 +287,11 @@ Stated plainly rather than left to be discovered.
 - **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
   entitlement table and are gated, with no implementation behind them yet.
 - **The model has a known −0.57 point high bias**, disclosed on `/accuracy`.
+- **One season cannot detect an improvement smaller than about 2%.** The minimum detectable
+  effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline. Anything
+  finer than that measured on a single season is a coin flip wearing a decimal point, and
+  the fix is a wider evaluation window rather than a more hopeful reading. See
+  [`docs/model-validation.md`](docs/model-validation.md).
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.
