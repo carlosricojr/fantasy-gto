@@ -12,7 +12,8 @@ roster scores higher.
 ```bash
 pnpm install
 pnpm verify                # typecheck, lint, tests
-pnpm backtest              # reproduce the published accuracy figures
+pnpm backtest              # development + tuning sets; leaves the 2025 holdout untouched
+pnpm backtest -- --holdout # scores the holdout and rewrites the published figures
 pnpm backtest -- --sweeps  # reproduce how each parameter was chosen
 pnpm dev                   # Next.js + Convex
 ```
@@ -191,7 +192,7 @@ removes. Neither claim appears anywhere in the product. Both are struck through 
 `docs/technical-specification.md`, which is retained only as the record of original intent
 and is marked superseded at the top.
 
-Any change to the model must re-run `pnpm backtest` and update `docs/model-validation.md`
+Any change to the model must re-run `pnpm backtest -- --holdout` and update `docs/model-validation.md`
 in the same commit. A number that is not in that document may not appear in the interface.
 
 ## Entitlements
@@ -290,8 +291,9 @@ Stated plainly rather than left to be discovered.
 - **One season cannot detect an improvement smaller than about 2%.** The minimum detectable
   effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline, and no
   measured effect below 1.46% can be reported as significant at all. A true 1% improvement
-  therefore cannot produce a significant result at its own size — only an inflated one — so
-  the fix is a wider evaluation window, not a more hopeful reading of one season. See
+  therefore cannot produce a significant result at its own size — only an inflated one. The
+  development set (2013–2021, 26,837 player-weeks over 846 players) brings that floor down
+  to 0.72%, which is why anything smaller is measured there and not on one season. See
   [`docs/model-validation.md`](docs/model-validation.md).
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the

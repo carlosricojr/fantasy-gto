@@ -115,6 +115,60 @@ describe("published metrics", () => {
  * hand-edited artifact, a swapped standard error, or an interval left behind by a model
  * change.
  */
+/**
+ * The frozen pipeline's own figures, pinned as literals.
+ *
+ * Every other assertion in this file recomputes one artifact figure from another, which
+ * catches internal inconsistency but would happily accept a wholesale shift — if the model
+ * changed, or if the backtest started feeding it a different history, all of these would
+ * move together and stay self-consistent.
+ *
+ * These are the numbers that were measured on the holdout under the configuration frozen
+ * before 2025 was looked at, transcribed here deliberately. Widening the evaluation window
+ * to 2013–2024 must not move them: the holdout runs under `FROZEN_HISTORY_SEASONS` rather
+ * than the uniform lookback for exactly that reason. If this test fails, either the model
+ * changed — in which case the holdout has been re-evaluated and that needs to have been a
+ * pre-registered decision — or the frozen path has been broken by accident.
+ *
+ * Pinned at the precision they are published at. Reordering players changed the last digit
+ * or two of these doubles through floating-point summation before the iteration order was
+ * made canonical, and pinning a full double would be pinning an artifact of accumulation
+ * order rather than a measurement.
+ */
+const FROZEN_HOLDOUT = {
+  season: 2025,
+  sampleSize: 3037,
+  clusters: 308,
+  modelMae: "5.8236",
+  priorGamesMeanMae: "5.9877",
+  lastThreeMae: "6.3618",
+  edgeVsPriorGamesMean: "2.74",
+  edgeVsLastThree: "8.46",
+  bias: "-0.573",
+  clusteredStandardError: "0.0443",
+  t: "3.7035",
+} as const;
+
+describe("the frozen holdout evaluation", () => {
+  it("still produces the figures it produced before the window was widened", () => {
+    expect(metrics.season).toBe(FROZEN_HOLDOUT.season);
+    expect(metrics.sampleSize).toBe(FROZEN_HOLDOUT.sampleSize);
+    expect(metrics.significance.clusters).toBe(FROZEN_HOLDOUT.clusters);
+    expect(metrics.modelMae.toFixed(4)).toBe(FROZEN_HOLDOUT.modelMae);
+    expect(metrics.priorGamesMeanMae.toFixed(4)).toBe(FROZEN_HOLDOUT.priorGamesMeanMae);
+    expect(metrics.lastThreeMae.toFixed(4)).toBe(FROZEN_HOLDOUT.lastThreeMae);
+    expect(metrics.edgeVsPriorGamesMean.toFixed(2)).toBe(
+      FROZEN_HOLDOUT.edgeVsPriorGamesMean,
+    );
+    expect(metrics.edgeVsLastThree.toFixed(2)).toBe(FROZEN_HOLDOUT.edgeVsLastThree);
+    expect(metrics.bias.toFixed(3)).toBe(FROZEN_HOLDOUT.bias);
+    expect(metrics.significance.clusteredStandardError.toFixed(4)).toBe(
+      FROZEN_HOLDOUT.clusteredStandardError,
+    );
+    expect(metrics.significance.t.toFixed(4)).toBe(FROZEN_HOLDOUT.t);
+  });
+});
+
 describe("published significance", () => {
   const { significance } = metrics;
 

@@ -327,7 +327,15 @@ export function bootstrapPairedComparison(
     entry.count += 1;
     totals.set(row.cluster, entry);
   }
-  const clusters = [...totals.values()];
+  // Sorted by key, not left in insertion order. The resample picks clusters by index, so
+  // insertion order decides which players a given seed draws — and insertion order is a
+  // property of how the *caller* happened to accumulate its rows, not of the data. Loading
+  // a wider range of seasons in the backtest reordered the map and silently moved this
+  // interval while every analytic figure stayed put. A published interval that depends on
+  // upstream iteration order is not reproducible from its seed, whatever the seed says.
+  const clusters = [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, value]) => value);
   if (clusters.length < 2) {
     throw new Error(
       `bootstrapPairedComparison: needs at least 2 clusters, got ${clusters.length}`,
