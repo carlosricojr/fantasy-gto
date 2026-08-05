@@ -205,8 +205,15 @@ state.
 | --- | --- | --- |
 | Projections, lineup optimizer | ✓ (no account needed) | ✓ |
 | Start/sit advice | ✓ | ✓ |
-| Leagues | 3 | **unlimited** |
+| Leagues | 1 | **unlimited** |
 | Everything else in the plan | — | *not built* |
+
+The cap lives in `lib/billing/entitlements.ts` and every surface derives from it — server
+enforcement, `/pricing`, `/dashboard`, and the error message a capped user sees. **The
+plan cards rendered by Clerk's `<PricingTable />` do not.** Their feature bullets are free
+text in the Clerk dashboard, no code reads them, and only the plan *key* crosses into this
+repository. Changing the cap here therefore requires editing the Clerk plan features by
+hand, or a card will advertise a limit the server refuses to honor.
 
 **Pro's only implemented differentiator today is the league cap.** That is an uncomfortable
 thing for a paid tier to admit, and it is what the code does. Every other capability named

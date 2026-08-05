@@ -89,14 +89,21 @@ export type Entitlements = Readonly<Record<FeatureKey, EntitlementValue>>;
 /**
  * The entitlement table.
  *
- * Free deliberately includes `start_sit` and three leagues. The product's whole argument
- * is that value must be demonstrated before payment is requested, and a free tier that
- * cannot answer "who do I start?" demonstrates nothing.
+ * Free deliberately includes `start_sit`. The product's whole argument is that value must
+ * be demonstrated before payment is requested, and a free tier that cannot answer "who do
+ * I start?" demonstrates nothing. That argument is about the *question*, not the number of
+ * leagues: the lineup optimizer and projections need no account and no league at all, so a
+ * visitor can see the whole product work before anything is stored.
+ *
+ * One free league is what that argument actually requires. It covers the person this is
+ * built for — someone with a team, wanting to know who to start — end to end, from saved
+ * scoring and roster format through to a lineup. Managing several leagues at once is a
+ * different job, and it is the one Pro is for.
  */
 const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
   free: {
     start_sit: true,
-    league_count: 3,
+    league_count: 1,
     daily_refresh: false,
     waivers_faab: false,
     dst_streamer: false,
@@ -235,6 +242,22 @@ export function canAddLeague(entitlements: Entitlements, currentCount: number): 
 /** True when a numeric cap is effectively unlimited, for interface copy. */
 export function isUnlimited(value: EntitlementValue): boolean {
   return typeof value === "number" && value >= UNLIMITED;
+}
+
+/**
+ * The league cap as a phrase: "1 league", "3 leagues", "unlimited leagues".
+ *
+ * Every surface that names the cap reads it from this table rather than writing a number
+ * in prose, which is what stops `/pricing`, `/dashboard`, and the server error from
+ * disagreeing. But reading the number is only half of it — the copy around it also has to
+ * survive the number changing. Four call sites hard-coded the plural, so lowering the cap
+ * to one would have shipped "up to 1 leagues" in the dashboard subtitle. Formatting the
+ * whole phrase here is what makes the cap safe to change again.
+ */
+export function describeLeagueCap(entitlements: Entitlements): string {
+  const cap = limit(entitlements, "league_count");
+  if (isUnlimited(cap)) return "unlimited leagues";
+  return `${cap} league${cap === 1 ? "" : "s"}`;
 }
 
 /**

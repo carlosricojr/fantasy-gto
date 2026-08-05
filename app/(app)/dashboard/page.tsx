@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { limit, planCapabilities } from "@/lib/billing/entitlements";
+import { describeLeagueCap, limit, planCapabilities } from "@/lib/billing/entitlements";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 
@@ -32,8 +32,8 @@ export default function DashboardPage() {
   // Convex answers queries before Clerk's token arrives, and an unauthenticated
   // `users.me` resolves to the anonymous free-tier shape rather than staying undefined.
   // Checking `me !== undefined` alone therefore cannot tell "still loading" from
-  // "answered as anonymous", and a Pro subscriber would be shown "Free — up to 3 leagues"
-  // and "No leagues yet" for as long as clerk-js takes to load.
+  // "answered as anonymous", and a Pro subscriber would be shown the free-tier cap and
+  // "No leagues yet" for as long as clerk-js takes to load.
   const { isLoading: authLoading } = useConvexAuth();
   const leagues = useQuery(api.leagues.list, {});
   const season = useQuery(api.season.current, {});
@@ -81,10 +81,13 @@ export default function DashboardPage() {
     }
   }
 
-  // Read the cap from the entitlement table rather than repeating "3" in prose. The
-  // moment the table changes, a hard-coded number would put /dashboard and /pricing in
-  // disagreement and let a capped user submit a form the server rejects.
-  const freeLeagues = limit(planCapabilities("free"), "league_count");
+  // Read the cap from the entitlement table rather than repeating it in prose. The moment
+  // the table changes, a hard-coded number would put /dashboard and /pricing in
+  // disagreement and let a capped user submit a form the server rejects. `freeLeagues` is
+  // the number for the comparison; `describeLeagueCap` supplies the phrase, so the copy
+  // stays grammatical at a cap of one.
+  const freePlan = planCapabilities("free");
+  const freeLeagues = limit(freePlan, "league_count");
   const planKnown = !authLoading && me !== undefined;
   const leaguesKnown = !authLoading && leagues !== undefined;
   const atFreeLimit =
@@ -93,8 +96,8 @@ export default function DashboardPage() {
   const subtitle = !planKnown
     ? undefined
     : me.plan === "pro"
-      ? "Pro — unlimited leagues"
-      : `Free — up to ${freeLeagues} leagues`;
+      ? `Pro — ${describeLeagueCap(planCapabilities("pro"))}`
+      : `Free — up to ${describeLeagueCap(freePlan)}`;
 
   return (
     <PageShell title="My leagues" subtitle={subtitle}>
@@ -157,7 +160,7 @@ export default function DashboardPage() {
         {atFreeLimit ? (
           <div className="mt-3 rounded-lg border border-dashed p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              Free includes {freeLeagues} leagues. Pro removes the limit.
+              Free includes {describeLeagueCap(freePlan)}. Pro removes the limit.
             </p>
             <Button asChild size="sm" className="mt-3">
               <Link href="/pricing">See plans</Link>

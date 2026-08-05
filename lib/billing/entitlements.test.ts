@@ -10,6 +10,7 @@ import {
   type Subscription,
   can,
   canAddLeague,
+  describeLeagueCap,
   effectivePlan,
   entitlementsFor,
   planCapabilities,
@@ -49,8 +50,8 @@ describe("entitlement table", () => {
     expect(can(planCapabilities("free"), "start_sit")).toBe(true);
   });
 
-  it("caps free leagues at three and makes Pro unlimited", () => {
-    expect(limit(planCapabilities("free"), "league_count")).toBe(3);
+  it("caps free leagues at one and makes Pro unlimited", () => {
+    expect(limit(planCapabilities("free"), "league_count")).toBe(1);
     expect(limit(planCapabilities("pro"), "league_count")).toBe(UNLIMITED);
   });
 
@@ -211,12 +212,36 @@ describe("effectivePlan", () => {
   });
 });
 
+describe("describeLeagueCap", () => {
+  it("is grammatical at a cap of one", () => {
+    // This exists because the cap moved from three to one, and four call sites had
+    // written the plural into the surrounding copy. Reading the number from the table
+    // was not enough on its own: it produced "up to 1 leagues".
+    expect(describeLeagueCap(planCapabilities("free"))).toBe("1 league");
+  });
+
+  it("says unlimited rather than printing MAX_SAFE_INTEGER", () => {
+    expect(describeLeagueCap(planCapabilities("pro"))).toBe("unlimited leagues");
+  });
+
+  it("pluralizes any other cap", () => {
+    // Guards the branch the current table no longer exercises, so raising the cap later
+    // cannot reintroduce the bug this function was written to remove.
+    expect(describeLeagueCap({ ...planCapabilities("free"), league_count: 3 })).toBe(
+      "3 leagues",
+    );
+    expect(describeLeagueCap({ ...planCapabilities("free"), league_count: 0 })).toBe(
+      "0 leagues",
+    );
+  });
+});
+
 describe("canAddLeague", () => {
   it("enforces the free cap", () => {
+    // The boundary is the whole test: the first league is allowed and the second is not.
     const free = entitlementsFor(FREE_SUBSCRIPTION, NOW);
     expect(canAddLeague(free, 0)).toBe(true);
-    expect(canAddLeague(free, 2)).toBe(true);
-    expect(canAddLeague(free, 3)).toBe(false);
+    expect(canAddLeague(free, 1)).toBe(false);
     expect(canAddLeague(free, 99)).toBe(false);
   });
 
@@ -295,7 +320,7 @@ describe("regression guards for the original defects", () => {
     // offers no setter, which is what makes the previous "grant unlimited to everyone"
     // bug structurally impossible rather than merely fixed.
     const free = entitlementsFor(FREE_SUBSCRIPTION, NOW);
-    expect(limit(free, "league_count")).toBe(3);
+    expect(limit(free, "league_count")).toBe(1);
   });
 
   it("returns frozen records so a caller cannot widen its own access", () => {
@@ -317,7 +342,7 @@ describe("regression guards for the original defects", () => {
           { ...FREE_SUBSCRIPTION, status, pastDueSince: 0, currentPeriodEnd: Infinity },
           clock,
         );
-        expect(limit(entitlements, "league_count")).toBe(3);
+        expect(limit(entitlements, "league_count")).toBe(1);
       }
     }
   });

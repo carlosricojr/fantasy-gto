@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { PricingTable } from "@clerk/nextjs";
 
-import { UNIMPLEMENTED_FEATURES, limit, planCapabilities } from "@/lib/billing/entitlements";
+import {
+  UNIMPLEMENTED_FEATURES,
+  describeLeagueCap,
+  planCapabilities,
+} from "@/lib/billing/entitlements";
 
 /**
  * Pricing.
@@ -10,6 +14,14 @@ import { UNIMPLEMENTED_FEATURES, limit, planCapabilities } from "@/lib/billing/e
  * written here is what the code can actually vouch for: the capability table is read
  * directly from `lib/billing/entitlements.ts`, so this page cannot drift from what a
  * subscription really unlocks.
+ *
+ * **The Clerk cards can still contradict it, and nothing in this repository can stop
+ * them.** Their feature bullets are free text in the Clerk dashboard; no code reads them,
+ * and `planFromClerkKey` uses only the plan *key*. So a card is capable of advertising a
+ * limit the server does not honor, on the same screen as the derived copy that does.
+ * Lowering the free cap to one league left a Free card still reading "League Limit 3"
+ * until it was edited in Clerk. Changing a number in the entitlement table is therefore
+ * not the whole change — the dashboard has to follow, and only a human can check it.
  *
  * The "not built yet" list is rendered from `UNIMPLEMENTED_FEATURES` for the same reason.
  * This is the page where money changes hands, so it is the last place a gap between the
@@ -30,12 +42,13 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function PricingPage() {
   const pro = planCapabilities("pro");
+  const free = planCapabilities("free");
   // Read the cap from the entitlement table rather than writing a number in prose. A
-  // hard-coded "3" would keep claiming three the day the table changes.
-  const freeLeagues = limit(planCapabilities("free"), "league_count");
+  // hard-coded number would keep claiming the old one the day the table changes, and the
+  // phrase is formatted there too so the plural cannot go stale independently.
+  const freeLeagues = describeLeagueCap(free);
   // What Pro adds *over free*. Filtering on `pro[key] === true` alone would list
   // start/sit, which the free tier grants too — that is not something Pro includes.
-  const free = planCapabilities("free");
   const proOnly = Object.keys(FEATURE_LABELS).filter(
     (key) =>
       key !== "league_count" &&
@@ -47,10 +60,10 @@ export default function PricingPage() {
     <main className="mx-auto max-w-3xl px-6 py-16">
       <h1 className="text-3xl font-semibold tracking-tight">Choose your plan</h1>
       <p className="mt-3 text-muted-foreground">
-        Projections and the lineup optimizer are free and need no account. Pro removes the
-        {" "}{freeLeagues}-league limit. What else it adds is listed below — derived from
-        the same table the server authorizes against, so this page cannot promise more than
-        the code delivers.
+        Projections and the lineup optimizer are free and need no account. Free saves{" "}
+        {freeLeagues}; Pro removes the limit. What else it adds is listed below &mdash;
+        derived from the same table the server authorizes against, so this page cannot
+        promise more than the code delivers.
       </p>
 
       <div className="mt-10">
