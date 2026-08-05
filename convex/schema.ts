@@ -126,6 +126,106 @@ export default defineSchema({
     .index("by_sport_position", ["sport", "position"]),
 
   /**
+   * Season-long draft valuations.
+   *
+   * Separate from `projections` because it answers a different question. A projection is
+   * for one week and is recomputed as form changes; a draft board is for a whole season
+   * and is rebuilt when the market moves. Storing them in one table would mean a weekly
+   * refresh silently overwrote draft values, or vice versa.
+   *
+   * Both components are kept alongside the blend, so the interface can show what the
+   * market thinks and what the model thinks rather than only their average. The blend is
+   * the recommendation; the disagreement is the interesting part.
+   */
+  draftBoard: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    scoringId: v.string(),
+    /** League size, because ADP is only meaningful against one. */
+    teams: v.number(),
+    playerId: v.string(),
+    name: v.string(),
+    position: v.string(),
+    team: v.union(v.string(), v.null()),
+    /**
+     * Our own season projection, or `null` where the model has no opinion — a rookie with
+     * no prior games, a kicker, a defence. Stored as null rather than zero so the
+     * interface can tell "we project nothing" from "we have nothing to say", which is the
+     * distinction the blend itself turns on.
+     */
+    modelPoints: v.union(v.number(), v.null()),
+    /** The market's implied points for this draft slot, or null if it has no opinion. */
+    marketPoints: v.union(v.number(), v.null()),
+    /** What the board ranks on. */
+    blendedPoints: v.number(),
+    adp: v.union(v.number(), v.null()),
+    adpStdev: v.union(v.number(), v.null()),
+    /** The week this player's team is idle. Drives bye-collision cost in the simulation. */
+    byeWeek: v.union(v.number(), v.null()),
+    /**
+     * Probability he is fit in a given week, shrunk from his own games-played history.
+     * Drives how much the depth behind him is worth.
+     */
+    availability: v.number(),
+    /** Spread of actual/projected for his position, for weekly variance. */
+    p10: v.number(),
+    p90: v.number(),
+    /**
+     * Whether that spread was measured or assumed.
+     *
+     * Stored rather than inferred, for the same reason `modelPoints` is nullable: a row
+     * that cannot say where its numbers came from will eventually be presented as though
+     * they were all measured. Kickers and defences carry `placeholder`, and so does any
+     * position `OUTCOME_QUANTILES` has no entry for.
+     *
+     * Required, like the four fields beside it.
+     *
+     * It went in optional for a while, justified by Convex rejecting a required field on a
+     * table that already holds documents. That reasoning does not survive contact with the
+     * history: `byeWeek`, `availability`, `p10` and `p90` were all added to this same table
+     * as required fields in e82a9f4, after it was created in 6e04b2d. If the premise held,
+     * the deploy would fail on `byeWeek` before it ever reached this line, and softening
+     * one field of five would achieve nothing.
+     *
+     * What is actually true: this table does not exist on `main`, so the first production
+     * deploy creates it and every field is fine. A development deployment that ran an
+     * earlier commit of this branch needs its data cleared regardless, for those four.
+     */
+    quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
+    computedAt: v.number(),
+  })
+    .index("by_board", ["sport", "season", "scoringId", "teams"])
+    // Selects one run. Without it every run-scoped read — serving the published board,
+    // and pruning the stale ones — has to scan the whole league shape and discard the
+    // rest, and that discarded set grows with the number of failed rebuilds rather than
+    // with the size of a board.
+    .index("by_board_run", ["sport", "season", "scoringId", "teams", "computedAt"])
+    .index("by_board_player", ["sport", "season", "scoringId", "teams", "playerId"]),
+
+
+  /**
+   * The run whose rows are currently the board, per league shape.
+   *
+   * `draftBoard` is written batch by batch, so mid-rebuild the table holds a mix of the
+   * run in progress and the one before it. If a batch fails partway the job is marked
+   * failed and the mixed state simply stays there, and every reader was served that
+   * mixture with nothing to indicate it — part this week's prices, part last week's, and
+   * a freshness line confidently reporting one of them.
+   *
+   * A run publishes itself here only after every batch has landed. Readers serve the rows
+   * carrying `publishedAt` and ignore everything else, so a failed run is invisible rather
+   * than half-visible, and the previous board survives intact until a replacement is
+   * complete.
+   */
+  draftBoardRuns: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    scoringId: v.string(),
+    teams: v.number(),
+    /** `computedAt` of the last run that finished writing every batch. */
+    publishedAt: v.number(),
+  }).index("by_board", ["sport", "season", "scoringId", "teams"]),
+  /**
    * Model output. The product's primary read.
    *
    * `contributions` is stored alongside the number because the explanation is a feature,

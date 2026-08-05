@@ -38,6 +38,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Link href="/lineup" className="hover:text-foreground">
               Lineup
             </Link>
+            <Link href="/draft" className="hover:text-foreground">
+              Draft
+            </Link>
             <SignedIn>
               <Link href="/dashboard" className="hover:text-foreground">
                 My leagues

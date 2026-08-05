@@ -10,6 +10,8 @@ import {
   latestCompletedSeason,
   resolveSeasonState,
   weeksBetween,
+  draftSeasonFor,
+  type SeasonState,
 } from "./season";
 
 const NOW = Date.parse("2026-07-30T12:00:00Z");
@@ -219,5 +221,143 @@ describe("weeksBetween", () => {
     // Callers compare against a staleness threshold, so a negative reads as recent, which
     // is right: the appearance is in the future relative to the week being projected.
     expect(weeksBetween(at(2025, 7), at(2025, 3))).toBe(-4);
+  });
+});
+
+describe("draftSeasonFor", () => {
+  const state = (over: Partial<SeasonState>): SeasonState => ({
+    season: 2026,
+    week: 1,
+    phase: "preseason",
+    isComplete: false,
+    ...over,
+  });
+
+  it("is the upcoming season through the preseason", () => {
+    // The window in which drafts actually happen. The rebuild cron used to return null
+    // here and so never built the board it exists to keep fresh.
+    expect(draftSeasonFor(state({ phase: "preseason" }))).toBe(2026);
+  });
+
+  it("is next season once this one has finished", () => {
+    expect(draftSeasonFor(state({ phase: "offseason", isComplete: true }))).toBe(2027);
+  });
+
+  it("is the current season while it is being played", () => {
+    // Nobody drafts here, but the page still renders a board for anyone looking, and it
+    // must be the season they are in rather than the next one.
+    expect(draftSeasonFor(state({ phase: "regular" }))).toBe(2026);
+  });
+
+  it("has no answer when there is no season", () => {
+    expect(draftSeasonFor(null)).toBeNull();
+  });
+});
+
+/**
+ * The season resolver's own edges.
+ *
+ * This module decides what season and week every other screen is about, and it was never
+ * mutation-tested. Each of these was a survivor: a comparison, a `Math.min`, a sort, and
+ * two boundaries against the injected clock — which is the one thing that makes a boundary
+ * on "has it kicked off yet" testable at all.
+ */
+describe("resolveSeasonState boundaries", () => {
+  const KICKOFF = "2026-09-10T20:20:00Z";
+  const kickoffAt = Date.parse(KICKOFF);
+
+  it("counts a season as started at the instant of kickoff, not a moment later", () => {
+    // `Date.parse(firstKickoff) <= now`. A game that is kicking off right now has started,
+    // and the difference decides whether the product says "preseason" or "week 1" at the
+    // exact moment everybody is watching.
+    const contests = [contest(2026, 1, false, KICKOFF)];
+    expect(resolveSeasonState(contests, kickoffAt)?.phase).toBe("regular");
+    expect(resolveSeasonState(contests, kickoffAt - 1)?.phase).toBe("preseason");
+  });
+
+  it("stops calling a season upcoming once its first game has kicked off", () => {
+    // `kickoff > now`, in the scan that decides which season to display. Nothing here has
+    // a result, so that scan is what chooses.
+    //
+    // The answer at the instant of 2026's kickoff is 2027, and that is deliberate rather
+    // than ideal: with no result ingested yet, 2026 is indistinguishable from a season
+    // whose schedule was loaded and whose results never were, and treating *that* as
+    // current would pin the product to a dead season permanently — which the comment above
+    // `firstKickoff` explains at length. The window is the hours between kickoff and the
+    // first result landing, once a year. Pinned so the tradeoff is visible rather than
+    // rediscovered.
+    const contests = [
+      contest(2026, 1, false, KICKOFF),
+      contest(2027, 1, false, "2027-09-09T20:20:00Z"),
+    ];
+    expect(resolveSeasonState(contests, kickoffAt - 1)?.season).toBe(2026);
+    expect(resolveSeasonState(contests, kickoffAt)?.season).toBe(2027);
+  });
+
+  it("reads the first kickoff of a season, not the last", () => {
+    // `Math.min` over the season's start times. Taking the maximum judges a season by its
+    // *final* game, so one that kicked off in September is still "upcoming" until January.
+    //
+    // Two seasons, because with one the answer is the same either way — it is the only
+    // season there is. Here 2026 is under way and 2027 has not started: the earliest season
+    // that has genuinely not kicked off is 2027, and reading 2026's last game instead of
+    // its first would make 2026 upcoming too, and 2026 sorts first.
+    const contests = [
+      contest(2026, 1, false, "2026-09-10T20:20:00Z"),
+      contest(2026, 18, false, "2027-01-04T18:00:00Z"),
+      contest(2027, 1, false, "2027-09-09T20:20:00Z"),
+    ];
+    const between = Date.parse("2026-11-01T00:00:00Z");
+    expect(resolveSeasonState(contests, between)?.season).toBe(2027);
+  });
+
+  it("reads kickoffs from the season it was asked about", () => {
+    // `season === s && startsAt !== null`. As `||` every contest with a start time is
+    // collected for every season, so `firstKickoff` returns the earliest kickoff in the
+    // whole schedule whatever season it is asked about — and every later season inherits an
+    // already-passed kickoff and stops counting as upcoming.
+    const contests = [
+      contest(2026, 1, false, "2026-09-10T20:20:00Z"),
+      contest(2027, 1, false, "2027-09-09T20:20:00Z"),
+      contest(2028, 1, false, "2028-09-07T20:20:00Z"),
+    ];
+    // 2026 has kicked off; the earliest season that has not is 2027.
+    const between = Date.parse("2026-11-01T00:00:00Z");
+    expect(resolveSeasonState(contests, between)?.season).toBe(2027);
+
+    // And before anything has kicked off, the earliest is the one to show.
+    const before = Date.parse("2026-08-01T00:00:00Z");
+    expect(resolveSeasonState(contests, before)?.season).toBe(2026);
+    expect(resolveSeasonState(contests, before)?.phase).toBe("preseason");
+  });
+
+  it("takes the earliest unplayed week however the schedule is ordered", () => {
+    // The sort is `a.index - b.index`; as a sum it is positive for every pair, so nothing
+    // moves and the week shown is whichever row happened to arrive first.
+    const contests = [
+      contest(2026, 1, true, "2026-09-10T20:20:00Z"),
+      contest(2026, 9, false, "2026-11-05T18:00:00Z"),
+      contest(2026, 3, false, "2026-09-24T18:00:00Z"),
+      contest(2026, 7, false, "2026-10-22T18:00:00Z"),
+    ];
+    expect(resolveSeasonState(contests, Date.parse("2026-09-20T00:00:00Z"))?.week).toBe(3);
+  });
+});
+
+describe("latestCompletedSeason", () => {
+  it("is the most recent season with a result, not the oldest", () => {
+    // `Math.max`. As a minimum it pins to the first season ever ingested and never moves
+    // again, so every screen that keys off it shows years-old data indefinitely.
+    const contests = [
+      contest(2023, 1, true),
+      contest(2024, 1, true),
+      contest(2026, 1, false, "2026-09-10T20:20:00Z"),
+    ];
+    expect(latestCompletedSeason(contests)).toBe(2024);
+  });
+
+  it("has no answer before anything has been played", () => {
+    expect(latestCompletedSeason([contest(2026, 1, false, "2026-09-10T20:20:00Z")])).toBeNull();
+    expect(latestCompletedSeason([])).toBeNull();
   });
 });

@@ -11,6 +11,7 @@
 import type * as billing from "../billing.js";
 import type * as contests from "../contests.js";
 import type * as crons from "../crons.js";
+import type * as draft from "../draft.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as jobs from "../jobs.js";
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   contests: typeof contests;
   crons: typeof crons;
+  draft: typeof draft;
   http: typeof http;
   ingest: typeof ingest;
   jobs: typeof jobs;

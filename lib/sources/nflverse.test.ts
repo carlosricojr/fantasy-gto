@@ -6,6 +6,8 @@ import { parseCsv } from "../nfl/csv";
 
 import {
   NflverseProvider,
+  parseSeasonRoster,
+  seasonRosterUrl,
   easternWallClockToUtcIso,
   parseContests,
   parseMarketLines,
@@ -19,6 +21,10 @@ const gamesCsv = readFileSync(
 );
 const statsCsv = readFileSync(
   join(__dirname, "../../tests/fixtures/stats_player_week_sample.csv"),
+  "utf8",
+);
+const rosterCsv = readFileSync(
+  join(__dirname, "../../tests/fixtures/roster_2026_sample.csv"),
   "utf8",
 );
 
@@ -166,5 +172,108 @@ describe("NflverseProvider", () => {
     const result = await provider.allContests();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("unavailable");
+  });
+});
+
+describe("parseSeasonRoster", () => {
+  const entries = parseSeasonRoster(parseCsv(rosterCsv));
+
+  it("reads active players with a join key", () => {
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.playerId).not.toBe("");
+      expect(entry.name).not.toBe("");
+    }
+  });
+
+  it("drops players who are not active", () => {
+    // Retired and cut players stay on the file. A draft board that offered them would be
+    // recommending someone who will not take a snap.
+    //
+    // Named by id rather than counted. `entries.length < rows.length` is satisfied by any
+    // row dropped for any reason — a missing gsis_id, a blank name — so it passed without
+    // the status filter doing anything, and would still have passed had the fixture
+    // contained no retired player at all.
+    // Restricted to rows that carry a join key. A retired row with an empty `gsis_id`
+    // satisfies the assertion below for the wrong reason — no entry has an empty
+    // `playerId` either way — so only rows the *status* filter must drop are selected.
+    const retired = parseCsv(rosterCsv).filter(
+      (r) => (r.status ?? "").toUpperCase() === "RET" && (r.gsis_id ?? "") !== "",
+    );
+    expect(retired.length).toBeGreaterThan(0);
+    for (const row of retired) {
+      expect(entries.some((e) => e.playerId === row.gsis_id)).toBe(false);
+    }
+  });
+
+  it("drops rows with no gsis_id, which cannot be joined to any history", () => {
+    // Without the join key a player has no production history, so the board would price
+    // him from nothing at all.
+    // On a constructed row. The captured fixture contains no active player missing a
+    // `gsis_id`, so the previous form filtered to an empty list, ran its loop zero times
+    // and passed without touching the filter — it would have passed with the filter
+    // deleted.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const csv = [
+      header,
+      "2026,KC,WR,ACT,No Join Key,",
+      "2026,KC,WR,ACT,Has Join Key,00-0030300",
+    ].join("\n");
+    const parsed = parseSeasonRoster(parseCsv(csv));
+    expect(parsed.map((e) => e.name)).toEqual(["Has Join Key"]);
+  });
+
+  it("keeps a traded player once rather than twice", () => {
+    // The same active player on two teams in one release. The board is keyed by
+    // (board, playerId), so both rows are written and the later silently wins — the team
+    // shown is whichever the file listed last.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const csv = [
+      header,
+      "2026,NYJ,RB,ACT,Traded Player,00-0030200",
+      "2026,SF,RB,ACT,Traded Player,00-0030200",
+    ].join("\n");
+    const parsed = parseSeasonRoster(parseCsv(csv));
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].team).toBe("NYJ");
+  });
+
+  it("normalises team codes and folds fullbacks into running backs", () => {
+    for (const entry of entries) {
+      if (entry.team !== null) expect(entry.team).toMatch(/^[A-Z]{2,3}$/);
+      expect(entry.position).not.toBe("FB");
+    }
+  });
+
+  it("normalises a legacy team code to its canonical one", () => {
+    // On a constructed row. The captured fixture is a current-season file, so it carries
+    // only canonical codes — `/^[A-Z]{2,3}$/` accepts `OAK` and `STL` just as happily, and
+    // the assertion above would pass with `normalizeTeam` deleted outright.
+    const header = "season,team,position,status,full_name,gsis_id";
+    const rows = [
+      "2026,OAK,RB,ACT,Legacy Raider,00-0030400",
+      "2026,STL,WR,ACT,Legacy Ram,00-0030401",
+    ];
+    const parsed = parseSeasonRoster(parseCsv([header, ...rows].join("\n")));
+    expect(parsed.map((e) => e.team)).toEqual(["LV", "LA"]);
+  });
+
+  it("folds a fullback into a running back", () => {
+    // On a constructed row rather than the captured fixture, which contains no fullback —
+    // so the assertion above that no entry has position FB was true of a file that never
+    // had one, and would have stayed true with the folding removed. Not added to the
+    // fixture because its value is that it is a real capture.
+    const header =
+      "season,team,position,depth_chart_position,jersey_number,status,full_name," +
+      "first_name,last_name,birth_date,height,weight,college,gsis_id";
+    const row =
+      "2026,SF,FB,FB,44,ACT,Test Fullback,Test,Fullback,1991-04-23,185,235,Harvard,00-0030100";
+    const [entry] = parseSeasonRoster(parseCsv(`${header}\n${row}`));
+    expect(entry.position).toBe("RB");
+    expect(entry.playerId).toBe("00-0030100");
+  });
+
+  it("builds the documented release url", () => {
+    expect(seasonRosterUrl(2026)).toContain("/rosters/roster_2026.csv");
   });
 });

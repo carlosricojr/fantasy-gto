@@ -123,6 +123,25 @@ spread and total lines for future games alongside venue and weather. Everything 
 consumes is free and public. See [`docs/data-sources.md`](docs/data-sources.md), where every
 endpoint was verified by direct request.
 
+### Draft board
+
+`/draft` tracks every team's picks and ranks candidates by the probability of winning the
+league, simulated against the rosters your opponents have actually drafted. Seed a board
+before using it:
+
+```bash
+npx convex run ingest:buildDraftBoard '{"season":2026,"scoringId":"ppr","teams":12}'
+```
+
+Verified against a real deployment on 2026-07-31: 650 players, 244 of them carrying a
+market price. A cron rebuilds every scoring/league-size combination twice daily through the
+preseason and does nothing once a season is under way.
+
+The simulation runs in a Web Worker, because a second of synchronous work would freeze the
+board at the moment a pick is due. `docs/draft-validation.md` records what was measured,
+including the finding that **our model does not out-rank the market** — no edge over ADP is
+claimed anywhere in the interface.
+
 ## Honesty ledger
 
 Every claim the interface makes, and the computation behind it.
@@ -135,6 +154,7 @@ Every claim the interface makes, and the computation behind it.
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
 | Residual bias of −0.57 points | Published on `/accuracy` rather than hidden. |
+| Draft recommendations ranked by championship probability | Simulated season in `lib/core/season-sim.ts`; each recommendation carries its standard error and a tied-with-leader flag. **No ranking edge over ADP is claimed** — measured out-of-sample, the market ranks players better than our model. See [`docs/draft-validation.md`](docs/draft-validation.md). |
 
 **Withdrawn.** The original plan claimed "+8.2 points/week vs platform projections" and
 "beats ESPN by ≥8% MAE". Neither had any computation behind it, and the measured model

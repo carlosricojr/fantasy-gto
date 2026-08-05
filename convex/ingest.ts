@@ -7,6 +7,7 @@ import { type ActionCtx, internalAction } from "./_generated/server";
 
 import type { Contribution } from "../lib/core/domain";
 import { DVP_SHRINKAGE } from "../lib/nfl/model/config";
+import { GAMES_IN_SEASON } from "../lib/nfl/draft/config";
 import {
   type ImpliedTotalEntry,
   buildDefenseFactors,
@@ -15,8 +16,24 @@ import {
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
+import { scoreOffense } from "../lib/nfl/scoring/score";
 import { NflverseProvider } from "../lib/sources/nflverse";
-import { weeksBetween } from "../lib/nfl/season";
+import { AdpProvider } from "../lib/sources/adp";
+import {
+  DRAFTABLE_POSITIONS,
+  MODELLED_POSITIONS,
+  normalizeMarketPosition,
+} from "../lib/nfl/draft/config";
+import { buildMarketIndex, normalizeName } from "../lib/nfl/draft/match";
+import {
+  type AdpCurveSet,
+  adpImpliedPoints,
+  blendedSeasonValue,
+  fitAdpCurves,
+  seasonProjection,
+} from "../lib/nfl/draft/value";
+import { draftSeasonFor, weeksBetween } from "../lib/nfl/season";
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
 /**
@@ -46,6 +63,51 @@ interface ProjectionRow {
   contributions: Contribution[];
   modelVersion: string;
 }
+
+/**
+ * Prior strength and mean for a player's weekly availability.
+ *
+ * Games played is a small sample — seventeen at most — so taking it at face value says a
+ * player who finished last season is certain to finish this one, and that a rookie who
+ * played nothing never plays. Both are wrong, and the second is worse: it would make every
+ * incoming player worthless.
+ *
+ * Shrinking towards a league-typical rate fixes both. The prior is worth about ten games,
+ * so a full season moves a player most of the way to the top and a lost season does not
+ * write him off.
+ *
+ * Judgement, not measurement. The prior mean is roughly the share of games a rostered
+ * skill player actually takes part in.
+ */
+const AVAILABILITY_PRIOR_MEAN = 0.85;
+const AVAILABILITY_PRIOR_GAMES = 10;
+
+/**
+ * Weekly availability, shrunk from a player's own games played toward the league rate.
+ *
+ * `hasHistory` separates two situations the arithmetic cannot tell apart. A veteran who
+ * played no games last season is evidence of poor availability; a rookie who played none
+ * is no evidence at all, and shrinking his zero produced 0.31 — an incoming first-rounder
+ * treated as missing two games in three.
+ *
+ * The denominator is games in a season, not weeks. A team plays seventeen times across
+ * eighteen weeks, so dividing by eighteen capped every ironman below the ceiling.
+ */
+function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): number {
+  if (!hasHistory) return AVAILABILITY_PRIOR_MEAN;
+  const played = Math.min(Math.max(priorSeasonGames, 0), GAMES_IN_SEASON);
+  const prior = AVAILABILITY_PRIOR_MEAN * AVAILABILITY_PRIOR_GAMES;
+  return (played + prior) / (GAMES_IN_SEASON + AVAILABILITY_PRIOR_GAMES);
+}
+
+/**
+ * League sizes a draft board is built for.
+ *
+ * ADP is published per league size and genuinely differs between them, so a board is not
+ * transferable. These are the sizes that cover almost every real league; an unusual one
+ * has to be built by hand.
+ */
+const DRAFT_BOARD_LEAGUE_SIZES = [8, 10, 12, 14] as const;
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
@@ -531,5 +593,438 @@ export const syncSchedule = internalAction({
     }
 
     return { contests: rows.length };
+  },
+});
+
+/**
+ * Builds the season-long draft board.
+ *
+ * Distinct from `projectWeek` in what it needs and when it runs. A weekly projection is
+ * driven by recent form and can only exist once games have been played; a draft board is
+ * needed *before* the season, when there is no current-season form at all and a player's
+ * team comes from the roster release rather than from an appearance.
+ *
+ * The board is the blend of two estimates — ours and the market's. The blend does **not**
+ * out-rank the market: on held-out 2024 the market scored 0.5403 by rank correlation and
+ * the blend 0.5364. It is kept because it wins on total points among each method's top 24,
+ * because one evaluation season of 151 players cannot settle a disagreement between two
+ * metrics, and because the model prices players the market has no published ADP for at
+ * all. `docs/draft-validation.md` has the figures and `pnpm draft-backtest` reproduces
+ * them. No ranking edge over the market may be claimed anywhere in the interface.
+ */
+export const buildDraftBoard = internalAction({
+  args: {
+    season: v.number(),
+    scoringId: v.optional(v.string()),
+    teams: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ players: number; withMarketPrice: number; unpriced: number }> =>
+    runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
+});
+
+export async function runBuildDraftBoard(
+  ctx: ProjectWriteCtx,
+  {
+    season,
+    scoringId = DEFAULT_SCORING.id,
+    teams = 12,
+  }: { season: number; scoringId?: string; teams?: number },
+  provider: NflverseProvider,
+  adpProvider: AdpProvider,
+): Promise<{ players: number; withMarketPrice: number; unpriced: number }> {
+  const jobId = await ctx.runMutation(internal.jobs.start, {
+    kind: `draft:${season}-${scoringId}-${teams}`,
+    detail: `Building ${season} draft board (${scoringId}, ${teams}-team)`,
+  });
+
+  try {
+    // Who is on a team this season. The only source that knows before a game is played.
+    const rosterResult = await provider.seasonRoster(season);
+    if (!rosterResult.ok) throw new Error(rosterResult.reason);
+
+    // Two prior seasons of production, matching the backtest's window.
+    const priorSeasons: PlayerWeek[][] = [];
+    for (const back of [2, 1]) {
+      const result = await provider.playerWeeks(season - back);
+      if (!result.ok) throw new Error(result.reason);
+      priorSeasons.push(result.data);
+    }
+
+    const adpResult = await adpProvider.forSeason(season, scoringId, teams);
+    if (!adpResult.ok) throw new Error(adpResult.reason);
+
+    const scoring = SCORING_PRESETS.find((preset) => preset.id === scoringId);
+    if (!scoring) throw new Error(`Unknown scoring ruleset "${scoringId}".`);
+
+    // Per-game points, oldest first, and games played in the immediately prior season.
+    const perGame = new Map<string, number[]>();
+    const priorGames = new Map<string, number>();
+    for (const [index, weeks] of priorSeasons.entries()) {
+      const ordered = [...weeks].sort((a, b) => a.period.index - b.period.index);
+      for (const week of ordered) {
+        const id = week.competitor.id;
+        const points = scoreOffense(week.stats, scoring).total;
+        perGame.set(id, [...(perGame.get(id) ?? []), points]);
+        if (index === 1) priorGames.set(id, (priorGames.get(id) ?? 0) + 1);
+      }
+    }
+
+    // The market curve turns a draft slot into points, and is fitted on a season that is
+    // already finished — never on the one being drafted, which would be reading the
+    // answers.
+    //
+    // Which season that is cannot be assumed to be the previous one. A curve needs *both*
+    // a published ADP board and a finished result, and those do not always coincide:
+    // there is no 2025 board at all, so a 2026 draft has to reach back to 2024. Trying
+    // only `season - 1` silently produced a board with no market component whatsoever —
+    // which is not a degraded version of this product, it is the pure-model board that
+    // measurement says is the *worse* of the two signals.
+    const seasonTotals = (weeks: readonly PlayerWeek[]) => {
+      const totals = new Map<string, number>();
+      const byId = new Map<string, { name: string; position: string }>();
+      for (const week of weeks) {
+        // A kicking line scores zero through the offensive scorer, so including kickers
+        // here would fit the curve through a band of false zeros.
+        if (
+          !MODELLED_POSITIONS.includes(
+            week.competitor.position as (typeof MODELLED_POSITIONS)[number],
+          )
+        ) {
+          continue;
+        }
+        const id = week.competitor.id;
+        totals.set(id, (totals.get(id) ?? 0) + scoreOffense(week.stats, scoring).total);
+        byId.set(id, { name: week.competitor.name, position: week.competitor.position });
+      }
+      // The same position-qualified, collision-refusing index the roster join uses, rather
+      // than a second hand-rolled scheme that has to be trusted separately. This lookup
+      // supplies the actual season points `fitAdpCurves` is fitted on, so a collision does
+      // not merely mislabel two players — it pairs one player's points with the other's ADP
+      // inside the fit, and the resulting curve prices everyone at that position.
+      return buildMarketIndex(
+        [...byId].map(([id, who]) => ({ ...who, total: totals.get(id) ?? 0 })),
+        normalizeMarketPosition,
+      );
+    };
+
+    let curve: AdpCurveSet | null = null;
+    const curveAttempts: string[] = [];
+    for (const [offset, weeks] of [
+      [1, priorSeasons[1]],
+      [2, priorSeasons[0]],
+    ] as const) {
+      const candidateSeason = season - offset;
+      const candidateAdp = await adpProvider.forSeason(candidateSeason, scoringId, teams);
+      if (!candidateAdp.ok) {
+        curveAttempts.push(`${candidateSeason}: no ADP board`);
+        continue;
+      }
+      const seasonPoints = seasonTotals(weeks);
+      // Fitted on *our* position spelling, and only for the positions the offensive scorer
+      // can actually score. Kickers and defences get no curve of their own and are priced
+      // off the pooled one — deliberately, because `scoreOffense` scores a kicking line as
+      // zero, so any curve fitted from those rows would be fitted from false zeros.
+      //
+      // Excluding them is what this filter buys: previously the market's own spellings
+      // (`PK`, `DEF`) meant no curve was ever found for them anyway, *and* their zeros were
+      // dragging the pooled fit down for everybody else. Only the second half of that is
+      // fixed here. They still resolve through `curves.pooled`, which is the honest
+      // treatment for a position the model cannot value.
+      const sampledPlayers = new Set<string>();
+      const samples = candidateAdp.data
+        .map((entry) => {
+          const position = normalizeMarketPosition(entry.position);
+          if (
+            !MODELLED_POSITIONS.includes(
+              position as (typeof MODELLED_POSITIONS)[number],
+            )
+          ) {
+            return null;
+          }
+          // Deduplicated by the matched roster player, the rule the backtest already
+          // applies. Two ADP rows — "A.J. Brown" and "AJ Brown" — can resolve to one
+          // player, and counting him twice weights his (adp, points) pair twice in the
+          // least-squares fit that prices everyone at that position.
+          const matched = seasonPoints.find(entry.name, entry.position);
+          // Keyed the way `buildMarketIndex` distinguishes players, not by raw name. The
+          // index legitimately returns two *different* players for one name string when
+          // their positions differ, so deduping on the name alone would drop the second
+          // and shrink the fit sample — turning a guard against double-weighting into a
+          // quiet loss of data.
+          if (matched === null) return null;
+          const key = `${normalizeName(matched.name)}|${normalizeMarketPosition(matched.position)}`;
+          if (sampledPlayers.has(key)) return null;
+          sampledPlayers.add(key);
+          return {
+            adp: entry.adp,
+            actualSeasonPoints: matched.total,
+            position,
+          };
+        })
+        .filter(
+          (s): s is { adp: number; actualSeasonPoints: number; position: string } =>
+            s !== null,
+        );
+
+      const fitted = fitAdpCurves(samples, candidateSeason);
+      if (fitted.pooled !== null) {
+        curve = fitted;
+        break;
+      }
+      curveAttempts.push(`${candidateSeason}: only ${samples.length} players matched`);
+    }
+
+    // Failing loudly rather than shipping a board that quietly is not the validated
+    // product. Every published figure in docs/draft-validation.md describes the blend.
+    if (curve === null) {
+      throw new Error(
+        `Could not fit a market curve for ${season}, so the board would carry no market ` +
+          `component and would not be the blend the published figures describe. ` +
+          `Tried — ${curveAttempts.join("; ")}.`,
+      );
+    }
+
+    // Position-qualified, because a name-keyed `Map` silently hands one player another's
+    // ADP, dispersion, and bye week when two names normalise the same way. See
+    // `buildMarketIndex` — it refuses a collision it cannot separate rather than guessing.
+    const marketIndex = buildMarketIndex(adpResult.data, normalizeMarketPosition);
+    // Defences are not players and never appear on a roster file, so they are taken from
+    // the market board directly. A league that starts one has to be able to draft one.
+    // Deduplicated by the id they will be written under, which every other join on this
+    // path gets from `buildMarketIndex` and this one bypassed. Two rows whose names
+    // normalise the same way — a team published twice, or "Philadelphia Eagles" beside
+    // "Philadelphia  Eagles" — both produce `dst-<same key>`. `upsertBoardBatch` keys on
+    // `(board, playerId)`, so the second silently overwrote the first and the board kept
+    // whichever ADP the feed listed last, while `withMarketPrice` and `rows.length` counted
+    // the row twice and reported more players than the table actually holds.
+    //
+    // First wins, matching `buildMarketIndex`.
+    const defencesById = new Map<string, (typeof adpResult.data)[number]>();
+    for (const entry of adpResult.data) {
+      if (normalizeMarketPosition(entry.position) !== "DST") continue;
+      const id = `dst-${normalizeName(entry.name)}`;
+      if (!defencesById.has(id)) defencesById.set(id, entry);
+    }
+    const marketDefences = [...defencesById.values()];
+
+    const rows = [];
+    let withMarketPrice = 0;
+    for (const entry of rosterResult.data) {
+      if (!DRAFTABLE_POSITIONS.includes(entry.position as (typeof DRAFTABLE_POSITIONS)[number])) {
+        continue;
+      }
+      const history = perGame.get(entry.playerId) ?? [];
+      const market = marketIndex.find(entry.name, entry.position);
+
+      // Whether the model has an opinion is a question about the *position* first and the
+      // row count second. Kickers have plenty of history rows, but `scoreOffense` scores a
+      // kicking line as zero, so every veteran kicker produced a real zero — not a null —
+      // and was blended down to 80% of his market price. That is the rookie markdown
+      // reappearing for a different population, and it also split kickers in two: one with
+      // no rows at all got the full market price and outranked an identically-priced
+      // veteran.
+      const modelled = MODELLED_POSITIONS.includes(
+        entry.position as (typeof MODELLED_POSITIONS)[number],
+      );
+
+      // A player neither side can value cannot be valued by anything. Listing him at zero
+      // would rank him below every kicker; omitting him is honest, and he can still be
+      // drafted manually.
+      //
+      // Gated on `modelled`, not on the row count. Those agree for QB/RB/WR/TE, where no
+      // prior games means no projection — but a kicker accumulates a history row per game
+      // and every one of them scores zero, so `history.length` said the model had an
+      // opinion when `modelled` was about to overrule it. A veteran kicker missing from
+      // this season's ADP therefore passed the guard with no model value and no market
+      // value, and `blendedSeasonValue(null, null)` wrote him to the board at exactly the
+      // zero this line exists to keep off it.
+      if ((!modelled || history.length === 0) && market === null) continue;
+      const modelPoints =
+        !modelled || history.length === 0
+          ? null
+          : seasonProjection({
+              perGamePoints: history,
+              priorSeasonGames: priorGames.get(entry.playerId) ?? 0,
+            });
+      const marketPoints =
+        market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
+      if (marketPoints !== null) withMarketPrice += 1;
+
+      const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
+      // Kickers have no model projection, so their weekly spread is the placeholder band
+      // rather than a measured one. `config.ts` marks it as such.
+      rows.push({
+        playerId: entry.playerId,
+        name: entry.name,
+        position: entry.position,
+        team: entry.team,
+        modelPoints,
+        marketPoints,
+        blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
+        adp: market?.adp ?? null,
+        adpStdev: market?.stdev ?? null,
+        byeWeek: market?.bye ?? null,
+        availability: shrunkAvailability(
+          priorGames.get(entry.playerId) ?? 0,
+          history.length > 0,
+        ),
+        // Measured where the weekly model has a band for the position, and an explicitly
+        // unmeasured placeholder where it does not — declared in `config.ts` beside the
+        // real ones rather than as two literals here, so the difference is visible at the
+        // point somebody reads the measured bands.
+        p10: band?.p10 ?? PLACEHOLDER_QUANTILES.p10,
+        p90: band?.p90 ?? PLACEHOLDER_QUANTILES.p90,
+        quantileProvenance: band?.provenance ?? PLACEHOLDER_QUANTILES.provenance,
+      });
+    }
+
+    // Defences, synthesised from the market. They carry no model estimate at all, which
+    // the blend already handles: where the model is silent the market's price stands.
+    for (const entry of marketDefences) {
+      const marketPoints = adpImpliedPoints(entry.adp, "DST", curve);
+      if (marketPoints === null) continue;
+      const band = OUTCOME_QUANTILES.DST;
+      withMarketPrice += 1;
+      rows.push({
+        playerId: `dst-${normalizeName(entry.name)}`,
+        name: entry.name,
+        position: "DST",
+        team: entry.team,
+        modelPoints: null,
+        marketPoints,
+        blendedPoints: blendedSeasonValue(null, marketPoints),
+        adp: entry.adp,
+        adpStdev: entry.stdev,
+        byeWeek: entry.bye,
+        // No games-played history exists for a defence; a team plays every week it is not
+        // on bye, so availability is the bye alone.
+        availability: 1,
+        p10: band.p10,
+        p90: band.p90,
+        // A defence's band is `placeholder` in `OUTCOME_QUANTILES`, and the stored row
+        // says so rather than leaving the reader to know it.
+        quantileProvenance: band.provenance,
+      });
+    }
+
+    if (rows.length === 0) {
+      // Thrown rather than returned. Returning normally after marking the job failed put
+      // the two records in direct contradiction: `refreshDraftBoards` counts a normal
+      // return as a rebuild, so the cron reported the shape rebuilt while its own job row
+      // said it had failed and no board row existed. The existing catch below records the
+      // failure, so this needs no bookkeeping of its own.
+      throw new Error(
+        `No draftable players resolved for ${season}. Nothing was written.`,
+      );
+    }
+
+    const computedAt = Date.now();
+    for (const batch of chunk(rows, WRITE_BATCH)) {
+      await ctx.runMutation(internal.draft.upsertBoardBatch, {
+        season,
+        scoringId,
+        teams,
+        computedAt,
+        rows: batch,
+      });
+    }
+    // Publish, then prune — in that order, and both only after every batch has landed.
+    //
+    // Until `publishBoard` runs, readers are still being served the previous run's rows
+    // and the half-written new ones are invisible, so a failure anywhere above leaves the
+    // last good board whole rather than interleaving two of them. Pruning after publishing
+    // means the rows being deleted are already the ones nobody is reading; pruning first
+    // would delete the board that is still live.
+    await ctx.runMutation(internal.draft.publishBoard, {
+      season,
+      scoringId,
+      teams,
+      computedAt,
+    });
+    // Drained rather than called once. `pruneBoard` deletes a bounded page and says
+    // whether more remain, because the stale set includes every failed rebuild's rows and
+    // is not bounded by one run's size.
+    for (;;) {
+      const pruned = await ctx.runMutation(internal.draft.pruneBoard, {
+        season,
+        scoringId,
+        teams,
+        computedBefore: computedAt,
+      });
+      if (!pruned.more) break;
+    }
+
+    await ctx.runMutation(internal.jobs.finish, { jobId, status: "succeeded", error: null });
+    return {
+      players: rows.length,
+      withMarketPrice,
+      unpriced: rows.length - withMarketPrice,
+    };
+  } catch (error) {
+    await ctx.runMutation(internal.jobs.finish, {
+      jobId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/**
+ * Rebuilds the draft boards the interface offers.
+ *
+ * Separate from the weekly refresh because it tracks a different clock. A projection moves
+ * when games are played; a draft board moves when the *market* does, which is continuous
+ * through the preseason and then stops mattering entirely once drafts are over.
+ *
+ * Every league shape is rebuilt, because the board is keyed on scoring and league size —
+ * ADP genuinely differs between them, and a shape that is never rebuilt would serve a
+ * board that quietly ages out.
+ */
+export const refreshDraftBoards = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ rebuilt: number; failed: string[] }> => {
+    const season = await ctx.runQuery(api.season.current, {});
+    // The same season the draft page reads, from the same function, because these two
+    // disagreed: this one built only when the displayed season was complete, so through the
+    // whole preseason — the one window in which drafts happen — it rebuilt nothing.
+    //
+    // Once the season is under way the board is stale by definition and nobody is drafting
+    // from it, so that case is still a no-op rather than an expensive daily rebuild of
+    // something nobody reads.
+    const target = draftSeasonFor(season);
+    if (target === null || season?.phase === "regular") return { rebuilt: 0, failed: [] };
+
+    // One provider for the whole run. `seasonRoster` and `playerWeeks` fetch and parse on
+    // every call, so a fresh provider per shape re-downloaded three multi-megabyte CSVs
+    // twelve times inside a single action.
+    const provider = new NflverseProvider();
+    const adpProvider = new AdpProvider();
+
+    let rebuilt = 0;
+    const failed: string[] = [];
+    for (const scoringId of SCORING_PRESETS.map((preset) => preset.id)) {
+      for (const teams of DRAFT_BOARD_LEAGUE_SIZES) {
+        try {
+          await runBuildDraftBoard(
+            ctx,
+            { season: target, scoringId, teams },
+            provider,
+            adpProvider,
+          );
+          rebuilt += 1;
+        } catch (error) {
+          // One shape failing must not stop the rest: a market board can be missing for an
+          // unusual league size while the common ones are fine.
+          failed.push(
+            `${scoringId}/${teams}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+    return { rebuilt, failed };
   },
 });

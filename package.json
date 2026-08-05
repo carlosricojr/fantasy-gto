@@ -16,7 +16,9 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "verify": "pnpm typecheck && pnpm lint && pnpm test:run",
-    "backtest": "tsx scripts/backtest.ts"
+    "backtest": "tsx scripts/backtest.ts",
+    "draft-backtest": "tsx scripts/draft-backtest.ts",
+    "mutate": "tsx scripts/mutate.ts"
   },
   "dependencies": {
     "@clerk/backend": "^2.9.4",

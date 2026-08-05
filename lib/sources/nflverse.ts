@@ -34,6 +34,18 @@ export function schedulesUrl(): string {
   return `${RELEASE_BASE}/schedules/games.csv`;
 }
 
+/**
+ * Season roster release.
+ *
+ * The one source that says which team a player is on *before* a game has been played.
+ * Weekly statistics cannot: a player's team is derived from an appearance, so in the
+ * preseason there is nothing to derive it from. This is the release the README's week-1
+ * known gap names, and it is what makes a preseason draft board possible at all.
+ */
+export function seasonRosterUrl(season: number): string {
+  return `${RELEASE_BASE}/rosters/roster_${season}.csv`;
+}
+
 /** Fetches a URL as text. Injectable so tests never touch the network. */
 export type TextFetcher = (url: string) => Promise<string>;
 
@@ -191,6 +203,50 @@ export function parseVenues(rows: readonly CsvRow[]): VenueContext[] {
     }));
 }
 
+/** A player on a team's roster for a season. */
+export interface RosterEntry {
+  /** `gsis_id` upstream, which is the same identifier `stats_player_week` calls `player_id`. */
+  playerId: string;
+  name: string;
+  position: string;
+  team: string | null;
+}
+
+/** Pure parse of the season roster release. */
+export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
+  const entries: RosterEntry[] = [];
+  // A player traded mid-season can appear active on two teams in the same release. The
+  // board is keyed by `(board, playerId)`, so both rows are written and the later one wins
+  // — meaning the team shown is whichever the file happened to list last, silently. Kept
+  // once, at the first active row, so the choice is at least deterministic and the
+  // duplicate cannot masquerade as two draftable players.
+  const seen = new Set<string>();
+  for (const row of rows) {
+    // Only active players. `RET`, `CUT`, and the rest are on the file too.
+    if (str(row, "status").toUpperCase() !== "ACT") continue;
+
+    // `gsis_id` is the join key to weekly statistics. Without it a roster row cannot be
+    // connected to any production history, so it would price a player from nothing.
+    const playerId = str(row, "gsis_id");
+    if (playerId === "" || seen.has(playerId)) continue;
+
+    const name = str(row, "full_name") || str(row, "player_name");
+    if (name === "") continue;
+
+    let position = str(row, "position").toUpperCase();
+    if (position === "FB") position = "RB";
+
+    seen.add(playerId);
+    entries.push({
+      playerId,
+      name,
+      position,
+      team: normalizeTeam(str(row, "team")),
+    });
+  }
+  return entries;
+}
+
 export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvider {
   readonly sport: SportId = "nfl";
   readonly id = "nflverse";
@@ -223,13 +279,75 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   }
 
   /** All regular-season player-weeks for a season. */
+  private readonly weeksCache = new Map<number, ProviderResult<PlayerWeek[]>>();
+
   async playerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
+    // Same reasoning as the roster cache: one action builds many boards from the same two
+    // seasons of statistics, and these are the largest files the project touches.
+    const cached = this.weeksCache.get(season);
+    if (cached !== undefined) return cached;
+    const result = await this.fetchPlayerWeeks(season);
+    // Only successes are cached. A failure is usually transient — a network blip, or a
+    // release that upstream has not published yet — and one provider serves a whole
+    // board-building run, so caching the failure turns a single bad fetch into every
+    // later call for that season failing too, for the lifetime of the action.
+    if (result.ok) this.weeksCache.set(season, result);
+    return result;
+  }
+
+  private async fetchPlayerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     try {
       const text = await this.fetchText(weeklyStatsUrl(season));
       return ok(toRegularSeasonPlayerWeeks(parseCsv(text)));
     } catch (cause) {
       return failed(
         `Weekly statistics for ${season} are unavailable. The season may not have started.`,
+        cause,
+      );
+    }
+  }
+
+  /**
+   * Rostered players for a season, with their team.
+   *
+   * Retired and otherwise inactive players are dropped. Upstream keeps them on the file
+   * with a `status` other than `ACT`, and a draft board that offered them would be
+   * recommending players who will not take a snap.
+   */
+  private readonly rosterCache = new Map<number, ProviderResult<RosterEntry[]>>();
+
+  async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
+    // Cached for the provider's lifetime. A single action builds a board for every scoring
+    // format and league size, and each one needs the same roster file; without this it is
+    // fetched and parsed once per shape.
+    const cached = this.rosterCache.get(season);
+    if (cached !== undefined) return cached;
+    const result = await this.fetchSeasonRoster(season);
+    // Only successes are cached. A failure is usually transient — a network blip, or a
+    // release that upstream has not published yet — and one provider serves a whole
+    // board-building run, so caching the failure turns a single bad fetch into every
+    // later call for that season failing too, for the lifetime of the action.
+    if (result.ok) this.rosterCache.set(season, result);
+    return result;
+  }
+
+  private async fetchSeasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
+    try {
+      const text = await this.fetchText(seasonRosterUrl(season));
+      const entries = parseSeasonRoster(parseCsv(text));
+      // An empty file parses cleanly and would report success, leaving every downstream
+      // caller to conclude the league has no players rather than that the fetch was bad.
+      if (entries.length === 0) {
+        return failed(
+          `Rosters for ${season} parsed to no active players. The release is probably a ` +
+            `placeholder that has not been populated yet.`,
+        );
+      }
+      return ok(entries);
+    } catch (cause) {
+      return failed(
+        `Rosters for ${season} are unavailable. They are usually published well before ` +
+          `the season starts.`,
         cause,
       );
     }

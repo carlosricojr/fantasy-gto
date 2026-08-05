@@ -1,0 +1,106 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import metrics from "./published-draft-metrics.json";
+
+/**
+ * The published figures and the document that quotes them.
+ *
+ * `docs/draft-validation.md` is the sole authority for what the draft board may claim, and
+ * `published-draft-metrics.json` is what the backtest actually wrote. Nothing connected
+ * them: the numbers were copied across by hand, and this branch has already had them
+ * disagree once — the tie correction moved every figure, and the doc, `config.ts` and
+ * `value.ts` each had to be found and edited separately.
+ *
+ * So this test reads the table out of the markdown and compares it to the JSON. It is not
+ * checking arithmetic; it is checking that a rerun of the backtest cannot leave the
+ * document quoting figures that no longer exist.
+ */
+const doc = readFileSync(join(__dirname, "../../../docs/draft-validation.md"), "utf8");
+
+/** The number in a given column of the row whose first cell contains `label`. */
+function tableValue(label: string, column: number): number {
+  // Anchored to the *first* cell, which is what the docstring above says and what the
+  // implementation did not do. A later table whose second column happened to mention the
+  // same method would be matched first, and every figure below would then be read out of
+  // the wrong table without anything failing. This file exists to catch document drift, so
+  // its own check should be as narrow as its description.
+  const row = doc
+    .split("\n")
+    .find((line) => line.startsWith("|") && line.split("|")[1]?.trim().includes(label));
+  if (row === undefined) throw new Error(`No table row mentioning "${label}"`);
+  const cells = row.split("|").map((c) => c.trim());
+  // `cells[0]` is the empty string before the leading pipe.
+  const cell = cells[column + 1];
+  if (cell === undefined) {
+    // This file exists to report drift in the document readably. An edit that removes a
+    // column would otherwise surface as `Cannot read properties of undefined`, which says
+    // nothing about which table or which column.
+    throw new Error(
+      `The "${label}" row has ${cells.length - 2} column(s), so column ${column} is not ` +
+        `there.`,
+    );
+  }
+  const raw = cell.replace(/\*/g, "");
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Column ${column} of the "${label}" row is not a number: ${raw}`);
+  }
+  return value;
+}
+
+describe("docs/draft-validation.md quotes the published metrics", () => {
+  it("matches the Spearman column for all three methods", () => {
+    expect(tableValue("Market (ADP)", 1)).toBeCloseTo(metrics.spearman.adpOnly, 4);
+    expect(tableValue("Our season model", 1)).toBeCloseTo(metrics.spearman.modelOnly, 4);
+    expect(tableValue("Blend, weight", 1)).toBeCloseTo(metrics.spearman.blended, 4);
+  });
+
+  it("matches the top-24 and top-48 columns", () => {
+    expect(tableValue("Market (ADP)", 2)).toBeCloseTo(metrics.topN["24"].adpOnly, 1);
+    expect(tableValue("Our season model", 2)).toBeCloseTo(metrics.topN["24"].modelOnly, 1);
+    expect(tableValue("Blend, weight", 2)).toBeCloseTo(metrics.topN["24"].blended, 1);
+
+    expect(tableValue("Market (ADP)", 3)).toBeCloseTo(metrics.topN["48"].adpOnly, 1);
+    expect(tableValue("Our season model", 3)).toBeCloseTo(metrics.topN["48"].modelOnly, 1);
+    expect(tableValue("Blend, weight", 3)).toBeCloseTo(metrics.topN["48"].blended, 1);
+  });
+
+  it("quotes the blend's decline against the market with the right sign and size", () => {
+    // The document states this as a positive "0.72% decline", the JSON as a negative
+    // percentage. The sign convention differs; the magnitude may not.
+    const stated = doc.match(/a ([\d.]+)% decline/);
+    expect(stated).not.toBeNull();
+    expect(Number(stated![1])).toBeCloseTo(Math.abs(metrics.edgeOverMarketPercent), 2);
+    expect(metrics.edgeOverMarketPercent).toBeLessThan(0);
+  });
+
+  it("states the sample size the metrics were computed over", () => {
+    // Bound to the sentence that states it. `toContain(String(n))` is a bare substring
+    // match over the whole document: it passes on any occurrence of those digits — inside
+    // a longer number, a year, an unrelated cell — so it would keep passing after the
+    // document started quoting a different n, which is the one thing it exists to catch.
+    const stated = doc.match(/over the (\d+) players with both a market price/);
+    expect(stated).not.toBeNull();
+    expect(Number(stated![1])).toBe(metrics.sampleSize);
+  });
+
+  it("keeps the blend weight the document names in step with the one measured", () => {
+    // The label cell reads "Blend, weight 0.2", so the weight is parsed out of it rather
+    // than read as a column.
+    // The same leading-pipe predicate `tableValue` uses. Without it any prose sentence
+    // mentioning the blend matches first — and this document does discuss the blend in
+    // prose — so the weight would be read out of a paragraph rather than out of the table
+    // this test is named for.
+    const row = doc
+      .split("\n")
+      .find((line) => line.startsWith("|") && line.includes("Blend, weight"));
+    const weight = row?.match(/Blend, weight ([\d.]+)/)?.[1];
+    expect(weight).toBeDefined();
+    expect(Number(weight)).toBeCloseTo(metrics.chosenBlendWeight, 4);
+    // And it is the table row, not a paragraph. The document mentions the blend in prose
+    // above the table, so a lookup without the leading-pipe test reads the wrong line.
+    expect(row?.startsWith("|")).toBe(true);
+  });
+});
