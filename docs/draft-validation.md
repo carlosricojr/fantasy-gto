@@ -146,9 +146,10 @@ decimals, so players share values — and tied players were given different rank
 the order rows came out of a CSV.
 
 Corrected to mid-ranks with Pearson correlation on the ranks, which agrees exactly with the
-shortcut when there are no ties. Every figure in the table above moved, which is the proof
-there were ties: the market from 0.5402 to 0.5403, our model from 0.4434 to 0.4433, the
-blend unchanged at 0.5364, and the decline against the market from 0.70% to 0.72%.
+shortcut when there are no ties. Two of the three correlations moved, which is the proof
+there were ties: the market from 0.5402 to 0.5403 and our model from 0.4434 to 0.4433. The
+blend is unchanged at 0.5364 to four decimals, and the decline against the market moved
+from 0.70% to 0.72% — it is a ratio of the two figures that did move.
 
 The movement is small and it does not change any conclusion. It is recorded because the
 figures above are the authority for what this product may claim, and a number that depends

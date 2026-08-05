@@ -255,6 +255,17 @@ export function rosterUtility(
   config: UtilityConfig,
   seed: number,
 ): RosterUtility {
+  // Checked here rather than left to the division at the end. A zero or fractional count
+  // runs the sampling loop zero times — or a fractional number of times, which is the same
+  // thing — and every figure comes back as 0/0. `simulateLeague` already refuses exactly
+  // this, and the two are called from the same places with the same config; the one that
+  // did not check returned a table of `NaN` that renders as an empty cell.
+  if (!Number.isInteger(config.scenarios) || config.scenarios < 1) {
+    throw new Error(
+      `A roster cannot be valued over ${config.scenarios} scenario(s). Every figure ` +
+        `would be a division by zero.`,
+    );
+  }
   if (roster.length === 0) {
     return {
       expectedPoints: 0,

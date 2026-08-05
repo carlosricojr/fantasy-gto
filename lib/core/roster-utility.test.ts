@@ -683,3 +683,37 @@ describe("the simulation does not depend on how a roster was assembled", () => {
     expect(forward.expectedEmptySlots).toBeGreaterThan(0);
   });
 });
+
+describe("a scenario count that cannot be averaged over", () => {
+  it("refuses zero, negative and fractional counts", () => {
+    // Every figure this returns is a total divided by the scenario count, so a zero runs
+    // the loop no times and comes back 0/0 — a table of `NaN` that renders as an empty cell
+    // rather than as an error. `simulateLeague` already refused exactly this and is called
+    // from the same places with the same config; this one did not.
+    const roster = [player("rb1", "RB", 10)];
+    for (const scenarios of [0, -1, 2.5, Number.NaN]) {
+      expect(() =>
+        rosterUtility(roster, SLOTS, { weeks: WEEKS, scenarios, meanAbsenceWeeks: 3 }, 1),
+      ).toThrow(/division by zero/);
+    }
+  });
+
+  it("refuses it for an empty roster too, rather than returning zeros", () => {
+    // The empty-roster shortcut returns before the division, so it would have answered a
+    // nonsense config with a confident table of zeros.
+    expect(() =>
+      rosterUtility([], SLOTS, { weeks: WEEKS, scenarios: 0, meanAbsenceWeeks: 3 }, 1),
+    ).toThrow(/division by zero/);
+  });
+
+  it("accepts a single scenario, which is the smallest that can be averaged", () => {
+    const utility = rosterUtility(
+      [player("rb1", "RB", 10, { p10: 1, p90: 1, availability: 1 })],
+      SLOTS,
+      { weeks: [1, 2], scenarios: 1, meanAbsenceWeeks: 3 },
+      1,
+    );
+    expect(utility.expectedPoints).toBe(20);
+    expect(utility.standardError).toBe(0);
+  });
+});

@@ -696,6 +696,19 @@ async function main(): Promise<void> {
   // Targets come from the command line and decide where this reads and writes. `../..`
   // resolves outside the checkout, and a run interrupted there leaves both the mutated file
   // and its backup somewhere recovery does not look.
+  // Existence first, and separately. `isInsideRepo` returns true for a path that does not
+  // exist as long as its parent resolves inside the checkout — which it has to, so a backup
+  // can be created for a file that has none. The consequence is that a mistyped target in a
+  // real directory passes the refusal below and reaches `readFileSync`, which throws a raw
+  // ENOENT out through `main`. Every other stop in this file names its cause first.
+  const missing = files.filter((f) => !existsSync(join(process.cwd(), f)));
+  if (missing.length > 0) {
+    process.stderr.write(`No such target file(s): ${missing.join(", ")}\n`);
+    releaseRunLock();
+    process.exitCode = 1;
+    return;
+  }
+
   const outside = files.filter((f) => !isInsideRepo(join(process.cwd(), f)));
   if (outside.length > 0) {
     process.stderr.write(
