@@ -21,6 +21,15 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * true. An earlier version transcribed the numbers by hand, which is the same failure mode
  * as a constant marked "measured" with nothing producing it.
  *
+ * The comparative claims are derived rather than written down, for the same reason the
+ * numbers are: the leaderboard sorts by measured error, the headline quotes whichever
+ * baseline actually scored better, the "we win by" wording follows the sign of the edge,
+ * and the bias direction and worst position come from the metrics. Finishing first is a
+ * result, not a fact the page is entitled to assert. Some of those invariants are also
+ * held by `published-metrics.test.ts`, but the per-position ordering is not, so a future
+ * backtest could have made the old hard-coded "Quarterbacks are our worst position" false
+ * with every test still green.
+ *
  * The one number still written literally is the "around 12" typical weekly score used to
  * give the error a sense of scale. It is deliberately rounded and illustrative rather than
  * a measurement, and it is not a claim about the model.
@@ -36,10 +45,52 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * developer instruction on a page whose audience is people setting a lineup; the links to
  * the public repository and the validation document do that job for both readers.
  */
+const POSITION_NAMES = {
+  QB: "Quarterbacks",
+  RB: "Running backs",
+  WR: "Wide receivers",
+  TE: "Tight ends",
+} as const;
+
 export default function AccuracyPage() {
-  const positions = (["QB", "RB", "WR", "TE"] as const)
+  const positions = (Object.keys(POSITION_NAMES) as (keyof typeof POSITION_NAMES)[])
     .map((position) => ({ position, mae: metrics.perPositionMae[position] }))
     .sort((a, b) => b.mae - a.mae);
+  const hardestPosition = positions[0];
+
+  const priorGames = {
+    name: "Season average",
+    blurb: "Every game a player has played, averaged",
+    mae: metrics.priorGamesMeanMae,
+    edge: metrics.edgeVsPriorGamesMean,
+  };
+  const lastThree = {
+    name: "Last three games",
+    blurb: "The hot-hand rule of thumb",
+    mae: metrics.lastThreeMae,
+    edge: metrics.edgeVsLastThree,
+  };
+
+  // The baseline that beat the other one is the one worth quoting against. Choosing it by
+  // measured error is what stops the headline drifting onto the flattering comparison.
+  const toughest = priorGames.mae <= lastThree.mae ? priorGames : lastThree;
+  const weakest = toughest === priorGames ? lastThree : priorGames;
+
+  // Ranked by measured error rather than by assumption. Finishing first is what the
+  // backtest says today, not something the page is entitled to assert — if a future run
+  // puts a baseline ahead of us, this renders that instead of still claiming the win.
+  const methods = [
+    {
+      name: "Fantasy GTO",
+      blurb: "Us, on a season we had never touched",
+      mae: metrics.modelMae,
+      edge: null as number | null,
+    },
+    priorGames,
+    lastThree,
+  ].sort((a, b) => a.mae - b.mae);
+
+  const projectsHigh = metrics.bias < 0;
 
   return (
     <main className="relative overflow-hidden">
@@ -69,10 +120,11 @@ export default function AccuracyPage() {
         <dl className="mt-10 grid gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
           <div className="bg-background p-5">
             <dd className="text-3xl font-semibold tracking-tight tabular-nums text-brand">
-              {metrics.edgeVsPriorGamesMean.toFixed(2)}%
+              {toughest.edge.toFixed(2)}%
             </dd>
             <dt className="mt-1 text-sm text-muted-foreground">
-              sharper than the toughest baseline we could throw at it
+              {toughest.edge >= 0 ? "sharper than" : "behind"} the toughest baseline we
+              could throw at it
             </dt>
           </div>
           <div className="bg-background p-5">
@@ -100,56 +152,45 @@ export default function AccuracyPage() {
         </p>
 
         <ol className="mt-6 divide-y rounded-xl border">
-          <li className="flex items-baseline gap-4 bg-brand/5 p-5">
-            <span className="font-mono text-sm text-brand">1</span>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">Fantasy GTO</p>
-              <p className="text-sm text-muted-foreground">
-                Us, on a season we had never touched
-              </p>
-            </div>
-            <p className="text-2xl font-semibold tabular-nums text-brand">
-              {metrics.modelMae.toFixed(2)}
-            </p>
-          </li>
-          <li className="flex items-baseline gap-4 p-5">
-            <span className="font-mono text-sm text-muted-foreground">2</span>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">Season average</p>
-              <p className="text-sm text-muted-foreground">
-                Every game a player has played, averaged
-              </p>
-            </div>
-            <p className="text-right text-2xl font-semibold tabular-nums">
-              {metrics.priorGamesMeanMae.toFixed(2)}
-              <span className="block text-xs font-normal text-muted-foreground">
-                we win by {metrics.edgeVsPriorGamesMean.toFixed(2)}%
-              </span>
-            </p>
-          </li>
-          <li className="flex items-baseline gap-4 p-5">
-            <span className="font-mono text-sm text-muted-foreground">3</span>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">Last three games</p>
-              <p className="text-sm text-muted-foreground">The hot-hand rule of thumb</p>
-            </div>
-            <p className="text-right text-2xl font-semibold tabular-nums">
-              {metrics.lastThreeMae.toFixed(2)}
-              <span className="block text-xs font-normal text-muted-foreground">
-                we win by {metrics.edgeVsLastThree.toFixed(2)}%
-              </span>
-            </p>
-          </li>
+          {methods.map((method, index) => {
+            const ours = method.edge === null;
+            return (
+              <li
+                key={method.name}
+                className={`flex items-baseline gap-4 p-5 ${ours ? "bg-brand/5" : ""}`}
+              >
+                <span
+                  className={`font-mono text-sm ${ours ? "text-brand" : "text-muted-foreground"}`}
+                >
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{method.name}</p>
+                  <p className="text-sm text-muted-foreground">{method.blurb}</p>
+                </div>
+                <p
+                  className={`text-right text-2xl font-semibold tabular-nums ${ours ? "text-brand" : ""}`}
+                >
+                  {method.mae.toFixed(2)}
+                  {method.edge !== null && (
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {method.edge >= 0
+                        ? `we win by ${method.edge.toFixed(2)}%`
+                        : `it beats us by ${Math.abs(method.edge).toFixed(2)}%`}
+                    </span>
+                  )}
+                </p>
+              </li>
+            );
+          })}
         </ol>
 
         <p className="mt-4 max-w-2xl text-sm text-muted-foreground">
           The number we quote is{" "}
-          <strong className="text-foreground">
-            {metrics.edgeVsPriorGamesMean.toFixed(2)}%
-          </strong>
-          , because the season average is the harder opponent. The{" "}
-          {metrics.edgeVsLastThree.toFixed(2)}% is real too, but leading with it would be
-          picking the easier matchup and calling it a win.
+          <strong className="text-foreground">{toughest.edge.toFixed(2)}%</strong>, because
+          the {toughest.name.toLowerCase()} is the harder opponent. The{" "}
+          {weakest.edge.toFixed(2)}% is real too, but leading with it would be picking the
+          easier matchup and calling it a win.
         </p>
       </section>
 
@@ -157,7 +198,7 @@ export default function AccuracyPage() {
         <h2 className="text-2xl font-semibold tracking-tight">Where we miss</h2>
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border p-5">
-            <h3 className="font-medium">Half of any week is noise</h3>
+            <h3 className="font-medium">Most of a week is noise</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               We are off by about {metrics.modelMae.toFixed(1)} points on a player who
               typically scores around 12. Weekly fantasy is mostly variance, and no model
@@ -166,16 +207,21 @@ export default function AccuracyPage() {
             </p>
           </div>
           <div className="rounded-xl border p-5">
-            <h3 className="font-medium">We run a little hot</h3>
+            <h3 className="font-medium">
+              We run a little {projectsHigh ? "hot" : "cold"}
+            </h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Even after calibration we project about {Math.abs(metrics.bias).toFixed(2)}{" "}
-              points high (residual bias {metrics.bias.toFixed(2).replace("-", "−")}).
-              Players earn their way into the sample by producing recently, then regress.
-              It is why you get a range rather than one confident number.
+              points {projectsHigh ? "high" : "low"} (residual bias{" "}
+              {metrics.bias.toFixed(2).replace("-", "−")}). Players earn their way into the
+              sample by producing recently, then regress. It is why you get a range rather
+              than one confident number.
             </p>
           </div>
           <div className="rounded-xl border p-5">
-            <h3 className="font-medium">Quarterbacks are our worst position</h3>
+            <h3 className="font-medium">
+              {POSITION_NAMES[hardestPosition.position]} are our worst position
+            </h3>
             <ul className="mt-3 space-y-1.5 text-sm">
               {positions.map(({ position, mae }) => (
                 <li key={position} className="flex items-baseline justify-between gap-3">
