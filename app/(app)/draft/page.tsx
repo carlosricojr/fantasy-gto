@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DRAFT_STORAGE_KEY,
@@ -226,6 +226,30 @@ export default function DraftPage() {
   const currentPick = useMemo(() => nextPick(picks, totalPicks), [picks, totalPicks]);
 
   const onTheClock = pickOwners.get(currentPick) === 0;
+
+  // Reordering the DOM moves the panel; it does not move the reader. You tap Draft
+  // partway down the candidate list, the turn passes, and the record controls slide to
+  // the top of a page you are still scrolled into the middle of — off-screen above you,
+  // with nothing to say they moved. That is the same dead end the ordering exists to
+  // prevent, reached by scroll instead of by order, and it happens once every round.
+  //
+  // Only on the your-turn → their-turn edge. Opponent-to-opponent leaves the order
+  // alone, and yanking the page around after every pick would be its own bug.
+  const recordPanelRef = useRef<HTMLElement | null>(null);
+  const wasOnTheClock = useRef(onTheClock);
+  useEffect(() => {
+    const turnJustPassed = wasOnTheClock.current && !onTheClock;
+    wasOnTheClock.current = onTheClock;
+    if (!turnJustPassed || recordPanelRef.current === null) return;
+    recordPanelRef.current.scrollIntoView({
+      block: "start",
+      // Honor the OS setting rather than animating over it.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [onTheClock]);
+
 
   const clockOwner = pickOwners.get(currentPick);
   const clockLabel =
@@ -490,15 +514,14 @@ export default function DraftPage() {
     <Recommendations state={recommender} onPick={record} onTheClock={onTheClock} />
   );
 
-  // Hidden once every pick is in. `currentPick` runs one past the last pick when the
-  // draft is complete, so this heading read "Record pick 181 — Nobody" and offered a
-  // search that could not attribute anything to a seat.
   const recordPanel = (
-    <section>
-      {/* Only the recording controls are hidden once the draft is complete. Undo sits
-          below, outside this wrapper, because correcting a mistaken *last* pick is
-          exactly when it is needed and hiding the whole section made it unreachable at
-          that moment. */}
+    <section ref={recordPanelRef}>
+      {/* The *controls* are hidden once every pick is in — not the section, which still
+          has to carry Undo. `currentPick` runs one past the last pick when the draft is
+          complete, so the heading below read "Record pick 181 — Nobody" over a search
+          that could not attribute anything to a seat. Undo sits outside this wrapper
+          because correcting a mistaken *last* pick is exactly when it is needed, and
+          hiding the whole section made it unreachable at that moment. */}
       <div className={draftComplete ? "hidden" : undefined}>
         {/* Names whose pick this is. "Record pick 2 — Seat 2" reads as a label for a
             row of data; the reader has to work out that it is asking them for
@@ -553,6 +576,11 @@ export default function DraftPage() {
     </section>
   );
 
+  const panelOrder =
+    onTheClock || draftComplete
+      ? (["recommendations", "record"] as const)
+      : (["record", "recommendations"] as const);
+
   return (
     <PageShell
       title="Draft"
@@ -601,17 +629,17 @@ export default function DraftPage() {
             Reordered in the DOM rather than with CSS `order`, so that what a screen reader
             announces and where the tab sequence goes both match what is on the screen.
           */}
-          {onTheClock || draftComplete ? (
-            <>
-              {recommendationsPanel}
-              {recordPanel}
-            </>
-          ) : (
-            <>
-              {recordPanel}
-              {recommendationsPanel}
-            </>
-          )}
+          {/* Keyed, so React moves these two nodes rather than tearing both down and
+              building them again. Rendered as bare fragments the children reconcile by
+              index, the element type at each index changes on every turn, and both
+              subtrees remount — which drops focus to <body>. A keyboard user who had
+              just pressed Undo lost their place and had to tab from the top of the page
+              to press it a second time. */}
+          {panelOrder.map((panel) => (
+            <Fragment key={panel}>
+              {panel === "record" ? recordPanel : recommendationsPanel}
+            </Fragment>
+          ))}
         </div>
 
         <aside>
