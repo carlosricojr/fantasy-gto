@@ -53,6 +53,19 @@ export interface PairedError {
 export const Z_TWO_SIDED_95 = 1.959963984540054;
 export const Z_POWER_80 = 0.8416212335729143;
 
+/**
+ * The confidence level every interval here is built at, as a percentage.
+ *
+ * Exported and carried out through `PairedComparison` rather than left implicit in a
+ * `0.975`, because the interface states it in words and a page that says "nineteen times
+ * out of twenty" while the estimator quietly moved to 90% is wrong in a way nothing would
+ * catch. `Z_TWO_SIDED_95` and `Z_POWER_80` are the matching normal quantiles; a change here
+ * without a change there makes the interval and the minimum detectable effect disagree
+ * about what they are testing, which is why `stats.test.ts` checks all three against
+ * `normalCdf` rather than against each other.
+ */
+export const CONFIDENCE_LEVEL = 95;
+
 /** Sum of `Z_TWO_SIDED_95` and `Z_POWER_80`: the multiplier in the standard power formula. */
 export const POWER_MULTIPLIER = Z_TWO_SIDED_95 + Z_POWER_80;
 
@@ -83,7 +96,9 @@ export interface PairedComparison {
   t: number;
   /** Two-sided, against Student's t on `degreesOfFreedom`. */
   pValue: number;
-  /** 95% interval on `meanDelta`. */
+  /** The confidence level the two intervals are built at, as a percentage. */
+  confidenceLevel: number;
+  /** Interval on `meanDelta`, at `confidenceLevel`. */
   interval: readonly [number, number];
   /**
    * 95% interval on `percentEdge`.
@@ -207,7 +222,11 @@ export function pairedComparison(rows: readonly PairedError[]): PairedComparison
       : 0
     : studentTTwoSided(t, degreesOfFreedom);
 
-  const critical = studentTQuantile(0.975, degreesOfFreedom);
+  // Two-sided, so the level is split across both tails.
+  const critical = studentTQuantile(
+    (1 + CONFIDENCE_LEVEL / 100) / 2,
+    degreesOfFreedom,
+  );
   const halfWidth = critical * standardError;
   const interval: readonly [number, number] = [
     meanDelta - halfWidth,
@@ -229,6 +248,7 @@ export function pairedComparison(rows: readonly PairedError[]): PairedComparison
     degreesOfFreedom,
     t,
     pValue,
+    confidenceLevel: CONFIDENCE_LEVEL,
     interval,
     percentInterval: [toPercent(interval[0]), toPercent(interval[1])],
     minimumDetectableEffect,
@@ -250,6 +270,8 @@ export interface BootstrapOptions {
 export interface BootstrapComparison {
   resamples: number;
   seed: number;
+  /** Matches `PairedComparison.confidenceLevel`, so the two intervals are comparable. */
+  confidenceLevel: number;
   /** Standard deviation of the resampled `meanDelta`. Compare against the analytic SE. */
   standardError: number;
   /** Percentile interval on `meanDelta`. */
@@ -332,12 +354,18 @@ export function bootstrapPairedComparison(
     deltas.reduce((sum, delta) => sum + (delta - meanDelta) ** 2, 0) / (deltas.length - 1),
   );
 
+  // The same level the analytic interval uses, so the two are comparable rather than
+  // coincidentally similar.
+  const lower = (1 - CONFIDENCE_LEVEL / 100) / 2;
+  const upper = 1 - lower;
+
   return {
     resamples: options.resamples,
     seed: options.seed,
+    confidenceLevel: CONFIDENCE_LEVEL,
     standardError,
-    interval: [quantile(deltas, 0.025), quantile(deltas, 0.975)],
-    percentInterval: [quantile(percents, 0.025), quantile(percents, 0.975)],
+    interval: [quantile(deltas, lower), quantile(deltas, upper)],
+    percentInterval: [quantile(percents, lower), quantile(percents, upper)],
   };
 }
 

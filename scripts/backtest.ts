@@ -95,6 +95,8 @@ interface PublishedSignificance {
   degreesOfFreedom: number;
   t: number;
   pValue: number;
+  /** The level both intervals are built at, as a percentage. The page states it in words. */
+  confidenceLevel: number;
   confidenceInterval: [number, number];
   percentConfidenceInterval: [number, number];
   minimumDetectableEffect: number;
@@ -105,6 +107,7 @@ interface PublishedSignificance {
   bootstrap: {
     resamples: number;
     seed: number;
+    confidenceLevel: number;
     standardError: number;
     confidenceInterval: [number, number];
     percentConfidenceInterval: [number, number];
@@ -401,16 +404,16 @@ async function main(): Promise<void> {
         `clustered / i.i.d. = ${(result.standardError / result.iidStandardError).toFixed(2)}\n` +
         `    t                         ${signed(result.t)}   ` +
         `df = ${result.degreesOfFreedom}, p ${formatP(result.pValue)}\n` +
-        `    95% CI on delta MAE       [${result.interval[0].toFixed(4)}, ${result.interval[1].toFixed(4)}]\n` +
-        `    95% CI on the edge        [${result.percentInterval[0].toFixed(2)}%, ${result.percentInterval[1].toFixed(2)}%]\n` +
+        `    ${result.confidenceLevel}% CI on delta MAE       [${result.interval[0].toFixed(4)}, ${result.interval[1].toFixed(4)}]\n` +
+        `    ${result.confidenceLevel}% CI on the edge        [${result.percentInterval[0].toFixed(2)}%, ${result.percentInterval[1].toFixed(2)}%]\n` +
         `    MDE at 80% power           ${result.minimumDetectableEffect.toFixed(4)}   ` +
         `(${result.minimumDetectablePercent.toFixed(2)}%)\n` +
         `    smallest significant       ${result.minimumSignificantEffect.toFixed(4)}   ` +
         `(${result.minimumSignificantPercent.toFixed(2)}%)\n` +
         `    bootstrap, ${boot.resamples} resamples, seed ${boot.seed}\n` +
         `      SE                       ${boot.standardError.toFixed(4)}\n` +
-        `      95% CI on delta MAE     [${boot.interval[0].toFixed(4)}, ${boot.interval[1].toFixed(4)}]\n` +
-        `      95% CI on the edge      [${boot.percentInterval[0].toFixed(2)}%, ${boot.percentInterval[1].toFixed(2)}%]\n`,
+        `      ${boot.confidenceLevel}% CI on delta MAE     [${boot.interval[0].toFixed(4)}, ${boot.interval[1].toFixed(4)}]\n` +
+        `      ${boot.confidenceLevel}% CI on the edge      [${boot.percentInterval[0].toFixed(2)}%, ${boot.percentInterval[1].toFixed(2)}%]\n`,
     );
     return { result, boot };
   }
@@ -545,6 +548,7 @@ async function main(): Promise<void> {
         degreesOfFreedom: vsPriorGamesMean.result.degreesOfFreedom,
         t: vsPriorGamesMean.result.t,
         pValue: vsPriorGamesMean.result.pValue,
+        confidenceLevel: vsPriorGamesMean.result.confidenceLevel,
         confidenceInterval: [...vsPriorGamesMean.result.interval],
         percentConfidenceInterval: [...vsPriorGamesMean.result.percentInterval],
         minimumDetectableEffect: vsPriorGamesMean.result.minimumDetectableEffect,
@@ -554,6 +558,7 @@ async function main(): Promise<void> {
         bootstrap: {
           resamples: vsPriorGamesMean.boot.resamples,
           seed: vsPriorGamesMean.boot.seed,
+          confidenceLevel: vsPriorGamesMean.boot.confidenceLevel,
           standardError: vsPriorGamesMean.boot.standardError,
           confidenceInterval: [...vsPriorGamesMean.boot.interval],
           percentConfidenceInterval: [...vsPriorGamesMean.boot.percentInterval],

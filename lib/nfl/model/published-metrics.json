@@ -27,6 +27,7 @@
     "degreesOfFreedom": 307,
     "t": 3.703539540554263,
     "pValue": 0.00025204430694651686,
+    "confidenceLevel": 95,
     "confidenceInterval": [
       0.07693761689988876,
       0.2513703795749697
@@ -42,6 +43,7 @@
     "bootstrap": {
       "resamples": 2000,
       "seed": 8675309,
+      "confidenceLevel": 95,
       "standardError": 0.04443948535787112,
       "confidenceInterval": [
         0.07690554519275836,

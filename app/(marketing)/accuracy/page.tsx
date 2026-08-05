@@ -43,20 +43,23 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * padded it. The reason it is wider is the clustering, and saying so is cheaper than being
  * disbelieved.
  *
- * Two numbers are still written literally, and neither is a measurement. The "around 12"
- * typical weekly score gives the error a sense of scale; it is deliberately rounded,
- * illustrative, and appears in `docs/model-validation.md` — which is the rule: a number
- * absent from that document may not appear in the interface. And "nineteen times out of
- * twenty" is the confidence level spelled out, a parameter of the estimator rather than
- * something it returned, published in that document as 95%. The nearby sentence therefore
- * claims provenance only for the *measured* figures, since neither of these is read from
- * the artifact.
+ * The one number still written literally is the "around 12" typical weekly score used to
+ * give the error a sense of scale. It is deliberately rounded and illustrative rather than
+ * a measurement, it is not a claim about the model, and it appears in
+ * `docs/model-validation.md` — which is the rule: a number absent from that document may
+ * not appear in the interface. The nearby sentence therefore claims provenance only for
+ * the *measured* figures, since this one is not read from the artifact.
  *
- * This list is load-bearing and was briefly wrong: a literal "seventeen" — the number of
- * games a player can appear in — got added to the clustering paragraph while the docstring
- * still claimed there was only one literal. It has since been reworded away, but the lesson
- * is that this paragraph has to be updated in the same edit that adds a number, or it
- * quietly becomes the thing it exists to prevent.
+ * That list is load-bearing, and it has already been wrong twice in this file's short
+ * history. A literal "seventeen" — the number of games a player can appear in — was added
+ * to the clustering paragraph while the docstring still claimed a single literal. And the
+ * confidence level was spelled out as "nineteen times out of twenty", which reads as prose
+ * rather than as a number and so slipped past the same check; it is a parameter of the
+ * estimator, and an estimator moved to 90% would have left the page confidently stating
+ * the wrong frequency with nothing to catch it. Both are gone: the first reworded away, the
+ * second now rendered from `significance.confidenceLevel` in the artifact. The lesson is
+ * that this paragraph has to be updated in the same edit that adds a number, and that a
+ * number written as a word is still a number.
  *
  * Two claims were removed rather than reworded. A "0 peeks at the held-out season" stat
  * asserted more than the record supports: hyperparameters were chosen on the tuning season
@@ -287,8 +290,8 @@ export default function AccuracyPage() {
               <strong className="tabular-nums text-foreground">
                 {intervalHigh.toFixed(2)}%
               </strong>{" "}
-              &mdash; an interval built this way covers the true edge nineteen times out of
-              twenty.{" "}
+              &mdash; an interval built this way covers the true edge in{" "}
+              {metrics.significance.confidenceLevel}% of samples.{" "}
               {intervalExcludesZero
                 ? "It does not include zero, so the edge is real rather than luck"
                 : "It includes zero, so we cannot rule out that this edge is luck"}{" "}

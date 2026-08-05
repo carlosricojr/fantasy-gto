@@ -28,6 +28,16 @@ const validation = readFileSync(
   "utf8",
 );
 
+/**
+ * The honesty ledger, which is the other document these figures have to agree with.
+ *
+ * `docs/model-validation.md` is the authority for how a number was measured; the README
+ * ledger is the index of what the product actually *claims*. A drift between the artifact
+ * and the ledger is the more dangerous of the two, because the ledger is what a reader
+ * checks a marketing claim against.
+ */
+const readme = readFileSync(join(__dirname, "../../../README.md"), "utf8");
+
 describe("published metrics", () => {
   it("derives its percentages from its own error figures", () => {
     const edge =
@@ -232,6 +242,7 @@ describe("published significance", () => {
     expect(validation).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
     expect(validation).toContain(significance.minimumSignificantEffect.toFixed(4));
     expect(validation).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);
+    expect(validation).toContain(`${significance.confidenceLevel}%`);
     expect(validation).toContain(significance.bootstrap.standardError.toFixed(4));
     // The seed and the resample count are the document's reproducibility claim: someone
     // re-running the backtest has to be able to land on the same interval. Change either in
@@ -247,5 +258,34 @@ describe("published significance", () => {
         `${significance.percentConfidenceInterval[end].toFixed(2)}%`,
       );
     }
+  });
+
+  it("agrees with the README honesty ledger, which is what a reader checks", () => {
+    // The ledger row for the headline edge quotes the interval. Nothing asserted that
+    // before, so a backtest that moved the interval would have left the ledger — the
+    // document whose entire job is mapping a claim to its computation — quoting a number
+    // the code no longer produces. That is the specific failure the ledger exists to catch,
+    // happening to the ledger itself.
+    //
+    // Matched against the artifact rather than against literals, so this cannot be
+    // satisfied by editing the test to agree with a stale README.
+    const ledgerRow = readme
+      .split("\n")
+      .find((line) => line.includes("prior-games-mean baseline"));
+    expect(ledgerRow, "honesty ledger row for the headline edge").toBeDefined();
+    expect(ledgerRow).toContain(`${metrics.edgeVsPriorGamesMean.toFixed(2)}%`);
+    expect(ledgerRow).toContain(`${significance.confidenceLevel}% CI`);
+    for (const end of [0, 1] as const) {
+      expect(ledgerRow).toContain(
+        `${significance.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
+    }
+    expect(ledgerRow).toContain(String(metrics.significance.clusters));
+    expect(ledgerRow).toContain(metrics.sampleSize.toLocaleString("en-US"));
+
+    // The known gap that bounds every future claim about this model.
+    expect(readme).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
+    expect(readme).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);
+    expect(readme).toContain(significance.minimumDetectableEffect.toFixed(4));
   });
 });
