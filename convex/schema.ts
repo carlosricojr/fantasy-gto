@@ -149,7 +149,7 @@ export default defineSchema({
     team: v.union(v.string(), v.null()),
     /**
      * Our own season projection, or `null` where the model has no opinion — a rookie with
-     * no prior games, a kicker, a defence. Stored as null rather than zero so the
+     * no prior games, a kicker, a defense. Stored as null rather than zero so the
      * interface can tell "we project nothing" from "we have nothing to say", which is the
      * distinction the blend itself turns on.
      */
@@ -175,7 +175,7 @@ export default defineSchema({
      *
      * Stored rather than inferred, for the same reason `modelPoints` is nullable: a row
      * that cannot say where its numbers came from will eventually be presented as though
-     * they were all measured. Kickers and defences carry `placeholder`, and so does any
+     * they were all measured. Kickers and defenses carry `placeholder`, and so does any
      * position `OUTCOME_QUANTILES` has no entry for.
      *
      * Required, like the four fields beside it — and a required field on a populated table

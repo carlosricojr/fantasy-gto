@@ -103,7 +103,7 @@ describe("digestIds", () => {
 
 describe("canonicalizeState and stateSignature", () => {
   it("makes roster order irrelevant", () => {
-    // Roster order drives the sequence of random draws, so without canonicalisation the
+    // Roster order drives the sequence of random draws, so without canonicalization the
     // same position computes differently depending on the order picks arrived in.
     const a = baseState();
     const b = baseState();
@@ -502,7 +502,7 @@ describe("recommendWithCache", () => {
   });
 
   it("refuses an approximation unless asked for one", () => {
-    // Default behaviour is to pay for a correct answer. A caller who would rather have a
+    // Default behavior is to pay for a correct answer. A caller who would rather have a
     // stale one instantly has to say so.
     const state = baseState();
     const cache = precomputeRecommendations(
@@ -656,7 +656,7 @@ describe("cached recommendations are sealed", () => {
 /**
  * The three things the cache is built on.
  *
- * Canonicalisation is what makes a hit exact — the same position assembled in a different
+ * Canonicalization is what makes a hit exact — the same position assembled in a different
  * order must produce the same signature. The digest is what makes two positions distinct.
  * And `allowApproximate` is the caller's choice between a stale answer and none. Each had a
  * mutant that survived, and each of those is silent rather than loud.
@@ -979,7 +979,7 @@ describe("the anticipated list", () => {
 
   it("precomputes exactly the budget it was given, taking the likeliest", () => {
     // Off by one either way: `maxStates - 1` drops the most likely future, `+ 1` spends
-    // work the caller did not authorise.
+    // work the caller did not authorize.
     const built = baseState();
     const anticipated = anticipateStates(
       canonicalizeState(built),
@@ -1014,7 +1014,7 @@ describe("the anticipated list", () => {
 });
 
 /**
- * Canonicalisation, asserted on the order rather than through the signature.
+ * Canonicalization, asserted on the order rather than through the signature.
  *
  * Every test above compares two signatures, which is a fine way to say "these are the same
  * position" and a poor way to say "the roster is sorted". A comparator that returned zero

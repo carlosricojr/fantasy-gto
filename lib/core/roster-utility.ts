@@ -12,12 +12,12 @@ import { type Rng, Z_90, createRng, standardNormal } from "./rng";
  *
  *  - **A bench exists to be the maximum.** Its worth is the chance a starter is out times
  *    what the replacement saves, which is a derived quantity — not a weight to be guessed.
- *    `BENCH_VALUE_WEIGHT` was a symptom of the wrong objective, not a modelling choice.
+ *    `BENCH_VALUE_WEIGHT` was a symptom of the wrong objective, not a modeling choice.
  *  - **Bye weeks are a real constraint, not a footnote.** Two running backs sharing a bye
  *    means one week fielding nobody there. Summing season points cannot see it; a sum of
  *    weekly maxima sees it exactly, because that week's matching leaves the slot empty.
  *  - **An unfilled starting slot costs its whole contribution, every week.** No special
- *    rule is needed to stop the optimiser leaving one open — a zero in the matching says
+ *    rule is needed to stop the optimizer leaving one open — a zero in the matching says
  *    it.
  *  - **Jensen's inequality is load-bearing.** E[max] exceeds max[E], so a roster of volatile
  *    players with depth behind them is worth more than its expected points suggest. The
@@ -85,7 +85,7 @@ export interface RosterUtility {
    * The same mean before rounding.
    *
    * Exists so `marginalUtility` can subtract before rounding. The difference between two
-   * rosters is often a fraction of a point where the totals are hundreds, so quantising
+   * rosters is often a fraction of a point where the totals are hundreds, so quantizing
    * both terms at 0.01 lands squarely on the quantity being measured.
    */
   rawExpectedPoints: number;
@@ -101,7 +101,7 @@ export interface RosterUtility {
  * Fits a lognormal to a player's measured outcome quantiles.
  *
  * The spread is expressed as ratios of actual to projected, so the shape is fitted on the
- * ratio and then rescaled to the player's own mean. It is renormalised so the mean of the
+ * ratio and then rescaled to the player's own mean. It is renormalized so the mean of the
  * fitted distribution is the projection: the projection is calibrated to be a mean, and a
  * lognormal whose median matched it would systematically over-project.
  */
@@ -152,7 +152,7 @@ function playerStream(playerId: string, seed: number, scenario: number): Rng {
 function drawPoints(player: PlayerRisk, rng: Rng): number {
   const { mu, sigma } = fitLognormal(player.p10, player.p90);
   const ratio = Math.exp(mu + sigma * standardNormal(rng));
-  // Renormalise so E[ratio] is 1 and therefore E[points] is the projection.
+  // Renormalize so E[ratio] is 1 and therefore E[points] is the projection.
   const meanRatio = Math.exp(mu + (sigma * sigma) / 2);
   return Math.max(0, (player.weeklyMean * ratio) / meanRatio);
 }
@@ -183,7 +183,7 @@ export function simulateAvailability(
   // Steady state of the chain is r / (q + r); solve for q to hit the target rate. Clamped
   // because `q` is a probability: below roughly a quarter the unclamped solution exceeds
   // one, at which point `rng.next() >= q` is never true, the player goes down every week
-  // regardless, and the realised rate stops matching the target it was solved for. The
+  // regardless, and the realized rate stops matching the target it was solved for. The
   // board does not currently produce a value that low — `shrunkAvailability` floors near
   // 0.31 — but this is a public function and the invariant should hold for any caller.
   const q = Math.min((r * (1 - availability)) / availability, 1);
@@ -219,7 +219,7 @@ export function drawWeek(
   // Every player draws his availability and his points for every week, from his own
   // stream, before anything is filtered. Drawing only for the weeks he turns out to be fit
   // would make how much randomness he consumes depend on the result of the randomness, and
-  // that is precisely what desynchronised the comparison.
+  // that is precisely what desynchronized the comparison.
   const draws = roster.map((player) => {
     const rng = playerStream(player.id, seed, scenario);
     const available = simulateAvailability(player, weeks, meanAbsenceWeeks, rng);
@@ -333,7 +333,7 @@ export function marginalUtility(
 ): number {
   // Subtracted before rounding. Season totals are hundreds of points and a deep-bench
   // marginal value can be a fraction of one, so rounding both terms to two decimals first
-  // put 0.01 of quantisation directly on the quantity being measured — the thing common
+  // put 0.01 of quantization directly on the quantity being measured — the thing common
   // random numbers exist to resolve.
   const without = rosterUtility(roster, slots, config, seed);
   const with_ = rosterUtility([...roster, candidate], slots, config, seed);

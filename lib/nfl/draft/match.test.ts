@@ -147,7 +147,7 @@ describe("findNamesInText", () => {
     expect(findNamesInText("   \n\t ", UNIVERSE)).toEqual([]);
   });
 
-  it("honours the confidence floor it is given", () => {
+  it("honors the confidence floor it is given", () => {
     const strict = findNamesInText("Bijan Robnsn", UNIVERSE, 0.99);
     expect(strict).toEqual([]);
     const lenient = findNamesInText("Bijan Robnsn", UNIVERSE, 0.6);
@@ -156,7 +156,7 @@ describe("findNamesInText", () => {
 
   it("refuses a confusable pair the confidence floor alone cannot separate", () => {
     // The reason the ambiguity margin exists. Bijan Robinson and Brian Robinson Jr. are
-    // different players whose normalised names are 0.846 similar — above the floor. The
+    // different players whose normalized names are 0.846 similar — above the floor. The
     // floor cannot separate them; only the margin can.
     expect(
       similarity(normalizeName("Brian Robinson"), normalizeName("Bijan Robinson")),
@@ -182,7 +182,7 @@ describe("buildMarketIndex", () => {
     expect(index.find("Bijan Robinson", "RB")?.adp).toBe(3);
   });
 
-  it("separates two players who normalise to the same name, by position", () => {
+  it("separates two players who normalize to the same name, by position", () => {
     // The case that motivated this. `normalizeName` drops generational suffixes, so
     // "Michael Carter" and "Michael Carter II" collapse to one key — and a plain Map
     // would hand whichever came second the other's ADP, spread, and bye week.
@@ -220,7 +220,7 @@ describe("buildMarketIndex", () => {
     expect(index.find("Deebo Samuel", "WR")?.adp).toBe(25);
   });
 
-  it("applies the caller's position normalisation on both sides", () => {
+  it("applies the caller's position normalization on both sides", () => {
     const index = buildMarketIndex([row("Justin Tucker", "PK", 150)], norm);
     expect(index.find("Justin Tucker", "K")?.adp).toBe(150);
   });
@@ -231,7 +231,7 @@ describe("buildMarketIndex", () => {
     expect(index.find("", "RB")).toBeNull();
   });
 
-  it("ignores a market row whose name normalises to nothing", () => {
+  it("ignores a market row whose name normalizes to nothing", () => {
     // Punctuation-only names would otherwise all share the empty key and collide.
     const index = buildMarketIndex([row("!!!", "RB", 1), row("???", "WR", 2)], norm);
     expect(index.collisions).toEqual([]);
@@ -341,7 +341,7 @@ describe("matchName is unchanged by its length prune", () => {
   });
 });
 
-describe("the normalisation cache follows an array that grew", () => {
+describe("the normalization cache follows an array that grew", () => {
   it("does not serve a stale list after the caller appends", () => {
     // The cache is keyed on array identity. `readonly T[]` stops mutation through the
     // parameter, not through the caller's own reference — and a shorter cached list leaves
@@ -364,7 +364,7 @@ describe("the normalisation cache follows an array that grew", () => {
  * longer one changed 5,711 of 12,000 damaged spellings without a single test objecting, and
  * turning the sort comparator into a sum left the results in insertion order.
  */
-describe("similarity is normalised by the longer string", () => {
+describe("similarity is normalized by the longer string", () => {
   it("scores a prefix against its extension by the length of the extension", () => {
     // Three edits over a length of six is a half. Dividing by the shorter string instead
     // gives 1 - 3/3 = 0, which fails everything rather than scoring it.
@@ -403,7 +403,7 @@ describe("findNamesInText orders by confidence", () => {
 /**
  * What `normalizeName` keeps and what it throws away.
  *
- * It builds the key for the per-player market index, so what survives normalisation decides
+ * It builds the key for the per-player market index, so what survives normalization decides
  * which players are found at all. Two mutants changed that silently: narrowing the
  * character class drops digits from names that carry them, and requiring more than one
  * character per token drops initials — which is exactly how OCR and hand-typed input render
@@ -411,7 +411,7 @@ describe("findNamesInText orders by confidence", () => {
  */
 describe("normalizeName keeps what identifies a player", () => {
   it("keeps digits, which some names carry", () => {
-    // "San Francisco 49ers" is a real board entry: defences are named by team.
+    // "San Francisco 49ers" is a real board entry: defenses are named by team.
     expect(normalizeName("San Francisco 49ers")).toBe("sanfrancisco49ers");
     expect(normalizeName("Robert Griffin III")).toBe("robertgriffin");
   });
@@ -460,7 +460,7 @@ describe("matchName's boundaries", () => {
   });
 
   it("refuses two candidates that are equally close", () => {
-    // The documented case: "Bijan Robinson" and "Brian Robinson Jr." normalise 0.846
+    // The documented case: "Bijan Robinson" and "Brian Robinson Jr." normalize 0.846
     // similar. With one character of damage the two land inside the margin and the text
     // genuinely does not say which player it is.
     expect(matchName("Bran Robinson", UNIVERSE)).toBeNull();

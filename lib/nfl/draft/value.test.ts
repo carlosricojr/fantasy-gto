@@ -82,7 +82,7 @@ describe("seasonProjection", () => {
 describe("perGameRate", () => {
   const GAMES = 17;
 
-  it("round-trips: the simulator realises the season total it was given", () => {
+  it("round-trips: the simulator realizes the season total it was given", () => {
     // The property the whole conversion exists for. A season total goes in, the simulator
     // plays the player in `availability` of his games, and what comes out must be the
     // total we started with — otherwise the discount has been applied a different number
@@ -90,8 +90,8 @@ describe("perGameRate", () => {
     for (const availability of [0.3, 0.5, 0.75, 0.94, 1]) {
       for (const seasonPoints of [80, 210, 300]) {
         const rate = perGameRate(seasonPoints, availability, GAMES);
-        const realised = rate * availability * GAMES;
-        expect(realised).toBeCloseTo(seasonPoints, 6);
+        const realized = rate * availability * GAMES;
+        expect(realized).toBeCloseTo(seasonPoints, 6);
       }
     }
   });
@@ -155,13 +155,13 @@ describe("perGameRate against the real simulator", () => {
   });
 
   it("gives equal season totals equal value, however durable the player", () => {
-    // The differential error the fix was about. Before it, the fragile player realised
+    // The differential error the fix was about. Before it, the fragile player realized
     // roughly half the durable one's total from the same season projection.
     // One id for both. `playerStream` derives each player's random stream from his id, so
     // a shared seed does not pair two samples — only a shared id does. With "d" and "f"
     // these were independent draws, and the 0.9–1.1 band is about the size of the sampling
     // error on two single-player estimates at 600 scenarios, so the test could fail on the
-    // draw rather than on the behaviour.
+    // draw rather than on the behavior.
     const durable = rosterUtility([seasonPlayer("p", 240, 0.95)], SLOTS, CONFIG, 11);
     const fragile = rosterUtility([seasonPlayer("p", 240, 0.55)], SLOTS, CONFIG, 11);
 
@@ -467,7 +467,7 @@ describe("the least-squares fit, at its own boundaries", () => {
 });
 
 describe("the exponentially weighted mean uses the weight it was given", () => {
-  it("honours an alpha of zero rather than substituting the default", () => {
+  it("honors an alpha of zero rather than substituting the default", () => {
     // `input.alpha ?? SEASON_EMA_ALPHA`. Zero is a meaningful weight — it says "the
     // earliest game is the whole estimate" — and `||` silently replaces it with the
     // default, which is the one value a caller passing zero has ruled out.

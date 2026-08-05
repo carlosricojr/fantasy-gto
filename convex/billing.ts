@@ -60,7 +60,7 @@ export const setSubscription = internalMutation({
     // Same reasoning as `applyClerkEvent`: a subscription event can arrive before the
     // user-created event, and auditing then dropping it loses the paid upgrade for good.
     // Provisioning keeps both writers consistent, so this one cannot quietly regress to
-    // the lossy behaviour while the other is correct.
+    // the lossy behavior while the other is correct.
     const resolved =
       user ?? (await provisionUser(ctx, args.clerkUserId, "setSubscription", now));
 
@@ -134,7 +134,7 @@ async function provisionUser(
  * Applies a Clerk webhook event.
  *
  * Event names vary across Clerk's billing surface, so this matches on substrings rather
- * than an exact list. Anything unrecognised is audited and otherwise ignored: an unknown
+ * than an exact list. Anything unrecognized is audited and otherwise ignored: an unknown
  * event must never change access, in either direction.
  */
 export const applyClerkEvent = internalMutation({
@@ -238,10 +238,10 @@ export const applyClerkEvent = internalMutation({
       });
     }
 
-    // An unrecognised status is not evidence of anything, and must not be read as the
+    // An unrecognized status is not evidence of anything, and must not be read as the
     // end of a subscription.
     //
-    // `statusFromClerk` collapses "not modelled" and "ended" into the same `"none"`, and
+    // `statusFromClerk` collapses "not modeled" and "ended" into the same `"none"`, and
     // `effectivePlan` treats `"none"` as free regardless of the period already paid for.
     // Clerk emits statuses this code does not model — `upcoming` on a scheduled plan
     // change, among others — so without this an active subscriber scheduling a change
@@ -274,7 +274,7 @@ export const applyClerkEvent = internalMutation({
         kind: "billing.unknown_status",
         userId: user._id,
         detail:
-          `${args.eventType} carried ${rawStatusValue === "" ? "no status" : `unrecognised status "${args.status}"`}; ` +
+          `${args.eventType} carried ${rawStatusValue === "" ? "no status" : `unrecognized status "${args.status}"`}; ` +
           `no subscription state written (plan=${existing?.planId ?? "free"}, ` +
           `status=${existing?.status ?? "none"} preserved)`,
         at: now,
@@ -282,13 +282,13 @@ export const applyClerkEvent = internalMutation({
       return { applied: false };
     }
 
-    // An unrecognised (as opposed to absent) price key resolves to free, which would
+    // An unrecognized (as opposed to absent) price key resolves to free, which would
     // silently downgrade a paying customer. Record it so the misconfiguration is visible.
     if (!isPaymentFailure && !planUnresolved && !isKnownPlanKey(args.planKey)) {
       await ctx.db.insert("audit", {
         kind: "billing.unknown_plan_key",
         userId: user._id,
-        detail: `${args.eventType} carried unrecognised plan key "${args.planKey}"; treated as free`,
+        detail: `${args.eventType} carried unrecognized plan key "${args.planKey}"; treated as free`,
         at: now,
       });
     }
@@ -313,7 +313,7 @@ export const applyClerkEvent = internalMutation({
       status,
       pastDueSince,
       // A payload that omits these carries no information about them. Overwriting with
-      // null would erase a known period end and revoke a cancelled-but-paid customer's
+      // null would erase a known period end and revoke a canceled-but-paid customer's
       // remaining access.
       currentPeriodEnd: args.currentPeriodEnd ?? existing?.currentPeriodEnd ?? null,
       clerkSubscriptionId: args.subscriptionId ?? existing?.clerkSubscriptionId ?? null,

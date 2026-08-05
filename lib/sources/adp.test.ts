@@ -30,7 +30,7 @@ describe("adpUrl", () => {
   });
 
   // The unknown-ruleset case used to assert a fallback to PPR here. That fallback was the
-  // defect, not the behaviour — see "unmapped scoring" at the end of this file.
+  // defect, not the behavior — see "unmapped scoring" at the end of this file.
 });
 
 describe("parseAdp", () => {
@@ -177,7 +177,7 @@ describe("team codes", () => {
   const one = (team: unknown) =>
     parseAdp({ players: [{ name: "A Player", position: "RB", adp: 10, team }] })?.[0];
 
-  it("normalises alias spellings to the same code the roster uses", () => {
+  it("normalizes alias spellings to the same code the roster uses", () => {
     // Left raw, an alias is a different key from the roster's canonical one and the two
     // sources stop agreeing about which team a player is on.
     expect(one("OAK")?.team).toBe("LV");

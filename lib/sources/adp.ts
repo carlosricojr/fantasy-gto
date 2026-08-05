@@ -6,7 +6,7 @@ import { normalizeTeam } from "../nfl/teams";
  * Average draft position.
  *
  * ADP is the market's aggregate opinion about when a player will be taken. It is the one
- * input a draft tool cannot derive for itself: no amount of box-score modelling tells you
+ * input a draft tool cannot derive for itself: no amount of box-score modeling tells you
  * that a rookie is being drafted in the second round because of training-camp reports.
  *
  * Source is Fantasy Football Calculator, whose ADP endpoint is public, unauthenticated,
@@ -151,7 +151,7 @@ export function parseAdp(payload: unknown): AdpEntry[] | null {
       // `normalizeMarketPosition`, so it becomes the key `name|" RB"` and the
       // position-qualified lookup in `buildMarketIndex` misses the player entirely.
       position: typeof row.position === "string" ? row.position.trim().toUpperCase() : "",
-      // Through the same normaliser the roster uses. Left raw, an alias spelling — LAR,
+      // Through the same normalizer the roster uses. Left raw, an alias spelling — LAR,
       // OAK, STL, WFT — is a different key from the roster's canonical one, so the two
       // sources stop agreeing about which team a player is on.
       team:

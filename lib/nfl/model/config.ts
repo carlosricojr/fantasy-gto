@@ -151,7 +151,7 @@ export interface QuantileBand {
  * The band used for a position `OUTCOME_QUANTILES` has no entry for.
  *
  * Not measured, and named so that nothing reads it as though it were. It exists because a
- * draft board carries positions the weekly model never scores — a defence, or anything a
+ * draft board carries positions the weekly model never scores — a defense, or anything a
  * future ruleset adds — and giving them no spread at all would make them look risk-free
  * rather than unmeasured.
  */

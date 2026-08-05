@@ -194,7 +194,7 @@ describe("effectivePlan", () => {
   });
 
   describe("cancellation", () => {
-    it("honours the remainder of a paid period", () => {
+    it("honors the remainder of a paid period", () => {
       const sub = subscription({ status: "canceled", currentPeriodEnd: NOW + 60_000 });
       expect(effectivePlan(sub, NOW)).toBe("pro");
     });
@@ -226,8 +226,8 @@ describe("canAddLeague", () => {
     expect(canAddLeague(pro, 10_000)).toBe(true);
   });
 
-  it("survives JSON serialisation, so a Pro client does not read null", () => {
-    // Infinity serialises to null. A client reading null would compute `count < 0` and
+  it("survives JSON serialization, so a Pro client does not read null", () => {
+    // Infinity serializes to null. A client reading null would compute `count < 0` and
     // tell a paying subscriber they had hit their limit.
     const pro = entitlementsFor(subscription(), NOW);
     const roundTripped = JSON.parse(JSON.stringify(pro)) as typeof pro;
@@ -240,14 +240,14 @@ describe("canAddLeague", () => {
 });
 
 describe("Clerk mapping", () => {
-  it("recognises Pro plan keys", () => {
+  it("recognizes Pro plan keys", () => {
     expect(planFromClerkKey("pro")).toBe("pro");
     expect(planFromClerkKey("PRO")).toBe("pro");
     expect(planFromClerkKey("pro_annual")).toBe("pro");
     expect(planFromClerkKey("pro_seasonal")).toBe("pro");
   });
 
-  it("fails closed on anything unrecognised", () => {
+  it("fails closed on anything unrecognized", () => {
     // A renamed price in the billing dashboard must never silently grant Pro.
     for (const key of [null, undefined, "", "  ", "premium", "enterprise", "free", "professional"]) {
       expect(planFromClerkKey(key), `${String(key)} must not grant Pro`).toBe("free");
@@ -269,7 +269,7 @@ describe("Clerk mapping", () => {
     expect(planFromClerkKey("pro_quarterly")).toBe("free");
   });
 
-  it("distinguishes an unrecognised key from a deliberate free plan", () => {
+  it("distinguishes an unrecognized key from a deliberate free plan", () => {
     expect(isKnownPlanKey("free")).toBe(true);
     expect(isKnownPlanKey("pro_annual")).toBe(true);
     expect(isKnownPlanKey(null)).toBe(true);

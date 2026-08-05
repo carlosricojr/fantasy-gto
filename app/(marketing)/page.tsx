@@ -32,11 +32,11 @@ export default function MarketingPage() {
             <Link href="/projections">See this week&rsquo;s projections</Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link href="/lineup">Optimise a lineup</Link>
+            <Link href="/lineup">Optimize a lineup</Link>
           </Button>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          No account needed. Projections and the lineup optimiser work straight away.
+          No account needed. Projections and the lineup optimizer work right away.
         </p>
       </section>
 
@@ -81,7 +81,7 @@ export default function MarketingPage() {
             <strong>{metrics.edgeVsPriorGamesMean.toFixed(2)}%</strong> in mean
             absolute error. That is a real edge and a small one, and anyone promising far
             more than that is guessing. Where this tool adds more is in the decisions built
-            on top: exact lineup optimisation, and a floor and ceiling calibrated from how
+            on top: exact lineup optimization, and a floor and ceiling calibrated from how
             outcomes actually spread.
           </p>
         </div>

@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
 /**
- * The last line of defence for the signed-in surfaces.
+ * The last line of defense for the signed-in surfaces.
  *
  * Without one of these, a throw during render replaces the whole page with Next's client
  * exception screen and the only way back is a reload. That is exactly what happened when a
@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
  *
  * The body used to promise that "Try again" kept your picks while a reload would lose
  * them. That was backwards about the mechanism and wrong about the outcome: `reset()`
- * re-renders the segment, which remounts the draft page, which reinitialises the state the
+ * re-renders the segment, which remounts the draft page, which reinitializes the state the
  * picks live in — so the button it recommended was no safer than the one it warned about.
  * The draft is now written to `sessionStorage` (see `draft/persistence.ts`) and both paths
  * restore it, which is what makes the sentence below true.

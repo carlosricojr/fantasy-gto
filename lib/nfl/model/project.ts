@@ -34,7 +34,7 @@ import {
  * Exponentially weighted mean, most recent observation last.
  *
  * The most recent value carries weight 1 and each step back is multiplied by
- * `(1 - alpha)`. Normalising by the summed weights keeps the result on the same scale as
+ * `(1 - alpha)`. Normalizing by the summed weights keeps the result on the same scale as
  * the inputs regardless of how many observations exist, so a player with three games and a
  * player with fifteen are directly comparable.
  */
@@ -65,7 +65,7 @@ export interface GameContext {
    * The Vegas adjustment is measured against this rather than the league average.
    * Sweeping showed league-relative scaling is worth almost nothing at its best weight and
    * degrades steeply beyond it, ending worse than omitting the term, while the
-   * team-relative form has a clear optimum: a player on a strong offence already carries
+   * team-relative form has a clear optimum: a player on a strong offense already carries
    * that strength in their own scoring history, so scaling by team quality again counts it
    * twice. See `docs/model-validation.md`.
    *
@@ -164,7 +164,7 @@ function pushContribution(
 }
 
 /**
- * Produces a projection with an itemised explanation.
+ * Produces a projection with an itemized explanation.
  *
  * Contributions are accumulated as deltas from the preceding step, so they sum exactly to
  * the mean by construction. The mean is then derived from that sum rather than computed
@@ -184,7 +184,7 @@ export function projectPlayer(input: ProjectionInput): Projection {
     "Recent production",
     base,
     history.length > 0
-      ? `Weighted average of ${history.length} prior game${history.length === 1 ? "" : "s"}, favouring recent weeks.`
+      ? `Weighted average of ${history.length} prior game${history.length === 1 ? "" : "s"}, favoring recent weeks.`
       : "No prior games, so no projection can be formed yet.",
   );
 
@@ -379,7 +379,7 @@ export function meanImpliedTotalBefore(
 /**
  * Derives a team's implied points from a market line.
  *
- * `spread` is from the home team's perspective: positive means the home team is favoured.
+ * `spread` is from the home team's perspective: positive means the home team is favored.
  * Getting this backwards silently inverts every game-environment adjustment, so it is
  * asserted directly in the tests.
  */

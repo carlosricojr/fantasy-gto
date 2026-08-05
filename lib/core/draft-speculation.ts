@@ -28,9 +28,9 @@ import {
  *
  * A cached answer is served **only when the cached state is identical to the real one**,
  * and identical is checked rather than assumed. The signature covers everything the
- * recommendation reads, and states are canonicalised first so that two orderings of the
+ * recommendation reads, and states are canonicalized first so that two orderings of the
  * same roster cannot masquerade as different futures — roster order is meaningless in
- * fantasy but it drives the random draws, so without canonicalisation an identical
+ * fantasy but it drives the random draws, so without canonicalization an identical
  * position could miss, and worse, a differently-ordered one could be treated as a match
  * and return different numbers.
  *
@@ -91,7 +91,7 @@ export function digestIds(ids: readonly string[]): string {
  * Keying a memo on ids alone is not enough: the board is rebuilt twice a day through the
  * preseason, and a rebuild that moves a player's price, variance, availability or ADP
  * without changing who is on the board produces an identical key. The cached answer is
- * then served for a board that no longer exists, labelled as cached.
+ * then served for a board that no longer exists, labeled as cached.
  */
 export function digestPlayers(players: readonly PlayerRisk[]): string {
   return digestStrings(players.map(playerFingerprint));
@@ -137,7 +137,7 @@ function digestStrings(ids: readonly string[]): string {
  * the simulation. Collapsing them would produce cache hits that are not hits.
  *
  * The available pool is digested in as well. Within a single draft it is implied by the
- * rosters, but a signature is also used to recognise a position seen in an *earlier*
+ * rosters, but a signature is also used to recognize a position seen in an *earlier*
  * draft, and a board rebuilt against a newer market has different players on it. Without
  * the pool, an answer computed for last week's board would be served for this one.
  *
@@ -363,7 +363,7 @@ export function precomputeRecommendations(
      * Injectable so a memo can be layered underneath: a future we prepared for last pick,
      * or one another league already solved, costs nothing to prepare again. Passed in
      * rather than imported so this module stays independent of the store — the memo needs
-     * this module's canonicalisation, and the dependency cannot run both ways.
+     * this module's canonicalization, and the dependency cannot run both ways.
      */
     compute?: (
       state: CanonicalState,
@@ -439,7 +439,7 @@ function sameBoard(
  *
  * An exact match returns the cached answer, which is the same answer computing live would
  * produce because the inputs are identical and the computation is deterministic given the
- * seed. Anything else is labelled. Nothing here silently substitutes one board for
+ * seed. Anything else is labeled. Nothing here silently substitutes one board for
  * another.
  */
 export function resolveFromCache(
@@ -515,7 +515,7 @@ export function resolveFromCache(
 /**
  * The whole flow: serve from cache when the state matches, otherwise compute.
  *
- * `allowApproximate` defaults to false. The safe behaviour is to pay for a correct answer,
+ * `allowApproximate` defaults to false. The safe behavior is to pay for a correct answer,
  * and a caller who would rather have a slightly stale one instantly has to ask.
  */
 export function recommendWithCache(

@@ -61,15 +61,15 @@ export const AVAILABILITY_FLOOR = 0.5;
 /**
  * Positions the model projects.
  *
- * Kickers and defences are not among them and will not be: the weekly model has no view
+ * Kickers and defenses are not among them and will not be: the weekly model has no view
  * of either, and inventing one would be fabricating a number.
  */
-export const MODELLED_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
+export const MODELED_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
 
 /**
  * Positions the board carries.
  *
- * Wider than the modelled set, because a league that starts a kicker needs to draft one.
+ * Wider than the modeled set, because a league that starts a kicker needs to draft one.
  * Leaving them off the board did not make the tool cautious — it made it unusable for
  * such a league: the slot could never be filled, every simulated roster carried a
  * permanent hole, and a user following the recommendations would finish the draft without
@@ -86,7 +86,7 @@ export type DraftablePosition = (typeof DRAFTABLE_POSITIONS)[number];
 /**
  * How the market names positions we spell differently.
  *
- * Fantasy Football Calculator publishes kickers as `PK` and defences as `DEF`. Matching on
+ * Fantasy Football Calculator publishes kickers as `PK` and defenses as `DEF`. Matching on
  * our own spelling silently drops both.
  */
 export const MARKET_POSITION_ALIASES: Readonly<Record<string, string>> = {
@@ -95,7 +95,7 @@ export const MARKET_POSITION_ALIASES: Readonly<Record<string, string>> = {
   "D/ST": "DST",
 };
 
-/** Normalises a market position code to ours. */
+/** Normalizes a market position code to ours. */
 export function normalizeMarketPosition(raw: string): string {
   const code = raw.trim().toUpperCase();
   // `??` and `||` agree: an alias is a non-empty string, so the only way this can be falsy

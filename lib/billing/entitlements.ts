@@ -73,11 +73,11 @@ export type FeatureKey = (typeof FEATURES)[number];
 /**
  * An unlimited numeric cap.
  *
- * Not `Infinity`: entitlements cross the wire as JSON, and `Infinity` serialises to
+ * Not `Infinity`: entitlements cross the wire as JSON, and `Infinity` serializes to
  * `null`. A Pro subscriber's client would then read `league_count: null`, and a
  * client-side `canAddLeague` would compute `count < 0` and tell a paying customer they had
  * hit their limit. `MAX_SAFE_INTEGER` is unlimited for every practical purpose and
- * survives serialisation intact.
+ * survives serialization intact.
  */
 export const UNLIMITED = Number.MAX_SAFE_INTEGER;
 
@@ -180,13 +180,13 @@ export function effectivePlan(subscription: Subscription, now: number): PlanId {
       // A missing `pastDueSince` means the grace window has no start, so it can never
       // expire. Granting Pro there would be an unbounded free ride on a failed payment,
       // so an absent timestamp fails closed. The writer always sets it (see
-      // convex/billing.ts), which makes this defence in depth rather than a live path.
+      // convex/billing.ts), which makes this defense in depth rather than a live path.
       if (subscription.pastDueSince === null) return "free";
       return now - subscription.pastDueSince < GRACE_PERIOD_MS ? "pro" : "free";
     }
 
     case "canceled":
-      // A cancelled subscription runs to the end of the period already paid for.
+      // A canceled subscription runs to the end of the period already paid for.
       return subscription.currentPeriodEnd !== null && now < subscription.currentPeriodEnd
         ? "pro"
         : "free";
@@ -206,7 +206,7 @@ export function entitlementsFor(subscription: Subscription, now: number): Entitl
  *
  * **Not an authorization API.** Deliberately named so that reaching for it in an access
  * check looks wrong: it cannot see whether the subscription is active, past due, or
- * cancelled, so it would happily report Pro capabilities for a lapsed account. Every
+ * canceled, so it would happily report Pro capabilities for a lapsed account. Every
  * access decision must go through `entitlementsFor(subscription, now)`.
  *
  * It exists for describing plans — a pricing table — and for tests that assert the shape
@@ -282,7 +282,7 @@ export const PRO_PLAN_KEYS: ReadonlySet<string> = new Set([
  * newly added price in the billing dashboard must never silently hand out Pro.
  *
  * A new Pro price therefore requires adding its key here. That is intentional — see
- * `isKnownPlanKey`, which lets the webhook record an unrecognised key so the
+ * `isKnownPlanKey`, which lets the webhook record an unrecognized key so the
  * misconfiguration is visible rather than silently downgrading a paying customer.
  */
 export function planFromClerkKey(key: string | null | undefined): PlanId {
@@ -291,9 +291,9 @@ export function planFromClerkKey(key: string | null | undefined): PlanId {
 }
 
 /**
- * True when a plan key is one we recognise.
+ * True when a plan key is one we recognize.
  *
- * Distinguishes "deliberately free" from "unrecognised", so an unknown key can be audited
+ * Distinguishes "deliberately free" from "unrecognized", so an unknown key can be audited
  * instead of quietly treated as a downgrade.
  */
 export function isKnownPlanKey(key: string | null | undefined): boolean {
@@ -303,9 +303,9 @@ export function isKnownPlanKey(key: string | null | undefined): boolean {
 }
 
 /**
- * Whether a Clerk status is one `statusFromClerk` actually recognises.
+ * Whether a Clerk status is one `statusFromClerk` actually recognizes.
  *
- * Needed because `statusFromClerk` maps the unrecognised and the genuinely-ended to the
+ * Needed because `statusFromClerk` maps the unrecognized and the genuinely-ended to the
  * same `"none"`. Those must be handled differently: ending a subscription should revoke
  * access, whereas a status we simply do not model tells us nothing and must not.
  */
@@ -330,7 +330,7 @@ const KNOWN_CLERK_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Maps a Clerk subscription status to ours, failing closed on anything unrecognised.
+ * Maps a Clerk subscription status to ours, failing closed on anything unrecognized.
  */
 export function statusFromClerk(raw: string | null | undefined): SubscriptionStatus {
   switch ((raw ?? "").trim().toLowerCase()) {

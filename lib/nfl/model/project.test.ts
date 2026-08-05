@@ -83,8 +83,8 @@ describe("ema", () => {
 });
 
 describe("impliedTeamTotal", () => {
-  // A 47.5 total with the home side favoured by 8.5 splits 28.0 / 19.5.
-  it("gives the favoured home team the larger share", () => {
+  // A 47.5 total with the home side favored by 8.5 splits 28.0 / 19.5.
+  it("gives the favored home team the larger share", () => {
     expect(impliedTeamTotal(47.5, 8.5, "PHI", "PHI", "DAL")).toBeCloseTo(28, 10);
     expect(impliedTeamTotal(47.5, 8.5, "DAL", "PHI", "DAL")).toBeCloseTo(19.5, 10);
   });

@@ -42,7 +42,7 @@ function player(
 /**
  * A naive greedy assigner: walk players from highest projection down, dropping each into
  * the first open slot it is eligible for. This is what simple tools do, and it is the
- * behaviour the optimizer exists to beat.
+ * behavior the optimizer exists to beat.
  */
 function greedyAssign(
   slots: readonly RosterSlot[],
@@ -80,7 +80,7 @@ describe("solveLineup — the greedy counterexample", () => {
     expect(solveLineup(slots, roster).totalPoints - greedyAssign(slots, roster)).toBe(14);
   });
 
-  it("seats each player in the slot that maximises the whole lineup", () => {
+  it("seats each player in the slot that maximizes the whole lineup", () => {
     const byId = new Map(
       solveLineup(slots, roster).assignments.map((a) => [a.competitorId, a.slotId]),
     );
@@ -164,7 +164,7 @@ describe("solveLineup — correctness", () => {
     expect(solution.benchedIds).toEqual(["a", "b"]);
   });
 
-  it("keeps a locked player in place and optimises around them", () => {
+  it("keeps a locked player in place and optimizes around them", () => {
     const slots = [RB1, FLEX];
     const roster = [
       player("rb-locked", "RB", 5, { lockedToSlotId: "rb1" }),

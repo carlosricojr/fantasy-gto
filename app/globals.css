@@ -6,6 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -45,6 +46,15 @@
 
 :root {
   --radius: 0.625rem;
+  /* The one chromatic color in an otherwise neutral palette, so it can carry emphasis
+     without competing with anything.
+
+     The lightness is set by the worst case, not the plain one: brand text also sits on the
+     accuracy page's hero tint, which is this same color at up to 16% over the background.
+     At L=0.52 that composite measured 4.10:1 and failed AA for the 12px eyebrow, even
+     though it cleared 5.14:1 on bare white. L=0.47 holds 4.93:1 at the tint's peak and
+     6.29:1 off it. Dark mode was never close to the line — 8.08:1 at the same peak. */
+  --brand: oklch(0.47 0.14 152);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -79,6 +89,7 @@
 }
 
 .dark {
+  --brand: oklch(0.78 0.16 160);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

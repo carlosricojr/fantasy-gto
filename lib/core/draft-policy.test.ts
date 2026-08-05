@@ -19,7 +19,7 @@ import type { LeagueConfig } from "./season-sim";
 /**
  * Draft policy.
  *
- * The behaviours worth pinning are the ones the previous objective could not produce:
+ * The behaviors worth pinning are the ones the previous objective could not produce:
  * filling a slot rather than hoarding points, covering a bye, and preferring a durable
  * starter — none of which are coded as rules anywhere. They are consequences of playing
  * the season out.
@@ -118,7 +118,7 @@ describe("completeDraft", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("honours a forced first pick", () => {
+  it("honors a forced first pick", () => {
     const s = state();
     const forced = s.available.find((p) => p.id === "TE9")!;
     const rosters = completeDraft(s, SLOTS, forced);
@@ -255,7 +255,7 @@ describe("recommendByChampionship", () => {
 
     // The contract is not "highest title probability first" — a candidate statistically
     // level with the leader may outrank it on the smoother playoff signal, which is the
-    // documented behaviour. What must hold is that the ordering is well-defined:
+    // documented behavior. What must hold is that the ordering is well-defined:
     //
     //  - whatever leads is within sampling noise of the true maximum;
     //  - every tied candidate outranks every untied one;
@@ -528,7 +528,7 @@ describe("recommendByChampionship against opponents who wanted the same player",
     );
     const forStar = recs.find((r) => r.player.id === "STAR");
     expect(forStar).toBeDefined();
-    // Taking the one dominant player on the board must make us clear favourites in an
+    // Taking the one dominant player on the board must make us clear favorites in an
     // eight-team league. Double-counted he is still on the opponent who took him, so we
     // gain him without their losing him and the odds land near a coin flip instead:
     // measured, 0.76 against 0.49 at this seed. "Better than zero" does not separate
@@ -598,7 +598,7 @@ describe("recommendByChampionship input validation", () => {
  */
 describe("basePolicyPick", () => {
   it("never lets the prefilter exclude the best player on the board", () => {
-    // Narrowing the field is a cost optimisation, so its whole contract is that it changes
+    // Narrowing the field is a cost optimization, so its whole contract is that it changes
     // nothing. Dropping the highest-projected player skips him at every pick — and because
     // he stays the best, he is skipped for ever.
     const dominant = player("STAR", "RB", 60);
@@ -633,7 +633,7 @@ describe("basePolicyPick", () => {
   });
 
   it("gives the same answer with the prefilter as without it", () => {
-    // The invariant that makes the optimisation safe, and the one the window did not have.
+    // The invariant that makes the optimization safe, and the one the window did not have.
     // Asserted for an empty, a partial and a full roster, because the lineup baseline
     // changes which player wins.
     //
@@ -671,7 +671,7 @@ describe("basePolicyPick", () => {
   it("prefers the durable player when the points are equal", () => {
     // Availability multiplies the projection. Dividing by it instead inverts the
     // preference everywhere at once — prefilter, base policy and shortlist all start
-    // favouring the injury-prone player.
+    // favoring the injury-prone player.
     const full = [
       player("qb", "QB", 20),
       player("rb1", "RB", 15),
@@ -740,7 +740,7 @@ describe("the shortlist is the top of the board", () => {
   });
 });
 
-describe("a forced pick is honoured when only one remains", () => {
+describe("a forced pick is honored when only one remains", () => {
   it("seats the candidate on the last pick of the draft", () => {
     // `picksLeft > 1` drops the forced candidate exactly when one pick is left, so every
     // candidate is scored as the roster the base policy would have built anyway — and all
@@ -1124,7 +1124,7 @@ describe("orderRecommendations", () => {
     // exactly the same 0.25. Every other fixture here sits clear of the edge, which is why
     // nothing noticed the boundary could move.
     //
-    // Which way it should fall is a judgement, and it is made in the candidate's favour:
+    // Which way it should fall is a judgement, and it is made in the candidate's favor:
     // the flag says "this may not be distinguishable from the leader", so the doubtful
     // case belongs inside it.
     const ordered = orderRecommendations([
@@ -1155,10 +1155,10 @@ describe("orderRecommendations", () => {
     expect(ordered.map((r) => r.player.id)).toEqual(["aa", "mm", "zz"]);
   });
 
-  it("measures the noise band against the leader, not against the neighbour", () => {
+  it("measures the noise band against the leader, not against the neighbor", () => {
     // The band is `leader − candidate <= leaderError + candidateError`. With errors of
     // 0.02 each it is 0.04 wide: 0.32 is inside it and 0.29 is not — but 0.29 *is* within
-    // 0.04 of 0.32, so a band measured from the neighbour instead of the leader would call
+    // 0.04 of 0.32, so a band measured from the neighbor instead of the leader would call
     // it tied. That reading is the intransitive one the partition exists to avoid.
     //
     // The gaps are 0.02 and 0.05 rather than anything landing on 0.04, because these are

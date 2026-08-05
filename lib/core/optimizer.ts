@@ -35,7 +35,7 @@ export interface OptimizableCompetitor {
   availability: PlayerAvailability;
   /**
    * Set when the player's game has already kicked off. A locked player cannot be moved,
-   * so the solver treats their slot as spoken for and optimises around it.
+   * so the solver treats their slot as spoken for and optimizes around it.
    */
   lockedToSlotId?: string | null;
 }
@@ -51,7 +51,7 @@ export interface SlotAssignment {
 
 export interface LineupSolution {
   assignments: SlotAssignment[];
-  /** Sum of projections of started players, quantised to two decimals. */
+  /** Sum of projections of started players, quantized to two decimals. */
   totalPoints: number;
   /** Players not assigned to a slot, ordered by projection descending. */
   benchedIds: string[];
@@ -60,7 +60,7 @@ export interface LineupSolution {
 /**
  * Costs are integers.
  *
- * Projections are quantised to two decimals, so scaling by 100 makes every cost exact.
+ * Projections are quantized to two decimals, so scaling by 100 makes every cost exact.
  * That removes floating point from the solver entirely: no epsilon comparisons, and the
  * same roster always yields byte-identical output. Determinism matters here because a
  * lineup that reshuffles between page loads reads as a bug.
@@ -176,11 +176,11 @@ export function solveLineup(
     });
   }
 
-  // Locked players hold their slot; the solver optimises what remains around them.
+  // Locked players hold their slot; the solver optimizes what remains around them.
   //
   // Two guards matter here. A player locked to a slot they are not eligible for is bad
-  // input, and seating them would let the optimiser return an illegal lineup — so they are
-  // skipped and the slot is optimised normally. A player who is locked but cannot score
+  // input, and seating them would let the optimizer return an illegal lineup — so they are
+  // skipped and the slot is optimized normally. A player who is locked but cannot score
   // (ruled out after kickoff) still occupies the slot, because a started player cannot be
   // moved, but they are credited zero rather than their projection. Crediting it would
   // overstate the lineup total and, through startSitAdvice, understate the gain from a

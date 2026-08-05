@@ -2,7 +2,7 @@ import type { RosterSlot } from "./optimizer";
 import { type PlayerRisk, type UtilityConfig, drawWeek } from "./roster-utility";
 
 /**
- * League simulation, and the objective the draft actually maximises.
+ * League simulation, and the objective the draft actually maximizes.
  *
  * Expected points is a proxy, and a leaky one. A fantasy season is won by beating a
  * specific opponent each week and then surviving a bracket, and that is not a monotone
@@ -19,7 +19,7 @@ import { type PlayerRisk, type UtilityConfig, drawWeek } from "./roster-utility"
  * because the simulation plays the season out.
  *
  * **Opponents are observed, not assumed.** A draft board records every team's picks, not
- * only yours, so by the middle rounds the league's rosters are largely known. Modelling
+ * only yours, so by the middle rounds the league's rosters are largely known. Modeling
  * them as an average is throwing away information that is sitting in front of you.
  */
 
@@ -110,7 +110,7 @@ export function sampleTeamWeeklyScores(
  * An arbitrary but stable ordering key for breaking ties within a scenario.
  *
  * Deterministic, so a seeded run reproduces, and uncorrelated with team index, so no
- * position in the array is favoured.
+ * position in the array is favored.
  *
  * Exported only so its output can be pinned. Every property this function is supposed to
  * have — uniform, stable, independent of team index — survives changing any of the three
@@ -253,7 +253,7 @@ export function simulateLeague(
     // always passes our team first, so breaking ties by index handed us every one of them:
     // in a fully tied league our title probability came out at exactly 1.0. A
     // scenario-dependent shuffle key is arbitrary in the same way a coin is, without
-    // favouring anyone.
+    // favoring anyone.
     const seeded = Array.from({ length: teamCount }, (_, t) => t).sort(
       (a, b) =>
         wins[b] - wins[a] ||

@@ -176,7 +176,7 @@ describe("championship probability is not expected points", () => {
     expect(volatileOutcome.expectedWins).toBeLessThan(steadyOutcome.expectedWins);
   });
 
-  it("prefers consistency when the roster is already the favourite", () => {
+  it("prefers consistency when the roster is already the favorite", () => {
     // The mirror image, and why a single "variance is good" rule would be wrong. A
     // dominant roster is trying to protect a lead, so noise can only cost it.
     const field = Array.from({ length: 7 }, (_, i) => roster(`f${i}`, 10));
@@ -354,7 +354,7 @@ describe("simulateLeague scenario validation", () => {
     // `recommendByChampionship`, which samples opponents once and reuses that sample
     // across candidates, so a cached sample and a changed config disagree here.
     // Six teams, not two: with `playoffTeams: 4` a two-team league is an oversized
-    // playoff field, and asserting it does *not* throw locked in behaviour that is now
+    // playoff field, and asserting it does *not* throw locked in behavior that is now
     // rejected outright.
     const config = { ...CONFIG, scenarios: 3 };
     const weeks = config.weeks.length + config.playoffWeeks.length;
@@ -369,7 +369,7 @@ describe("simulateLeague scenario validation", () => {
   });
 
   it("refuses a playoff field larger than the league", () => {
-    // The clamp inside the bracket maths reinterpreted this as "everyone qualifies", so a
+    // The clamp inside the bracket math reinterpreted this as "everyone qualifies", so a
     // misconfigured league produced a full table of plausible-looking odds instead of an
     // error. A field *equal* to the league is left alone — unusual, but the regular season
     // still decides seeding and the first-round byes.
@@ -406,7 +406,7 @@ describe("the playoff bracket is actually played", () => {
 
   it("crowns the team that wins the final, not the top seed", () => {
     // Four qualifiers. Seeding is by record, so team i is seed i. Round one pairs 1v4 and
-    // 2v3; both favourites win. In the final the top seed scores nothing.
+    // 2v3; both favorites win. In the final the top seed scores nothing.
     //
     // Every "skip the bracket" mutant returns team 0 here — that is the point of the
     // fixture. So does reading the wrong week, since week 16 is where team 0 scores zero.

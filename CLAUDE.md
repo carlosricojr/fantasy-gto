@@ -2,7 +2,7 @@
 
 ## What this is
 
-Fantasy football projections with visible reasoning, and a lineup optimiser that solves
+Fantasy football projections with visible reasoning, and a lineup optimizer that solves
 slot assignment exactly. Mobile-first PWA, Clerk-billed free and Pro tiers.
 
 Read [`README.md`](README.md) first, then [`docs/model-validation.md`](docs/model-validation.md)
@@ -56,7 +56,7 @@ pnpm dev        # frontend + Convex
 ## Layout
 
 ```
-lib/core/       Sport-agnostic: domain types, provider seams, lineup optimiser
+lib/core/       Sport-agnostic: domain types, provider seams, lineup optimizer
 lib/nfl/        NFL domain: csv, teams, season, scoring/, model/, stats/ (pure)
 lib/billing/    Entitlement derivation (pure)
 lib/sources/    Adapter layer — the only part of lib/ allowed to do I/O

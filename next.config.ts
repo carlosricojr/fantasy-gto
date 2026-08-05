@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
   // An allowlist is not inert. It leaves `/_next/image` willing to fetch and re-encode
   // arbitrary URLs from those hosts for anyone who calls it, which is the surface of the
   // "DoS via Image Optimizer remotePatterns" advisory against the version this was pinned
-  // to. Removing it is a smaller change than patching the optimiser and it removes the
+  // to. Removing it is a smaller change than patching the optimizer and it removes the
   // reachable path rather than narrowing it: with no patterns configured, remote sources
   // are refused outright.
   //

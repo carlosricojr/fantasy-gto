@@ -107,7 +107,7 @@ describe("cell readers", () => {
     expect(numOrNull(row, "absent")).toBeNull();
   });
 
-  it("str normalises NA and absent to empty string", () => {
+  it("str normalizes NA and absent to empty string", () => {
     expect(str({ a: "NA" }, "a")).toBe("");
     expect(str({}, "a")).toBe("");
     expect(str({ a: "WR" }, "a")).toBe("WR");

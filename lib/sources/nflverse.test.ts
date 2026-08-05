@@ -84,7 +84,7 @@ describe("parseContests", () => {
     expect(contests.length).toBeGreaterThan(100);
   });
 
-  it("normalises teams and records results", () => {
+  it("normalizes teams and records results", () => {
     for (const contest of contests) {
       expect(contest.homeTeam).toMatch(/^[A-Z]{2,3}$/);
       expect(contest.awayTeam).toMatch(/^[A-Z]{2,3}$/);
@@ -238,14 +238,14 @@ describe("parseSeasonRoster", () => {
     expect(parsed[0].team).toBe("NYJ");
   });
 
-  it("normalises team codes and folds fullbacks into running backs", () => {
+  it("normalizes team codes and folds fullbacks into running backs", () => {
     for (const entry of entries) {
       if (entry.team !== null) expect(entry.team).toMatch(/^[A-Z]{2,3}$/);
       expect(entry.position).not.toBe("FB");
     }
   });
 
-  it("normalises a legacy team code to its canonical one", () => {
+  it("normalizes a legacy team code to its canonical one", () => {
     // On a constructed row. The captured fixture is a current-season file, so it carries
     // only canonical codes — `/^[A-Z]{2,3}$/` accepts `OAK` and `STL` just as happily, and
     // the assertion above would pass with `normalizeTeam` deleted outright.

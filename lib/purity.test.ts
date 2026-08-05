@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 /**
  * Enforces the dependency rule.
  *
- * The project's organising claim is that the domain core is pure: no network, no clock, no
+ * The project's organizing claim is that the domain core is pure: no network, no clock, no
  * randomness, no framework. That claim is load-bearing — it is what makes the model
  * backtestable and the entitlement logic testable — and a rule that is only written down
  * gets violated. It already was: the nflverse adapter called `fetch` from inside

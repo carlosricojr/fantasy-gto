@@ -6,7 +6,7 @@
  * abbreviations: the 32 current teams plus three retired ones for relocated franchises
  * (`OAK`, `SD`, `STL`), with Houston absent before its 2002 expansion.
  *
- * Getting this wrong is not cosmetic. A team code that fails to normalise silently
+ * Getting this wrong is not cosmetic. A team code that fails to normalize silently
  * splits one franchise's history into two, which corrupts every opponent adjustment and
  * every multi-season average computed for it.
  */
@@ -60,9 +60,9 @@ const INPUT_ALIASES: Readonly<Record<string, TeamAbbr>> = {
 };
 
 /**
- * Normalises any known spelling to a current abbreviation, or returns `null`.
+ * Normalizes any known spelling to a current abbreviation, or returns `null`.
  *
- * `null` rather than a thrown error or a passthrough: an unrecognised team is a data
+ * `null` rather than a thrown error or a passthrough: an unrecognized team is a data
  * quality signal the caller should surface or drop deliberately, and silently passing it
  * through would let a typo become a phantom 33rd team.
  */
@@ -80,7 +80,7 @@ export function normalizeTeam(raw: string | null | undefined): TeamAbbr | null {
  * Deliberately not `normalizeTeam(raw) !== null`. That form returns true for `LAR`, `OAK`,
  * and `WSH`, which narrows them to `TeamAbbr` even though none is a member of
  * `CURRENT_TEAMS` — so a caller relying on the guard rather than on `normalizeTeam`'s
- * return value keeps an un-normalised key, which is the split-franchise bug this module
+ * return value keeps an un-normalized key, which is the split-franchise bug this module
  * exists to prevent. Use `normalizeTeam` to accept aliases; use this only to test a value
  * that should already be canonical.
  */

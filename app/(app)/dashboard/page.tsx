@@ -120,10 +120,10 @@ export default function DashboardPage() {
       {leaguesKnown && leagues.length === 0 && (
         <EmptyState
           title="No leagues yet"
-          body="Create a league to record its scoring and roster format. Start/sit today lives in the optimiser, which works without a league."
+          body="Create a league to record its scoring and roster format. Start/sit today lives in the optimizer, which works without a league."
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/lineup">Open the optimiser</Link>
+              <Link href="/lineup">Open the optimizer</Link>
             </Button>
           }
         />

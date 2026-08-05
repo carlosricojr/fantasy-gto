@@ -5,7 +5,7 @@ export const POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 export type Position = (typeof POSITIONS)[number];
 
 /**
- * A single player's production in a single game, normalised from upstream.
+ * A single player's production in a single game, normalized from upstream.
  *
  * Every field is a count or a yardage total, never a rate, so the scoring engine is a
  * pure linear function of this record and nothing has to be re-derived downstream.
@@ -125,7 +125,7 @@ export interface ScoreComponent {
 }
 
 /**
- * A score plus the itemised terms that produced it.
+ * A score plus the itemized terms that produced it.
  *
  * The breakdown is not a debugging aid — it is what the product shows the user to explain
  * a number, so it is part of the contract and is asserted in tests to sum to `total`.

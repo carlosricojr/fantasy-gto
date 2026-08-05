@@ -55,7 +55,7 @@ interface Mutator {
 function wordOperator(name: string, from: string, to: string): Mutator {
   // `.` blocks a boundary rather than being one: `flags.true` would otherwise match, and
   // the mutant would rewrite a property name instead of a boolean literal — producing
-  // either a reference to something that does not exist, or a behaviour change for a
+  // either a reference to something that does not exist, or a behavior change for a
   // reason unrelated to the flip it claims to make. `numericLiteral` already blocks `.`
   // for the same reason.
   const blocksBoundary = (c: string | undefined): boolean =>
@@ -252,7 +252,7 @@ function maskNonCode(source: string): string {
   // Written as "blank everything, then copy the tokens back" rather than "find the comments
   // and blank them". Comments are trivia: they are not in the tree, so they cannot be
   // enumerated from it, and a standalone `ts.createScanner` cannot be trusted to find them
-  // either — it has no parser context, so a template literal desynchronises it and it runs
+  // either — it has no parser context, so a template literal desynchronizes it and it runs
   // to the end of the file. Measured on `draft-memo.ts`: 7 comments found out of dozens,
   // and mutants that edited comment text were reported as survivors.
   //
@@ -316,7 +316,7 @@ function mutantsFor(file: string, source: string): Mutant[] {
  * A module's own test is always included, even when it imports through a barrel.
  *
  * `--own` restricts the set to that one file. The resulting score answers a narrower and
- * more useful question — does *this module's* suite pin its behaviour? — and is a lower
+ * more useful question — does *this module's* suite pin its behavior? — and is a lower
  * bound on the true score, because a mutant reported as surviving may still be caught by
  * another module's tests. It is also dramatically faster: the simulation-heavy suites take
  * seconds each, and running them for every mutant of an unrelated file dominated the clock
@@ -982,7 +982,7 @@ async function main(): Promise<void> {
     }
     process.stdout.write(
       "\nA survivor is a change to the code that no test objected to. Some are\n" +
-        "equivalent mutants that cannot change behaviour; the rest are gaps.\n",
+        "equivalent mutants that cannot change behavior; the rest are gaps.\n",
     );
     // Survivors do not fail the run by default, and the distinction is deliberate: every
     // other non-zero exit in this file marks the harness having *malfunctioned* — a bad
@@ -991,7 +991,7 @@ async function main(): Promise<void> {
     // no test can kill, so a run that always exits non-zero would make the exit code as
     // uninformative as one that never does.
     //
-    // `--fail-on-survivors` opts into gate behaviour for anything that wants it.
+    // `--fail-on-survivors` opts into gate behavior for anything that wants it.
     if (failOnSurvivors) {
       process.stdout.write("\n--fail-on-survivors: exiting non-zero.\n");
       process.exitCode = 1;

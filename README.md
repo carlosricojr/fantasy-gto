@@ -4,7 +4,7 @@ Fantasy football projections that show their working, and lineups that are prova
 optimal.
 
 The projection model is backtested and its real accuracy is published, including where it
-is weak. The lineup optimiser solves slot assignment exactly, so no legal arrangement of a
+is weak. The lineup optimizer solves slot assignment exactly, so no legal arrangement of a
 roster scores higher.
 
 ## Quick start
@@ -76,13 +76,13 @@ does nothing during the offseason, so the first seed has to be run by hand.
 
 ## How it is put together
 
-The organising rule is that **domain logic is pure and I/O lives at the edges**. Every
+The organizing rule is that **domain logic is pure and I/O lives at the edges**. Every
 projection, score, and lineup decision is computed by a plain TypeScript function with no
 network, database, clock, or framework dependency. That is what makes the model
-backtestable against three seasons of real data and the optimiser exhaustively testable.
+backtestable against three seasons of real data and the optimizer exhaustively testable.
 
 ```
-lib/core/            Sport-agnostic. Domain vocabulary, provider seams, lineup optimiser.
+lib/core/            Sport-agnostic. Domain vocabulary, provider seams, lineup optimizer.
 lib/nfl/             NFL domain: CSV parsing, teams, scoring, model, season logic.
 lib/billing/         Entitlement derivation.
 lib/sources/         The adapter layer. The only place in lib/ that performs I/O.
@@ -110,7 +110,7 @@ the right place, not in generic machinery built ahead of a second caller.
 - `LeagueProvider` — a user's league and roster. Needed now, because ESPN's league API has
   no working host and CSV/manual entry has to carry the product.
 
-The lineup optimiser lives in `lib/core` rather than under NFL because it is genuinely
+The lineup optimizer lives in `lib/core` rather than under NFL because it is genuinely
 sport-agnostic: a weighted assignment problem over eligible slots.
 
 ### Why no paid data vendor
@@ -203,7 +203,7 @@ state.
 
 | | Free | Pro |
 | --- | --- | --- |
-| Projections, lineup optimiser | ✓ (no account needed) | ✓ |
+| Projections, lineup optimizer | ✓ (no account needed) | ✓ |
 | Start/sit advice | ✓ | ✓ |
 | Leagues | 3 | **unlimited** |
 | Everything else in the plan | — | *not built* |
@@ -221,7 +221,7 @@ in the plan is `false` in the entitlement table because nothing reads it:
 
 Each flips to `true` in the same change that implements it. `UNIMPLEMENTED_FEATURES` keeps
 the list explicit, a test asserts none of them is granted, and `/pricing` renders both its
-"included today" and "not built yet" columns from the same table the server authorises
+"included today" and "not built yet" columns from the same table the server authorizes
 against — so the page cannot promise more than the code delivers.
 
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
@@ -236,13 +236,13 @@ known gaps.
 A failed payment keeps Pro for a 3-day grace period. A cancellation runs to the end of the
 period already paid for.
 
-An event that does not describe the subscription's current state — an unrecognised or
+An event that does not describe the subscription's current state — an unrecognized or
 absent status, or a scheduled change Clerk sends ahead of time — writes nothing and is
-audited. That is deliberately biased towards the subscriber: a payer is never dropped by an
+audited. That is deliberately biased toward the subscriber: a payer is never dropped by an
 event we do not understand. The cost is that a *terminal* status Clerk spells in a way this
 code does not model would leave Pro in force indefinitely, because nothing polls Clerk to
 reconcile and no alert reads the audit table. `canceled`, `cancelled`, `ended`, and
-`expired` are modelled, so ordinary endings revoke normally. Unknown *plan keys* still
+`expired` are modeled, so ordinary endings revoke normally. Unknown *plan keys* still
 resolve to free, and are audited.
 
 ## Testing
@@ -255,7 +255,7 @@ pnpm test:coverage
 
 Tests are colocated with the code they cover. Fixtures under `tests/fixtures/` are
 byte-exact slices of real upstream data, pinned with `.gitattributes` so line endings stay
-stable across platforms and the parser's behaviour stays reproducible.
+stable across platforms and the parser's behavior stays reproducible.
 
 The suite deliberately contains no mocks of our own modules. The domain core is pure, so it
 is tested with real values; the provider seams take an injectable fetcher, so adapters are

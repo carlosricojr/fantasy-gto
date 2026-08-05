@@ -65,9 +65,9 @@ describe("normalizeTeam", () => {
 
 describe("isTeam", () => {
   it("rejects aliases, because the predicate claims membership of CURRENT_TEAMS", () => {
-    // These all normalise to a current team, so `normalizeTeam(x) !== null` would be true
+    // These all normalize to a current team, so `normalizeTeam(x) !== null` would be true
     // — and would narrow them to `TeamAbbr` despite not being members. A caller trusting
-    // the guard instead of the normalised value would then key on "OAK" or "LAR" and
+    // the guard instead of the normalized value would then key on "OAK" or "LAR" and
     // silently split a franchise across two buckets.
     for (const alias of ["OAK", "LAR", "WSH", "SD", "STL"]) {
       expect(isTeam(alias)).toBe(false);
@@ -97,7 +97,7 @@ describe("against the real games fixture", () => {
     readFileSync(join(__dirname, "../../tests/fixtures/games_sample.csv"), "utf8"),
   );
 
-  it("normalises every team appearing upstream", () => {
+  it("normalizes every team appearing upstream", () => {
     const raw = new Set<string>();
     for (const game of games) {
       raw.add(game.home_team);
@@ -105,11 +105,11 @@ describe("against the real games fixture", () => {
     }
     expect(raw.size).toBeGreaterThan(20);
     for (const team of raw) {
-      expect(normalizeTeam(team), `upstream team ${team} must normalise`).not.toBeNull();
+      expect(normalizeTeam(team), `upstream team ${team} must normalize`).not.toBeNull();
     }
   });
 
-  it("normalisation is idempotent on real data", () => {
+  it("normalization is idempotent on real data", () => {
     for (const game of games) {
       const once = normalizeTeam(game.home_team);
       expect(normalizeTeam(once)).toBe(once);

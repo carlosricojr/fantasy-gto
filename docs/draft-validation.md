@@ -130,9 +130,9 @@ handicapping the baseline.**
   where it is defined. `BENCH_VALUE_WEIGHT` was too, and no longer exists — the objective
   that needed a bench discount was replaced by one that values depth by playing the season
   out, which is the whole reason it could be deleted.
-- **Kickers and defences are not projected by the model**, so they carry the market's price
+- **Kickers and defenses are not projected by the model**, so they carry the market's price
   alone rather than a fabricated number. They *are* on the board and draftable — see
-  "League rules" below. Leaving them off entirely was the previous behaviour and it made
+  "League rules" below. Leaving them off entirely was the previous behavior and it made
   the tool unusable for any league that starts one.
 - **2025 and 2026 are not evaluated.** Fantasy Football Calculator publishes no 2025 board,
   so 2024 is the most recent season with both a market price and a finished result.
@@ -155,10 +155,10 @@ The movement is small and it does not change any conclusion. It is recorded beca
 figures above are the authority for what this product may claim, and a number that depends
 on input order is not one.
 
-## The objective, and what is guaranteed about maximising it
+## The objective, and what is guaranteed about maximizing it
 
 Everything above measures *player ranking*, which is an input. The thing the draft
-maximises is now the probability of winning the league, computed by playing the season out
+maximizes is now the probability of winning the league, computed by playing the season out
 (`lib/core/season-sim.ts`).
 
 That change removes the weighting problem rather than solving it. There is no constant
@@ -276,7 +276,7 @@ Measured on the real 2026 board, 12 teams, 15 rounds, a full roster of starters 
 At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
 resolves. 600 is the sensible default given a draft clock of a minute or more.
 
-Two optimisations got this from 7.8s. The rollout was completing all twelve teams for every
+Two optimizations got this from 7.8s. The rollout was completing all twelve teams for every
 candidate while only ever reading our own — the other eleven come from the baseline, which
 is computed once. And the base policy was re-solving the roster's own lineup for every one
 of forty contenders at every remaining pick, when that value does not depend on the
@@ -295,10 +295,10 @@ served from an LRU memo keyed on the full league configuration
 
 **Handled.** Roster shape is arbitrary — any combination of slot kinds and counts, including
 superflex — and the simulation uses it directly for every team. League size, playoff field,
-bracket length and season length are all configuration. Kickers and defences are on the
+bracket length and season length are all configuration. Kickers and defenses are on the
 board and draftable.
 
-**Kickers and defences carry the market's price only.** The model does not project either
+**Kickers and defenses carry the market's price only.** The model does not project either
 and will not pretend to. They were previously left off the board entirely, which did not
 make the tool cautious — it made it unusable for any league that starts one: the slot could
 never be filled, every simulated roster carried a permanent hole, and a user following the
@@ -320,7 +320,7 @@ answer every time. Two caches exploit that, and both are built so that a wrong h
 impossible rather than unlikely — a memo that answers quickly and incorrectly is worse than
 no memo.
 
-- **Memoisation** (`draft-memo.ts`) keys on a league fingerprint plus a state signature.
+- **Memoization** (`draft-memo.ts`) keys on a league fingerprint plus a state signature.
   The fingerprint covers slot eligibility — not just slot ids, because a hand-assembled
   `flex` that accepts quarterbacks is a different league — along with the playoff shape,
   season length, scenario count, injury model, and seed.
@@ -330,7 +330,7 @@ no memo.
   sampled from the same ADP dispersion the survival model uses, states are deduplicated,
   and the likeliest are solved in order until the budget runs out.
 
-States are canonicalised before either cache sees them, so that two ways of writing down
+States are canonicalized before either cache sees them, so that two ways of writing down
 the same position produce the same signature and therefore the same cache key. It is a
 hit-rate measure, not a correctness one: this paragraph used to say that roster order
 determines the order random draws are consumed and so changes the result, which stopped
@@ -339,10 +339,10 @@ forwards, reversed and shuffled returns 560.2807 points every time — and now a
 the claim fails rather than rots if the streams ever change.
 
 A cached answer is served **only on an exact signature match**, which is verified rather
-than assumed. Anything else is `approximate` (and labelled, with what differs) or `miss`.
+than assumed. Anything else is `approximate` (and labeled, with what differs) or `miss`.
 An approximation is never returned unless the caller explicitly asks for one.
 
-Both contracts are mutation-tested. Removing roster canonicalisation, dropping the pool
+Both contracts are mutation-tested. Removing roster canonicalization, dropping the pool
 digest from the signature, removing the hash separator, serving a near-miss as exact,
 dropping the seed or scenario count from the fingerprint, and evicting by insertion rather
 than by use each break at least one test. An earlier version of the superflex test passed
@@ -369,7 +369,7 @@ worth more than the individual fixes.
   the blend marked them down by the model's full weight. This is the rookie markdown
   reappearing for a different population — the fix is that "does the model have an opinion"
   is a question about the position, not the row count.
-- **Kickers and defences were dragging the pooled curve down.** The market spells them
+- **Kickers and defenses were dragging the pooled curve down.** The market spells them
   `PK` and `DEF` while the lookups used `K` and `DST`, so no per-position curve was ever
   found for them — and, worse, their rows were in the pooled fit. `scoreOffense` scores a
   kicking line as zero, so that fit was being pulled toward false zeros for every other
@@ -410,7 +410,7 @@ inequality on a roster where every player started every week, so no truncation w
 and it passed on the noise the CRN fix removed; another claimed to separate a superflex
 league from a standard one but was satisfied by the slot *id* differing.
 
-### Still unmodelled
+### Still unmodeled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own
 receiver score together), waiver-wire replacement level (depth you could stream is worth

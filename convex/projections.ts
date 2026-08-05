@@ -72,7 +72,7 @@ export const forPlayer = query({
  * a ranked slice, which cannot be relied on to contain a player the user has already
  * chosen. `/lineup` no longer caps its board, so it uses this as a safeguard rather than a
  * necessity — the failure it prevents is a chosen player silently missing from the
- * optimiser's input while the page still calls the answer optimal.
+ * optimizer's input while the page still calls the answer optimal.
  */
 export const forPlayers = query({
   args: {

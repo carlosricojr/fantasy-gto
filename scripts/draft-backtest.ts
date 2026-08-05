@@ -18,7 +18,7 @@ import {
   seasonProjection,
 } from "@/lib/nfl/draft/value";
 import { buildMarketIndex } from "@/lib/nfl/draft/match";
-import { MODELLED_POSITIONS, normalizeMarketPosition } from "@/lib/nfl/draft/config";
+import { MODELED_POSITIONS, normalizeMarketPosition } from "@/lib/nfl/draft/config";
 import { adpUrl, parseAdp } from "@/lib/sources/adp";
 
 /**
@@ -79,7 +79,7 @@ async function cached(dir: string, file: string, url: string): Promise<string> {
   if (!response.ok) throw new Error(`${url} responded ${response.status}`);
   const text = await response.text();
 
-  // Written to a neighbouring temporary path and renamed, because a rename within one
+  // Written to a neighboring temporary path and renamed, because a rename within one
   // filesystem is atomic: a reader sees the whole file or no file. Writing straight to the
   // final path leaves a truncated one behind if the process stops mid-write or the disk
   // fills, and line 69 then serves it on every later run.
@@ -123,7 +123,7 @@ async function loadSeason(season: number): Promise<Map<string, PlayerSeason>> {
     // The production list, not a copy of it. A backtest filtering on a different set of
     // positions than the ingest measures a board nobody is served.
     if (
-      !MODELLED_POSITIONS.includes(position as (typeof MODELLED_POSITIONS)[number])
+      !MODELED_POSITIONS.includes(position as (typeof MODELED_POSITIONS)[number])
     ) {
       continue;
     }
@@ -269,7 +269,7 @@ async function buildUniverse(target: number, curves: AdpCurveSet): Promise<Unive
 
   // The same index the curve fit uses, rather than the hand-rolled map this used to
   // carry. That version was not wrong — it skipped ambiguous names — but it was strictly
-  // weaker: it dropped *both* players whenever two names normalised the same way, where
+  // weaker: it dropped *both* players whenever two names normalized the same way, where
   // the index separates them when their positions differ and refuses only when position
   // cannot. Every player it dropped left the evaluated universe, so `sampleSize` in
   // published-draft-metrics.json was smaller than the same matching rule would give, and

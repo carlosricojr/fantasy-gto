@@ -60,7 +60,7 @@ function gamesCsv(): string {
 /**
  * The player set. Counts are in `PER_POSITION` below.
  *
- * Every modelled position except running back carries far more than `MIN_CURVE_SAMPLES`
+ * Every modeled position except running back carries far more than `MIN_CURVE_SAMPLES`
  * (8), because `fitAdpCurves` needs that many before it will fit a curve for one — below
  * that everything collapses to the pooled fit and a change to one position's samples
  * cannot be observed. An earlier version of this file used three players total and could
@@ -82,10 +82,10 @@ const PER_POSITION: Record<string, number> = { WR: 45, RB: 7, TE: 40, QB: 25 };
 /**
  * Kickers, who exist to exercise the two branches with the most scar tissue.
  *
- * `scoreOffense` scores a kicking line as zero, so `modelled` — not the row count — is what
+ * `scoreOffense` scores a kicking line as zero, so `modeled` — not the row count — is what
  * decides they have no model value, and `OUTCOME_QUANTILES` marks their band `placeholder`.
  * Without one on the board the provenance assertion can only ever see `measured` and the
- * `modelled` guard is never taken.
+ * `modeled` guard is never taken.
  */
 const KICKERS = 3;
 
@@ -149,8 +149,8 @@ const KICKER_PLAYERS: Fixture[] = Array.from({ length: KICKERS }, (_, i) => ({
 
 const ALL: Fixture[] = [...PLAYERS, OUTLIER, ...SAME_NAME, ...KICKER_PLAYERS];
 
-/** Defences never appear on a roster file; they are synthesised from the market board. */
-const DEFENCES = [
+/** Defenses never appear on a roster file; they are synthesized from the market board. */
+const DEFENSES = [
   { name: "Philadelphia Eagles", adp: 130 },
   { name: "Dallas Cowboys", adp: 140 },
 ];
@@ -286,14 +286,14 @@ async function build(adpRows: Array<Record<string, unknown>>) {
 /** One market row per rostered player — the healthy feed. */
 const ONE_ROW_EACH = [
   ...ALL.map((f) => market(f.name, f.position, f.adp)),
-  ...DEFENCES.map((d) => market(d.name, "DEF", d.adp)),
+  ...DEFENSES.map((d) => market(d.name, "DEF", d.adp)),
 ];
 
 describe("runBuildDraftBoard", () => {
-  it("counts a defence once when the feed lists it twice", async () => {
-    // Defences bypass `buildMarketIndex` — they are not on a roster file, so there is
+  it("counts a defense once when the feed lists it twice", async () => {
+    // Defenses bypass `buildMarketIndex` — they are not on a roster file, so there is
     // nothing to join them to — and that is the one join on this path with no
-    // collision check. Two rows whose names normalise the same way both become
+    // collision check. Two rows whose names normalize the same way both become
     // `dst-<same key>`; `upsertBoardBatch` keys on `(board, playerId)`, so the second
     // overwrote the first and the board kept whichever ADP the feed listed last, while
     // the reported `players` figure counted a row the table does not hold.
@@ -311,15 +311,15 @@ describe("runBuildDraftBoard", () => {
     expect(eagles[0].adp).toBe(130);
     // And the count matches the rows, which is the figure the deployment reports.
     expect(result.players).toBe(rows.length);
-    expect(result.players).toBe(ALL.length + DEFENCES.length);
+    expect(result.players).toBe(ALL.length + DEFENSES.length);
   });
 
   it("builds a board with a price for every rostered player", async () => {
     const { result, rows } = await build(ONE_ROW_EACH);
-    // Rostered players plus the defences, which never appear on a roster file and are
-    // synthesised from the market board so a league that starts one can draft one.
-    expect(result.players).toBe(ALL.length + DEFENCES.length);
-    expect(rows.filter((r) => r.position === "DST")).toHaveLength(DEFENCES.length);
+    // Rostered players plus the defenses, which never appear on a roster file and are
+    // synthesized from the market board so a league that starts one can draft one.
+    expect(result.players).toBe(ALL.length + DEFENSES.length);
+    expect(rows.filter((r) => r.position === "DST")).toHaveLength(DEFENSES.length);
     for (const f of ALL) {
       expect(rows.some((r) => r.playerId === f.id)).toBe(true);
     }
@@ -353,7 +353,7 @@ describe("runBuildDraftBoard", () => {
   });
 
   it("does not let a duplicated market row bend the curve that prices everyone else", async () => {
-    // Two feed rows for one player: "A.J. Brown" and "AJ Brown" normalise to one key.
+    // Two feed rows for one player: "A.J. Brown" and "AJ Brown" normalize to one key.
     //
     // Two separate things go wrong without protection, and only one of them is about him.
     // `buildMarketIndex` cannot tell one player published twice from two players sharing a
@@ -440,8 +440,8 @@ describe("runBuildDraftBoard", () => {
   it("labels an assumed weekly band as assumed, and a measured one as measured", async () => {
     // `expect(["measured","placeholder"]).toContain(x)` restates the union the validator
     // already enforces — it passes for every row and would keep passing if a kicker's
-    // assumed band were labelled measured, which is the defect worth catching. The fixture
-    // carries kickers and defences precisely so both labels actually occur.
+    // assumed band were labeled measured, which is the defect worth catching. The fixture
+    // carries kickers and defenses precisely so both labels actually occur.
     const { rows } = await build(ONE_ROW_EACH);
 
     const skill = rows.filter((r) => ["WR", "RB", "TE", "QB"].includes(r.position));

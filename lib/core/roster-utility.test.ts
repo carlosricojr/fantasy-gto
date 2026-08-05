@@ -15,7 +15,7 @@ import {
  * Roster utility.
  *
  * These tests exist to show the objective captures what the previous one could not. Each
- * asserts a behaviour that summing season points and discounting the bench by a constant
+ * asserts a behavior that summing season points and discounting the bench by a constant
  * gets provably wrong.
  */
 
@@ -292,14 +292,14 @@ describe("marginalUtility", () => {
  * `q` and `r` are solved so the chain's long-run fit rate equals the player's own
  * availability. That is the module's central claim about this function and nothing was
  * checking it — a mutation run flipped the clamp on `q`, both chain transitions, and the
- * two boundary branches without a single test objecting. A realised-rate test kills all of
+ * two boundary branches without a single test objecting. A realized-rate test kills all of
  * them at once, because every one of those changes moves the rate away from its target.
  */
 describe("simulateAvailability", () => {
   const SEASON = Array.from({ length: 17 }, (_, i) => i + 1);
 
   /** Fraction of weeks actually played, pooled over many independent seasons. */
-  function realisedRate(availability: number, byeWeek: number | null = null): number {
+  function realizedRate(availability: number, byeWeek: number | null = null): number {
     let played = 0;
     let total = 0;
     for (let scenario = 0; scenario < 400; scenario += 1) {
@@ -317,12 +317,12 @@ describe("simulateAvailability", () => {
     return played / total;
   }
 
-  it("realises the availability it was given", () => {
+  it("realizes the availability it was given", () => {
     // Measured error across these is under 0.009; the tolerance is a safety margin, not a
     // shrug. Anything that breaks the solve for `q` misses by far more than this.
     for (const availability of [0.31, 0.5, 0.7, 0.85, 0.95]) {
-      expect(realisedRate(availability)).toBeCloseTo(availability, 1);
-      expect(Math.abs(realisedRate(availability) - availability)).toBeLessThan(0.03);
+      expect(realizedRate(availability)).toBeCloseTo(availability, 1);
+      expect(Math.abs(realizedRate(availability) - availability)).toBeLessThan(0.03);
     }
   });
 
@@ -370,7 +370,7 @@ describe("simulateAvailability", () => {
 
   it("takes the bye out of the weeks a fragile player would otherwise have played", () => {
     // The bye is not part of the chain — it is subtracted from whatever the chain says.
-    const rate = realisedRate(0.8, 9);
+    const rate = realizedRate(0.8, 9);
     expect(rate).toBeLessThan(0.8);
     expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
   });
@@ -384,7 +384,7 @@ describe("simulateAvailability", () => {
  * chain rather than an independent coin flip per week, because a roster is hurt far more by
  * one four-week absence than by four scattered ones.
  *
- * The realised-rate test cannot see it. Setting `r` to zero makes the chain absorbing —
+ * The realized-rate test cannot see it. Setting `r` to zero makes the chain absorbing —
  * a player is fit all season or out all season — and the long-run rate still lands on
  * target, so every existing assertion passes while the variance of a season's score rises
  * by roughly half and the recommended pick changes.
@@ -431,7 +431,7 @@ describe("simulateAvailability absence structure", () => {
 
   it("almost never loses a player for a whole season at ordinary availability", () => {
     // Measured at 0.03% on the real chain and 14.6% with the chain absorbing. A tool that
-    // wipes out one starter in seven whole seasons is not modelling injury, it is modelling
+    // wipes out one starter in seven whole seasons is not modeling injury, it is modeling
     // a coin flip on the draft itself.
     const { seasonsEntirelyMissed, scenarios } = spells(0.85);
     expect(seasonsEntirelyMissed / scenarios).toBeLessThan(0.02);
@@ -499,7 +499,7 @@ describe("the totals are accumulated from zero", () => {
     // p10 = p90 = 1 is as close to no spread as `fitLognormal` allows: it nudges the
     // ninetieth percentile up by a millionth so the fit stays well defined, leaving a
     // sigma of 3.9e-7. That is not zero, and the equality below does not rest on it being
-    // zero — `solveLineup` quantises each week's total to two decimals, which is 500 times
+    // zero — `solveLineup` quantizes each week's total to two decimals, which is 500 times
     // coarser than the largest deviation the nudge can produce. Measured over 10,000
     // weekly draws: not one differs from 24 at all.
     //
@@ -587,12 +587,12 @@ describe("fitLognormal's floors", () => {
 });
 
 describe("the absence chain stays a probability", () => {
-  it("still realises the availability it was given when an absence is under a week", () => {
+  it("still realizes the availability it was given when an absence is under a week", () => {
     // `r = 1 / max(meanAbsenceWeeks, 1)` is the chance of returning each week, so it has to
     // stay at or below one — `rng.next()` never reaches one, so any `r` above it means
     // "certain to return" and the chain no longer has the steady state `q` was solved for.
     //
-    // The realised rate is what breaks, not the clustering, and only for short absences at
+    // The realized rate is what breaks, not the clustering, and only for short absences at
     // high availability: `q = r(1 - a)/a` cancels `r` out of `r / (q + r)` exactly, so the
     // rate self-corrects for any `r` the comparison can actually express. Measured over
     // 40 seasons of 200 weeks: 0.9005 with the floor, 0.6897 without it. A player asked to
@@ -616,9 +616,9 @@ describe("the absence chain stays a probability", () => {
   });
 
   it("keeps a one-week mean absence to about one week", () => {
-    // The other side of the same floor. Raising it to two leaves the realised rate alone —
+    // The other side of the same floor. Raising it to two leaves the realized rate alone —
     // `q` cancels `r` out of the steady state — and doubles how long each absence lasts,
-    // which is the whole reason absences are modelled as a chain rather than a coin flip.
+    // which is the whole reason absences are modeled as a chain rather than a coin flip.
     const season = Array.from({ length: 17 }, (_, i) => i + 1);
     let missed = 0;
     let runs = 0;
@@ -649,7 +649,7 @@ describe("the simulation does not depend on how a roster was assembled", () => {
     // `canonicalizeState`'s docstring and `docs/draft-validation.md` — and both were
     // describing a version of this module that consumed one shared stream in roster order.
     //
-    // Canonicalisation is still needed, for the signature rather than for the result: two
+    // Canonicalization is still needed, for the signature rather than for the result: two
     // ways of writing the same position have to produce one cache key. This test is what
     // keeps the corrected claim honest — if the streams ever stop being per-player, it
     // fails here rather than quietly making the documentation wrong again.

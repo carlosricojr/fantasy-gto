@@ -50,7 +50,7 @@ export const MIN_ADP_STDEV = 0.5;
  * zero straight through.
  *
  * The effect was backwards in the worst possible direction: a player the market has said
- * least about was modelled as the one it was most certain of. Clamped to half a pick, his
+ * least about was modeled as the one it was most certain of. Clamped to half a pick, his
  * survival curve is a step function, so the board reported him as certain to be gone or
  * certain to last, and the speculative cache prepared for exactly one future in which he
  * was taken at his ADP and no other.

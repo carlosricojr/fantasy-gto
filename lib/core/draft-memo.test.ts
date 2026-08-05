@@ -24,7 +24,7 @@ import type { PlayerRisk } from "./roster-utility";
 import type { LeagueConfig } from "./season-sim";
 
 /**
- * Memoisation.
+ * Memoization.
  *
  * A memo that returns the wrong answer quickly is far worse than no memo. Every test here
  * is an attempt to get a hit that should have been a miss — a different league, a
@@ -247,7 +247,7 @@ describe("LruMemoStore", () => {
 
 describe("recommendMemoized", () => {
   it("computes on a miss and serves the identical array on a hit", () => {
-    // The guarantee that makes memoisation sound: the computation is a pure function of
+    // The guarantee that makes memoization sound: the computation is a pure function of
     // the key, so a hit is not merely similar to recomputing, it is the same result.
     const store = new LruMemoStore(8);
     const state = baseState();
@@ -264,7 +264,7 @@ describe("recommendMemoized", () => {
   });
 
   it("hits across two different orderings of the same position", () => {
-    // The point of canonicalisation: how a roster was assembled is not part of the
+    // The point of canonicalization: how a roster was assembled is not part of the
     // position, so the second arrangement must not pay to solve it again.
     const store = new LruMemoStore(8);
     const pool = board();
@@ -382,18 +382,18 @@ describe("composed with speculation", () => {
   });
 
   it("produces the same cache whether or not a memo is used", () => {
-    // Memoisation must be invisible in the output. If layering a store changed an answer,
+    // Memoization must be invisible in the output. If layering a store changed an answer,
     // the key would not be covering everything the computation reads.
     const state = baseState();
     const anticipated = anticipateStates(state, [{ team: 1 }], 30, createRng(2));
     const options = { maxStates: 2, candidateLimit: 3 } as const;
 
     const plain = precomputeRecommendations(state, anticipated, CONFIG, 42, options);
-    const memoised = precomputeRecommendations(state, anticipated, CONFIG, 42, {
+    const memoized = precomputeRecommendations(state, anticipated, CONFIG, 42, {
       ...options,
       compute: memoizedCompute(new LruMemoStore(64)),
     });
-    expect(memoised.entries).toEqual(plain.entries);
+    expect(memoized.entries).toEqual(plain.entries);
   });
 });
 

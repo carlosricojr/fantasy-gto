@@ -31,7 +31,7 @@ export function draftPicksUrl(draftId: string): string {
 export interface SleeperDraftSettings {
   teams: number;
   rounds: number;
-  /** `snake`, `linear`, or `auction`. Only snake and linear are modelled. */
+  /** `snake`, `linear`, or `auction`. Only snake and linear are modeled. */
   type: string;
   status: string;
 }
