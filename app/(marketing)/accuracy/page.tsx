@@ -32,7 +32,18 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  *
  * The one number still written literally is the "around 12" typical weekly score used to
  * give the error a sense of scale. It is deliberately rounded and illustrative rather than
- * a measurement, and it is not a claim about the model.
+ * a measurement, it is not a claim about the model, and it appears in
+ * `docs/model-validation.md` — which is the rule: a number absent from that document may
+ * not appear in the interface. The nearby sentence therefore claims provenance only for
+ * the *measured* figures, since this one is not read from the artifact.
+ *
+ * Two claims were removed rather than reworded. A "0 peeks at the held-out season" stat
+ * asserted more than the record supports: hyperparameters were chosen on the tuning season
+ * and frozen, which is the defensible claim, but the validation document also records the
+ * held-out season being re-measured after a leakage fix and after the calibration factors
+ * were synced. And "the toughest baseline we could throw at it" implied an exhausted field
+ * when two baselines were tried — the same overreach as the withdrawn ESPN comparison, in
+ * softer clothing.
  *
  * The voice is deliberately plain and a little dry — this is a consumer product, not a
  * paper — but no caveat was dropped to get there. The weaknesses section, the residual
@@ -58,9 +69,13 @@ export default function AccuracyPage() {
     .sort((a, b) => b.mae - a.mae);
   const hardestPosition = positions[0];
 
+  // Named for what it actually is. docs/model-validation.md is explicit that this baseline
+  // averages every prior game in the loaded history — up to three seasons — and warns that
+  // a season-to-date mean would be a weaker opponent that inflates our edge. Calling it a
+  // "season average" would have described exactly that weaker thing.
   const priorGames = {
-    name: "Season average",
-    blurb: "Every game a player has played, averaged",
+    name: "Full-history average",
+    blurb: "Every prior game we have for that player, averaged",
     mae: metrics.priorGamesMeanMae,
     edge: metrics.edgeVsPriorGamesMean,
   };
@@ -82,7 +97,7 @@ export default function AccuracyPage() {
   const methods = [
     {
       name: "Fantasy GTO",
-      blurb: "Us, on a season we had never touched",
+      blurb: `Us, with the ${metrics.calibration.season} settings frozen`,
       mae: metrics.modelMae,
       edge: null as number | null,
     },
@@ -118,29 +133,33 @@ export default function AccuracyPage() {
         </p>
 
         <dl className="mt-10 grid gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
-          <div className="bg-background p-5">
+          {/* `dt` before `dd` in the DOM because that is the content model a screen reader
+              pairs on; `flex-col-reverse` puts the figure back on top visually. */}
+          <div className="flex flex-col-reverse justify-end bg-background p-5">
+            <dt className="mt-1 text-sm text-muted-foreground">
+              {toughest.edge >= 0 ? "sharper than" : "behind"} the stronger of the two
+              baselines we tried
+            </dt>
             <dd className="text-3xl font-semibold tracking-tight tabular-nums text-brand">
               {toughest.edge.toFixed(2)}%
             </dd>
-            <dt className="mt-1 text-sm text-muted-foreground">
-              {toughest.edge >= 0 ? "sharper than" : "behind"} the toughest baseline we
-              could throw at it
-            </dt>
           </div>
-          <div className="bg-background p-5">
-            <dd className="text-3xl font-semibold tracking-tight tabular-nums">
-              {metrics.sampleSize.toLocaleString("en-US")}
-            </dd>
+          <div className="flex flex-col-reverse justify-end bg-background p-5">
             <dt className="mt-1 text-sm text-muted-foreground">
               player-weeks graded, every one of them held out
             </dt>
+            <dd className="text-3xl font-semibold tracking-tight tabular-nums">
+              {metrics.sampleSize.toLocaleString("en-US")}
+            </dd>
           </div>
-          <div className="bg-background p-5">
-            <dd className="text-3xl font-semibold tracking-tight tabular-nums">0</dd>
+          <div className="flex flex-col-reverse justify-end bg-background p-5">
             <dt className="mt-1 text-sm text-muted-foreground">
-              peeks at {metrics.season} while we tuned. Everything was frozen on{" "}
-              {metrics.calibration.season} first
+              the season the settings were chosen on, and frozen before {metrics.season}{" "}
+              was scored
             </dt>
+            <dd className="text-3xl font-semibold tracking-tight tabular-nums">
+              {metrics.calibration.season}
+            </dd>
           </div>
         </dl>
       </section>
@@ -151,7 +170,9 @@ export default function AccuracyPage() {
           How many fantasy points each method missed by, per player, per week. Lower wins.
         </p>
 
-        <ol className="mt-6 divide-y rounded-xl border">
+        {/* `overflow-hidden` because the tinted first row is a descendant background, and
+            the card's radius does not clip those — square corners would show through. */}
+        <ol className="mt-6 divide-y overflow-hidden rounded-xl border">
           {methods.map((method, index) => {
             const ours = method.edge === null;
             return (
@@ -241,7 +262,9 @@ export default function AccuracyPage() {
         <h2 className="text-2xl font-semibold tracking-tight">
           What actually moved the needle
         </h2>
-        <ol className="mt-6 space-y-6">
+        {/* Unordered on purpose: these are not ranked, and the last one is the largest
+            contributor, so an `ol` would have a screen reader announce it as "3 of 3". */}
+        <ul className="mt-6 space-y-6">
           <li className="border-l-2 border-brand/40 pl-5">
             <h3 className="font-medium">Long memory beat the hot hand</h3>
             <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
@@ -274,17 +297,17 @@ export default function AccuracyPage() {
               usage, betting-line, and matchup terms put together.
             </p>
           </li>
-        </ol>
+        </ul>
       </section>
 
       <section className="relative mx-auto max-w-4xl px-6 pb-20 pt-10">
         <div className="rounded-xl border bg-brand/5 p-6 sm:p-8">
           <h2 className="text-xl font-semibold tracking-tight">Check our homework</h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            The backtest is an open script run against free public data. The figures on
-            this page are read straight out of what it writes, and our tests fail if they
-            drift from the validation document. Any change to the model has to update both
-            in the same commit.
+            The backtest is an open script run against free public data. Every measured
+            figure on this page is read straight out of what it writes, and our tests fail
+            if they drift from the validation document. Any change to the model has to
+            update both in the same commit.
           </p>
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Button asChild>

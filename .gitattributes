@@ -1,5 +1,5 @@
 # Test fixtures are byte-exact slices of upstream nflverse data. Git must not
-# rewrite their line endings: the CSV parser's behaviour around line terminators
+# rewrite their line endings: the CSV parser's behavior around line terminators
 # is under test, so a platform-dependent checkout would make tests non-reproducible.
 tests/fixtures/*.csv -text
 
