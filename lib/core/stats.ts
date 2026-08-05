@@ -126,6 +126,13 @@ export function pairedComparison(rows: readonly PairedError[]): PairedComparison
   const meanDelta = meanOf(deltas);
   const modelMean = meanOf(rows.map((row) => row.model));
   const baselineMean = meanOf(rows.map((row) => row.baseline));
+  // A baseline that never missed. Every percentage here divides by it, so continuing would
+  // publish an edge of NaN or Infinity against a predictor that was simply perfect — which
+  // in practice means the errors were never populated, not that a baseline solved fantasy
+  // football. Better to say so than to render it.
+  if (baselineMean === 0) {
+    throw new Error("pairedComparison: baseline error is zero, no percentage edge exists");
+  }
 
   // Per-cluster sums of the centred deltas. The cluster-robust variance of a mean is
   //   (G / (G−1)) · (1/n²) · Σ_g (Σ_{i∈g} (dᵢ − d̄))²

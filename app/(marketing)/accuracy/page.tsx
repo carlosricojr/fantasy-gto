@@ -110,6 +110,12 @@ export default function AccuracyPage() {
   // attaching an uncertainty to a number it was not computed for.
   const [intervalLow, intervalHigh] = metrics.significance.percentConfidenceInterval;
   const intervalApplies = toughest === priorGames;
+  // Read off the interval rather than written down. "It does not include zero, so the edge
+  // is real" is a conclusion, not a fact the page is entitled to assert — the same reason
+  // the leaderboard sorts by measured error and the "we win by" wording follows the sign.
+  // An interval that straddled zero would otherwise leave the page insisting the edge was
+  // real while printing the numbers that say it might not be.
+  const intervalExcludesZero = intervalLow > 0;
 
   // Ranked by measured error rather than by assumption. Finishing first is what the
   // backtest says today, not something the page is entitled to assert — if a future run
@@ -254,9 +260,13 @@ export default function AccuracyPage() {
                 {intervalHigh.toFixed(2)}%
               </strong>{" "}
               &mdash; an interval built this way covers the true edge nineteen times out of
-              twenty. It does not include zero, so the edge is real rather than luck &mdash;
-              but &ldquo;{toughest.edge.toFixed(2)}%&rdquo; on its own is more precision than{" "}
-              {metrics.sampleSize.toLocaleString("en-US")} player-weeks can support.
+              twenty.{" "}
+              {intervalExcludesZero
+                ? "It does not include zero, so the edge is real rather than luck"
+                : "It includes zero, so we cannot rule out that this edge is luck"}{" "}
+              &mdash; and &ldquo;{toughest.edge.toFixed(2)}%&rdquo; on its own is more
+              precision than {metrics.sampleSize.toLocaleString("en-US")} player-weeks can
+              support.
             </p>
             <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
               That range is wider than the obvious arithmetic gives, on purpose. The same{" "}

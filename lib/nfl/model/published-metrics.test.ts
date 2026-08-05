@@ -213,6 +213,14 @@ describe("published significance", () => {
     expect(validation).toContain(significance.minimumDetectableEffect.toFixed(4));
     expect(validation).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
     expect(validation).toContain(significance.bootstrap.standardError.toFixed(4));
+    // The seed and the resample count are the document's reproducibility claim: someone
+    // re-running the backtest has to be able to land on the same interval. Change either in
+    // the script without touching the document and the claim is quietly false, so both are
+    // pinned here rather than only the figure they produced.
+    expect(validation).toContain(String(significance.bootstrap.seed));
+    expect(validation).toContain(
+      significance.bootstrap.resamples.toLocaleString("en-US"),
+    );
     for (const end of [0, 1] as const) {
       expect(validation).toContain(significance.confidenceInterval[end].toFixed(4));
       expect(validation).toContain(

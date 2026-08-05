@@ -155,6 +155,16 @@ describe("pairedComparison", () => {
         { cluster: "a", model: 3, baseline: 4 },
       ]),
     ).toThrow(/at least 2 clusters/);
+    // Every percentage divides by the baseline MAE. A baseline that never missed is far
+    // more likely to be an unpopulated column than a solved sport, and an edge rendered as
+    // `-Infinity%` is the worst way to find that out.
+    expect(() =>
+      pairedComparison([
+        { cluster: "a", model: 1, baseline: 0 },
+        { cluster: "b", model: 2, baseline: 0 },
+        { cluster: "c", model: 3, baseline: 0 },
+      ]),
+    ).toThrow(/baseline error is zero/);
   });
 
   it("reports a degenerate comparison as certain rather than as NaN", () => {
