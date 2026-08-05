@@ -482,6 +482,77 @@ export default function DraftPage() {
     );
   }
 
+  const recommendationsPanel = draftComplete ? (
+    <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+      The draft is over &mdash; every pick is recorded. Your roster is below.
+    </p>
+  ) : (
+    <Recommendations state={recommender} onPick={record} onTheClock={onTheClock} />
+  );
+
+  // Hidden once every pick is in. `currentPick` runs one past the last pick when the
+  // draft is complete, so this heading read "Record pick 181 — Nobody" and offered a
+  // search that could not attribute anything to a seat.
+  const recordPanel = (
+    <section>
+      {/* Only the recording controls are hidden once the draft is complete. Undo sits
+          below, outside this wrapper, because correcting a mistaken *last* pick is
+          exactly when it is needed and hiding the whole section made it unreachable at
+          that moment. */}
+      <div className={draftComplete ? "hidden" : undefined}>
+        {/* Names whose pick this is. "Record pick 2 — Seat 2" reads as a label for a
+            row of data; the reader has to work out that it is asking them for
+            something. */}
+        <h2 className="text-sm font-medium">
+          {onTheClock
+            ? `Record pick ${currentPick} — your pick`
+            : `Record pick ${currentPick} — what ${clockLabel} took`}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
+          missing one makes every number after it wrong.
+        </p>
+        <Input
+          className="mt-3"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search a player…"
+          aria-label="Search a player to record as drafted"
+        />
+        <ul className="mt-2 space-y-1">
+          {searchResults.map((player) => (
+            <li key={player.id}>
+              <button
+                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
+                onClick={() => record(player.id)}
+              >
+                <span>
+                  {player.name}{" "}
+                  <span className="text-muted-foreground">
+                    {player.position}
+                    {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
+                  </span>
+                </span>
+                <span className="text-muted-foreground">
+                  {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {/* Gated on the pick it actually removes, not on the map being non-empty.
+          `currentPick` is the first *empty* pick, so a restored board with a gap in it
+          offered "Undo pick N" for an entry that does not exist and removed nothing
+          when pressed. */}
+      {picks[currentPick - 1] !== undefined ? (
+        <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
+          Undo pick {currentPick - 1}
+        </Button>
+      ) : null}
+    </section>
+  );
+
   return (
     <PageShell
       title="Draft"
@@ -490,11 +561,15 @@ export default function DraftPage() {
           ? "Draft complete."
           : onTheClock
             ? `Pick ${currentPick} — you are on the clock.`
-            : `Pick ${currentPick} — ${clockLabel}.`
+            : // Not `Pick 2 — Seat 2.`, which states a fact and asks for nothing.
+              // Eleven picks in twelve belong to somebody else, and during every one
+              // of them the only thing this screen can do is be told what that person
+              // took.
+              `Pick ${currentPick} — ${clockLabel} on the clock. Record their pick below.`
       }
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div>
+        <div className="flex flex-col gap-6">
           {recommender.unavailable !== null ? (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               {recommender.unavailable}, so recommendations are unavailable. The board below
@@ -508,74 +583,35 @@ export default function DraftPage() {
             </p>
           ) : null}
 
-          {draftComplete ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              The draft is over &mdash; every pick is recorded. Your roster is below.
-            </p>
-          ) : (
-            <Recommendations
-              state={recommender}
-              onPick={record}
-              onTheClock={onTheClock}
-              clockLabel={clockLabel}
-            />
-          )}
+          {/*
+            Which of these comes first depends on whose turn it is, because on a phone the
+            first thing on the screen is the only thing on the screen.
 
-          {/* Hidden once every pick is in. `currentPick` runs one past the last pick when
-              the draft is complete, so this heading read "Record pick 181 — Nobody" and
-              offered a search that could not attribute anything to a seat. */}
-          <section className="mt-6">
-            {/* Only the recording controls are hidden once the draft is complete. Undo
-                sits below, outside this wrapper, because correcting a mistaken *last*
-                pick is exactly when it is needed and hiding the whole section made it
-                unreachable at that moment. */}
-            <div className={draftComplete ? "hidden" : undefined}>
-            <h2 className="text-sm font-medium">
-              Record pick {currentPick} &mdash; {clockLabel}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
-              missing one makes every number after it wrong.
-            </p>
-            <Input
-              className="mt-3"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search a player…"
-              aria-label="Search a player to record as drafted"
-            />
-            <ul className="mt-2 space-y-1">
-              {searchResults.map((player) => (
-                <li key={player.id}>
-                  <button
-                    className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => record(player.id)}
-                  >
-                    <span>
-                      {player.name}{" "}
-                      <span className="text-muted-foreground">
-                        {player.position}
-                        {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
-                      </span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            </div>
-            {/* Gated on the pick it actually removes, not on the map being non-empty.
-                `currentPick` is the first *empty* pick, so a restored board with a gap in
-                it offered "Undo pick N" for an entry that does not exist and removed
-                nothing when pressed. */}
-            {picks[currentPick - 1] !== undefined ? (
-              <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
-                Undo pick {currentPick - 1}
-              </Button>
-            ) : null}
-          </section>
+            The recommendation panel is a header, ten candidate rows and a footer — two or
+            three screens on a handset. Rendering it first put the recording controls below
+            all of it, so on an opponent's turn the entire visible page was a list of
+            players you cannot draft yet, and the control for the only action available was
+            somewhere past the fold. A tester with the board open on a phone concluded there
+            was no way to enter an opponent's pick at all.
+
+            That is what this ordering exists to prevent, and it is not cosmetic: a draft
+            recorded with only your own picks produces recommendations against a board that
+            does not exist, confidently and with nothing to say so.
+
+            Reordered in the DOM rather than with CSS `order`, so that what a screen reader
+            announces and where the tab sequence goes both match what is on the screen.
+          */}
+          {onTheClock || draftComplete ? (
+            <>
+              {recommendationsPanel}
+              {recordPanel}
+            </>
+          ) : (
+            <>
+              {recordPanel}
+              {recommendationsPanel}
+            </>
+          )}
         </div>
 
         <aside>
@@ -607,12 +643,10 @@ function Recommendations({
   state,
   onPick,
   onTheClock,
-  clockLabel,
 }: {
   state: ReturnType<typeof useRecommendations>;
   onPick: (id: string) => void;
   onTheClock: boolean;
-  clockLabel: string;
 }) {
   if (state.loading) {
     return <div className="h-32 animate-pulse rounded-lg bg-muted" aria-hidden />;
@@ -665,15 +699,17 @@ function Recommendations({
               so you did not get the player, and whoever they really took stayed on the
               board and kept being recommended.
             */}
+            {/*
+              Nothing in this slot on an opponent's turn. It held "Seat 2 picks next",
+              repeated down all ten rows, which read as the app waiting on the opponent
+              rather than on you to say what they took — the opposite of what the page
+              needs next. The heading above the panel already names whose pick it is.
+            */}
             {onTheClock ? (
               <Button size="sm" variant="outline" onClick={() => onPick(rec.player.id)}>
                 Draft
               </Button>
-            ) : (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {clockLabel} picks next
-              </span>
-            )}
+            ) : null}
           </li>
         ))}
       </ul>
