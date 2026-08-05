@@ -290,6 +290,30 @@ const ONE_ROW_EACH = [
 ];
 
 describe("runBuildDraftBoard", () => {
+  it("counts a defence once when the feed lists it twice", async () => {
+    // Defences bypass `buildMarketIndex` — they are not on a roster file, so there is
+    // nothing to join them to — and that is the one join on this path with no
+    // collision check. Two rows whose names normalise the same way both become
+    // `dst-<same key>`; `upsertBoardBatch` keys on `(board, playerId)`, so the second
+    // overwrote the first and the board kept whichever ADP the feed listed last, while
+    // the reported `players` figure counted a row the table does not hold.
+    //
+    // The extra space is not contrived: `normalizeName` collapses whitespace precisely
+    // because feeds publish it inconsistently.
+    const { result, rows } = await build([
+      ...ONE_ROW_EACH,
+      market("Philadelphia  Eagles", "DEF", 200),
+    ]);
+    const eagles = rows.filter((r) => r.playerId === "dst-philadelphiaeagles");
+    expect(eagles).toHaveLength(1);
+    // First wins, as it does in `buildMarketIndex`, so the duplicate's price is not the
+    // one that lands.
+    expect(eagles[0].adp).toBe(130);
+    // And the count matches the rows, which is the figure the deployment reports.
+    expect(result.players).toBe(rows.length);
+    expect(result.players).toBe(ALL.length + DEFENCES.length);
+  });
+
   it("builds a board with a price for every rostered player", async () => {
     const { result, rows } = await build(ONE_ROW_EACH);
     // Rostered players plus the defences, which never appear on a roster file and are

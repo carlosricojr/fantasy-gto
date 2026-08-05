@@ -793,9 +793,22 @@ export async function runBuildDraftBoard(
     const marketIndex = buildMarketIndex(adpResult.data, normalizeMarketPosition);
     // Defences are not players and never appear on a roster file, so they are taken from
     // the market board directly. A league that starts one has to be able to draft one.
-    const marketDefences = adpResult.data.filter(
-      (entry) => normalizeMarketPosition(entry.position) === "DST",
-    );
+    // Deduplicated by the id they will be written under, which every other join on this
+    // path gets from `buildMarketIndex` and this one bypassed. Two rows whose names
+    // normalise the same way — a team published twice, or "Philadelphia Eagles" beside
+    // "Philadelphia  Eagles" — both produce `dst-<same key>`. `upsertBoardBatch` keys on
+    // `(board, playerId)`, so the second silently overwrote the first and the board kept
+    // whichever ADP the feed listed last, while `withMarketPrice` and `rows.length` counted
+    // the row twice and reported more players than the table actually holds.
+    //
+    // First wins, matching `buildMarketIndex`.
+    const defencesById = new Map<string, (typeof adpResult.data)[number]>();
+    for (const entry of adpResult.data) {
+      if (normalizeMarketPosition(entry.position) !== "DST") continue;
+      const id = `dst-${normalizeName(entry.name)}`;
+      if (!defencesById.has(id)) defencesById.set(id, entry);
+    }
+    const marketDefences = [...defencesById.values()];
 
     const rows = [];
     let withMarketPrice = 0;
