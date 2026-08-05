@@ -226,21 +226,62 @@ export default function DraftPage() {
   const currentPick = useMemo(() => nextPick(picks, totalPicks), [picks, totalPicks]);
 
   const onTheClock = pickOwners.get(currentPick) === 0;
+  const draftComplete = currentPick > totalPicks;
 
-  // Reordering the DOM moves the panel; it does not move the reader. You tap Draft
-  // partway down the candidate list, the turn passes, and the record controls slide to
-  // the top of a page you are still scrolled into the middle of — off-screen above you,
-  // with nothing to say they moved. That is the same dead end the ordering exists to
-  // prevent, reached by scroll instead of by order, and it happens once every round.
-  //
-  // Only on the your-turn → their-turn edge. Opponent-to-opponent leaves the order
-  // alone, and yanking the page around after every pick would be its own bug.
+  // Which panel leads. This is the single fact the reorder turns on, so the effect below
+  // keys on it rather than on `onTheClock` — the two are not the same, and the difference
+  // is a bug: completing the draft also takes `onTheClock` from true to false, and keying
+  // on that scrolled the page to a section whose contents are hidden at exactly the moment
+  // nothing needs recording.
+  const recordLeads = !onTheClock && !draftComplete;
+
   const recordPanelRef = useRef<HTMLElement | null>(null);
-  const wasOnTheClock = useRef(onTheClock);
+
+  // The element focus was on when the order last changed. Read from a listener rather than
+  // during render, because by the time the effect runs the answer is already <body>.
+  const lastFocused = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    const turnJustPassed = wasOnTheClock.current && !onTheClock;
-    wasOnTheClock.current = onTheClock;
-    if (!turnJustPassed || recordPanelRef.current === null) return;
+    const remember = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement) lastFocused.current = event.target;
+    };
+    document.addEventListener("focusin", remember);
+    return () => document.removeEventListener("focusin", remember);
+  }, []);
+
+  const previousRecordLeads = useRef<boolean | null>(null);
+  useEffect(() => {
+    // Nothing is settled until the stored draft has been read back. Without this the
+    // restore commit — defaults say the first pick is yours, the restored board says an
+    // opponent is on the clock — looks exactly like a turn passing, and recovering from a
+    // crash scrolled the page before the user had seen it.
+    if (!restored) return;
+    const previous = previousRecordLeads.current;
+    previousRecordLeads.current = recordLeads;
+    if (previous === null || previous === recordLeads) return;
+
+    // Keys stop the swap remounting these panels; they do not stop it blurring them.
+    // React 19 reorders with `insertBefore` and has no `moveBefore`, so the node is
+    // detached and reattached, and the DOM drops focus when a focused node is removed.
+    // Pressing Undo flips the order, which moved the section holding the button that was
+    // just pressed — leaving a keyboard user back at <body>, tabbing from the top of the
+    // page to reach it again. Only reclaimed if the move is what lost it.
+    const wasFocused = lastFocused.current;
+    const active = document.activeElement;
+    if (
+      wasFocused !== null &&
+      wasFocused.isConnected &&
+      (active === null || active === document.body)
+    ) {
+      // `preventScroll` so this does not fight the scroll below.
+      wasFocused.focus({ preventScroll: true });
+    }
+
+    // Reordering the DOM moves the panel; it does not move the reader. You tap Draft
+    // partway down the candidate list, the turn passes, and the record controls slide to
+    // the top of a page you are still scrolled into the middle of — off-screen above you,
+    // with nothing to say they moved. That is the same dead end the ordering exists to
+    // prevent, reached by scroll instead of by order, once every round.
+    if (!recordLeads || recordPanelRef.current === null) return;
     recordPanelRef.current.scrollIntoView({
       block: "start",
       // Honor the OS setting rather than animating over it.
@@ -248,8 +289,7 @@ export default function DraftPage() {
         ? "auto"
         : "smooth",
     });
-  }, [onTheClock]);
-
+  }, [restored, recordLeads]);
 
   const clockOwner = pickOwners.get(currentPick);
   const clockLabel =
@@ -307,7 +347,6 @@ export default function DraftPage() {
 
   // Recompute whenever the board changes, including while opponents are picking — the
   // answer for a future position is worth having before the turn arrives.
-  const draftComplete = currentPick > totalPicks;
 
   useEffect(() => {
     if (!started || draftState === null) return;
@@ -576,10 +615,9 @@ export default function DraftPage() {
     </section>
   );
 
-  const panelOrder =
-    onTheClock || draftComplete
-      ? (["recommendations", "record"] as const)
-      : (["record", "recommendations"] as const);
+  const panelOrder = recordLeads
+    ? (["record", "recommendations"] as const)
+    : (["recommendations", "record"] as const);
 
   return (
     <PageShell
