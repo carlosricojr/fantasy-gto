@@ -130,7 +130,29 @@ league, simulated against the rosters your opponents have actually drafted. Seed
 before using it:
 
 ```bash
+npx convex run ingest:syncSchedule '{"season":2026}'
+npx convex run ingest:refreshDraftBoards '{}'
+```
+
+The first is needed because the page resolves its season from ingested games; without it
+`/draft` says there is no season to draft for. The second builds every scoring and league
+size in one pass — twelve boards sharing one download, where twelve separate
+`buildDraftBoard` calls re-fetch the same multi-megabyte CSVs twelve times. A single
+combination is still available if that is all you want:
+
+```bash
 npx convex run ingest:buildDraftBoard '{"season":2026,"scoringId":"ppr","teams":12}'
+```
+
+**If a push fails on `draftBoard` schema validation,** the deployment holds rows written
+before a column existed — `quantileProvenance` is the one that does this. Every row in that
+table is derived and rebuilt twice daily, so clear it and rebuild rather than softening the
+schema:
+
+```bash
+: > /tmp/empty.jsonl
+npx convex import --table draftBoard --replace --yes /tmp/empty.jsonl
+npx convex dev --until-success
 ```
 
 Verified against a real deployment on 2026-07-31: 650 players, 244 of them carrying a

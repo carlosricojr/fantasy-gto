@@ -178,18 +178,27 @@ export default defineSchema({
      * they were all measured. Kickers and defences carry `placeholder`, and so does any
      * position `OUTCOME_QUANTILES` has no entry for.
      *
-     * Required, like the four fields beside it.
+     * Required, like the four fields beside it — and a required field on a populated table
+     * is rejected by Convex outright, so adding it breaks the next push until the table is
+     * cleared. That is the correct trade here and not a hazard to route around, because
+     * every row in this table is derived: `upsertBoardBatch` is the only writer, the cron
+     * rebuilds every board twice daily through the preseason, and `pruneBoard` deletes from
+     * it as a matter of course. Nothing in it is worth preserving across a schema change.
      *
-     * It went in optional for a while, justified by Convex rejecting a required field on a
-     * table that already holds documents. That reasoning does not survive contact with the
-     * history: `byeWeek`, `availability`, `p10` and `p90` were all added to this same table
-     * as required fields in e82a9f4, after it was created in 6e04b2d. If the premise held,
-     * the deploy would fail on `byeWeek` before it ever reached this line, and softening
-     * one field of five would achieve nothing.
+     * Optional was tried and reverted, and the reverting argument was wrong in a way worth
+     * recording, because it has now been tested. It claimed the push would fail on
+     * `byeWeek` first — those four having been added as required fields in e82a9f4 — so
+     * softening one field of five would achieve nothing. It does not fail on `byeWeek`. A
+     * board built between e82a9f4 and this commit carries all four and lacks only this one,
+     * which is exactly the state a configured dev deployment was found in on 2026-08-05:
      *
-     * What is actually true: this table does not exist on `main`, so the first production
-     * deploy creates it and every field is fine. A development deployment that ran an
-     * earlier commit of this branch needs its data cleared regardless, for those four.
+     *     Object is missing the required field `quantileProvenance`
+     *     Object: {adp: 136.6, ..., byeWeek: 8.0, p10: 0.171, p90: 1.772, ...}
+     *
+     * So the choice stands but its justification does not. Clearing the table is the
+     * operation this field costs, it costs it once per environment, and README records it
+     * beside the seeding command rather than leaving it to be rediscovered from a failed
+     * deploy.
      */
     quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
     computedAt: v.number(),
