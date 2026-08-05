@@ -236,9 +236,10 @@ export default function DraftPage() {
 
   const lead = leadingPanel({ onTheClock, draftComplete });
 
-  // The two panels, and only the two panels. The scroll target is whichever of them is
-  // first in the DOM, read from the container rather than tracked separately, so the
-  // thing revealed cannot drift from the thing rendered.
+  // The two panels, and only the two panels. The scroll target is read from this
+  // container rather than tracked separately, so the page cannot scroll to something that
+  // is not one of them — the two failure notices above are siblings of the group, not of
+  // the panels.
   const panelsRef = useRef<HTMLDivElement | null>(null);
 
   // The element focus was on when the order last changed. Read from a listener rather
@@ -288,11 +289,21 @@ export default function DraftPage() {
       // `preventScroll` so this does not fight the scroll below.
       wasFocused.focus({ preventScroll: true });
     }
+    // Consumed either way. Restoring focus fires `focusin`, which would otherwise write
+    // this same element straight back and leave it armed for a swap the user had nothing
+    // to do with: tap something unfocusable, and the next lead change drops focus into a
+    // panel you never touched. Anything the user actually focuses re-arms it.
+    lastFocused.current = null;
 
     // Whichever panel now leads, not whichever one we guessed would. Guarding this on
     // "the record panel leads" suppressed it on the turn coming back to you — where the
     // recommendations, two or three screens of them, are inserted above where you are
     // standing and nothing tells you the page grew upward.
+    //
+    // The first *rendered* panel, which is not always the leading one: `Recommendations`
+    // renders nothing when it has no candidates, so a lead of "recommendations" can leave
+    // the record section first in the DOM. Revealing what the reader will actually see
+    // first is the behavior wanted in that case anyway.
     const leadingNode = panelsRef.current?.firstElementChild;
     if (!(leadingNode instanceof HTMLElement)) return;
     leadingNode.scrollIntoView({
