@@ -59,7 +59,7 @@ Why: ESPN provides maximum reach; anonymous trial + fast TTFP reduces friction a
   * `entitlement.accuracy_dashboard` → accuracy views + comparisons.
   * `entitlement.import_export` → lineup import/export (CSV + platform formats).
   * `entitlement.performance_history` → win‑rate and season‑long dashboards.
-* **Free tier**: ~~up to 3 leagues~~ **one league**, weekly refresh, start/sit, basic projections only (no waivers/DST/alerts/import‑export/performance history).
+* **Free tier**: ~~up to 3 leagues, weekly refresh,~~ **one league**, start/sit, basic projections only (no waivers/DST/alerts/import‑export/performance history). Refresh cadence is not a tier difference — see §1 and §9.
 * **Seasonal logic**: If Seasonal ($19.99) is chosen, we keep subscription active but **turn off compute‑heavy jobs** post‑Super Bowl via entitlements schedule (see §6.4). For Annual ($29.99), we pause heavy compute off‑season but continue access to history and off‑season tools when added.
 * ~~**Marketing anchor**: Pro users average **+8.2 points/week vs platform projections**~~ — **withdrawn.** No computation ever supported this figure. The measured edge over the strongest baseline tried is **2.74%** (`docs/model-validation.md`), and the product does not make a points-per-week claim.
 
