@@ -33,6 +33,12 @@ import { draftSeasonFor } from "@/lib/nfl/season";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
 import { perGameRate } from "@/lib/nfl/draft/value";
+import {
+  leadingPanel,
+  panelOrder,
+  shouldRevealLead,
+  type Panel,
+} from "./panel-order";
 import { useRecommendations } from "./use-recommendations";
 
 /**
@@ -228,41 +234,48 @@ export default function DraftPage() {
   const onTheClock = pickOwners.get(currentPick) === 0;
   const draftComplete = currentPick > totalPicks;
 
-  // Which panel leads. This is the single fact the reorder turns on, so the effect below
-  // keys on it rather than on `onTheClock` — the two are not the same, and the difference
-  // is a bug: completing the draft also takes `onTheClock` from true to false, and keying
-  // on that scrolled the page to a section whose contents are hidden at exactly the moment
-  // nothing needs recording.
-  const recordLeads = !onTheClock && !draftComplete;
+  const lead = leadingPanel({ onTheClock, draftComplete });
 
-  const recordPanelRef = useRef<HTMLElement | null>(null);
+  // The two panels, and only the two panels. The scroll target is whichever of them is
+  // first in the DOM, read from the container rather than tracked separately, so the
+  // thing revealed cannot drift from the thing rendered.
+  const panelsRef = useRef<HTMLDivElement | null>(null);
 
-  // The element focus was on when the order last changed. Read from a listener rather than
-  // during render, because by the time the effect runs the answer is already <body>.
+  // The element focus was on when the order last changed. Read from a listener rather
+  // than during render, because by the time the effect runs the answer is already <body>.
+  //
+  // Scoped to the panels. A document-wide listener remembers the header's nav links and
+  // theme toggle too, and the `activeElement === body` test below only establishes that
+  // *something* lost focus — not that the reorder is what lost it. On a browser that does
+  // not focus a button on tap, a toggle touched earlier in the draft stayed remembered,
+  // and the next turn change handed focus back to it: off-screen in the header, with the
+  // next Tab walking the primary nav instead of the record controls.
   const lastFocused = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const remember = (event: FocusEvent) => {
-      if (event.target instanceof HTMLElement) lastFocused.current = event.target;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      lastFocused.current =
+        panelsRef.current?.contains(target) === true ? target : null;
     };
     document.addEventListener("focusin", remember);
     return () => document.removeEventListener("focusin", remember);
   }, []);
 
-  const previousRecordLeads = useRef<boolean | null>(null);
+  const previousLead = useRef<Panel | null>(null);
   useEffect(() => {
-    // Nothing is settled until the stored draft has been read back. Without this the
-    // restore commit — defaults say the first pick is yours, the restored board says an
-    // opponent is on the clock — looks exactly like a turn passing, and recovering from a
-    // crash scrolled the page before the user had seen it.
-    if (!restored) return;
-    const previous = previousRecordLeads.current;
-    previousRecordLeads.current = recordLeads;
-    if (previous === null || previous === recordLeads) return;
+    const reveal = shouldRevealLead({
+      settled: restored,
+      previous: previousLead.current,
+      current: lead,
+    });
+    if (restored) previousLead.current = lead;
+    if (!reveal) return;
 
     // Keys stop the swap remounting these panels; they do not stop it blurring them.
     // React 19 reorders with `insertBefore` and has no `moveBefore`, so the node is
     // detached and reattached, and the DOM drops focus when a focused node is removed.
-    // Pressing Undo flips the order, which moved the section holding the button that was
+    // Pressing Undo flips the order, which moves the section holding the button that was
     // just pressed — leaving a keyboard user back at <body>, tabbing from the top of the
     // page to reach it again. Only reclaimed if the move is what lost it.
     const wasFocused = lastFocused.current;
@@ -276,20 +289,20 @@ export default function DraftPage() {
       wasFocused.focus({ preventScroll: true });
     }
 
-    // Reordering the DOM moves the panel; it does not move the reader. You tap Draft
-    // partway down the candidate list, the turn passes, and the record controls slide to
-    // the top of a page you are still scrolled into the middle of — off-screen above you,
-    // with nothing to say they moved. That is the same dead end the ordering exists to
-    // prevent, reached by scroll instead of by order, once every round.
-    if (!recordLeads || recordPanelRef.current === null) return;
-    recordPanelRef.current.scrollIntoView({
+    // Whichever panel now leads, not whichever one we guessed would. Guarding this on
+    // "the record panel leads" suppressed it on the turn coming back to you — where the
+    // recommendations, two or three screens of them, are inserted above where you are
+    // standing and nothing tells you the page grew upward.
+    const leadingNode = panelsRef.current?.firstElementChild;
+    if (!(leadingNode instanceof HTMLElement)) return;
+    leadingNode.scrollIntoView({
       block: "start",
       // Honor the OS setting rather than animating over it.
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth",
     });
-  }, [restored, recordLeads]);
+  }, [restored, lead]);
 
   const clockOwner = pickOwners.get(currentPick);
   const clockLabel =
@@ -554,7 +567,7 @@ export default function DraftPage() {
   );
 
   const recordPanel = (
-    <section ref={recordPanelRef}>
+    <section>
       {/* The *controls* are hidden once every pick is in — not the section, which still
           has to carry Undo. `currentPick` runs one past the last pick when the draft is
           complete, so the heading below read "Record pick 181 — Nobody" over a search
@@ -615,9 +628,6 @@ export default function DraftPage() {
     </section>
   );
 
-  const panelOrder = recordLeads
-    ? (["record", "recommendations"] as const)
-    : (["recommendations", "record"] as const);
 
   return (
     <PageShell
@@ -667,17 +677,24 @@ export default function DraftPage() {
             Reordered in the DOM rather than with CSS `order`, so that what a screen reader
             announces and where the tab sequence goes both match what is on the screen.
           */}
-          {/* Keyed, so React moves these two nodes rather than tearing both down and
+          {/* Its own element so that "the panel that leads" is exactly this container's
+              first child — which is what the effect above scrolls to. The two notices
+              above are siblings of this group, not of the panels, so a failed
+              recommendation cannot become the thing the page scrolls to.
+
+              Keyed, so React moves these two nodes rather than tearing both down and
               building them again. Rendered as bare fragments the children reconcile by
               index, the element type at each index changes on every turn, and both
-              subtrees remount — which drops focus to <body>. A keyboard user who had
-              just pressed Undo lost their place and had to tab from the top of the page
-              to press it a second time. */}
-          {panelOrder.map((panel) => (
-            <Fragment key={panel}>
-              {panel === "record" ? recordPanel : recommendationsPanel}
-            </Fragment>
-          ))}
+              subtrees remount. Keys do not preserve focus across the move — the effect
+              above handles that — but they do preserve the search box's contents and
+              everything else the DOM holds rather than React. */}
+          <div ref={panelsRef} className="flex flex-col gap-6">
+            {panelOrder({ onTheClock, draftComplete }).map((panel) => (
+              <Fragment key={panel}>
+                {panel === "record" ? recordPanel : recommendationsPanel}
+              </Fragment>
+            ))}
+          </div>
         </div>
 
         <aside>
