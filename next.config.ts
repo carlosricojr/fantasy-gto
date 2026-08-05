@@ -19,21 +19,19 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Image optimization configuration
-  images: {
-    // Use default Next.js image optimization
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "sleepercdn.com", // Sleeper player images
-      },
-      {
-        protocol: "https",
-        hostname: "a.espncdn.com", // ESPN player images
-      },
-    ],
-    formats: ["image/avif", "image/webp"],
-  },
+  // No `images` block, deliberately. It allowlisted sleepercdn.com and a.espncdn.com for
+  // `next/image`, and nothing in this repository imports `next/image` or references either
+  // host — the comments described player photographs the product does not show.
+  //
+  // An allowlist is not inert. It leaves `/_next/image` willing to fetch and re-encode
+  // arbitrary URLs from those hosts for anyone who calls it, which is the surface of the
+  // "DoS via Image Optimizer remotePatterns" advisory against the version this was pinned
+  // to. Removing it is a smaller change than patching the optimiser and it removes the
+  // reachable path rather than narrowing it: with no patterns configured, remote sources
+  // are refused outright.
+  //
+  // Restore it the day a screen actually renders a remote image, with only the hosts that
+  // screen uses.
 
   // PWA configuration
   headers: async () => [
