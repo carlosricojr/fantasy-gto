@@ -83,6 +83,33 @@ describe("pairedComparison", () => {
     expect(result.interval[0]).toBeCloseTo(7 / 3 - 4.302653 * (2 / 3), 5);
     expect(result.interval[1]).toBeCloseTo(7 / 3 + 4.302653 * (2 / 3), 5);
     expect(result.minimumDetectableEffect).toBeCloseTo(POWER_MULTIPLIER * (2 / 3), 12);
+    expect(result.minimumSignificantEffect).toBeCloseTo(4.302653 * (2 / 3), 5);
+  });
+
+  it("puts the significance floor exactly at the edge of the interval", () => {
+    // The floor is the distance from zero at which p crosses 0.05, so it has to be the
+    // interval's half-width. If they drifted apart, a comparison could be called
+    // significant while its interval covered zero.
+    const result = pairedComparison(HAND_FIXTURE);
+    expect(result.minimumSignificantEffect).toBeCloseTo(
+      (result.interval[1] - result.interval[0]) / 2,
+      12,
+    );
+    // And it is what it says it is: an effect at the floor lands exactly on p = 0.05.
+    expect(
+      studentTTwoSided(
+        result.minimumSignificantEffect / result.standardError,
+        result.degreesOfFreedom,
+      ),
+    ).toBeCloseTo(0.05, 12);
+    // Note what is *not* asserted here. The floor sits below the minimum detectable effect
+    // only when t(0.975, df) is below the power multiplier of 2.8016, which fails at tiny
+    // cluster counts: on this three-cluster fixture t(0.975, 2) is 4.30 and the floor is
+    // the larger of the two. That ordering is checked on a realistic panel below instead.
+    // The first version of this test asserted it here and failed, which is the useful kind
+    // of failure — the "1.96 < 2.80" reasoning behind it silently assumed a normal
+    // reference distribution this module deliberately does not use.
+    expect(result.minimumSignificantEffect).toBeGreaterThan(0);
   });
 
   it("scales the percentage interval by the baseline MAE", () => {
@@ -271,6 +298,19 @@ describe("bootstrapPairedComparison", () => {
     expect(other.standardError).not.toBe(first.standardError);
     expect(first.seed).toBe(11);
     expect(first.resamples).toBe(500);
+  });
+
+  it("puts the significance floor below the detectable effect at a realistic cluster count", () => {
+    // With 300 clusters t(0.975, 299) is about 1.968, comfortably under the 2.8016 power
+    // multiplier, so the floor is the lower of the two. This is the ordering that makes the
+    // winner's curse bite: there is a band of true effects too small to be found reliably
+    // yet large enough that a lucky sample can report them — and every report from that
+    // band overstates.
+    const analytic = pairedComparison(rows);
+    expect(analytic.clusters).toBe(300);
+    expect(analytic.minimumSignificantEffect).toBeLessThan(
+      analytic.minimumDetectableEffect,
+    );
   });
 
   it("brackets the point estimate", () => {

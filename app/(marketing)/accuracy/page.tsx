@@ -43,12 +43,20 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * padded it. The reason it is wider is the clustering, and saying so is cheaper than being
  * disbelieved.
  *
- * The one number still written literally is the "around 12" typical weekly score used to
- * give the error a sense of scale. It is deliberately rounded and illustrative rather than
- * a measurement, it is not a claim about the model, and it appears in
- * `docs/model-validation.md` — which is the rule: a number absent from that document may
- * not appear in the interface. The nearby sentence therefore claims provenance only for
- * the *measured* figures, since this one is not read from the artifact.
+ * Two numbers are still written literally, and neither is a measurement. The "around 12"
+ * typical weekly score gives the error a sense of scale; it is deliberately rounded,
+ * illustrative, and appears in `docs/model-validation.md` — which is the rule: a number
+ * absent from that document may not appear in the interface. And "nineteen times out of
+ * twenty" is the confidence level spelled out, a parameter of the estimator rather than
+ * something it returned, published in that document as 95%. The nearby sentence therefore
+ * claims provenance only for the *measured* figures, since neither of these is read from
+ * the artifact.
+ *
+ * This list is load-bearing and was briefly wrong: a literal "seventeen" — the number of
+ * games a player can appear in — got added to the clustering paragraph while the docstring
+ * still claimed there was only one literal. It has since been reworded away, but the lesson
+ * is that this paragraph has to be updated in the same edit that adds a number, or it
+ * quietly becomes the thing it exists to prevent.
  *
  * Two claims were removed rather than reworded. A "0 peeks at the held-out season" stat
  * asserted more than the record supports: hyperparameters were chosen on the tuning season
@@ -115,7 +123,27 @@ export default function AccuracyPage() {
   // the leaderboard sorts by measured error and the "we win by" wording follows the sign.
   // An interval that straddled zero would otherwise leave the page insisting the edge was
   // real while printing the numbers that say it might not be.
-  const intervalExcludesZero = intervalLow > 0;
+  //
+  // Both bounds, not just the lower one. An interval lying entirely *below* zero also
+  // excludes it — that is a model losing to the baseline by a margin too large to be
+  // chance, which is a real finding and the opposite of inconclusive. Testing only the
+  // lower bound would have filed it under "we cannot rule out luck".
+  const intervalExcludesZero = intervalLow > 0 === intervalHigh > 0;
+  // `>` binds tighter than `===`, so that reads "the two bounds fall on the same side of
+  // zero" — written out here because it is the sort of expression a reader re-derives.
+
+  // Whether clustering actually widened the interval. It usually does, but not always:
+  // against the last-three-games baseline a player's paired differences partly cancel and
+  // the clustered error comes out smaller. The paragraph below exists to preempt "you
+  // padded this"; if clustering did not widen anything there is nothing to preempt, and
+  // rendering it anyway would print a negative percentage as though it were tighter.
+  const clusteringWidened =
+    metrics.significance.clusteredStandardError > metrics.significance.iidStandardError;
+  const tightenedBy =
+    (1 -
+      metrics.significance.iidStandardError /
+        metrics.significance.clusteredStandardError) *
+    100;
 
   // Ranked by measured error rather than by assumption. Finishing first is what the
   // backtest says today, not something the page is entitled to assert — if a future run
@@ -268,21 +296,17 @@ export default function AccuracyPage() {
               precision than {metrics.sampleSize.toLocaleString("en-US")} player-weeks can
               support.
             </p>
-            <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-              That range is wider than the obvious arithmetic gives, on purpose. The same{" "}
-              {metrics.significance.clusters} players account for all{" "}
-              {metrics.sampleSize.toLocaleString("en-US")} of those weeks, and a player we
-              consistently misread produces the same miss over and over rather than
-              seventeen independent verdicts on the model. Treating every week as fresh
-              evidence would have made this interval look{" "}
-              {(
-                (1 -
-                  metrics.significance.iidStandardError /
-                    metrics.significance.clusteredStandardError) *
-                100
-              ).toFixed(0)}
-              % tighter than it has any right to be.
-            </p>
+            {clusteringWidened && (
+              <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
+                That range is wider than the obvious arithmetic gives, on purpose. The same{" "}
+                {metrics.significance.clusters} players account for all{" "}
+                {metrics.sampleSize.toLocaleString("en-US")} of those weeks, and a player we
+                consistently misread produces the same miss over and over rather than a
+                fresh independent verdict on the model each time. Counting every week as new
+                evidence would have made this interval look{" "}
+                {tightenedBy.toFixed(0)}% tighter than it has any right to be.
+              </p>
+            )}
           </div>
         )}
       </section>

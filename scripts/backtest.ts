@@ -99,6 +99,9 @@ interface PublishedSignificance {
   percentConfidenceInterval: [number, number];
   minimumDetectableEffect: number;
   minimumDetectablePercent: number;
+  /** The smallest measured effect that could be reported as significant on this sample. */
+  minimumSignificantEffect: number;
+  minimumSignificantPercent: number;
   bootstrap: {
     resamples: number;
     seed: number;
@@ -402,6 +405,8 @@ async function main(): Promise<void> {
         `    95% CI on the edge        [${result.percentInterval[0].toFixed(2)}%, ${result.percentInterval[1].toFixed(2)}%]\n` +
         `    MDE at 80% power           ${result.minimumDetectableEffect.toFixed(4)}   ` +
         `(${result.minimumDetectablePercent.toFixed(2)}%)\n` +
+        `    smallest significant       ${result.minimumSignificantEffect.toFixed(4)}   ` +
+        `(${result.minimumSignificantPercent.toFixed(2)}%)\n` +
         `    bootstrap, ${boot.resamples} resamples, seed ${boot.seed}\n` +
         `      SE                       ${boot.standardError.toFixed(4)}\n` +
         `      95% CI on delta MAE     [${boot.interval[0].toFixed(4)}, ${boot.interval[1].toFixed(4)}]\n` +
@@ -544,6 +549,8 @@ async function main(): Promise<void> {
         percentConfidenceInterval: [...vsPriorGamesMean.result.percentInterval],
         minimumDetectableEffect: vsPriorGamesMean.result.minimumDetectableEffect,
         minimumDetectablePercent: vsPriorGamesMean.result.minimumDetectablePercent,
+        minimumSignificantEffect: vsPriorGamesMean.result.minimumSignificantEffect,
+        minimumSignificantPercent: vsPriorGamesMean.result.minimumSignificantPercent,
         bootstrap: {
           resamples: vsPriorGamesMean.boot.resamples,
           seed: vsPriorGamesMean.boot.seed,

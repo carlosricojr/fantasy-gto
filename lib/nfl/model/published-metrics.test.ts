@@ -184,6 +184,24 @@ describe("published significance", () => {
     );
   });
 
+  it("puts the significance floor at the edge of the published interval", () => {
+    // The floor is what a measured effect has to exceed before p < 0.05, so it is the
+    // interval's half-width. Published because it is the sharper of the two power figures:
+    // the MDE says what this sample could find, the floor says that anything it does find
+    // below the floor is not reportable and anything smaller than the floor can only be
+    // reported by overstating itself.
+    const half =
+      (significance.confidenceInterval[1] - significance.confidenceInterval[0]) / 2;
+    expect(significance.minimumSignificantEffect).toBeCloseTo(half, 10);
+    expect(significance.minimumSignificantPercent).toBeCloseTo(
+      (significance.minimumSignificantEffect / metrics.priorGamesMeanMae) * 100,
+      10,
+    );
+    expect(significance.minimumSignificantEffect).toBeLessThan(
+      significance.minimumDetectableEffect,
+    );
+  });
+
   it("agrees with the bootstrap that cross-checks it", () => {
     // A distribution-free estimate of the same quantity, from resampled players. The
     // tolerance is 10% and describes the method rather than this run: 2,000 resamples carry
@@ -212,6 +230,8 @@ describe("published significance", () => {
     expect(validation).toContain(String(significance.clusters));
     expect(validation).toContain(significance.minimumDetectableEffect.toFixed(4));
     expect(validation).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
+    expect(validation).toContain(significance.minimumSignificantEffect.toFixed(4));
+    expect(validation).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);
     expect(validation).toContain(significance.bootstrap.standardError.toFixed(4));
     // The seed and the resample count are the document's reproducibility claim: someone
     // re-running the backtest has to be able to land on the same interval. Change either in

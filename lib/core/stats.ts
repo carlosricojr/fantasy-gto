@@ -18,8 +18,11 @@
  * **Observations are not independent.** The same player appears up to seventeen times in a
  * season, and a player the model systematically misreads contributes seventeen correlated
  * errors rather than seventeen pieces of evidence. An i.i.d. standard error therefore
- * understates the true one — by about 19% on this project's data — and a t statistic built
- * on it overstates significance by the same factor. Clustering by player fixes that.
+ * understates the true one, and a t statistic built on it overstates significance by the
+ * same factor. Clustering by player fixes that. The measured size of the gap on this
+ * project's data is in `docs/model-validation.md`, and deliberately not restated here —
+ * this docstring carried a figure recalled from a different comparison for exactly as long
+ * as it took a reviewer to check it against the artifact.
  *
  * Everything here is pure: the seed for the bootstrap is passed in, the same way the clock
  * is elsewhere in the domain. `lib/purity.test.ts` enforces it.
@@ -103,6 +106,30 @@ export interface PairedComparison {
   minimumDetectableEffect: number;
   /** `minimumDetectableEffect` as a percentage of `baselineMean`. */
   minimumDetectablePercent: number;
+  /**
+   * The smallest *measured* effect this sample could report as significant.
+   *
+   * `t(1−α/2, df) × SE` — the half-width of the interval, and therefore the distance from
+   * zero a point estimate has to clear before `p < 0.05`. It is the minimum detectable
+   * effect's less comfortable sibling: the MDE says what can be found, this says what a
+   * finding has to look like.
+   *
+   * The two together describe the trap. A true effect smaller than this floor cannot
+   * produce a significant result *at its own size* — it can only clear the bar by
+   * overstating itself. So underpowered measurement does not merely fail to find small
+   * effects; on the occasions it does find one, the number it reports is inflated by
+   * construction. That is the winner's curse, and it is why a hypothesis below the floor
+   * must not be run at all rather than run and read cautiously.
+   *
+   * It sits below `minimumDetectableEffect` at any realistic cluster count, but not
+   * universally: the two are `t(1−α/2, df) × SE` and `2.8016 × SE`, so below roughly six
+   * degrees of freedom the t quantile is the larger and the ordering inverts. Reasoning
+   * that "1.96 < 2.80, so the floor is always lower" quietly assumes a normal reference
+   * distribution, which is exactly what this module declines to use.
+   */
+  minimumSignificantEffect: number;
+  /** `minimumSignificantEffect` as a percentage of `baselineMean`. */
+  minimumSignificantPercent: number;
 }
 
 function meanOf(values: readonly number[]): number {
@@ -206,6 +233,10 @@ export function pairedComparison(rows: readonly PairedError[]): PairedComparison
     percentInterval: [toPercent(interval[0]), toPercent(interval[1])],
     minimumDetectableEffect,
     minimumDetectablePercent: toPercent(minimumDetectableEffect),
+    // The interval's half-width is exactly the distance from zero that separates p < 0.05
+    // from p >= 0.05, so the floor and the interval cannot disagree.
+    minimumSignificantEffect: halfWidth,
+    minimumSignificantPercent: toPercent(halfWidth),
   };
 }
 

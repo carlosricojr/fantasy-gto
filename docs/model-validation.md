@@ -113,6 +113,7 @@ n = 3,037 player-weeks over **308** distinct players.
 | 95% CI on ΔMAE | [0.0769, 0.2514] |
 | **95% CI on the edge** | **1.28% to 4.20%** |
 | Minimum detectable effect, 80% power | 0.1242 (**2.07%**) |
+| Smallest effect reportable as significant | 0.0872 (**1.46%**) |
 
 The reference distribution is Student's *t* on `G − 1` degrees of freedom, not the normal,
 because the cluster count is what the estimator has to work with. The *p*-value is computed
@@ -154,10 +155,18 @@ distinguish from noise at 80% power. On the tuning season, where the clustered S
 it is 0.1099 — 1.83%.
 
 A feature that genuinely improves weekly MAE by 1% therefore cannot be established on one
-season of this population. Measuring it anyway does not produce a weak result; it produces a
-number with roughly a coin flip's chance of pointing the right way, which looks exactly like
-a result and is not one. Any hypothesis smaller than the figure above needs a wider
-evaluation window before it is tested, not a more hopeful reading of a single season.
+season of this population — and the way it fails is worse than an honestly wide interval.
+
+Any result this sample can report as significant must sit at least one interval half-width
+from zero, which is **0.0872 MAE, or 1.46%**. A true 1% effect cannot clear that bar *at its
+own size*; it can only clear it by overstating itself by half again. So measuring one has
+two outcomes: most of the time nothing significant, and the rest of the time a significant
+result that is inflated by construction. That is the winner's curse, and it is the reason a
+hypothesis below the floor must not be run at all rather than run and read cautiously — a
+cautious reading cannot undo a selection effect that has already happened.
+
+Any hypothesis smaller than these figures needs a wider evaluation window before it is
+tested, not a more hopeful reading of a single season.
 
 ### Correction: lookahead bias, found in review and removed
 

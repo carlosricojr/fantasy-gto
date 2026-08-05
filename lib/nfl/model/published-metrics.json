@@ -37,6 +37,8 @@
     ],
     "minimumDetectableEffect": 0.12417618602967521,
     "minimumDetectablePercent": 2.0738521309446587,
+    "minimumSignificantEffect": 0.08721638133754048,
+    "minimumSignificantPercent": 1.4565907044923705,
     "bootstrap": {
       "resamples": 2000,
       "seed": 8675309,

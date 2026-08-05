@@ -288,9 +288,10 @@ Stated plainly rather than left to be discovered.
   entitlement table and are gated, with no implementation behind them yet.
 - **The model has a known −0.57 point high bias**, disclosed on `/accuracy`.
 - **One season cannot detect an improvement smaller than about 2%.** The minimum detectable
-  effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline. Anything
-  finer than that measured on a single season is a coin flip wearing a decimal point, and
-  the fix is a wider evaluation window rather than a more hopeful reading. See
+  effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline, and no
+  measured effect below 1.46% can be reported as significant at all. A true 1% improvement
+  therefore cannot produce a significant result at its own size — only an inflated one — so
+  the fix is a wider evaluation window, not a more hopeful reading of one season. See
   [`docs/model-validation.md`](docs/model-validation.md).
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the
