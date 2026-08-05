@@ -98,5 +98,8 @@ export const MARKET_POSITION_ALIASES: Readonly<Record<string, string>> = {
 /** Normalises a market position code to ours. */
 export function normalizeMarketPosition(raw: string): string {
   const code = raw.trim().toUpperCase();
+  // `??` and `||` agree: an alias is a non-empty string, so the only way this can be falsy
+  // is by being absent, which is the fallback. Kept as `??` because it is the form that
+  // stays correct if an alias ever maps to something falsy.
   return MARKET_POSITION_ALIASES[code] ?? code;
 }

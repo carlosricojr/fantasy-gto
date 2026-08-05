@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { MODEL_BLEND_WEIGHT, normalizeMarketPosition } from "./config";
+import {
+  AVAILABILITY_FLOOR,
+  GAMES_IN_SEASON,
+  MODEL_BLEND_WEIGHT,
+  SEASON_EMA_ALPHA,
+  normalizeMarketPosition,
+} from "./config";
+import { EMA_ALPHA } from "../model/config";
+import { expectedGames } from "./value";
 
 /**
  * The market's position spellings, mapped onto ours.
@@ -53,5 +61,39 @@ describe("MODEL_BLEND_WEIGHT", () => {
     // evaluation table at that weight. `published-metrics.test.ts` checks the document
     // against the metrics file; this checks the constant the code actually blends with.
     expect(MODEL_BLEND_WEIGHT).toBe(0.2);
+  });
+});
+
+describe("the constants the draft model is built on", () => {
+  it("smooths the same way the weekly model does", () => {
+    // The docstring calls this deliberate: a draft projection that weighted recent games
+    // differently from the in-season model would have the two disagreeing about the same
+    // player on the same evidence. Asserted against the other constant rather than restated,
+    // so the two cannot drift apart silently — which is the only failure mode that matters
+    // here, and the one a literal on its own could not catch.
+    expect(SEASON_EMA_ALPHA).toBe(EMA_ALPHA);
+    expect(SEASON_EMA_ALPHA).toBe(0.15);
+  });
+
+  it("counts the games an NFL team actually plays", () => {
+    // `expectedGames` divides prior games by this and multiplies the ramp by it, and
+    // `perGameRate` divides a season total by it. Doubling it halves every per-game rate on
+    // the board while leaving the season totals looking correct.
+    expect(GAMES_IN_SEASON).toBe(17);
+    expect(expectedGames(17)).toBe(17);
+    expect(expectedGames(0)).toBe(17 * AVAILABILITY_FLOOR);
+  });
+
+  it("floors expected availability at half a season", () => {
+    // Judgement, and the docstring says so. What is testable is what it *does*: a player
+    // with no prior games is assumed to play half a season rather than none, so he is
+    // discounted rather than written off. At 1 the floor stops being a floor and everybody
+    // plays a full season whatever their history — which is the mutant that survived.
+    expect(AVAILABILITY_FLOOR).toBe(0.5);
+    expect(expectedGames(0)).toBeLessThan(expectedGames(17));
+    expect(expectedGames(0)).toBe(8.5);
+    // And it ramps rather than stepping: half a season of prior games lands between them.
+    expect(expectedGames(8.5)).toBeGreaterThan(expectedGames(0));
+    expect(expectedGames(8.5)).toBeLessThan(expectedGames(17));
   });
 });
