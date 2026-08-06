@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parseCsv } from "./csv";
-import { teamsForWeek, toRosterStatus, toWeeklyRoster } from "./weekly-roster";
+import {
+  statusesForWeek,
+  teamsForWeek,
+  toRosterStatus,
+  toWeeklyRoster,
+} from "./weekly-roster";
 
 /**
  * Weekly rosters, parsed against a byte-exact slice of the real file.
@@ -152,5 +157,31 @@ describe("teamsForWeek", () => {
       { game_type: "REG", gsis_id: "x", season: "2025", week: "1", team: "SF", status: "XYZ" },
     ]).entries;
     expect(teamsForWeek(entries, 1).size).toBe(0);
+  });
+});
+
+describe("statusesForWeek", () => {
+  it("reports every player for that week, active or not", () => {
+    // `teamsForWeek` answers "who can be projected"; this answers "what does the roster say
+    // about this player". A caller needs the second to know a player it has other evidence
+    // for — an appearance earlier in the season — has since been cut.
+    const week1 = statusesForWeek(parsed.entries, 1);
+    expect(week1.get("00-0030035")).toBe("active");
+    expect(week1.get("00-0030098")).toBe("cut");
+    expect(week1.get("00-0028845")).toBe("reserve");
+    expect(week1.size).toBe(5);
+  });
+
+  it("does not leak a status from another week", () => {
+    expect(statusesForWeek(parsed.entries, 2).size).toBe(1);
+  });
+
+  it("resolves a duplicate the same way teamsForWeek does", () => {
+    const entries = toWeeklyRoster([
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "SF", status: "ACT" },
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "MIN", status: "CUT" },
+    ]).entries;
+    expect(statusesForWeek(entries, 3).get("x")).toBe("active");
+    expect(teamsForWeek(entries, 3).get("x")).toBe("SF");
   });
 });

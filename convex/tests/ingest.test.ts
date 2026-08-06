@@ -397,3 +397,61 @@ describe("week 1 before kickoff", () => {
     expect(ids.has("p1")).toBe(true);
   });
 });
+
+describe("weekly roster overrides an earlier appearance", () => {
+  /**
+   * Mid-season, pre-kickoff. Every player has appearances in weeks 1..TARGET_WEEK-1, and
+   * the weekly roster for the target week lists one of them as CUT.
+   */
+  function midSeasonProvider(cutPlayerId: string): NflverseProvider {
+    const stats = statsCsv(TEAMS.length);
+    const games = gamesCsv();
+    const rosterHeader = [
+      "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+    ];
+    const rosterRows: string[][] = [];
+    for (let t = 0; t < TEAMS.length; t += 1) {
+      for (const [slot, position] of (["WR", "RB"] as const).entries()) {
+        const id = `00-000${t}${slot}`;
+        rosterRows.push([
+          String(SEASON), TEAMS[t], position,
+          id === cutPlayerId ? "CUT" : "ACT",
+          `Player ${t}${slot}`, id, String(TARGET_WEEK), "REG",
+        ]);
+      }
+    }
+    const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+    return new NflverseProvider(async (url) => {
+      if (url === schedulesUrl()) return games;
+      if (url === weeklyStatsUrl(SEASON)) return stats;
+      if (url === weeklyRosterUrl(SEASON)) return rosterCsv;
+      throw new Error(`${url} responded 404`);
+    });
+  }
+
+  it("does not project a player cut this week who played earlier ones", async () => {
+    // He has four current-season appearances arguing he is on the team. The target week's
+    // roster is the only thing that knows he was released, and holding that in memory while
+    // letting his own history overrule it is worse than never having fetched it.
+    const cut = "00-00000";
+    const ids = await projectedIds(midSeasonProvider(cut), TARGET_WEEK);
+    expect(ids.has(cut)).toBe(false);
+    // His teammate, same team and same appearances, is unaffected.
+    expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("still projects everyone when the roster lists them active", async () => {
+    // The control: the only difference between this and the case above is one status cell.
+    const ids = await projectedIds(midSeasonProvider("nobody"), TARGET_WEEK);
+    expect(ids.has("00-00000")).toBe(true);
+    expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("falls back to appearances when the roster is unavailable", async () => {
+    // A transient upstream failure must not empty a week. With no roster, the appearance
+    // rule behaves exactly as it did before this source existed.
+    const ids = await projectedIds(providerFor(TEAMS.length), TARGET_WEEK);
+    expect(ids.has("00-00000")).toBe(true);
+  });
+});

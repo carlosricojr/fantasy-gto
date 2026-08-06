@@ -17,7 +17,11 @@ import {
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import { scoreOffense } from "../lib/nfl/scoring/score";
-import { teamsForWeek } from "../lib/nfl/weekly-roster";
+import {
+  type RosterStatus,
+  statusesForWeek,
+  teamsForWeek,
+} from "../lib/nfl/weekly-roster";
 import { NflverseProvider } from "../lib/sources/nflverse";
 import { AdpProvider } from "../lib/sources/adp";
 import {
@@ -275,6 +279,12 @@ export async function runProjectWeek(
       const currentTeam = new Map<string, string>();
 
       const weeklyRoster = await provider.weeklyRoster(season);
+      // Statuses for the target week, kept whether active or not. The teams map alone is
+      // not enough: it says who *can* be projected, and the appearance loop below needs to
+      // know who the roster has ruled *out*.
+      const rosterStatus = weeklyRoster.ok
+        ? statusesForWeek(weeklyRoster.data.entries, week)
+        : new Map<string, RosterStatus>();
       if (weeklyRoster.ok) {
         for (const [playerId, team] of teamsForWeek(weeklyRoster.data.entries, week)) {
           currentTeam.set(playerId, team);
@@ -283,10 +293,22 @@ export async function runProjectWeek(
       // A failure is not fatal: from week 2 onward appearances alone cover the league, and
       // the coverage gate below is what decides whether the run is publishable. Making this
       // fatal would turn a transient upstream blip into a week with no projections at all.
+      // `rosterStatus` is then empty, so the appearance rule below behaves exactly as it
+      // did before this source existed.
 
       for (const playerWeek of currentWeeks) {
         const team = playerWeek.competitor.team;
         if (!team) continue;
+        // A player the roster lists for this week as anything other than active is not
+        // playing, and an earlier appearance must not reinstate him. Someone who played
+        // weeks 1 to 5 and was released before week 6 has five appearances arguing he is
+        // on the team; the week-6 roster is the only thing that knows he is not, and
+        // ignoring it while holding it in memory is worse than never having fetched it.
+        const status = rosterStatus.get(playerWeek.competitor.id);
+        if (status !== undefined && status !== "active") {
+          currentTeam.delete(playerWeek.competitor.id);
+          continue;
+        }
         const seen = currentTeamWeek.get(playerWeek.competitor.id) ?? -1;
         if (playerWeek.period.index > seen) {
           currentTeamWeek.set(playerWeek.competitor.id, playerWeek.period.index);
