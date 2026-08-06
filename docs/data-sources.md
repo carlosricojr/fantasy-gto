@@ -102,9 +102,6 @@ usage at all** — not even a target. `num()` reads a blank cell as zero, so tho
 produce a complete, plausible, entirely fictional usage signal. 2000–2003, 2005 and 2007
 were not checked; 2005 and 2007 are bracketed by zero-coverage seasons on both sides.
 
-The header is byte-identical across every season sampled — 145 columns from 1999 to 2025 —
-so a renamed column is not the historical hazard. Population is.
-
 `scripts/backtest.ts` therefore asserts per-season usage coverage rather than trusting the
 parse, and refuses a season below 50%. A row count alone would not have caught this: the
 2006 file has 16,495 regular-season rows.
@@ -125,13 +122,59 @@ row counts: 2012 → 0, 2013 → 23,799, 2014 → 23,864, 2015 → 23,842, 2016 
 2017 → 23,862. The release is first populated in 2013, and that is why the development
 window starts there. `pnpm verify-sources` reproduces this.
 
-The bridge to `gsis_id` is `players.csv`, which carries both identifiers for 22,556 of its
-25,037 rows. Measured join rates for regular-season skill rows (QB/RB/WR/TE/FB): 2013
+The bridge to `gsis_id` is `players.csv` (section 1.2c), which carries both identifiers for
+22,556 of its 25,037 rows. Measured join rates for regular-season skill rows (QB/RB/WR/TE/FB): 2013
 **100.0%** (0 unjoinable players), 2016 **99.9%** (2), 2020 **99.9%** (2), 2024 **99.7%**
 (3). The players who fail to join are genuinely marginal — their mean `offense_pct` is
 17.1%, 8.6% and 10.8% in those three seasons, against a league where a starter sits far
 higher. Report on the joinable subset and do not impute the gap, but do not caveat a
 0.3% gap as though it were large either.
+
+### 1.2c Player directory — age, experience, and the identifier bridge
+
+```text
+{base}/players/players.csv
+```
+
+One file, every player, no season parameter. Verified 2026-08-05 and reproduced by
+`pnpm verify-sources`.
+
+25,037 rows carrying a `gsis_id`, of which 8,581 are at skill positions (QB/RB/WR/TE/FB).
+`gsis_id` **is** the `player_id` used by `stats_player_week`, so that join is direct.
+
+Columns the model cares about: `gsis_id`, `display_name`, `position`, `birth_date`,
+`pfr_id`, `rookie_season`, `last_season`, `years_of_experience`, `draft_year`,
+`draft_round`, `draft_pick`, `status`.
+
+**Two different coverage figures, and conflating them is the easy mistake.**
+
+| Measured over | `birth_date` | `pfr_id` |
+| --- | --- | --- |
+| All directory rows | 99.8% | 90.1% |
+| Skill-position directory rows | 99.8% | **89.2%** |
+
+| Regular-season skill player-weeks | in directory | with `birth_date` | with `pfr_id` |
+| --- | --- | --- | --- |
+| 2013 (5,516) | 100.0% | 100.0% | 100.0% |
+| 2016 (5,563) | 100.0% | 100.0% | 99.9% |
+| 2020 (5,670) | 100.0% | 100.0% | 99.9% |
+| 2024 (5,920) | 100.0% | 100.0% | 99.9% |
+
+The tenth of skill-position *directory rows* with no `pfr_id` is real, and it is not missing
+at random — it skews to players last seen in 2002–2009 and to 2026 rookies not yet indexed by
+Pro Football Reference. But it is **not** a tenth of the data that needs joining. Those
+players overwhelmingly never appear in a modern weekly statistics file, so on the rows that
+actually matter the identifier is present 99.9% of the time.
+
+Report whichever figure answers the question being asked, and say which one it is. "One in
+nine players cannot be joined" is true of the directory and false of any real season's
+player-weeks.
+
+Age is computed by `ageAt(birthDate, asOf)` in `lib/nfl/players.ts`, which takes the date as
+an argument. That is not stylistic: replaying week 6 of 2017 has to produce the age the
+player was *then*, and a function reading the wall clock would give every historical row
+today's age and silently destroy any aging curve fitted on it. `lib/purity.test.ts` enforces
+the rule.
 
 ### 1.3 CSV parsing hazard
 

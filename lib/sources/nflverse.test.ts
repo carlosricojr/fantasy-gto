@@ -11,6 +11,7 @@ import {
   easternWallClockToUtcIso,
   parseContests,
   parseMarketLines,
+  playersUrl,
   schedulesUrl,
   weeklyStatsUrl,
 } from "./nflverse";
@@ -25,6 +26,10 @@ const statsCsv = readFileSync(
 );
 const rosterCsv = readFileSync(
   join(__dirname, "../../tests/fixtures/roster_2026_sample.csv"),
+  "utf8",
+);
+const playersCsv = readFileSync(
+  join(__dirname, "../../tests/fixtures/players_sample.csv"),
   "utf8",
 );
 
@@ -275,5 +280,70 @@ describe("parseSeasonRoster", () => {
 
   it("builds the documented release url", () => {
     expect(seasonRosterUrl(2026)).toContain("/rosters/roster_2026.csv");
+  });
+});
+
+describe("NflverseProvider.players", () => {
+  const serve = (body: string) => async (url: string) => {
+    if (url === playersUrl()) return body;
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  it("parses the directory and exposes the pfr bridge", async () => {
+    const provider = new NflverseProvider(serve(playersCsv));
+    const result = await provider.players();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(9);
+    expect(result.data.find((p) => p.playerId === "00-0032104")?.pfrId).toBe("AbduAm00");
+  });
+
+  it("fetches once and serves the rest from cache", async () => {
+    // One multi-megabyte download shared by every caller that needs an age or a bridge
+    // lookup. Without this it is re-fetched per use and dominates the cost of any run.
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      if (url === playersUrl()) return playersCsv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    await provider.players();
+    await provider.players();
+    expect(calls).toBe(1);
+  });
+
+  it("returns a failure rather than throwing past the seam", async () => {
+    const provider = new NflverseProvider(async () => {
+      throw new Error("network down");
+    });
+    const result = await provider.players();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/player directory is unavailable/i);
+  });
+
+  it("refuses a file that parses cleanly to nothing", async () => {
+    // HTTP 200 with a valid header and no usable rows is a real shape in these releases —
+    // snap_counts_2012.csv is exactly that — and reporting success would leave every caller
+    // concluding the league has no players.
+    const headerOnly = `${playersCsv.split("\n")[0]}\n`;
+    const provider = new NflverseProvider(serve(headerOnly));
+    const result = await provider.players();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no players with a gsis_id/i);
+  });
+
+  it("does not cache a failure", async () => {
+    // A transient blip cached for the provider's lifetime turns one bad fetch into every
+    // later call failing too.
+    let attempt = 0;
+    const provider = new NflverseProvider(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("blip");
+      return playersCsv;
+    });
+    expect((await provider.players()).ok).toBe(false);
+    expect((await provider.players()).ok).toBe(true);
   });
 });

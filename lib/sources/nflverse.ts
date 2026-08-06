@@ -9,6 +9,7 @@ import {
 import { type CsvRow, num, numOrNull, parseCsv, str } from "../nfl/csv";
 import { normalizeTeam } from "../nfl/teams";
 
+import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
@@ -44,6 +45,18 @@ export function schedulesUrl(): string {
  */
 export function seasonRosterUrl(season: number): string {
   return `${RELEASE_BASE}/rosters/roster_${season}.csv`;
+}
+
+/**
+ * The player directory.
+ *
+ * One file, every player, no season parameter. Carries the birth date the model needs for
+ * any notion of age, and — the reason it is load-bearing rather than convenient — both
+ * `gsis_id` and `pfr_id`, which is the only bridge between weekly statistics and snap
+ * counts. See `lib/nfl/players.ts`.
+ */
+export function playersUrl(): string {
+  return `${RELEASE_BASE}/players/players.csv`;
 }
 
 /** Fetches a URL as text. Injectable so tests never touch the network. */
@@ -350,6 +363,45 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
           `the season starts.`,
         cause,
       );
+    }
+  }
+
+  /**
+   * Every player upstream knows about, with age, experience, and the `pfr_id` bridge.
+   *
+   * Cached for the provider's lifetime like the roster and weekly files. This one is a
+   * single multi-megabyte download shared by every caller that needs an age or a bridge
+   * lookup, so re-fetching it per use would dominate the cost of any run that touches it.
+   */
+  private playersCache: ProviderResult<PlayerProfile[]> | null = null;
+
+  async players(): Promise<ProviderResult<PlayerProfile[]>> {
+    if (this.playersCache !== null) return this.playersCache;
+    const result = await this.fetchPlayers();
+    // Only successes are cached, for the same reason as everywhere else here: a transient
+    // failure cached for the provider's lifetime turns one bad fetch into every later call
+    // failing too.
+    if (result.ok) this.playersCache = result;
+    return result;
+  }
+
+  private async fetchPlayers(): Promise<ProviderResult<PlayerProfile[]>> {
+    try {
+      const text = await this.fetchText(playersUrl());
+      const profiles = toPlayerProfiles(parseCsv(text));
+      // A file that answers 200 with a valid header and no usable rows parses cleanly and
+      // reports success, leaving every caller to conclude the league has no players. That
+      // exact shape is real in these releases — `snap_counts_2012.csv` is one — so it is
+      // refused here rather than propagated.
+      if (profiles.length === 0) {
+        return failed(
+          "The player directory parsed to no players with a gsis_id. The release is " +
+            "probably a placeholder that has not been populated yet.",
+        );
+      }
+      return ok(profiles);
+    } catch (cause) {
+      return failed("The nflverse player directory is unavailable.", cause);
     }
   }
 
