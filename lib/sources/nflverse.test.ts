@@ -15,6 +15,7 @@ import {
   playersUrl,
   snapCountsUrl,
   schedulesUrl,
+  weeklyRosterUrl,
   weeklyStatsUrl,
 } from "./nflverse";
 
@@ -40,6 +41,10 @@ const injuries2024Csv = readFileSync(
 );
 const snaps2024Csv = readFileSync(
   join(__dirname, "../../tests/fixtures/snap_counts_2024_sample.csv"),
+  "utf8",
+);
+const weeklyRosterCsv = readFileSync(
+  join(__dirname, "../../tests/fixtures/roster_weekly_2025_sample.csv"),
   "utf8",
 );
 
@@ -504,6 +509,73 @@ describe("NflverseProvider.snapCounts", () => {
     const results = await Promise.all([
       provider.snapCounts(2024),
       provider.snapCounts(2024),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(calls).toBe(2);
+  });
+});
+
+describe("NflverseProvider.weeklyRoster", () => {
+  const serve = (body: string) => async (url: string) => {
+    if (url === weeklyRosterUrl(2025)) return body;
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  it("parses a season and surfaces the drift counter", async () => {
+    const provider = new NflverseProvider(serve(weeklyRosterCsv));
+    const result = await provider.weeklyRoster(2025);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.entries).toHaveLength(7);
+    expect([...result.data.unknownStatus.keys()]).toEqual([]);
+  });
+
+  it("refuses a file with rows but nobody active", async () => {
+    // The payload-level failure a row count cannot see. Every player would be skipped and
+    // the week would look uncovered for a reason that is not true — the same shape the
+    // injury seam refuses, and for the same reason.
+    //
+    // Built from scratch rather than by rewriting the fixture's status column. The first
+    // attempt re-emitted the parsed fixture by joining its values with commas, which
+    // corrupts it: `roster_weekly` carries `headshot_url`, and those contain commas. That
+    // is the precise defect `lib/nfl/csv.ts` exists to prevent, reintroduced inside a test
+    // written to check a different failure — and it presented as the wrong error message
+    // rather than as anything obviously broken.
+    const csv = [
+      "season,team,position,status,full_name,gsis_id,week,game_type",
+      "2025,SF,WR,DEV,Practice Squad Player,00-0000001,1,REG",
+      "2025,MIN,RB,RES,Injured Player,00-0000002,1,REG",
+    ].join("\n");
+    const provider = new NflverseProvider(serve(`${csv}\n`));
+    const result = await provider.weeklyRoster(2025);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no active player among them/i);
+    expect(result.reason).toMatch(/renamed or recoded/i);
+  });
+
+  it("refuses an empty release", async () => {
+    const headerOnly = `${weeklyRosterCsv.split("\n")[0]}\n`;
+    const provider = new NflverseProvider(serve(headerOnly));
+    const result = await provider.weeklyRoster(2025);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no regular-season rows/i);
+  });
+
+  it("coalesces concurrent callers and does not cache a failure", async () => {
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      await Promise.resolve();
+      if (calls === 1) throw new Error("blip");
+      if (url === weeklyRosterUrl(2025)) return weeklyRosterCsv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    expect((await provider.weeklyRoster(2025)).ok).toBe(false);
+    const results = await Promise.all([
+      provider.weeklyRoster(2025),
+      provider.weeklyRoster(2025),
     ]);
     expect(results.every((r) => r.ok)).toBe(true);
     expect(calls).toBe(2);

@@ -181,6 +181,7 @@ Every claim the interface makes, and the computation behind it.
 | Player age, experience, and the snap-count identifier bridge | `pnpm verify-sources`, from nflverse `players.csv`. Directory coverage is 99.8% for `birth_date` and 89.2% for `pfr_id` at skill positions, but on the rows that actually need joining — regular-season skill player-weeks — both are present 99.9–100% of the time across 2013, 2016, 2020 and 2024. Both figures and the difference between them are recorded in [`docs/data-sources.md`](docs/data-sources.md). No age term is in the model; this is the seam only. |
 | "2024 injury reports were written before kickoff; 2025 cannot be checked" | `pnpm verify-sources`. Every 2024 regular-season row joins to its game's kickoff, and 5,953 of 5,954 (**99.98%**) were last modified before it, median 47 hours before — Friday for a Sunday game, which is when the NFL mandates the final report. **One row was not**: an `Out` designation edited about three hours after the Thursday-night opener. **2025 carries no `date_modified` at all, so the same check cannot be run on it**; the claim there is inference from the 2024 result and the NFL's reporting mandate, not verification, and [`docs/data-sources.md`](docs/data-sources.md) says so in those words. No claim is made about seasons other than 2024. **Nothing in the product reads this data; it is the seam and the measurement only.** |
 | Snap counts join to the rest of the data 99.7–100% of the time | `pnpm verify-sources`, measured through the same `bridgeSnaps` the product would use rather than a parallel implementation. Regular-season skill rows: 2013 100.0% (0 unjoinable players), 2016 99.9% (2), 2020 99.9% (2), 2024 99.7% (3). Unmatched rows are **counted and returned**, never dropped or zeroed — zero snaps means benched and unknown snaps means unknown. Recorded in [`docs/data-sources.md`](docs/data-sources.md). **Nothing in the product reads this data; it is the seam and the measurement only.** |
+| Week-1 projections are available before kickoff | `weekly_rosters` resolves a player's team with no game played. `convex/tests/ingest.test.ts` asserts both directions on identical inputs — without the release, 0 projections and a failed run; with it, all 32 teams covered. Only `ACT` players are eligible. |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
@@ -317,11 +318,11 @@ Stated plainly rather than left to be discovered.
   `lib/core/optimizer.ts` is implemented and tested, but no page calls it — a league
   currently records scoring and roster format, and start/sit is delivered through
   `/lineup` instead.
-- **Week 1 projects nobody until that week's games have been played.** A player's team is
-  taken from a current-season appearance, and before any game is played there is none.
-  Projecting from last season's team would attribute a player to the wrong game entirely, so
-  they are skipped and the count is reported — and with almost every team uncovered, the
-  run fails its coverage check and writes nothing rather than publishing a board of the two
-  Thursday teams. Once most of week 1 has been played the check passes and the board is
-  written normally. Wiring nflverse's `weekly_rosters` release would close the gap for the
-  days before kickoff.
+- ~~**Week 1 projects nobody until that week's games have been played.**~~ **Closed.**
+  `projectWeek` now resolves a player's team from nflverse's `weekly_rosters` release, which
+  answers that question before any game is played, and falls back to a current-season
+  appearance where one exists — an appearance being stronger evidence than a roster listing,
+  and the roster release lagging a transaction by up to a day. Only players listed active
+  contribute, so a cut or practice-squad player cannot reach a board. Both states are pinned
+  in `convex/tests/ingest.test.ts`: without the release the run resolves nobody and writes
+  nothing, with it the board covers all 32 teams pre-kickoff.

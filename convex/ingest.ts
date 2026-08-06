@@ -17,6 +17,7 @@ import {
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import { scoreOffense } from "../lib/nfl/scoring/score";
+import { teamsForWeek } from "../lib/nfl/weekly-roster";
 import { NflverseProvider } from "../lib/sources/nflverse";
 import { AdpProvider } from "../lib/sources/adp";
 import {
@@ -250,8 +251,7 @@ export async function runProjectWeek(
         }
       }
 
-      // A player's team for THIS season, taken from their most recent current-season
-      // appearance regardless of week.
+      // A player's team for THIS season.
       //
       // Which team someone plays for is not a prediction, so reading it from a row at or
       // after the target week is legitimate for a live run — unlike their production,
@@ -259,7 +259,31 @@ export async function runProjectWeek(
       // read a *prior-season* row at week 1 and project every player against their old
       // team's game: wrong opponent, wrong betting line, and the bye-week guard passes
       // because the old team does play. The same thing happens after a trade.
+      //
+      // Two sources, in order of strength.
+      //
+      // The weekly roster is the base, because it is the only thing that answers the
+      // question **before a game has been played**. Without it, week 1 pre-kickoff resolves
+      // nobody, the coverage gate below fails, and the run writes nothing — the README's
+      // known gap, reproduced in `convex/tests/ingest.test.ts`. Only players listed active
+      // for the target week contribute: a cut or practice-squad player is on the file and
+      // is not going to take a snap.
+      //
+      // An actual appearance then overrides it, because having played for a team this
+      // season is stronger evidence than being listed on its roster, and the roster release
+      // can lag a transaction by a day.
       const currentTeam = new Map<string, string>();
+
+      const weeklyRoster = await provider.weeklyRoster(season);
+      if (weeklyRoster.ok) {
+        for (const [playerId, team] of teamsForWeek(weeklyRoster.data.entries, week)) {
+          currentTeam.set(playerId, team);
+        }
+      }
+      // A failure is not fatal: from week 2 onward appearances alone cover the league, and
+      // the coverage gate below is what decides whether the run is publishable. Making this
+      // fatal would turn a transient upstream blip into a week with no projections at all.
+
       for (const playerWeek of currentWeeks) {
         const team = playerWeek.competitor.team;
         if (!team) continue;

@@ -12,6 +12,7 @@ import { normalizeTeam } from "../nfl/teams";
 import { type InjuryParseReport, toRegularSeasonInjuries } from "../nfl/injuries";
 import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
 import { type SnapCount, toRegularSeasonSnaps } from "../nfl/snaps";
+import { type WeeklyRosterReport, toWeeklyRoster } from "../nfl/weekly-roster";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
@@ -79,6 +80,17 @@ export function injuriesUrl(season: number): string {
  */
 export function snapCountsUrl(season: number): string {
   return `${RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
+}
+
+/**
+ * Weekly rosters.
+ *
+ * The only source that resolves a player's team **before a game has been played**, which is
+ * what makes a week-1 board possible at all. Keyed on `gsis_id` + `week`, so it joins
+ * directly. Available from 2002.
+ */
+export function weeklyRosterUrl(season: number): string {
+  return `${RELEASE_BASE}/weekly_rosters/roster_weekly_${season}.csv`;
 }
 
 /** Fetches a URL as text. Injectable so tests never touch the network. */
@@ -569,6 +581,64 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
       return ok(snaps);
     } catch (cause) {
       return failed(`Snap counts for ${season} are unavailable.`, cause);
+    }
+  }
+
+  /**
+   * One season of weekly rosters.
+   *
+   * Cached and coalesced like every other seasonal file here — a projection run asks for it
+   * once per ruleset otherwise.
+   */
+  private readonly weeklyRosterCache = new Map<
+    number,
+    ProviderResult<WeeklyRosterReport>
+  >();
+  private readonly weeklyRosterInFlight = new Map<
+    number,
+    Promise<ProviderResult<WeeklyRosterReport>>
+  >();
+
+  async weeklyRoster(season: number): Promise<ProviderResult<WeeklyRosterReport>> {
+    const cached = this.weeklyRosterCache.get(season);
+    if (cached !== undefined) return cached;
+    let inFlight = this.weeklyRosterInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchWeeklyRoster(season).finally(() => {
+        this.weeklyRosterInFlight.delete(season);
+      });
+      this.weeklyRosterInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
+    if (result.ok) this.weeklyRosterCache.set(season, result);
+    return result;
+  }
+
+  private async fetchWeeklyRoster(
+    season: number,
+  ): Promise<ProviderResult<WeeklyRosterReport>> {
+    try {
+      const text = await this.fetchText(weeklyRosterUrl(season));
+      const parsed = toWeeklyRoster(parseCsv(text));
+      if (parsed.entries.length === 0) {
+        return failed(
+          `Weekly rosters for ${season} parsed to no regular-season rows. The release ` +
+            `answered but is empty or its header has drifted.`,
+        );
+      }
+      // A file full of rows in which nobody is active is the payload-level failure the row
+      // count cannot see — the same shape the injury seam already refuses. Every player
+      // would be skipped and the week would look uncovered for a reason that is not true.
+      if (parsed.entries.every((entry) => entry.status !== "active")) {
+        return failed(
+          `Weekly rosters for ${season} parsed ${parsed.entries.length} rows with no ` +
+            `active player among them. The status column has probably been renamed or ` +
+            `recoded.`,
+        );
+      }
+      return ok(parsed);
+    } catch (cause) {
+      return failed(`Weekly rosters for ${season} are unavailable.`, cause);
     }
   }
 

@@ -264,6 +264,49 @@ release, same NFL reporting mandate, and 2024 verifying at 99.98% — and infere
 verification. Any hypothesis that uses this data on 2025 must say so in those words rather
 than presenting the season as checked.
 
+### 1.2e Weekly rosters — the only pre-kickoff team source
+
+```text
+{base}/weekly_rosters/roster_weekly_{SEASON}.csv
+```
+
+Verified 2026-08-06. Available from 2002; `roster_weekly_2026.csv` is present and populated
+with 2,930 rows.
+
+Keyed on `gsis_id` + `week`, so it joins directly to `stats_player_week` — no bridge needed.
+It also carries `birth_date`, `years_exp` and `pfr_id`, independently corroborating the
+player directory.
+
+**This is the only source that answers "which team is this player on?" before a game has
+been played.** Everything else derives a team from an appearance, which works from week 2
+onward and is useless in the days before week 1 — exactly the window a user wants a
+projection. The 2025 file has 46,849 rows, of which 44,697 are regular season.
+
+Status codes, measured on 2025:
+
+| Code | Rows | Mapped to |
+| --- | --- | --- |
+| `ACT` | 27,377 | `active` — the only projectable state |
+| `DEV` | 8,783 | `practice-squad` |
+| `RES` | 5,763 | `reserve` |
+| `INA` | 3,593 | `inactive` |
+| `CUT` | 951 | `cut` |
+| `RET` | 361 | `retired` |
+| `EXE` | 7 | `reserve` |
+| `TRD` / `TRC` | 7 each | `traded` |
+
+All nine are mapped explicitly. An unrecognised code becomes `unknown` and is **counted**,
+never folded into `active` — a new code read as active would put a practice-squad or
+injured-reserve player on a board as though he were starting, and the board would look
+entirely normal. Equally, every code upstream actually ships is mapped, because a drift
+counter that fires on normal data stops being read.
+
+**29 rows carry no `gsis_id`** and are dropped; that branch is live, not defensive.
+
+The adapter refuses two shapes: a season that parsed to no regular-season rows, and one that
+parsed rows in which *nobody* is active. The second is the payload-level failure a row count
+cannot see, and it is the same guard the injury seam carries for the same reason.
+
 ### 1.3 CSV parsing hazard
 
 Fields are quoted and **contain commas** — `headshot_url` holds values like
