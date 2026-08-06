@@ -1,44 +1,32 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { ModeToggle } from "@/components/ui/theme-toggle";
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
-export default function MarketingLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+import { SiteHeader } from "@/components/nav/site-header";
+
+/**
+ * Marketing chrome.
+ *
+ * Same header component as the signed-in surfaces, with its own link set: a visitor who
+ * has not seen the product wants Projections, Accuracy, and Pricing, not a Draft board.
+ * What is shared is everything about how it behaves — brand placement, active state,
+ * account controls — so crossing from `/pricing` into `/lineup` does not feel like
+ * arriving at a different site, which it did when these were two hand-maintained headers.
+ *
+ * No bottom tab bar here. These pages are read top to bottom and end in their own calls to
+ * action; a persistent tab bar would cover that copy to offer navigation the visitor has
+ * not asked for yet.
+ */
+export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh flex flex-col">
-      <header className="w-full border-b">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="font-semibold">Fantasy GTO</Link>
-            <nav className="hidden sm:flex items-center gap-4 text-sm text-foreground/80">
-              <Link href="/pricing" className="hover:underline">Pricing</Link>
-              <Link href="/projections" className="hover:underline">Projections</Link>
-              <Link href="/accuracy" className="hover:underline">Accuracy</Link>
-            </nav>
-          </div>
-          <div className="flex items-center gap-2">
-            <ModeToggle />
-            <SignedOut>
-              <SignInButton mode="modal">
-                <Button size="sm" variant="outline">Sign in</Button>
-              </SignInButton>
-            </SignedOut>
-            <SignedIn>
-              <UserButton afterSignOutUrl="/" />
-            </SignedIn>
-          </div>
-        </div>
-      </header>
+    <div className="flex min-h-dvh flex-col">
+      <SiteHeader variant="marketing" />
+
       {/* A div, not a main: each page supplies its own <main>, and a nested landmark
           gives screen readers two "main" regions with skip-to-content landing on the
           wrapper rather than the content. The (app) layout does the same. */}
       <div className="flex-1">{children}</div>
+
       <footer className="border-t py-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 text-sm text-foreground/60">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground">
           <span>Fantasy GTO</span>
           <Link href="/accuracy" className="hover:text-foreground">
             How accurate is this?
@@ -48,5 +36,3 @@ export default function MarketingLayout({
     </div>
   );
 }
-
-
