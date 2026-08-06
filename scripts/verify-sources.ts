@@ -19,6 +19,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { num, parseCsv, str } from "@/lib/nfl/csv";
+import { quantile } from "@/lib/core/stats";
+import { toRegularSeasonInjuries } from "@/lib/nfl/injuries";
+import { easternWallClockToUtcIso } from "@/lib/sources/nflverse";
+import { normalizeTeam } from "@/lib/nfl/teams";
 import { toPlayerProfiles } from "@/lib/nfl/players";
 
 const RELEASE_BASE = "https://github.com/nflverse/nflverse-data/releases/download";
@@ -54,6 +58,41 @@ const statsUrl = (season: number) =>
 const snapsUrl = (season: number) =>
   `${RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
 const playersUrl = () => `${RELEASE_BASE}/players/players.csv`;
+const injuriesUrl = (season: number) =>
+  `${RELEASE_BASE}/injuries/injuries_${season}.csv`;
+const schedulesUrl = () => `${RELEASE_BASE}/schedules/games.csv`;
+
+/** Seasons the injury leakage check runs on. Only 2024 carries `date_modified`. */
+const INJURY_SEASONS = [2024, 2025];
+
+/**
+ * Kickoff for every regular-season game, as a UTC instant, keyed by `week:team`.
+ *
+ * `gameday` and `gametime` are US Eastern wall clock with no offset, and the season spans
+ * the daylight-saving changeover — September is UTC−4, January UTC−5. Appending a `Z` would
+ * shift every kickoff by four or five hours, which is more than enough to move a report from
+ * "before the game" to "after it" and invert the entire finding below.
+ */
+function kickoffsByTeamWeek(rows: readonly Record<string, string>[], season: number) {
+  const kickoffs = new Map<string, number>();
+  for (const row of rows) {
+    if (num(row, "season") !== season || str(row, "game_type") !== "REG") continue;
+    const iso = easternWallClockToUtcIso(str(row, "gameday"), str(row, "gametime"));
+    if (iso === null) continue;
+    const at = Date.parse(iso);
+    // Normalized on this side too. The injury side goes through `normalizeTeam`, so
+    // leaving these raw is dormant only while every code is already canonical. Extend
+    // INJURY_SEASONS backwards and OAK, SD and STL normalize on one side and not the
+    // other, dropping every one of those teams' rows into `unmatched` while the percentage
+    // quietly continues over the survivors.
+    for (const raw of [str(row, "home_team"), str(row, "away_team")]) {
+      const team = normalizeTeam(raw);
+      if (team === null) continue;
+      kickoffs.set(`${str(row, "week")}:${team}`, at);
+    }
+  }
+  return kickoffs;
+}
 
 /** Share of rows carrying a value that is neither blank nor zero. */
 function populated(rows: readonly Record<string, string>[], column: string): number {
@@ -224,6 +263,78 @@ async function main(): Promise<void> {
         `${share(matched.length, weeks.length).padStart(14)}` +
         `${share(withBirth.length, weeks.length).padStart(17)}` +
         `${share(withPfr.length, weeks.length).padStart(13)}\n`,
+    );
+  }
+
+  // The leakage question. The injury *report* is pre-kickoff by nature, but this release is
+  // assembled afterwards, so "the report was published before the game" and "the row we can
+  // read was written before the game" are different claims and only the second is checkable.
+  process.stdout.write(
+    `\n${"=".repeat(78)}\ninjuries: header shape, and whether the rows predate kickoff\n${"=".repeat(78)}\n`,
+  );
+  const schedule = parseCsv(await cached(schedulesUrl()));
+  for (const season of INJURY_SEASONS) {
+    const text = await cached(injuriesUrl(season));
+    const header = text.split("\n")[0].trim().split(",");
+    const parsed = toRegularSeasonInjuries(parseCsv(text));
+    const statuses = new Map<string, number>();
+    for (const report of parsed.reports) {
+      statuses.set(report.gameStatus, (statuses.get(report.gameStatus) ?? 0) + 1);
+    }
+    process.stdout.write(
+      `\n  ${season}: ${parsed.reports.length} regular-season rows\n` +
+        `    header carries season_type=${header.includes("season_type")}, ` +
+        `game_type=${header.includes("game_type")}, ` +
+        `date_modified=${header.includes("date_modified")}\n` +
+        `    game status: ${[...statuses].map(([k, v]) => `${k} ${v}`).join(", ")}\n` +
+        `    unrecognised: report_status ${[...parsed.unknownGameStatus].map(([k, v]) => `${JSON.stringify(k)}×${v}`).join(" ") || "none"}` +
+        `, practice_status ${[...parsed.unknownPracticeStatus].map(([k, v]) => `${JSON.stringify(k)}×${v}`).join(" ") || "none"}\n`,
+    );
+
+    const dated = parsed.reports.filter((r) => r.dateModified !== null);
+    if (dated.length === 0) {
+      process.stdout.write(
+        `    no date_modified column: pre-kickoff timing CANNOT be verified for this season\n`,
+      );
+      continue;
+    }
+    const kickoffs = kickoffsByTeamWeek(schedule, season);
+    let before = 0;
+    let after = 0;
+    let unmatched = 0;
+    const lateness: number[] = [];
+    for (const report of dated) {
+      const at = kickoffs.get(`${report.week}:${report.team ?? ""}`);
+      if (at === undefined) {
+        unmatched += 1;
+        continue;
+      }
+      const hoursBefore = (at - Date.parse(report.dateModified!)) / 3_600_000;
+      lateness.push(hoursBefore);
+      if (hoursBefore >= 0) before += 1;
+      else after += 1;
+    }
+    lateness.sort((a, b) => a - b);
+    const matched = before + after;
+    // Refused, not rendered. `0/0` prints `NaN%` and then the min/max lookup throws a
+    // TypeError, so the operator sees a stack trace instead of the diagnosis. Same shape
+    // the two checks above already refuse explicitly.
+    if (matched === 0) {
+      throw new Error(
+        `no ${season} injury row joined to a kickoff; all ${dated.length} were unmatched, ` +
+          `so the team/week join has broken`,
+      );
+    }
+    process.stdout.write(
+      `    joined to a kickoff: ${matched} of ${dated.length} (${unmatched} unmatched)\n` +
+        `    modified BEFORE kickoff: ${before} (${((before / matched) * 100).toFixed(2)}%)\n` +
+        `    modified AFTER  kickoff: ${after} (${((after / matched) * 100).toFixed(2)}%)\n` +
+        `    hours before kickoff — min ${lateness[0].toFixed(1)}, ` +
+        // `quantile` from lib/core/stats, which is tested and linear-interpolated — for an
+        // even count that is exactly the average of the two central values. A hand-rolled
+        // median beside it would be eight untested lines producing a published number.
+        `median ${quantile(lateness, 0.5).toFixed(1)}, ` +
+        `max ${lateness[lateness.length - 1].toFixed(1)}\n`,
     );
   }
 

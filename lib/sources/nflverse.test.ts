@@ -11,6 +11,7 @@ import {
   easternWallClockToUtcIso,
   parseContests,
   parseMarketLines,
+  injuriesUrl,
   playersUrl,
   schedulesUrl,
   weeklyStatsUrl,
@@ -30,6 +31,10 @@ const rosterCsv = readFileSync(
 );
 const playersCsv = readFileSync(
   join(__dirname, "../../tests/fixtures/players_sample.csv"),
+  "utf8",
+);
+const injuries2024Csv = readFileSync(
+  join(__dirname, "../../tests/fixtures/injuries_2024_sample.csv"),
   "utf8",
 );
 
@@ -368,5 +373,88 @@ describe("NflverseProvider.players", () => {
     });
     expect((await provider.players()).ok).toBe(false);
     expect((await provider.players()).ok).toBe(true);
+  });
+});
+
+describe("NflverseProvider.injuries", () => {
+  it("parses a season and surfaces the unrecognised-value counts", async () => {
+    const provider = new NflverseProvider(async (url) => {
+      if (url === injuriesUrl(2024)) return injuries2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    const result = await provider.injuries(2024);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.reports).toHaveLength(7);
+    // Surfaced rather than folded away: a new designation upstream must be visible.
+    expect(result.data.unknownGameStatus.get("Note")).toBe(1);
+  });
+
+  it("refuses a season that parsed to no regular-season rows", async () => {
+    // This is the shape the season_type/game_type drift produces. Reporting success on it
+    // yields a confident result built from nothing, which has already cost one debugging
+    // cycle on this project.
+    const headerOnly = `${injuries2024Csv.split("\n")[0]}\n`;
+    const provider = new NflverseProvider(async () => headerOnly);
+    const result = await provider.injuries(2024);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no regular-season rows/i);
+    expect(result.reason).toMatch(/header shape has drifted/i);
+  });
+
+  it("refuses a season in which no row carries any designation", async () => {
+    // The row count catches a renamed `game_type`; it cannot catch a renamed
+    // `report_status`, because an absent column reads as blank and blank is legitimately
+    // "no designation". Thousands of rows in which nobody was ever listed Out is the
+    // clean-looking result built from nothing this seam exists to refuse.
+    const rows = parseCsv(injuries2024Csv);
+    const header = Object.keys(rows[0])
+      .map((c) => (c === "report_status" ? "game_status" : c))
+      .join(",");
+    const body = rows
+      .map((r) =>
+        Object.keys(rows[0])
+          .map((c) => (c === "practice_status" || c === "report_status" ? "" : String(r[c] ?? "")))
+          .join(","),
+      )
+      .join("\n");
+    const provider = new NflverseProvider(async () => `${header}\n${body}\n`);
+    const result = await provider.injuries(2024);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no designation on any of them/i);
+    expect(result.reason).toMatch(/probably been renamed/i);
+  });
+
+  it("coalesces concurrent callers for one season into a single download", async () => {
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      await Promise.resolve();
+      if (url === injuriesUrl(2024)) return injuries2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    const results = await Promise.all([
+      provider.injuries(2024),
+      provider.injuries(2024),
+      provider.injuries(2024),
+    ]);
+    expect(calls).toBe(1);
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+
+  it("caches per season and does not cache a failure", async () => {
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      if (calls === 1) throw new Error("blip");
+      if (url === injuriesUrl(2024)) return injuries2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    expect((await provider.injuries(2024)).ok).toBe(false);
+    expect((await provider.injuries(2024)).ok).toBe(true);
+    await provider.injuries(2024);
+    expect(calls).toBe(2);
   });
 });
