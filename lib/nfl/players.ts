@@ -52,8 +52,15 @@ function intOrNull(row: CsvRow, key: string): number | null {
  * Parses one player row.
  *
  * A row with no `gsis_id` is dropped: it cannot be joined to any production history, so it
- * would contribute a profile with nothing to attach it to. Upstream carries several
- * thousand such rows, mostly for players who never appeared in the modern statistics era.
+ * would contribute a profile with nothing to attach it to.
+ *
+ * On the current file that branch is dead — every row has *something* in the column. What
+ * upstream actually ships for pre-modern players is an ESB-format identifier there
+ * (`ABB498348` rather than `00-0032104`), about six thousand of them. Those parse fine and
+ * can never join to `stats_player_week` either, and they are most of what drags the
+ * directory's `pfr_id` coverage down to 89.2% while the join rate on real player-weeks
+ * stays at 99.9%. The guard stays because a genuinely blank column is cheap to refuse; the
+ * docstring says which case is real so nobody reads the branch as load-bearing.
  */
 export function toPlayerProfile(row: CsvRow): PlayerProfile | null {
   const playerId = str(row, "gsis_id");

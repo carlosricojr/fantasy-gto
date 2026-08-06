@@ -19,8 +19,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { num, parseCsv, str } from "@/lib/nfl/csv";
+import { quantile } from "@/lib/core/stats";
 import { toRegularSeasonInjuries } from "@/lib/nfl/injuries";
 import { easternWallClockToUtcIso } from "@/lib/sources/nflverse";
+import { normalizeTeam } from "@/lib/nfl/teams";
 import { toPlayerProfiles } from "@/lib/nfl/players";
 
 const RELEASE_BASE = "https://github.com/nflverse/nflverse-data/releases/download";
@@ -78,23 +80,18 @@ function kickoffsByTeamWeek(rows: readonly Record<string, string>[], season: num
     const iso = easternWallClockToUtcIso(str(row, "gameday"), str(row, "gametime"));
     if (iso === null) continue;
     const at = Date.parse(iso);
-    for (const team of [str(row, "home_team"), str(row, "away_team")]) {
+    // Normalized on this side too. The injury side goes through `normalizeTeam`, so
+    // leaving these raw is dormant only while every code is already canonical. Extend
+    // INJURY_SEASONS backwards and OAK, SD and STL normalize on one side and not the
+    // other, dropping every one of those teams' rows into `unmatched` while the percentage
+    // quietly continues over the survivors.
+    for (const raw of [str(row, "home_team"), str(row, "away_team")]) {
+      const team = normalizeTeam(raw);
+      if (team === null) continue;
       kickoffs.set(`${str(row, "week")}:${team}`, at);
     }
   }
   return kickoffs;
-}
-
-/**
- * Median of an already-sorted sample, averaging the two central values on an even count.
- *
- * Taking the upper central value is off by half an observation, which is nothing on a
- * continuous sample of thousands — but this figure is published, and a published number
- * should be the statistic it is named after rather than an approximation to it.
- */
-function median(sorted: readonly number[]): number {
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /** Share of rows carrying a value that is neither blank nor zero. */
@@ -319,12 +316,24 @@ async function main(): Promise<void> {
     }
     lateness.sort((a, b) => a - b);
     const matched = before + after;
+    // Refused, not rendered. `0/0` prints `NaN%` and then the min/max lookup throws a
+    // TypeError, so the operator sees a stack trace instead of the diagnosis. Same shape
+    // the two checks above already refuse explicitly.
+    if (matched === 0) {
+      throw new Error(
+        `no ${season} injury row joined to a kickoff; all ${dated.length} were unmatched, ` +
+          `so the team/week join has broken`,
+      );
+    }
     process.stdout.write(
       `    joined to a kickoff: ${matched} of ${dated.length} (${unmatched} unmatched)\n` +
         `    modified BEFORE kickoff: ${before} (${((before / matched) * 100).toFixed(2)}%)\n` +
         `    modified AFTER  kickoff: ${after} (${((after / matched) * 100).toFixed(2)}%)\n` +
         `    hours before kickoff — min ${lateness[0].toFixed(1)}, ` +
-        `median ${median(lateness).toFixed(1)}, ` +
+        // `quantile` from lib/core/stats, which is tested and linear-interpolated — for an
+        // even count that is exactly the average of the two central values. A hand-rolled
+        // median beside it would be eight untested lines producing a published number.
+        `median ${quantile(lateness, 0.5).toFixed(1)}, ` +
         `max ${lateness[lateness.length - 1].toFixed(1)}\n`,
     );
   }

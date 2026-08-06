@@ -403,6 +403,30 @@ describe("NflverseProvider.injuries", () => {
     expect(result.reason).toMatch(/header shape has drifted/i);
   });
 
+  it("refuses a season in which no row carries any designation", async () => {
+    // The row count catches a renamed `game_type`; it cannot catch a renamed
+    // `report_status`, because an absent column reads as blank and blank is legitimately
+    // "no designation". Thousands of rows in which nobody was ever listed Out is the
+    // clean-looking result built from nothing this seam exists to refuse.
+    const rows = parseCsv(injuries2024Csv);
+    const header = Object.keys(rows[0])
+      .map((c) => (c === "report_status" ? "game_status" : c))
+      .join(",");
+    const body = rows
+      .map((r) =>
+        Object.keys(rows[0])
+          .map((c) => (c === "practice_status" || c === "report_status" ? "" : String(r[c] ?? "")))
+          .join(","),
+      )
+      .join("\n");
+    const provider = new NflverseProvider(async () => `${header}\n${body}\n`);
+    const result = await provider.injuries(2024);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/no designation on any of them/i);
+    expect(result.reason).toMatch(/probably been renamed/i);
+  });
+
   it("coalesces concurrent callers for one season into a single download", async () => {
     let calls = 0;
     const provider = new NflverseProvider(async (url) => {

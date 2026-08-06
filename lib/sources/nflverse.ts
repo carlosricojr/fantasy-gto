@@ -489,6 +489,24 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
             `release is unpopulated or the header shape has drifted again.`,
         );
       }
+      // The row count catches a rename of `game_type` or `gsis_id`, because both zero it.
+      // It does not catch a rename of the *payload* — `report_status` or `practice_status`.
+      // `str()` reads an absent column as blank and blank is legitimately "no designation",
+      // so a renamed status column yields thousands of rows in which nobody was ever listed
+      // Out, with the unknown counters empty because blank is exactly what they skip. That
+      // is the clean-looking result built from nothing this seam exists to refuse, reached
+      // through the one door the count leaves open.
+      if (
+        parsed.reports.every(
+          (r) => r.gameStatus === "none" && r.practiceStatus === "none",
+        )
+      ) {
+        return failed(
+          `Injury reports for ${season} parsed ${parsed.reports.length} rows with no ` +
+            `designation on any of them. report_status and practice_status have probably ` +
+            `been renamed.`,
+        );
+      }
       return ok(parsed);
     } catch (cause) {
       return failed(`Injury reports for ${season} are unavailable.`, cause);

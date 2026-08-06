@@ -212,8 +212,9 @@ unnoticed for a season.
 
 **Fields contain newlines.** 48 records in the 2024 file carry a `practice_status` of
 `"\n    "` — a quoted field spanning lines. Splitting the file on newlines shifts every
-column after it and the row still looks plausible. `lib/nfl/csv.ts` handles it; one such
-record is in the fixture.
+column after it and the row still looks plausible. `lib/nfl/csv.ts` handles it, and two such
+records are in the fixture — the assertion that would catch a shift is on the column *after*
+the newline, not on the field itself.
 
 #### The leakage question, answered
 

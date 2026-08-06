@@ -102,7 +102,20 @@ describe("toRegularSeasonInjuries — 2024 shape", () => {
     expect(carr?.gameStatus).toBe("unknown");
   });
 
-  it("normalizes the team", () => {
+  it("normalizes a retired team code, not merely a canonical one", () => {
+    // Asserting non-null against fixture teams that are already canonical would pass with
+    // no normalization at all. The seasons this file can be extended to carry OAK, SD and
+    // STL, and a join keyed on the raw code drops every one of those teams silently.
+    const rows = [
+      { season: "2015", week: "3", gsis_id: "x", game_type: "REG", team: "OAK" },
+      { season: "2015", week: "3", gsis_id: "y", game_type: "REG", team: "SD" },
+      { season: "2014", week: "3", gsis_id: "z", game_type: "REG", team: "STL" },
+    ];
+    expect(toRegularSeasonInjuries(rows).reports.map((r) => r.team)).toEqual([
+      "LV",
+      "LAC",
+      "LA",
+    ]);
     expect(parsed.reports.every((r) => r.team !== null)).toBe(true);
   });
 });
@@ -131,13 +144,19 @@ describe("toRegularSeasonInjuries — 2025 shape", () => {
 });
 
 describe("both shapes agree", () => {
-  it("produces the same record shape from either header", () => {
-    // The point of parsing on `game_type`: neither season is silently empty.
+  it("yields rows from both headers, which is the whole point of filtering on game_type", () => {
+    // The previous version of this test compared `Object.keys` of two records built from
+    // the same object literal, so it could not fail whatever the parse did. What actually
+    // needs asserting is that neither season comes back empty: filtering on `season_type`
+    // instead would leave 2024 at zero and 2025 unchanged, which is exactly the drift that
+    // cost a debugging cycle.
     const a = toRegularSeasonInjuries(parseCsv(csv2024));
     const b = toRegularSeasonInjuries(parseCsv(csv2025));
     expect(a.reports.length).toBeGreaterThan(0);
     expect(b.reports.length).toBeGreaterThan(0);
-    expect(Object.keys(a.reports[0]).sort()).toEqual(Object.keys(b.reports[0]).sort());
+    // And both carry real designations rather than an all-blank parse.
+    expect(a.reports.some((r) => r.gameStatus !== "none")).toBe(true);
+    expect(b.reports.some((r) => r.gameStatus !== "none")).toBe(true);
   });
 
   it("drops a row with no player identifier", () => {
