@@ -9,9 +9,14 @@ import { APP_NAV, isActive } from "./routes";
 /**
  * Primary navigation on phones, for the signed-in surfaces.
  *
- * The manifest declares `display: standalone`, so this sits directly above the home
- * indicator on an installed PWA and needs the safe-area inset — without it the labels are
- * under the gesture bar on every modern iPhone.
+ * No `env(safe-area-inset-bottom)` padding, deliberately. An earlier version had it, and
+ * it was inert: `env(safe-area-inset-*)` only reports a non-zero value when the viewport
+ * meta carries `viewport-fit=cover`, and nothing in this app sets one — there is no
+ * `export const viewport` anywhere, so Next emits the default. Without `cover` the browser
+ * already insets the layout viewport above the home indicator, so `bottom-0` is correct on
+ * an installed PWA and the `calc()` added zero. **If `viewport-fit=cover` is ever added,
+ * this bar and the footer padding in `(app)/layout.tsx` both need the inset back**, or the
+ * labels will sit under the gesture bar.
  *
  * Hidden from `sm` up with `sm:hidden`, which is `display: none` and therefore removes it
  * from the accessibility tree as well as the layout. That is deliberate: the header renders
@@ -31,7 +36,7 @@ export function BottomTabs() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background pb-[env(safe-area-inset-bottom)] sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background sm:hidden"
     >
       <ul className="mx-auto flex max-w-lg items-stretch">
         {items.map((item) => {

@@ -130,6 +130,15 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* The header is sticky and the app's tab bar is fixed to the bottom, so a browser
+     scrolling a newly focused control to the very edge of the viewport would hide it
+     underneath one of them and take the focus ring with it — WCAG 2.4.11. These keep
+     both ends clear. The top value covers the tallest header (56px, or 88px on the
+     marketing mobile row); the bottom covers the 56px tab bar. */
+  html {
+    scroll-padding-top: 6rem;
+    scroll-padding-bottom: 5rem;
+  }
 }
 
 /* Clerk */

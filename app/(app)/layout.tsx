@@ -11,9 +11,11 @@ import { SiteHeader } from "@/components/nav/site-header";
  * open. The header therefore has to handle both states rather than assuming a user.
  *
  * Navigation is a header on tablet and up and a bottom tab bar on phones, both driven by
- * `APP_NAV`. The bottom bar is fixed, so the content column reserves space for it below
- * `sm` — otherwise the last rows of a long projections table sit underneath it and cannot
- * be scrolled clear.
+ * `APP_NAV`. The bottom bar is fixed, so space has to be reserved for it below `sm` —
+ * otherwise the end of a long projections table sits underneath it and cannot be scrolled
+ * clear. That reservation belongs to the footer alone, because the footer is the last
+ * in-flow element: padding the content column as well pushed the footer up and left a
+ * 56px dead band above it on any page taller than the viewport.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,11 +26,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* A div, not a main: each page supplies its own <main>, and a nested landmark
           gives screen readers two "main" regions with skip-to-content landing on the
           wrapper rather than the content. */}
-      <div className="flex-1 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0">
-        {children}
-      </div>
+      <div className="flex-1">{children}</div>
 
-      <footer className="border-t py-6 pb-[calc(1.5rem+3.5rem+env(safe-area-inset-bottom))] sm:pb-6">
+      <footer className="border-t py-6 pb-20 sm:pb-6">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground">
           <span>Fantasy GTO</span>
           <Link href="/accuracy" className="hover:text-foreground">
