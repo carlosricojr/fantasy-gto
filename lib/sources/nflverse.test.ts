@@ -476,15 +476,19 @@ describe("NflverseProvider.snapCounts", () => {
     expect(result.data).toHaveLength(5);
   });
 
-  it("refuses the empty 2012 release rather than reporting no snaps taken", async () => {
-    // HTTP 200, valid sixteen-column header, zero rows. This is the exact asset that made
-    // #13 move the development window floor from 2012 to 2013.
+  it("refuses an empty release rather than reporting no snaps taken", async () => {
+    // HTTP 200, valid sixteen-column header, zero rows — the shape the 2012 asset actually
+    // has, and the reason the development window floor moved to 2013. The message names the
+    // season and points at the document; which seasons are populated is a measurement that
+    // belongs there, not baked into an error string where it would go stale on a backfill.
     const headerOnly = `${snaps2024Csv.split("\n")[0]}\n`;
     const provider = new NflverseProvider(async () => headerOnly);
     const result = await provider.snapCounts(2012);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.reason).toMatch(/first populated in 2013/i);
+    expect(result.reason).toMatch(/2012/);
+    expect(result.reason).toMatch(/no regular-season rows/i);
+    expect(result.reason).toMatch(/docs\/data-sources\.md/);
   });
 
   it("coalesces concurrent callers and does not cache a failure", async () => {

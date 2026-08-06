@@ -552,13 +552,18 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     try {
       const text = await this.fetchText(snapCountsUrl(season));
       const snaps = toRegularSeasonSnaps(parseCsv(text));
-      // `snap_counts_2012.csv` is the canonical example: HTTP 200, a valid sixteen-column
-      // header, and not one data row. Reporting success on that would have a caller
-      // conclude nobody took a snap that season.
+      // HTTP 200, a valid sixteen-column header, and not one data row is a real shape here.
+      // Reporting success on it would have a caller conclude nobody took a snap that season.
+      //
+      // The message says what happened and not which seasons are populated: which they are
+      // is a measurement, it lives in `docs/data-sources.md` where `pnpm verify-sources`
+      // reproduces it, and a range baked into an error string goes stale the first time
+      // upstream backfills.
       if (snaps.length === 0) {
         return failed(
-          `Snap counts for ${season} parsed to no regular-season rows. The release is ` +
-            `first populated in 2013; earlier seasons answer 200 with an empty file.`,
+          `Snap counts for ${season} parsed to no regular-season rows. The release answered ` +
+            `but is empty for this season; see docs/data-sources.md for which seasons are ` +
+            `populated.`,
         );
       }
       return ok(snaps);
