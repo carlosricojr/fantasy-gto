@@ -183,6 +183,15 @@ async function main(): Promise<void> {
   const directorySkill = profiles.filter((p) =>
     BRIDGE_POSITIONS.includes(p.position),
   );
+  // Refused rather than rendered. Every population below is a fixed historical sample that
+  // is known to be non-empty, so an empty one means the release moved — and a table of
+  // `NaN%` beside an exit code of 0 reads as "verified" to anything checking this script.
+  if (profiles.length === 0 || directorySkill.length === 0) {
+    throw new Error(
+      `players.csv yielded ${profiles.length} players and ${directorySkill.length} at ` +
+        `skill positions; both were non-empty when this was written, so the release has moved`,
+    );
+  }
   const share = (n: number, of: number) => `${((n / of) * 100).toFixed(1)}%`;
   process.stdout.write(
     `  ${profiles.length} players with a gsis_id, of which ${directorySkill.length} at skill positions\n` +
@@ -201,6 +210,12 @@ async function main(): Promise<void> {
     const weeks = parseCsv(await cached(statsUrl(season))).filter(
       (r) => str(r, "season_type") === "REG" && BRIDGE_POSITIONS.includes(str(r, "position")),
     );
+    if (weeks.length === 0) {
+      throw new Error(
+        `${season} yielded no regular-season skill player-weeks; it had thousands when ` +
+          `this was written, so either the release moved or the filter is wrong`,
+      );
+    }
     const matched = weeks.filter((r) => byPlayerId.has(str(r, "player_id")));
     const withBirth = matched.filter((r) => byPlayerId.get(str(r, "player_id"))!.birthDate);
     const withPfr = matched.filter((r) => byPlayerId.get(str(r, "player_id"))!.pfrId);
