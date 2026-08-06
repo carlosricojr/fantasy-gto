@@ -256,7 +256,7 @@ describe("lineupRegret", () => {
     expect(result.best).toBeCloseTo(12, 10);
   });
 
-  it("clamps regret where the solver's quantization can actually make it negative", () => {
+  it("reports regret as the difference, and records why the clamp is untested", () => {
     // The previous version of this test used three players with identical actuals and
     // asserted `>= 0`. It passed with or without the clamp, because `best >= achieved`
     // holds by construction whenever the solver is exact — a mutation survivor asserting a

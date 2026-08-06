@@ -929,7 +929,19 @@ async function main(): Promise<void> {
         const withBaseline = lineupRegret(
           key,
           slots,
-          asCompetitors((r) => baselineById.get(`${key}:${r.competitorId}`) ?? 0),
+          // Throws rather than falling back to zero. A missing baseline projection would
+          // bench that player, lowering the baseline lineup's total and inflating its
+          // regret — so the comparison would favour the model for a reason that has nothing
+          // to do with the model. Unreachable today, since `evaluate` emits both predictors
+          // from one loop, and asserted for the same reason `reportDecisions` asserts its
+          // own alignment rather than trusting it.
+          asCompetitors((r) => {
+            const projected = baselineById.get(`${key}:${r.competitorId}`);
+            if (projected === undefined) {
+              throw new Error(`regret: no baseline projection for ${key}:${r.competitorId}`);
+            }
+            return projected;
+          }),
           actual,
         );
         modelRegret += withModel.regret;

@@ -84,6 +84,13 @@ Estimators are in `lib/core/decisions.ts` and are sport-agnostic. Figures below 
 `pnpm backtest`, model against the prior-games-mean baseline, on the same predictions the
 MAE tables are built from.
 
+**Every figure in this section is in-sample.** It covers the development and tuning sets
+only; the holdout carries no decision metrics, because scoring 2025 to obtain them would
+spend the holdout on a measurement no hypothesis was pre-registered for. Read these as
+exploratory — they describe how the model behaves on seasons it was developed against, not
+held-out performance. The 2025 row in the accuracy table above remains the only valid
+accuracy claim.
+
 ### Pairwise start/sit accuracy
 
 Every pair of players in the same week at the same position — the choice a lineup actually
@@ -150,8 +157,14 @@ the same optimizer so the difference is down to projections alone.
 The rosters are **synthetic** and the construction is a judgement, not a measurement: each
 week's scored players are dealt round-robin in competitor-id order into twelve teams. The
 deal is keyed on neither predictor, so both sides receive identical rosters built without
-reference to either set of projections. The absolute regret still depends on the choice; the
-comparison does not.
+reference to either set of projections.
+
+That makes the comparison fair, not invariant. Identical rosters stop the deal favouring
+one predictor over the other; they do not make the measured *gap* independent of it. A
+different grouping changes which players share a roster and therefore which slot conflicts
+arise, and both regrets — and the distance between them — would move. The honest claim is
+that both predictors face the same rosters, not that the result would survive a different
+deal unchanged.
 
 A roster-week is counted only where a legal lineup exists, decided by running the optimizer
 with every player valued equally — which turns it into a pure maximum-cardinality matching
