@@ -16,6 +16,7 @@ import {
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
+import { ruledOutForWeek } from "../lib/nfl/injuries";
 import { scoreOffense } from "../lib/nfl/scoring/score";
 import {
   type RosterStatus,
@@ -177,6 +178,28 @@ export interface ProjectWeekResult {
    * roster's status column.
    */
   unknownTeam: number;
+  /**
+   * Skipped because the league designated them `Out` for this week.
+   *
+   * Reported separately from `unknownTeam` because it is a different fact about a different
+   * kind of absence.
+   *
+   * On its own this number cannot say whether the guard ran: zero means both "nobody was
+   * ruled out" and "the injury report failed to load". `injuryReportLoaded` is what
+   * distinguishes them, and it exists because the docstring here previously claimed this
+   * field made that distinction and it did not.
+   */
+  ruledOut: number;
+  /**
+   * Whether the weekly injury report was successfully loaded for this run.
+   *
+   * A failed fetch is deliberately not fatal — a transient upstream blip must not empty a
+   * week — but it does mean every ruled-out player was projected at full confidence, and
+   * nothing else about the run would show it. The roster's failure is at least visible
+   * through the coverage gate, because losing it drops coverage; losing this has no
+   * consequence the run can detect on its own.
+   */
+  injuryReportLoaded: boolean;
 }
 
 /** The database surface the run needs. Narrowed so a test can supply it directly. */
@@ -290,6 +313,27 @@ export async function runProjectWeek(
       // can lag a transaction by a day.
       const currentTeam = new Map<string, string>();
 
+      // Players the league has ruled out for this week.
+      //
+      // `Out` is not a probability, it is a statement that the player will not take a snap.
+      // He will score zero exactly as a bye-week player does, and the schema is explicit
+      // that a bye-week row "cannot be written at all" — `app/(app)/lineup/page.tsx` relies
+      // on that invariant to hardcode availability rather than filter. Writing a full
+      // projection for a ruled-out player breaks it, and the optimizer will then recommend
+      // starting him.
+      //
+      // Only `Out`. `Doubtful` and `Questionable` players do play, often enough that
+      // excluding them is a modelling decision rather than a correctness fix — and it is
+      // the pre-registered hypothesis in #19, which has not been evaluated.
+      //
+      // A failed fetch is not fatal, for the same reason the roster's is not: a transient
+      // upstream blip must not empty a week. It does mean the guard is absent for that run,
+      // which is the pre-existing behaviour rather than a regression.
+      const injuries = await provider.injuries(season);
+      const ruledOut = injuries.ok
+        ? ruledOutForWeek(injuries.data.reports, season, week)
+        : new Set<string>();
+
       const weeklyRoster = await provider.weeklyRoster(season);
       // Statuses for the target week, kept whether active or not. The teams map alone is
       // not enough: it says who *can* be projected, and the appearance loop below needs to
@@ -387,6 +431,8 @@ export async function runProjectWeek(
       // inside the per-ruleset loop reports three times the truth on the cron path, which
       // passes all three presets. The message printed that number.
       const unknownTeamPlayers = new Set<string>();
+      // Distinct players again, for the same reason: the loop runs once per ruleset.
+      const ruledOutPlayers = new Set<string>();
       const coveredTeams = new Set<string>();
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
@@ -436,6 +482,13 @@ export async function runProjectWeek(
           // weeks idle and keep producing a confident projection from year-old form.
           const weeksSincePlayed = weeksBetween(lastPlayed, { season, index: week });
           if (weeksSincePlayed > INACTIVITY_WEEKS) continue;
+
+          // Ruled out before anything else is considered. A projection for him would be a
+          // confident number for a player who is not going to play.
+          if (ruledOut.has(playerId)) {
+            ruledOutPlayers.add(playerId);
+            continue;
+          }
 
           // Never fall back to `latest.competitor.team`: at week 1 that is last season's
           // team. Without current-season evidence the player's team is genuinely unknown,
@@ -522,6 +575,7 @@ export async function runProjectWeek(
       // whose games have already finished. The same check catches a truncated upstream
       // file mid-season.
       const unknownTeam = unknownTeamPlayers.size;
+      const ruledOutCount = ruledOutPlayers.size;
       const teamsPlaying = new Set(weekContestByTeam.keys()).size;
       const coverage = teamsPlaying === 0 ? 0 : coveredTeams.size / teamsPlaying;
 
@@ -544,10 +598,20 @@ export async function runProjectWeek(
                   `current-season appearance could have established one, and they have none`
                 : `the weekly roster could not be loaded (${weeklyRoster.reason}), so only ` +
                   `a current-season appearance could have established one, and they have none`) +
-            `). Nothing was written: a partial board would be served as though it were the ` +
+            `). ` +
+            (injuries.ok
+              ? `${ruledOutCount} more were skipped as ruled out. `
+              : `The injury report could not be loaded, so nobody was skipped as ruled out. `) +
+            `Nothing was written: a partial board would be served as though it were the ` +
             `whole week.`,
         });
-        return { projections: 0, players: identities.size, unknownTeam };
+        return {
+          projections: 0,
+          players: identities.size,
+          unknownTeam,
+          ruledOut: ruledOutCount,
+          injuryReportLoaded: injuries.ok,
+        };
       }
 
       // One stamp for the whole run. Every row this run writes carries it, so the prune
@@ -585,7 +649,13 @@ export async function runProjectWeek(
         error: null,
       });
 
-      return { projections: written, players: identities.size, unknownTeam };
+      return {
+        projections: written,
+        players: identities.size,
+        unknownTeam,
+        ruledOut: ruledOutCount,
+        injuryReportLoaded: injuries.ok,
+      };
     } catch (error) {
       await ctx.runMutation(internal.jobs.finish, {
         jobId,

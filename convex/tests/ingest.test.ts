@@ -6,6 +6,7 @@ import { runProjectWeek } from "../ingest";
 import { CURRENT_TEAMS } from "../../lib/nfl/teams";
 import {
   NflverseProvider,
+  injuriesUrl,
   schedulesUrl,
   weeklyRosterUrl,
   weeklyStatsUrl,
@@ -526,5 +527,104 @@ describe("weekly roster overrides an earlier appearance", () => {
     // rule behaves exactly as it did before this source existed.
     const ids = await projectedIds(providerFor(TEAMS.length), TARGET_WEEK);
     expect(ids.has("00-00000")).toBe(true);
+  });
+});
+
+describe("players ruled out", () => {
+  /**
+   * The full league, plus an injury report designating one player `Out` for the target week.
+   *
+   * `Out` is the league's own statement that the player will not take a snap. He will score
+   * zero, exactly as a bye-week player does — and the schema is explicit that a bye-week row
+   * "cannot be written at all", with `app/(app)/lineup/page.tsx` relying on that invariant to
+   * hardcode availability. A projected `Out` player breaks it.
+   */
+  function providerWithInjury(outPlayerId: string, status: string): NflverseProvider {
+    const stats = statsCsv(TEAMS.length);
+    const games = gamesCsv();
+    const injuryHeader = [
+      "season", "game_type", "team", "week", "gsis_id", "position", "full_name",
+      "report_status", "practice_status",
+    ];
+    const injuryRows = [
+      [
+        String(SEASON), "REG", TEAMS[0], String(TARGET_WEEK), outPlayerId, "WR",
+        "Injured Player", status, "Did Not Participate In Practice",
+      ],
+    ];
+    const injuries = [injuryHeader.join(","), ...injuryRows.map((r) => r.join(","))].join("\n");
+
+    return new NflverseProvider(async (url) => {
+      if (url === schedulesUrl()) return games;
+      if (url === weeklyStatsUrl(SEASON)) return stats;
+      if (url === injuriesUrl(SEASON)) return injuries;
+      throw new Error(`${url} responded 404`);
+    });
+  }
+
+  it("does not project a player the league has ruled out", async () => {
+    const ids = await projectedIds(providerWithInjury("00-00000", "Out"), TARGET_WEEK);
+    expect(ids.has("00-00000")).toBe(false);
+    // His teammate, identical in every other respect, is unaffected.
+    expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("still projects a player listed Questionable", async () => {
+    // Questionable players do play, and often. Excluding them would be a modelling decision
+    // dressed as a correctness fix — and it is the pre-registered hypothesis in #19, which
+    // has not been evaluated. Only `Out` is a statement that the player will not appear.
+    const ids = await projectedIds(
+      providerWithInjury("00-00000", "Questionable"),
+      TARGET_WEEK,
+    );
+    expect(ids.has("00-00000")).toBe(true);
+  });
+
+  it("projects everyone when the injury report is unavailable, and says so", async () => {
+    // A transient upstream failure must not empty a week. But the failure has to be
+    // visible: `ruledOut` alone reads 0 both when nobody is out and when the report never
+    // loaded, and a run that silently lost the guard projects every ruled-out player at
+    // full confidence while finishing "succeeded".
+    const { ctx } = recordingCtx();
+    const result = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      providerFor(TEAMS.length),
+    );
+    expect(result.projections).toBeGreaterThan(0);
+    expect(result.ruledOut).toBe(0);
+    expect(result.injuryReportLoaded).toBe(false);
+  });
+
+  it("reports the guard as loaded when the report is present", async () => {
+    const { ctx } = recordingCtx();
+    const result = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      providerWithInjury("00-00000", "Out"),
+    );
+    expect(result.injuryReportLoaded).toBe(true);
+    expect(result.ruledOut).toBe(1);
+  });
+
+  it("counts ruled-out players once, not once per ruleset", async () => {
+    // The same regression `unknownTeam` already had: the loop runs per ruleset, so a
+    // counter incremented inside it reports three times the truth on the cron path. The
+    // three tests above all go through `projectedIds`, which runs a single ruleset and
+    // never reads the result, so none of them would catch it.
+    const { ctx } = recordingCtx();
+    const one = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      providerWithInjury("00-00000", "Out"),
+    );
+    const { ctx: ctx3 } = recordingCtx();
+    const three = await runProjectWeek(
+      ctx3,
+      { season: SEASON, week: TARGET_WEEK, scoringIds: ["ppr", "half_ppr", "standard"] },
+      providerWithInjury("00-00000", "Out"),
+    );
+    expect(three.ruledOut).toBe(one.ruledOut);
+    expect(one.ruledOut).toBe(1);
   });
 });

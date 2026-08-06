@@ -6,6 +6,7 @@ import { parseCsv } from "./csv";
 import {
   indexInjuries,
   injuryKey,
+  ruledOutForWeek,
   toGameStatus,
   toPracticeStatus,
   toRegularSeasonInjuries,
@@ -187,5 +188,91 @@ describe("indexInjuries", () => {
     ];
     const parsed = toRegularSeasonInjuries(rows);
     expect(indexInjuries(parsed.reports).get(injuryKey("x", 2024, 3))?.gameStatus).toBe("out");
+  });
+});
+
+describe("ruledOutForWeek", () => {
+  const parsed = toRegularSeasonInjuries(parseCsv(csv2024));
+
+  it("returns only the players designated Out for that week", () => {
+    // Matched on player *and* week. A player can appear in several weeks with different
+    // designations, so finding him by id alone could check the wrong row and pass while the
+    // function returned someone it should not have.
+    const week = parsed.reports[0].week;
+    const out = ruledOutForWeek(parsed.reports, 2024, week);
+    expect(out.size).toBeGreaterThan(0);
+    for (const id of out) {
+      const report = parsed.reports.find((r) => r.playerId === id && r.week === week);
+      expect(report?.gameStatus).toBe("out");
+    }
+  });
+
+  it("does not include Questionable or Doubtful", () => {
+    // They play, often. Excluding them is a modelling decision rather than a correctness
+    // fix, and it is a pre-registered hypothesis that has not been evaluated.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "3", gsis_id: "out", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "3", gsis_id: "q", game_type: "REG", report_status: "Questionable" },
+      { season: "2024", week: "3", gsis_id: "d", game_type: "REG", report_status: "Doubtful" },
+      { season: "2024", week: "3", gsis_id: "n", game_type: "REG", report_status: "" },
+    ]).reports;
+    expect([...ruledOutForWeek(reports, 2024, 3)]).toEqual(["out"]);
+  });
+
+  it("lets a correction supersede an earlier designation", () => {
+    // Upstream ships corrections. A union over the week would keep ruling out a player who
+    // was downgraded to Questionable on the Saturday — and that is not harmless caution:
+    // no projection row is written, `pruneStale` deletes the one an earlier run wrote, and
+    // the lineup page cannot offer a player who is going to play.
+    const downgraded = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+    ]).reports;
+    expect(ruledOutForWeek(downgraded, 2024, 5).has("x")).toBe(false);
+
+    // And the other direction: upgraded to Out on the Saturday.
+    const upgraded = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Questionable" },
+      { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Out" },
+    ]).reports;
+    expect(ruledOutForWeek(upgraded, 2024, 5).has("y")).toBe(true);
+  });
+
+  it("agrees with indexInjuries about which row wins", () => {
+    // The two functions read the same array and must not contradict each other.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+    ]).reports;
+    const indexed = indexInjuries(reports).get(injuryKey("x", 2024, 5));
+    expect(indexed?.gameStatus).toBe("questionable");
+    expect(ruledOutForWeek(reports, 2024, 5).has("x")).toBe(false);
+  });
+
+  it("does not let one season overwrite another", () => {
+    // Week alone was enough only because every caller passed a single season's file. The
+    // last-write-wins rule turns that accident into a hazard: week 5 of 2023 would silently
+    // overwrite week 5 of 2024 rather than merely joining it.
+    const reports = [
+      ...toRegularSeasonInjuries([
+        { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      ]).reports,
+      ...toRegularSeasonInjuries([
+        { season: "2023", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+      ]).reports,
+    ];
+    expect(ruledOutForWeek(reports, 2024, 5).has("x")).toBe(true);
+    expect(ruledOutForWeek(reports, 2023, 5).has("x")).toBe(false);
+  });
+
+  it("does not leak a designation from another week", () => {
+    // Out is a per-week fact. A player ruled out in week 3 and cleared for week 4 must be
+    // projectable in week 4 — otherwise one injury removes him for the rest of the season.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "3", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "4", gsis_id: "x", game_type: "REG", report_status: "" },
+    ]).reports;
+    expect(ruledOutForWeek(reports, 2024, 3).has("x")).toBe(true);
+    expect(ruledOutForWeek(reports, 2024, 4).has("x")).toBe(false);
   });
 });

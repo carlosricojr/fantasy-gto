@@ -173,3 +173,51 @@ export function indexInjuries(
   }
   return index;
 }
+
+/**
+ * The players the league has ruled out for a given week.
+ *
+ * `out` is not a probability. It is the team's statement that the player will not take a
+ * snap, so he will score zero exactly as a bye-week player does — and this project's schema
+ * is explicit that a bye-week projection row "cannot be written at all", with the lineup
+ * page relying on that invariant rather than filtering. A projection written for a ruled-out
+ * player breaks it, and the optimizer then recommends starting him.
+ *
+ * Deliberately only `out`. `doubtful` and `questionable` players do play, often enough that
+ * excluding them is a modelling decision rather than a correctness fix — and that decision
+ * is a pre-registered hypothesis which has not been evaluated.
+ *
+ * Keyed on season **and** week, matching `injuryKey` and `indexInjuries`. Week alone was
+ * enough while every caller passed one season's file, but only accidentally — and the
+ * last-write-wins rule below turned that accident into a hazard, because week 5 of one
+ * season would silently overwrite week 5 of another rather than merely joining it. A
+ * function whose correctness depends on what its caller happens to pass is one refactor
+ * away from being wrong.
+ *
+ * Per week, because the designation is. A player ruled out in week 3 and cleared for week 4
+ * must be projectable in week 4; keying this any other way removes him for the season.
+ *
+ * **A later row supersedes an earlier one**, matching `indexInjuries` rather than taking the
+ * union of the week. Upstream ships corrections: a player listed `Out` on Friday and
+ * downgraded to `Questionable` on Saturday has two rows, and a union would keep ruling him
+ * out. That is not a harmless over-caution — `runProjectWeek` writes no row for him, and
+ * `pruneStale` then deletes the row an earlier run had written, so the lineup page cannot
+ * offer a player who is going to play and has no way to recover, since its whole pool comes
+ * from projection rows.
+ */
+export function ruledOutForWeek(
+  reports: readonly InjuryReport[],
+  season: number,
+  week: number,
+): Set<string> {
+  const latest = new Map<string, GameStatus>();
+  for (const report of reports) {
+    if (report.season !== season || report.week !== week) continue;
+    latest.set(report.playerId, report.gameStatus);
+  }
+  const out = new Set<string>();
+  for (const [playerId, status] of latest) {
+    if (status === "out") out.add(playerId);
+  }
+  return out;
+}
