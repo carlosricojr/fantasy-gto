@@ -166,9 +166,15 @@ export interface ProjectWeekResult {
   /**
    * Skipped because nothing established their team for this season.
    *
-   * Two sources can: an active entry on the target week's roster, or an appearance in a
-   * current-season game. Before the roster existed only the second could, and the name of
-   * this field and the message below still said so after it stopped being true.
+   * Three ways to land here, not two. A player may have no active entry on the target
+   * week's roster and no current-season appearance. Or he may have an appearance that the
+   * roster has since **withdrawn** — listed for the target week as cut, reserve, or
+   * anything else non-active, which deletes the team his appearance established.
+   *
+   * That third case matters for diagnosis. It is a player who plainly does have a
+   * current-season appearance, so a message blaming a missing one sends an operator hunting
+   * for a `stats_player_week` file that is present and fine, when the real cause is the
+   * roster's status column.
    */
   unknownTeam: number;
 }
@@ -511,8 +517,9 @@ export async function runProjectWeek(
           error:
             `Only ${coveredTeams.size} of ${teamsPlaying} teams playing ${season} week ${week} ` +
             `had a projectable player (${unknownTeam} skipped for no current-season team — ` +
-            `neither an active weekly-roster entry nor a current-season appearance). Nothing ` +
-            `was written: a partial board would be served as though it were the whole week.`,
+            `not listed active on this week's roster, and no current-season appearance the ` +
+            `roster has not since ruled out). Nothing was written: a partial board would be ` +
+            `served as though it were the whole week.`,
         });
         return { projections: 0, players: identities.size, unknownTeam };
       }

@@ -120,29 +120,6 @@ export function toWeeklyRoster(rows: readonly CsvRow[]): WeeklyRosterReport {
  * Every player's roster status for a given week, active or not.
  *
  * Separate from `teamsForWeek` because the two answer different questions. That one asks
- * "who can be projected"; this one asks "what does the roster say about this player", and a
- * caller needs the second to know that a player it has *other* evidence for — an appearance
- * earlier in the season — has since been cut. Without it, a player who played weeks 1 to 5
- * and was released before week 6 is reinstated by his own history.
- *
- * First entry wins on a duplicate, matching `teamsForWeek`.
- */
-/**
- * The team each active player is on in a given week.
- *
- * Only `active` entries contribute. A cut, retired, or practice-squad player is on the file
- * and is not going to take a snap, and projecting one would put a name on the board that no
- * lineup can legitimately start.
- *
- * A player appears at most once per team per week, but a mid-week transaction can list him
- * on two. The first entry wins, which makes the result a function of file order rather than
- * of iteration order — the same determinism rule `parseSeasonRoster` already follows, and
- * the reason is the same: a board that reshuffles between runs reads as a bug.
- */
-/**
- * Every player's roster status for a given week, active or not.
- *
- * Separate from `teamsForWeek` because the two answer different questions. That one asks
  * "who can be projected"; this one asks "what does the roster say about this player" — and
  * a caller needs the second to know that a player it has *other* evidence for, such as an
  * appearance earlier in the season, has since been cut. Without it a player who played
@@ -163,6 +140,18 @@ export function statusesForWeek(
   return statuses;
 }
 
+/**
+ * The team each active player is on in a given week.
+ *
+ * Only `active` entries contribute. A cut, retired, or practice-squad player is on the file
+ * and is not going to take a snap, and projecting one would put a name on the board that no
+ * lineup can legitimately start.
+ *
+ * A player appears at most once per team per week, but a mid-week transaction can list him
+ * on two. The first entry wins, which makes the result a function of file order rather than
+ * of iteration order — the same determinism rule `parseSeasonRoster` already follows, and
+ * the reason is the same: a board that reshuffles between runs reads as a bug.
+ */
 export function teamsForWeek(
   entries: readonly WeeklyRosterEntry[],
   week: number,
