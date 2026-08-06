@@ -1,0 +1,11 @@
+season,game_type,team,week,gsis_id,position,full_name,first_name,last_name,report_primary_injury,report_secondary_injury,report_status,practice_primary_injury,practice_secondary_injury,practice_status,date_modified
+2024,REG,ARI,1,00-0039521,WR,Xavier Weaver,Xavier,Weaver,Oblique,,Out,Oblique,,Did Not Participate In Practice,2024-09-06T19:05:30Z
+2024,REG,ARI,1,00-0037141,S,Joey Blount,Joey,Blount,Back,,Questionable,Back,,Limited Participation in Practice,2024-09-06T19:05:21Z
+2024,REG,ATL,1,00-0031583,DT,Grady Jarrett,Grady,Jarrett,,,,Not injury related - resting player,,Did Not Participate In Practice,2024-09-06T18:35:04Z
+2024,REG,ATL,1,00-0036948,DE,Ta'Quon Graham,Ta'Quon,Graham,,,,Not injury related - resting player,,Limited Participation in Practice,2024-09-06T18:34:43Z
+2024,REG,BAL,1,00-0031360,LB,Kyle Van Noy,Kyle,Van Noy,gameday concussion protocol evaluation,Eye,Out,,,"
+    ",2024-09-06T03:11:40Z
+2024,REG,BAL,1,00-0039796,RB,Rasheen Ali,Rasheen,Ali,Neck,,Doubtful,Neck,,Limited Participation in Practice,2024-09-04T16:29:28Z
+2024,REG,NO,2,00-0031280,QB,Derek Carr,Derek,Carr,Player was ill this morning. Fully expected to play. No game status. ,,Note,,,"
+    ",2024-09-14T18:00:23Z
+2024,WC,BAL,19,00-0038038,S,Kyle Hamilton,Kyle,Hamilton,,,,Knee,,Full Participation in Practice,2025-01-09T20:33:49Z

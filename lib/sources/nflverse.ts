@@ -9,6 +9,7 @@ import {
 import { type CsvRow, num, numOrNull, parseCsv, str } from "../nfl/csv";
 import { normalizeTeam } from "../nfl/teams";
 
+import { type InjuryParseReport, toRegularSeasonInjuries } from "../nfl/injuries";
 import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
@@ -57,6 +58,16 @@ export function seasonRosterUrl(season: number): string {
  */
 export function playersUrl(): string {
   return `${RELEASE_BASE}/players/players.csv`;
+}
+
+/**
+ * Weekly injury reports.
+ *
+ * The header shape differs across seasons — 2024 has `date_modified` and no `season_type`,
+ * 2025 the reverse — and `lib/nfl/injuries.ts` parses on `game_type`, which both carry.
+ */
+export function injuriesUrl(season: number): string {
+  return `${RELEASE_BASE}/injuries/injuries_${season}.csv`;
 }
 
 /** Fetches a URL as text. Injectable so tests never touch the network. */
@@ -431,6 +442,44 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
       return ok(profiles);
     } catch (cause) {
       return failed("The nflverse player directory is unavailable.", cause);
+    }
+  }
+
+  /**
+   * One season of weekly injury reports.
+   *
+   * Returns the parse report rather than bare rows, so a caller sees the count of
+   * unrecognised status values alongside the data. A new designation appearing upstream
+   * should be visible, not folded into "no designation" and discovered a season later.
+   */
+  private readonly injuriesCache = new Map<number, ProviderResult<InjuryParseReport>>();
+
+  async injuries(season: number): Promise<ProviderResult<InjuryParseReport>> {
+    const cached = this.injuriesCache.get(season);
+    if (cached !== undefined) return cached;
+    const result = await this.fetchInjuries(season);
+    if (result.ok) this.injuriesCache.set(season, result);
+    return result;
+  }
+
+  private async fetchInjuries(
+    season: number,
+  ): Promise<ProviderResult<InjuryParseReport>> {
+    try {
+      const text = await this.fetchText(injuriesUrl(season));
+      const parsed = toRegularSeasonInjuries(parseCsv(text));
+      // Non-zero rows asserted per season. Filtering the wrong column — `season_type`
+      // instead of `game_type` — discards 100% of 2024 and yields a clean-looking result
+      // built from nothing, which is a debugging cycle this project has already spent once.
+      if (parsed.reports.length === 0) {
+        return failed(
+          `Injury reports for ${season} parsed to no regular-season rows. Either the ` +
+            `release is unpopulated or the header shape has drifted again.`,
+        );
+      }
+      return ok(parsed);
+    } catch (cause) {
+      return failed(`Injury reports for ${season} are unavailable.`, cause);
     }
   }
 

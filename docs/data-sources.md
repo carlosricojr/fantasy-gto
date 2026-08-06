@@ -176,6 +176,75 @@ player was *then*, and a function reading the wall clock would give every histor
 today's age and silently destroy any aging curve fitted on it. `lib/purity.test.ts` enforces
 the rule.
 
+### 1.2d Weekly injury reports — and whether they leak
+
+```text
+{base}/injuries/injuries_{SEASON}.csv
+```
+
+Verified 2026-08-06, reproduced by `pnpm verify-sources`.
+
+**The header drifts, and the drift is dangerous.**
+
+| Season | `game_type` | `season_type` | `date_modified` |
+| --- | --- | --- | --- |
+| 2024 | ✓ | — | ✓ |
+| 2025 | ✓ | ✓ | — |
+
+Filtering rows on `season_type == "REG"` **silently discards 100% of 2024** and produces a
+clean-looking result built from nothing. `game_type` is present in both and is what
+`lib/nfl/injuries.ts` filters on. The adapter asserts a non-zero regular-season row count
+per season, so the same mistake fails loudly next time.
+
+Regular-season rows: 2024 → 5,954; 2025 → 5,783.
+
+| Season | none | questionable | out | doubtful | unrecognised |
+| --- | --- | --- | --- | --- | --- |
+| 2024 | 3,203 | 1,464 | 1,091 | 190 | `"Note"` ×6 |
+| 2025 | 3,107 | 1,215 | 1,356 | 105 | none |
+
+`none` means the player is on the report — usually with a practice limitation — but carries
+no game designation. That is not the same as being absent from the report, and conflating
+the two puts every healthy player in the same bucket as everyone listed and cleared.
+Unrecognised values are **counted, never coerced**: upstream ships a literal `Note` in both
+status columns, and folding that into "no designation" is how a new status value would go
+unnoticed for a season.
+
+**Fields contain newlines.** 48 records in the 2024 file carry a `practice_status` of
+`"\n    "` — a quoted field spanning lines. Splitting the file on newlines shifts every
+column after it and the row still looks plausible. `lib/nfl/csv.ts` handles it; one such
+record is in the fixture.
+
+#### The leakage question, answered
+
+The injury *report* is published before kickoff by nature. But this release is **assembled
+after the fact**, so "the report existed before the game" and "the row we can read was
+written before the game" are different claims, and only the second is checkable.
+
+Where `date_modified` exists, it checks out. Joining every 2024 regular-season row to its
+game's kickoff — converting `gameday`/`gametime` from US Eastern, which spans the
+daylight-saving changeover, so a naive `Z` suffix would shift every kickoff by four or five
+hours and could invert this result:
+
+| | 2024 |
+| --- | --- |
+| Rows joined to a kickoff | 5,954 of 5,954 |
+| Modified **before** kickoff | 5,953 (**99.98%**) |
+| Modified after kickoff | 1 (0.02%) |
+| Hours before kickoff | min −2.9, median **47.1**, max 103.4 |
+
+A median of 47 hours is Friday for a Sunday game, which is exactly when the NFL mandates the
+final injury report. The single exception is one `Out` designation on the Thursday-night
+opener, edited about three hours after kickoff — plausibly a post-game correction.
+
+**Verdict: the 2024 data is pre-kickoff and the family is usable for projections.**
+
+**The caveat that must not be dropped: 2025 has no `date_modified` at all**, so this check
+cannot be run on the holdout season. The claim there rests on inference — same upstream
+release, same NFL reporting mandate, and 2024 verifying at 99.98% — and inference is not
+verification. Any hypothesis that uses this data on 2025 must say so in those words rather
+than presenting the season as checked.
+
 ### 1.3 CSV parsing hazard
 
 Fields are quoted and **contain commas** — `headshot_url` holds values like
