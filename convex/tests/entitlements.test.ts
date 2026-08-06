@@ -51,24 +51,31 @@ async function createLeague(
 }
 
 describe("the free-tier league cap", () => {
-  it("allows three leagues and refuses the fourth", async () => {
+  it("allows one league and refuses the second", async () => {
     const t = convexTest(schema, modules);
     await asUser(t, "user_free").mutation(api.users.ensure, {});
 
-    for (const n of [1, 2, 3]) {
-      await expect(createLeague(t, "user_free", `League ${n}`)).resolves.toBeDefined();
-    }
+    await expect(createLeague(t, "user_free", "League 1")).resolves.toBeDefined();
 
     // The cap is enforced in the same transaction that creates the league, so no client
     // can bypass it by calling the mutation directly.
-    await expect(createLeague(t, "user_free", "League 4")).rejects.toThrow(/Upgrade to Pro/);
+    await expect(createLeague(t, "user_free", "League 2")).rejects.toThrow(/Upgrade to Pro/);
   });
 
-  it("reports the plan's limit rather than the current count", async () => {
+  it("states the cap in the singular, from the shared formatter", async () => {
     const t = convexTest(schema, modules);
     await asUser(t, "user_msg").mutation(api.users.ensure, {});
-    for (const n of [1, 2, 3]) await createLeague(t, "user_msg", `L${n}`);
-    await expect(createLeague(t, "user_msg", "L4")).rejects.toThrow(/includes 3 leagues/);
+    await createLeague(t, "user_msg", "L1");
+    await expect(createLeague(t, "user_msg", "L2")).rejects.toThrow(/includes 1 league\./);
+
+    // This used to be named "reports the plan's limit rather than the current count",
+    // which it could not check then and cannot check now: rejection happens exactly when
+    // the count has reached the cap, so the two numbers are always equal here. It was
+    // 3-and-3 before and is 1-and-1 today. What this *can* prove is that the message is
+    // built by `describeLeagueCap` rather than by pasting a number next to a hard-coded
+    // "leagues" — the singular is the tell. That the phrase follows the plan rather than
+    // the count is established in `lib/billing/entitlements.test.ts`, where the function
+    // is called directly with caps the API cannot reach.
   });
 
   it("does not cap a Pro subscriber", async () => {
@@ -93,12 +100,10 @@ describe("the free-tier league cap", () => {
     const t = convexTest(schema, modules);
     await asUser(t, "user_del").mutation(api.users.ensure, {});
     const first = await createLeague(t, "user_del", "A");
-    await createLeague(t, "user_del", "B");
-    await createLeague(t, "user_del", "C");
-    await expect(createLeague(t, "user_del", "D")).rejects.toThrow();
+    await expect(createLeague(t, "user_del", "B")).rejects.toThrow();
 
     await asUser(t, "user_del").mutation(api.leagues.remove, { leagueId: first });
-    await expect(createLeague(t, "user_del", "D")).resolves.toBeDefined();
+    await expect(createLeague(t, "user_del", "B")).resolves.toBeDefined();
   });
 
   it("refuses to create a league for an anonymous caller", async () => {
@@ -124,9 +129,9 @@ describe("error payloads reach the client", () => {
   it("carries a structured entitlement payload, not a bare message", async () => {
     const t = convexTest(schema, modules);
     await asUser(t, "payload_user").mutation(api.users.ensure, {});
-    for (const n of [1, 2, 3]) await createLeague(t, "payload_user", `L${n}`);
+    await createLeague(t, "payload_user", "L1");
 
-    await expect(createLeague(t, "payload_user", "L4")).rejects.toMatchObject({
+    await expect(createLeague(t, "payload_user", "L2")).rejects.toMatchObject({
       data: {
         code: "entitlement",
         feature: "league_count",
@@ -254,7 +259,7 @@ describe("me", () => {
     expect(me.signedIn).toBe(false);
     expect(me.plan).toBe("free");
     expect(me.entitlements.start_sit).toBe(true);
-    expect(me.entitlements.league_count).toBe(3);
+    expect(me.entitlements.league_count).toBe(1);
   });
 
   it("reports Pro once a subscription is recorded", async () => {

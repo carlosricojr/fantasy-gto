@@ -35,7 +35,7 @@ Reference: Clerk docs → *Billing Overview*, *Entitlements*, *Webhooks*, *Next.
 * **ESPN‑first onboarding**; Sleeper in Phase 2 with guided token flow/extension.
 * **Explainable models** (EMA + Usage + Vegas) with plain‑English reason cards.
 * **Mobile‑first PWA**; smart, noise‑aware alerts; core loop (sync → projections → start/sit → waivers → DST).
-* **Pricing** via Clerk: **Free** and **Pro** ($4.99/mo). Annual or seasonal option for Pro (see §2). Free tier includes up to 3 leagues and weekly refresh.
+* **Pricing** via Clerk: **Free** and **Pro** ($4.99/mo). Annual or seasonal option for Pro (see §2). ~~Free tier includes up to 3 leagues and weekly refresh.~~ — **corrected.** The free tier includes **one** league. Weekly refresh is not a tier difference: the cron rewrites shared projection rows that every visitor reads.
 
 Why: ESPN provides maximum reach; anonymous trial + fast TTFP reduces friction and maximizes adoption.
 
@@ -51,7 +51,7 @@ Why: ESPN provides maximum reach; anonymous trial + fast TTFP reduces friction a
   * Configure **trial** (14 days) at the price level.
 * **Entitlements** (attach to Pro plan):
 
-  * `entitlement.league_count` (numeric) → `free=3`, `pro=unlimited`.
+  * `entitlement.league_count` (numeric) → ~~`free=3`~~ `free=1`, `pro=unlimited`. Derived from subscription state, never stored as a grant.
   * `entitlement.daily_refresh` → daily model/waiver refreshes.
   * `entitlement.waivers_faab` → waiver recommendations + FAAB guidance.
   * `entitlement.dst_streamer` → DST streamer tool.
@@ -59,7 +59,7 @@ Why: ESPN provides maximum reach; anonymous trial + fast TTFP reduces friction a
   * `entitlement.accuracy_dashboard` → accuracy views + comparisons.
   * `entitlement.import_export` → lineup import/export (CSV + platform formats).
   * `entitlement.performance_history` → win‑rate and season‑long dashboards.
-* **Free tier**: up to 3 leagues, weekly refresh, start/sit, basic projections only (no waivers/DST/alerts/import‑export/performance history).
+* **Free tier**: ~~up to 3 leagues, weekly refresh,~~ **one league**, start/sit, basic projections only (no waivers/DST/alerts/import‑export/performance history). Refresh cadence is not a tier difference — see §1 and §9.
 * **Seasonal logic**: If Seasonal ($19.99) is chosen, we keep subscription active but **turn off compute‑heavy jobs** post‑Super Bowl via entitlements schedule (see §6.4). For Annual ($29.99), we pause heavy compute off‑season but continue access to history and off‑season tools when added.
 * ~~**Marketing anchor**: Pro users average **+8.2 points/week vs platform projections**~~ — **withdrawn.** No computation ever supported this figure. The measured edge over the strongest baseline tried is **2.74%** (`docs/model-validation.md`), and the product does not make a points-per-week claim.
 
@@ -179,7 +179,7 @@ Notes: `planDisplay` is derived for UI only; **gating uses `entitlements`**. Num
 
 ### 6.5 Multi‑League Support
 
-* Pro includes unlimited leagues enforced via `entitlement.league_count` (numeric). Free users limited to 3.
+* Pro includes unlimited leagues enforced via `entitlement.league_count` (numeric). ~~Free users limited to 3.~~ — **corrected.** Free users are limited to one.
 
 ### 6.6 Payment Failures & Grace Period
 
@@ -261,7 +261,7 @@ Notes: `planDisplay` is derived for UI only; **gating uses `entitlements`**. Num
 * ESPN onboarding ≤ 60 sec to first projections; **TTFP ≤ 30 sec** on fresh path.
 * 2,000 concurrent users with **p95 < 2s** for projections + lineup endpoints.
 * **Clerk checkout & portal** work end‑to‑end; entitlements sync within seconds via webhook; 14‑day trials honored.
-* **Free limits enforced**: 3 leagues, weekly refresh; Pro = unlimited leagues + daily refresh.
+* **Free limits enforced**: ~~3 leagues, weekly refresh; Pro = unlimited leagues + daily refresh.~~ — **corrected.** One league, enforced server-side in the same transaction that creates one. Refresh cadence is not enforced as a tier difference and is not billed for.
 * ~~**MAE beats ESPN by ≥8% and Yahoo by ≥6%** (rolling 3 weeks), per‑position.~~ — **withdrawn.** Neither platform's projections are obtainable as a licensed feed, so no such comparison is computed anywhere in this repository. The measured result is a 2.74% edge over a prior-games-mean baseline.
 * Weekly public accuracy report published; payment failure grace = 3 days before restriction.
 
