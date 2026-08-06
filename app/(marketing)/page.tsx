@@ -9,8 +9,8 @@ import metrics from "@/lib/nfl/model/published-metrics.json";
  * Every claim here is backed by something checkable. The previous version led with
  * "+8.2 points/week vs platform projections", a number with no computation behind it and
  * one the measured model cannot support. It has been removed rather than softened. The
- * real figure is imported from `published-metrics.json`, which `pnpm backtest` writes, so
- * this page cannot drift out of step with what was actually measured.
+ * real figure is imported from `published-metrics.json`, which `pnpm backtest -- --holdout`
+ * writes, so this page cannot drift out of step with what was actually measured.
  *
  * What is left is what the product can actually defend: an optimal lineup is optimal by
  * construction, projections show their working, and the accuracy figure is published.
