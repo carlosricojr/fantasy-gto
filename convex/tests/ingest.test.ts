@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import { runProjectWeek } from "../ingest";
 import { CURRENT_TEAMS } from "../../lib/nfl/teams";
-import { NflverseProvider, schedulesUrl, weeklyStatsUrl } from "../../lib/sources/nflverse";
+import {
+  NflverseProvider,
+  schedulesUrl,
+  weeklyRosterUrl,
+  weeklyStatsUrl,
+} from "../../lib/sources/nflverse";
 
 /**
  * The team-coverage gate on `projectWeek`.
@@ -270,5 +275,256 @@ describe("projectWeek team coverage", () => {
     expect(result.projections).toBe(0);
     expect(projectionWrites(calls)).toHaveLength(0);
     expect(finishes(calls)[0].args.status).toBe("failed");
+  });
+});
+
+/**
+ * Week 1, before any game has been played — the state the README's known gap describes.
+ *
+ * Upstream publishes `stats_player_week_{season}.csv` only once games exist, so at this
+ * point it 404s. Prior seasons are present, so the model has plenty of history; what it
+ * has no source for is **which team each player is on now**, because that is derived from
+ * a current-season appearance and there are none.
+ */
+function preKickoffWeek1Provider(withWeeklyRoster: boolean): NflverseProvider {
+  const header = [
+    "player_id", "player_name", "player_display_name", "position", "season", "week",
+    "season_type", "team", "opponent_team",
+    "receptions", "targets", "receiving_yards", "receiving_tds",
+  ];
+  const rows: string[][] = [];
+  for (let t = 0; t < TEAMS.length; t += 1) {
+    const team = TEAMS[t];
+    const opp = TEAMS[t % 2 === 0 ? t + 1 : t - 1];
+    // Four prior-season games each: history is not the problem.
+    for (let w = 14; w <= 17; w += 1) {
+      rows.push([
+        `p${t}`, `P ${t}`, `P ${t}`, "WR", String(SEASON - 1), String(w), "REG", team, opp,
+        "5", "8", "60", "0",
+      ]);
+    }
+  }
+  const priorCsv = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+
+  // The weekly roster: every player listed active on his team for week 1, before any game
+  // has been played. This is the only source that can answer that.
+  const rosterHeader = [
+    "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+  ];
+  const rosterRows = TEAMS.map((team, t) => [
+    String(SEASON), team, "WR", "ACT", `P ${t}`, `p${t}`, "1", "REG",
+  ]);
+  const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+  const games = gamesCsv();
+  return new NflverseProvider(async (url) => {
+    if (url === schedulesUrl()) return games;
+    if (url === weeklyStatsUrl(SEASON - 1)) return priorCsv;
+    if (withWeeklyRoster && url === weeklyRosterUrl(SEASON)) return rosterCsv;
+    // The current season's file does not exist yet. This is the normal pre-kickoff state,
+    // not a failure.
+    throw new Error(`${url} responded 404`);
+  });
+}
+
+describe("week 1 before kickoff", () => {
+  it("without the weekly roster, nobody resolves a team and nothing is written", async () => {
+    // The gap this issue closes, kept as a test rather than described in prose. Every one
+    // of the 32 teams has a player with four games of prior-season history; the only thing
+    // missing is a source for which team he is on now.
+    const { ctx, calls } = recordingCtx();
+    const result = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: 1 },
+      preKickoffWeek1Provider(false),
+    );
+
+    expect(result.unknownTeam).toBeGreaterThan(0);
+    expect(result.projections).toBe(0);
+    expect(projectionWrites(calls)).toHaveLength(0);
+
+    const failure = finishes(calls).at(-1);
+    expect(failure?.args.status).toBe("failed");
+    expect(String(failure?.args.error)).toMatch(/no current-season team/);
+    // And it must not blame a roster it never managed to load — that sends an operator to
+    // inspect a status column in a file that 404'd.
+    expect(String(failure?.args.error)).toMatch(/weekly roster could not be loaded/);
+    expect(String(failure?.args.error)).not.toMatch(/not listed active/);
+  });
+
+  it("with the weekly roster, the full board is written before kickoff", async () => {
+    const { ctx, calls } = recordingCtx();
+    const result = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: 1 },
+      preKickoffWeek1Provider(true),
+    );
+
+    // Nothing else changed: same history, same schedule, same 404 on the current season's
+    // statistics. The only difference is a source for the team.
+    expect(result.unknownTeam).toBe(0);
+    expect(result.projections).toBeGreaterThan(0);
+    expect(projectionWrites(calls).length).toBeGreaterThan(0);
+
+    const finish = finishes(calls).at(-1);
+    expect(finish?.args.status).toBe("succeeded");
+
+    // And the board covers the whole league, not the two Thursday teams.
+    const teams = new Set(
+      projectionWrites(calls).flatMap((c) =>
+        (c.args.rows as { team: string }[]).map((r) => r.team),
+      ),
+    );
+    expect(teams.size).toBe(TEAMS.length);
+  });
+
+  it("does not project a player the weekly roster does not list as active", async () => {
+    // A cut or practice-squad player is on the file and cannot start. Reading any status as
+    // active would put a name on the board that no lineup can legitimately use.
+    const rosterHeader = [
+      "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+    ];
+    const rosterRows = TEAMS.map((team, t) => [
+      String(SEASON), team, "WR", t === 0 ? "CUT" : "ACT", `P ${t}`, `p${t}`, "1", "REG",
+    ]);
+    const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+    const base = preKickoffWeek1Provider(true);
+    const provider = new NflverseProvider(async (url) => {
+      if (url === weeklyRosterUrl(SEASON)) return rosterCsv;
+      // Reuse the base provider's fetcher for everything else.
+      return (base as unknown as { fetchText: (u: string) => Promise<string> }).fetchText(url);
+    });
+
+    const ids = await projectedIds(provider, 1);
+    expect(ids.has("p0")).toBe(false);
+    expect(ids.has("p1")).toBe(true);
+  });
+});
+
+describe("weekly roster overrides an earlier appearance", () => {
+  /**
+   * Mid-season, pre-kickoff. Every player has appearances in weeks 1..TARGET_WEEK-1, and
+   * the weekly roster for the target week lists one of them as CUT.
+   */
+  function midSeasonProvider(cutPlayerId: string): NflverseProvider {
+    const stats = statsCsv(TEAMS.length);
+    const games = gamesCsv();
+    const rosterHeader = [
+      "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+    ];
+    const rosterRows: string[][] = [];
+    for (let t = 0; t < TEAMS.length; t += 1) {
+      for (const [slot, position] of (["WR", "RB"] as const).entries()) {
+        const id = `00-000${t}${slot}`;
+        rosterRows.push([
+          String(SEASON), TEAMS[t], position,
+          id === cutPlayerId ? "CUT" : "ACT",
+          `Player ${t}${slot}`, id, String(TARGET_WEEK), "REG",
+        ]);
+      }
+    }
+    const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+    return new NflverseProvider(async (url) => {
+      if (url === schedulesUrl()) return games;
+      if (url === weeklyStatsUrl(SEASON)) return stats;
+      if (url === weeklyRosterUrl(SEASON)) return rosterCsv;
+      throw new Error(`${url} responded 404`);
+    });
+  }
+
+  it("does not project a player cut this week who played earlier ones", async () => {
+    // He has four current-season appearances arguing he is on the team. The target week's
+    // roster is the only thing that knows he was released, and holding that in memory while
+    // letting his own history overrule it is worse than never having fetched it.
+    const cut = "00-00000";
+    const ids = await projectedIds(midSeasonProvider(cut), TARGET_WEEK);
+    expect(ids.has(cut)).toBe(false);
+    // His teammate, same team and same appearances, is unaffected.
+    expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("projects a traded player at his new team, not the one he last played for", async () => {
+    // The case that made this worth getting right. A player traded mid-season has weeks of
+    // appearances for his old team and a roster row for the new one. Without stamping the
+    // roster entry with the target week, the stale appearance wins and he is projected into
+    // his old team's game — wrong opponent, wrong implied total, and the bye guard passes
+    // because the old team does play.
+    const stats = statsCsv(TEAMS.length);
+    const games = gamesCsv();
+    const rosterHeader = [
+      "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+    ];
+    const rosterRows: string[][] = [];
+    for (let t = 0; t < TEAMS.length; t += 1) {
+      for (const [slot, position] of (["WR", "RB"] as const).entries()) {
+        const id = `00-000${t}${slot}`;
+        // Player 0/WR appears in the stats file on TEAMS[0], but the roster moves him to
+        // TEAMS[2] for the target week — and lists the old row as TRD, active-second.
+        const traded = id === "00-00000";
+        if (traded) {
+          rosterRows.push([
+            String(SEASON), TEAMS[0], position, "TRD", `Player ${t}${slot}`, id,
+            String(TARGET_WEEK), "REG",
+          ]);
+        }
+        rosterRows.push([
+          String(SEASON), traded ? TEAMS[2] : TEAMS[t], position, "ACT",
+          `Player ${t}${slot}`, id, String(TARGET_WEEK), "REG",
+        ]);
+      }
+    }
+    const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+    const provider = new NflverseProvider(async (url) => {
+      if (url === schedulesUrl()) return games;
+      if (url === weeklyStatsUrl(SEASON)) return stats;
+      if (url === weeklyRosterUrl(SEASON)) return rosterCsv;
+      throw new Error(`${url} responded 404`);
+    });
+
+    const { ctx, calls } = recordingCtx();
+    await runProjectWeek(ctx, { season: SEASON, week: TARGET_WEEK }, provider);
+    const row = projectionWrites(calls)
+      .flatMap((c) => c.args.rows as { playerId: string; team: string }[])
+      .find((r) => r.playerId === "00-00000");
+    expect(row).toBeDefined();
+    expect(row?.team).toBe(TEAMS[2]);
+  });
+
+  it("counts distinct players, not player-by-ruleset", async () => {
+    // `unknownTeam` is printed in the failure message. Incremented inside the per-ruleset
+    // loop it reported three times the truth on the cron path, which passes all three
+    // presets, while every ruleset yields identical rows.
+    const cut = "00-00000";
+    const { ctx } = recordingCtx();
+    const one = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      midSeasonProvider(cut),
+    );
+    const { ctx: ctx3 } = recordingCtx();
+    const three = await runProjectWeek(
+      ctx3,
+      { season: SEASON, week: TARGET_WEEK, scoringIds: ["ppr", "half_ppr", "standard"] },
+      midSeasonProvider(cut),
+    );
+    expect(three.unknownTeam).toBe(one.unknownTeam);
+    expect(one.unknownTeam).toBe(1);
+  });
+
+  it("still projects everyone when the roster lists them active", async () => {
+    // The control: the only difference between this and the case above is one status cell.
+    const ids = await projectedIds(midSeasonProvider("nobody"), TARGET_WEEK);
+    expect(ids.has("00-00000")).toBe(true);
+    expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("falls back to appearances when the roster is unavailable", async () => {
+    // A transient upstream failure must not empty a week. With no roster, the appearance
+    // rule behaves exactly as it did before this source existed.
+    const ids = await projectedIds(providerFor(TEAMS.length), TARGET_WEEK);
+    expect(ids.has("00-00000")).toBe(true);
   });
 });
