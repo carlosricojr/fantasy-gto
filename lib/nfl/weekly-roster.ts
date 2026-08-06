@@ -161,7 +161,11 @@ export function statusesForWeek(
  * duplicate check — which makes the result a function of file order rather than of
  * iteration order. That is the same determinism rule `parseSeasonRoster` already follows,
  * and the reason is the same: a board that reshuffles between runs reads as a bug.
- * `statusesForWeek` resolves the same duplicate the same way, deliberately.
+ * `statusesForWeek` resolves the same duplicate the same way, deliberately — with one
+ * documented asymmetry: this function additionally requires a team `normalizeTeam` can
+ * resolve, so an active entry carrying an unrecognised code appears there as `active` and
+ * is absent here. Every code upstream ships is covered by `teams.ts`, so that is a
+ * statement about the contract rather than an observed case.
  */
 export function teamsForWeek(
   entries: readonly WeeklyRosterEntry[],

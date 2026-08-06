@@ -445,6 +445,54 @@ describe("weekly roster overrides an earlier appearance", () => {
     expect(ids.has("00-00001")).toBe(true);
   });
 
+  it("projects a traded player at his new team, not the one he last played for", async () => {
+    // The case that made this worth getting right. A player traded mid-season has weeks of
+    // appearances for his old team and a roster row for the new one. Without stamping the
+    // roster entry with the target week, the stale appearance wins and he is projected into
+    // his old team's game — wrong opponent, wrong implied total, and the bye guard passes
+    // because the old team does play.
+    const stats = statsCsv(TEAMS.length);
+    const games = gamesCsv();
+    const rosterHeader = [
+      "season", "team", "position", "status", "full_name", "gsis_id", "week", "game_type",
+    ];
+    const rosterRows: string[][] = [];
+    for (let t = 0; t < TEAMS.length; t += 1) {
+      for (const [slot, position] of (["WR", "RB"] as const).entries()) {
+        const id = `00-000${t}${slot}`;
+        // Player 0/WR appears in the stats file on TEAMS[0], but the roster moves him to
+        // TEAMS[2] for the target week — and lists the old row as TRD, active-second.
+        const traded = id === "00-00000";
+        if (traded) {
+          rosterRows.push([
+            String(SEASON), TEAMS[0], position, "TRD", `Player ${t}${slot}`, id,
+            String(TARGET_WEEK), "REG",
+          ]);
+        }
+        rosterRows.push([
+          String(SEASON), traded ? TEAMS[2] : TEAMS[t], position, "ACT",
+          `Player ${t}${slot}`, id, String(TARGET_WEEK), "REG",
+        ]);
+      }
+    }
+    const rosterCsv = [rosterHeader.join(","), ...rosterRows.map((r) => r.join(","))].join("\n");
+
+    const provider = new NflverseProvider(async (url) => {
+      if (url === schedulesUrl()) return games;
+      if (url === weeklyStatsUrl(SEASON)) return stats;
+      if (url === weeklyRosterUrl(SEASON)) return rosterCsv;
+      throw new Error(`${url} responded 404`);
+    });
+
+    const { ctx, calls } = recordingCtx();
+    await runProjectWeek(ctx, { season: SEASON, week: TARGET_WEEK }, provider);
+    const row = projectionWrites(calls)
+      .flatMap((c) => c.args.rows as { playerId: string; team: string }[])
+      .find((r) => r.playerId === "00-00000");
+    expect(row).toBeDefined();
+    expect(row?.team).toBe(TEAMS[2]);
+  });
+
   it("counts distinct players, not player-by-ruleset", async () => {
     // `unknownTeam` is printed in the failure message. Incremented inside the per-ruleset
     // loop it reported three times the truth on the cron path, which passes all three

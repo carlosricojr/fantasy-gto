@@ -300,6 +300,12 @@ export async function runProjectWeek(
       if (weeklyRoster.ok) {
         for (const [playerId, team] of teamsForWeek(weeklyRoster.data.entries, week)) {
           currentTeam.set(playerId, team);
+          // Stamped with the target week, not left unset. A roster row written *for* this
+          // week is fresher than any earlier appearance, and without the stamp `seen` is
+          // -1 and a week-4 appearance overwrites a week-5 roster entry. That is how a
+          // player traded SF to MIN gets projected into SF's game: wrong opponent, wrong
+          // implied total, and the bye guard passes because SF does play.
+          currentTeamWeek.set(playerId, week);
         }
       }
       // A failure is not fatal: from week 2 onward appearances alone cover the league, and
@@ -322,7 +328,11 @@ export async function runProjectWeek(
           continue;
         }
         const seen = currentTeamWeek.get(playerWeek.competitor.id) ?? -1;
-        if (playerWeek.period.index > seen) {
+        // `>=` so an appearance in the target week still outranks the roster row for it —
+        // having actually played for a team this week is the freshest evidence there is —
+        // while an earlier one no longer can. Player-weeks are unique per player, so this
+        // changes nothing for anyone the roster did not seed.
+        if (playerWeek.period.index >= seen) {
           currentTeamWeek.set(playerWeek.competitor.id, playerWeek.period.index);
           currentTeam.set(playerWeek.competitor.id, team);
         }
@@ -373,10 +383,10 @@ export async function runProjectWeek(
 
       let written = 0;
       // Distinct players, not player-by-ruleset. Every ruleset yields identical rows — the
-  // comment on `totalExpected` below says so explicitly — so a counter incremented inside
-  // the per-ruleset loop reports three times the truth on the cron path, which passes all
-  // three presets. The message printed that number.
-  const unknownTeamPlayers = new Set<string>();
+      // comment on `totalExpected` below says so explicitly — so a counter incremented
+      // inside the per-ruleset loop reports three times the truth on the cron path, which
+      // passes all three presets. The message printed that number.
+      const unknownTeamPlayers = new Set<string>();
       const coveredTeams = new Set<string>();
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
@@ -526,11 +536,14 @@ export async function runProjectWeek(
             // after a failed fetch sends an operator to inspect a status column in a file
             // that 404'd — the mirror image of the misdiagnosis this wording exists to
             // prevent, and the exact state the pre-kickoff week-1 test exercises.
-            (weeklyRoster.ok
+            (weeklyRoster.ok && rosterStatus.size > 0
               ? `not listed active on this week's roster, and no current-season appearance ` +
                 `the roster has not since ruled out`
-              : `the weekly roster could not be loaded (${weeklyRoster.reason}), so only a ` +
-                `current-season appearance could have established one, and they have none`) +
+              : weeklyRoster.ok
+                ? `the weekly roster carries no rows for this week yet, so only a ` +
+                  `current-season appearance could have established one, and they have none`
+                : `the weekly roster could not be loaded (${weeklyRoster.reason}), so only ` +
+                  `a current-season appearance could have established one, and they have none`) +
             `). Nothing was written: a partial board would be served as though it were the ` +
             `whole week.`,
         });
