@@ -21,9 +21,10 @@ import { join } from "node:path";
 import { num, parseCsv, str } from "@/lib/nfl/csv";
 import { quantile } from "@/lib/core/stats";
 import { toRegularSeasonInjuries } from "@/lib/nfl/injuries";
+import { bridgeSnaps, toRegularSeasonSnaps } from "@/lib/nfl/snaps";
 import { easternWallClockToUtcIso } from "@/lib/sources/nflverse";
 import { normalizeTeam } from "@/lib/nfl/teams";
-import { toPlayerProfiles } from "@/lib/nfl/players";
+import { pfrBridge, toPlayerProfiles } from "@/lib/nfl/players";
 
 const RELEASE_BASE = "https://github.com/nflverse/nflverse-data/releases/download";
 const CACHE_DIR = join(process.cwd(), ".cache", "nflverse");
@@ -184,28 +185,29 @@ async function main(): Promise<void> {
       `  ${"season".padEnd(8)}${"skill rows".padStart(12)}${"joinable".padStart(11)}` +
       `${"unjoinable players".padStart(20)}${"their mean snap %".padStart(19)}\n`,
   );
+  // Measured through the same `bridgeSnaps` the product would use, rather than through a
+  // parallel implementation in this script. A join rate computed one way here and another
+  // way in `lib/` is a published number that nothing actually exercises.
+  const directory = pfrBridge(toPlayerProfiles(parseCsv(await cached(playersUrl()))));
   for (const season of BRIDGE_SEASONS) {
-    const snaps = parseCsv(await cached(snapsUrl(season))).filter(
-      (r) => str(r, "game_type") === "REG",
+    const allSnaps = toRegularSeasonSnaps(parseCsv(await cached(snapsUrl(season))));
+    const skillSnaps = allSnaps.filter((snap) =>
+      BRIDGE_POSITIONS.includes(snap.position),
     );
-    const skill = snaps.filter((r) => BRIDGE_POSITIONS.includes(str(r, "position")));
-    if (skill.length === 0) {
+    if (skillSnaps.length === 0) {
       process.stdout.write(`  ${String(season).padEnd(8)}${"EMPTY".padStart(12)}\n`);
       continue;
     }
-    const joined = skill.filter((r) => bridge.has(str(r, "pfr_player_id")));
-    const missingIds = new Set(
-      skill.filter((r) => !bridge.has(str(r, "pfr_player_id"))).map((r) => str(r, "pfr_player_id")),
-    );
-    const missingRows = skill.filter((r) => missingIds.has(str(r, "pfr_player_id")));
+    const report = bridgeSnaps(skillSnaps, directory);
+    const missingRows = report.unmatched;
     const meanSnapPct =
       missingRows.length === 0
         ? 0
-        : missingRows.reduce((sum, r) => sum + num(r, "offense_pct"), 0) / missingRows.length;
+        : missingRows.reduce((sum, snap) => sum + snap.offenseShare, 0) / missingRows.length;
     process.stdout.write(
-      `  ${String(season).padEnd(8)}${String(skill.length).padStart(12)}` +
-        `${`${((joined.length / skill.length) * 100).toFixed(1)}%`.padStart(11)}` +
-        `${String(missingIds.size).padStart(20)}` +
+      `  ${String(season).padEnd(8)}${String(skillSnaps.length).padStart(12)}` +
+        `${`${((report.matched.length / skillSnaps.length) * 100).toFixed(1)}%`.padStart(11)}` +
+        `${String(report.unmatchedPlayers.size).padStart(20)}` +
         `${`${(meanSnapPct * 100).toFixed(1)}%`.padStart(19)}\n`,
     );
   }

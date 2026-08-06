@@ -130,6 +130,21 @@ The bridge to `gsis_id` is `players.csv` (section 1.2c), which carries both iden
 higher. Report on the joinable subset and do not impute the gap, but do not caveat a
 0.3% gap as though it were large either.
 
+`bridgeSnaps` in `lib/nfl/snaps.ts` returns the unmatched rows alongside the matched ones
+rather than discarding them, and `pnpm verify-sources` measures the join rate **through that
+same function** — not through a parallel implementation in the script, which would publish a
+number nothing in the product actually exercises.
+
+Counting rather than dropping is the load-bearing choice. A caller that discarded unmatched
+rows would report snap share for the players it could resolve and say nothing about the
+rest, which reads as complete coverage. A caller that defaulted them to zero would be worse:
+**zero snaps means benched and unknown snaps means unknown**, and no model should be unable
+to tell those apart.
+
+Note that `offense_pct` is a fraction, not a percentage — upstream ships `0.9` for 90%.
+Reading it as a percentage puts every snap share two orders of magnitude too low and
+silently disables any feature built on it.
+
 ### 1.2c Player directory — age, experience, and the identifier bridge
 
 ```text

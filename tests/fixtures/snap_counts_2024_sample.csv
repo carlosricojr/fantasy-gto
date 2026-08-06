@@ -1,0 +1,7 @@
+game_id,pfr_game_id,season,game_type,week,player,pfr_player_id,position,team,opponent,offense_snaps,offense_pct,defense_snaps,defense_pct,st_snaps,st_pct
+2024_01_ARI_BUF,202409080buf,2024,REG,1,Josh Allen,AlleJo02,QB,BUF,ARI,62,1,0,0,0,0
+2024_01_ARI_BUF,202409080buf,2024,REG,1,Ty Johnson,JohnTy02,RB,BUF,ARI,14,0.23,0,0,8,0.29
+2024_01_ARI_BUF,202409080buf,2024,REG,1,Quintin Morris,MorrQu00,TE,BUF,ARI,6,0.1,0,0,23,0.85
+2024_01_ARI_BUF,202409080buf,2024,REG,1,Taylor Rapp,RappTa00,SS,BUF,ARI,0,0,61,1,4,0.15
+2024_01_ARI_BUF,202409080buf,2024,REG,1,Marvin Harrison Jr.,HarrMa09,WR,ARI,BUF,55,0.9,0,0,0,0
+2024_19_DEN_BUF,202501120buf,2024,WC,19,Spencer Brown,BrowSp00,T,BUF,DEN,76,1,0,0,6,0.27

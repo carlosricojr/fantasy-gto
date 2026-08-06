@@ -13,6 +13,7 @@ import {
   parseMarketLines,
   injuriesUrl,
   playersUrl,
+  snapCountsUrl,
   schedulesUrl,
   weeklyStatsUrl,
 } from "./nflverse";
@@ -35,6 +36,10 @@ const playersCsv = readFileSync(
 );
 const injuries2024Csv = readFileSync(
   join(__dirname, "../../tests/fixtures/injuries_2024_sample.csv"),
+  "utf8",
+);
+const snaps2024Csv = readFileSync(
+  join(__dirname, "../../tests/fixtures/snap_counts_2024_sample.csv"),
   "utf8",
 );
 
@@ -455,6 +460,48 @@ describe("NflverseProvider.injuries", () => {
     expect((await provider.injuries(2024)).ok).toBe(false);
     expect((await provider.injuries(2024)).ok).toBe(true);
     await provider.injuries(2024);
+    expect(calls).toBe(2);
+  });
+});
+
+describe("NflverseProvider.snapCounts", () => {
+  it("parses a season", async () => {
+    const provider = new NflverseProvider(async (url) => {
+      if (url === snapCountsUrl(2024)) return snaps2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    const result = await provider.snapCounts(2024);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(5);
+  });
+
+  it("refuses the empty 2012 release rather than reporting no snaps taken", async () => {
+    // HTTP 200, valid sixteen-column header, zero rows. This is the exact asset that made
+    // #13 move the development window floor from 2012 to 2013.
+    const headerOnly = `${snaps2024Csv.split("\n")[0]}\n`;
+    const provider = new NflverseProvider(async () => headerOnly);
+    const result = await provider.snapCounts(2012);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/first populated in 2013/i);
+  });
+
+  it("coalesces concurrent callers and does not cache a failure", async () => {
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      await Promise.resolve();
+      if (calls === 1) throw new Error("blip");
+      if (url === snapCountsUrl(2024)) return snaps2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    expect((await provider.snapCounts(2024)).ok).toBe(false);
+    const results = await Promise.all([
+      provider.snapCounts(2024),
+      provider.snapCounts(2024),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
     expect(calls).toBe(2);
   });
 });
