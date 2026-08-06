@@ -11,6 +11,7 @@ import { normalizeTeam } from "../nfl/teams";
 
 import { type InjuryParseReport, toRegularSeasonInjuries } from "../nfl/injuries";
 import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
+import { type SnapCount, toRegularSeasonSnaps } from "../nfl/snaps";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
@@ -68,6 +69,16 @@ export function playersUrl(): string {
  */
 export function injuriesUrl(season: number): string {
   return `${RELEASE_BASE}/injuries/injuries_${season}.csv`;
+}
+
+/**
+ * Weekly snap counts.
+ *
+ * Keyed by `pfr_player_id`, so it needs the player directory to meet a projection. First
+ * populated in **2013** — the 2012 asset answers 200 with a valid header and no rows.
+ */
+export function snapCountsUrl(season: number): string {
+  return `${RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
 }
 
 /** Fetches a URL as text. Injectable so tests never touch the network. */
@@ -510,6 +521,54 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
       return ok(parsed);
     } catch (cause) {
       return failed(`Injury reports for ${season} are unavailable.`, cause);
+    }
+  }
+
+  /**
+   * One season of weekly snap counts, still keyed by `pfr_player_id`.
+   *
+   * Bridging is left to the caller, which needs `players()` anyway and is the only layer
+   * that can decide what to do with a row that does not resolve.
+   */
+  private readonly snapsCache = new Map<number, ProviderResult<SnapCount[]>>();
+  private readonly snapsInFlight = new Map<number, Promise<ProviderResult<SnapCount[]>>>();
+
+  async snapCounts(season: number): Promise<ProviderResult<SnapCount[]>> {
+    const cached = this.snapsCache.get(season);
+    if (cached !== undefined) return cached;
+    let inFlight = this.snapsInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchSnapCounts(season).finally(() => {
+        this.snapsInFlight.delete(season);
+      });
+      this.snapsInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
+    if (result.ok) this.snapsCache.set(season, result);
+    return result;
+  }
+
+  private async fetchSnapCounts(season: number): Promise<ProviderResult<SnapCount[]>> {
+    try {
+      const text = await this.fetchText(snapCountsUrl(season));
+      const snaps = toRegularSeasonSnaps(parseCsv(text));
+      // HTTP 200, a valid sixteen-column header, and not one data row is a real shape here.
+      // Reporting success on it would have a caller conclude nobody took a snap that season.
+      //
+      // The message says what happened and not which seasons are populated: which they are
+      // is a measurement, it lives in `docs/data-sources.md` where `pnpm verify-sources`
+      // reproduces it, and a range baked into an error string goes stale the first time
+      // upstream backfills.
+      if (snaps.length === 0) {
+        return failed(
+          `Snap counts for ${season} parsed to no regular-season rows. The release answered ` +
+            `but is empty for this season; see docs/data-sources.md for which seasons are ` +
+            `populated.`,
+        );
+      }
+      return ok(snaps);
+    } catch (cause) {
+      return failed(`Snap counts for ${season} are unavailable.`, cause);
     }
   }
 
