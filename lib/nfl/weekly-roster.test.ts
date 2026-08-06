@@ -190,12 +190,34 @@ describe("statusesForWeek", () => {
     expect(statusesForWeek(entries, 2).get("x")).toBe("cut");
   });
 
-  it("resolves a duplicate the same way teamsForWeek does", () => {
-    const entries = toWeeklyRoster([
+  it("resolves a duplicate the same way teamsForWeek does, in both orderings", () => {
+    // Active first: both agree trivially.
+    const activeFirst = toWeeklyRoster([
       { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "SF", status: "ACT" },
       { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "MIN", status: "CUT" },
     ]).entries;
-    expect(statusesForWeek(entries, 3).get("x")).toBe("active");
-    expect(teamsForWeek(entries, 3).get("x")).toBe("SF");
+    expect(statusesForWeek(activeFirst, 3).get("x")).toBe("active");
+    expect(teamsForWeek(activeFirst, 3).get("x")).toBe("SF");
+
+    // Active *second* — the ordering that used to make them disagree. `teamsForWeek`
+    // filters non-active entries before its duplicate check, so it returns MIN; a
+    // first-entry-wins status lookup returned "traded", and a caller trusting both would
+    // drop a player who is plainly on a roster. `TRD` is a live code, so this is not a
+    // hypothetical ordering.
+    const activeSecond = toWeeklyRoster([
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "SF", status: "TRD" },
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "MIN", status: "ACT" },
+    ]).entries;
+    expect(teamsForWeek(activeSecond, 3).get("x")).toBe("MIN");
+    expect(statusesForWeek(activeSecond, 3).get("x")).toBe("active");
+  });
+
+  it("keeps the first of several non-active entries", () => {
+    const entries = toWeeklyRoster([
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "SF", status: "CUT" },
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "3", team: "MIN", status: "RES" },
+    ]).entries;
+    expect(statusesForWeek(entries, 3).get("x")).toBe("cut");
+    expect(teamsForWeek(entries, 3).has("x")).toBe(false);
   });
 });

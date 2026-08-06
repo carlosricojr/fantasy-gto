@@ -125,7 +125,14 @@ export function toWeeklyRoster(rows: readonly CsvRow[]): WeeklyRosterReport {
  * appearance earlier in the season, has since been cut. Without it a player who played
  * weeks 1 to 5 and was released before week 6 is reinstated by his own history.
  *
- * First entry wins on a duplicate, matching `teamsForWeek`.
+ * **An active entry wins outright**, whatever its position. That is not arbitrary: it is
+ * what keeps this function agreeing with `teamsForWeek`, which filters to active entries
+ * before taking the first. A mid-week transaction ordered `[TRD@SF, ACT@MIN]` — and `TRD`
+ * is a live code — would otherwise have `teamsForWeek` return MIN while this returned
+ * `traded`, and a caller trusting both would drop a player who is plainly on a roster. An
+ * earlier revision claimed "first entry wins, matching `teamsForWeek`", which was false in
+ * exactly that case. Among non-active entries the first still wins, so the result stays a
+ * function of file order rather than iteration order.
  */
 export function statusesForWeek(
   entries: readonly WeeklyRosterEntry[],
@@ -134,7 +141,9 @@ export function statusesForWeek(
   const statuses = new Map<string, RosterStatus>();
   for (const entry of entries) {
     if (entry.week !== week) continue;
-    if (statuses.has(entry.playerId)) continue;
+    const existing = statuses.get(entry.playerId);
+    if (existing === "active") continue;
+    if (existing !== undefined && entry.status !== "active") continue;
     statuses.set(entry.playerId, entry.status);
   }
   return statuses;
@@ -148,9 +157,11 @@ export function statusesForWeek(
  * lineup can legitimately start.
  *
  * A player appears at most once per team per week, but a mid-week transaction can list him
- * on two. The first entry wins, which makes the result a function of file order rather than
- * of iteration order — the same determinism rule `parseSeasonRoster` already follows, and
- * the reason is the same: a board that reshuffles between runs reads as a bug.
+ * on two. The first **active** entry wins — non-active entries are filtered before the
+ * duplicate check — which makes the result a function of file order rather than of
+ * iteration order. That is the same determinism rule `parseSeasonRoster` already follows,
+ * and the reason is the same: a board that reshuffles between runs reads as a bug.
+ * `statusesForWeek` resolves the same duplicate the same way, deliberately.
  */
 export function teamsForWeek(
   entries: readonly WeeklyRosterEntry[],

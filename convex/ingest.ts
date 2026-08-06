@@ -372,7 +372,11 @@ export async function runProjectWeek(
       }
 
       let written = 0;
-      let unknownTeam = 0;
+      // Distinct players, not player-by-ruleset. Every ruleset yields identical rows — the
+  // comment on `totalExpected` below says so explicitly — so a counter incremented inside
+  // the per-ruleset loop reports three times the truth on the cron path, which passes all
+  // three presets. The message printed that number.
+  const unknownTeamPlayers = new Set<string>();
       const coveredTeams = new Set<string>();
       // Declared before the loop so progress reports one stable denominator for the whole
       // run rather than a number that changes as each ruleset starts.
@@ -428,7 +432,7 @@ export async function runProjectWeek(
           // and skipping is better than projecting them into the wrong game.
           const team = currentTeam.get(playerId) ?? null;
           if (!team) {
-            unknownTeam += 1;
+            unknownTeamPlayers.add(playerId);
             continue;
           }
           const contest = weekContestByTeam.get(team);
@@ -507,6 +511,7 @@ export async function runProjectWeek(
       // and everyone else is skipped — the run would look successful while serving a board
       // whose games have already finished. The same check catches a truncated upstream
       // file mid-season.
+      const unknownTeam = unknownTeamPlayers.size;
       const teamsPlaying = new Set(weekContestByTeam.keys()).size;
       const coverage = teamsPlaying === 0 ? 0 : coveredTeams.size / teamsPlaying;
 
@@ -517,9 +522,17 @@ export async function runProjectWeek(
           error:
             `Only ${coveredTeams.size} of ${teamsPlaying} teams playing ${season} week ${week} ` +
             `had a projectable player (${unknownTeam} skipped for no current-season team — ` +
-            `not listed active on this week's roster, and no current-season appearance the ` +
-            `roster has not since ruled out). Nothing was written: a partial board would be ` +
-            `served as though it were the whole week.`,
+            // The roster clause is only true when a roster was actually loaded. Saying it
+            // after a failed fetch sends an operator to inspect a status column in a file
+            // that 404'd — the mirror image of the misdiagnosis this wording exists to
+            // prevent, and the exact state the pre-kickoff week-1 test exercises.
+            (weeklyRoster.ok
+              ? `not listed active on this week's roster, and no current-season appearance ` +
+                `the roster has not since ruled out`
+              : `the weekly roster could not be loaded (${weeklyRoster.reason}), so only a ` +
+                `current-season appearance could have established one, and they have none`) +
+            `). Nothing was written: a partial board would be served as though it were the ` +
+            `whole week.`,
         });
         return { projections: 0, players: identities.size, unknownTeam };
       }

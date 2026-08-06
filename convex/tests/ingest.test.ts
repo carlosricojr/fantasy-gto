@@ -346,6 +346,10 @@ describe("week 1 before kickoff", () => {
     const failure = finishes(calls).at(-1);
     expect(failure?.args.status).toBe("failed");
     expect(String(failure?.args.error)).toMatch(/no current-season team/);
+    // And it must not blame a roster it never managed to load — that sends an operator to
+    // inspect a status column in a file that 404'd.
+    expect(String(failure?.args.error)).toMatch(/weekly roster could not be loaded/);
+    expect(String(failure?.args.error)).not.toMatch(/not listed active/);
   });
 
   it("with the weekly roster, the full board is written before kickoff", async () => {
@@ -439,6 +443,27 @@ describe("weekly roster overrides an earlier appearance", () => {
     expect(ids.has(cut)).toBe(false);
     // His teammate, same team and same appearances, is unaffected.
     expect(ids.has("00-00001")).toBe(true);
+  });
+
+  it("counts distinct players, not player-by-ruleset", async () => {
+    // `unknownTeam` is printed in the failure message. Incremented inside the per-ruleset
+    // loop it reported three times the truth on the cron path, which passes all three
+    // presets, while every ruleset yields identical rows.
+    const cut = "00-00000";
+    const { ctx } = recordingCtx();
+    const one = await runProjectWeek(
+      ctx,
+      { season: SEASON, week: TARGET_WEEK },
+      midSeasonProvider(cut),
+    );
+    const { ctx: ctx3 } = recordingCtx();
+    const three = await runProjectWeek(
+      ctx3,
+      { season: SEASON, week: TARGET_WEEK, scoringIds: ["ppr", "half_ppr", "standard"] },
+      midSeasonProvider(cut),
+    );
+    expect(three.unknownTeam).toBe(one.unknownTeam);
+    expect(one.unknownTeam).toBe(1);
   });
 
   it("still projects everyone when the roster lists them active", async () => {
