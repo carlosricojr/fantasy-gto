@@ -128,6 +128,15 @@ interface PublishedMetrics {
   /** Measured on the tuning season, which is where calibration is fitted. */
   calibration: { season: number; onMae: number; offMae: number };
   significance: PublishedSignificance;
+  /**
+   * The same comparison against the weaker baseline.
+   *
+   * Carried because the document quotes its figures and the honesty rule is that a
+   * published number must be one the code produces. It was stated in prose with nothing
+   * asserting it, which is the failure the artifact exists to prevent — happening to the
+   * second-most-quoted comparison in the file.
+   */
+  significanceVsLastThree: PublishedSignificance;
 }
 const PRIOR_SEASON = 2023;
 
@@ -482,10 +491,46 @@ async function main(): Promise<void> {
    * moment the model changes, the page states something no longer true and nothing
    * detects it.
    */
-  let publishedMetrics: Omit<PublishedMetrics, "calibration" | "significance"> | null =
-    null;
+  let publishedMetrics: Omit<
+    PublishedMetrics,
+    "calibration" | "significance" | "significanceVsLastThree"
+  > | null = null;
   let calibrationEffect: PublishedMetrics["calibration"] | null = null;
   let significance: PublishedSignificance | null = null;
+  let significanceVsLastThree: PublishedSignificance | null = null;
+
+  /** One comparison, in the shape the artifact publishes. */
+  function toPublished(
+    comparison: string,
+    measured: ReturnType<typeof reportComparison>,
+  ): PublishedSignificance {
+    const { result, boot } = measured;
+    return {
+      comparison,
+      clusters: result.clusters,
+      meanDelta: result.meanDelta,
+      clusteredStandardError: result.standardError,
+      iidStandardError: result.iidStandardError,
+      degreesOfFreedom: result.degreesOfFreedom,
+      t: result.t,
+      pValue: result.pValue,
+      confidenceLevel: result.confidenceLevel,
+      confidenceInterval: [...result.interval],
+      percentConfidenceInterval: [...result.percentInterval],
+      minimumDetectableEffect: result.minimumDetectableEffect,
+      minimumDetectablePercent: result.minimumDetectablePercent,
+      minimumSignificantEffect: result.minimumSignificantEffect,
+      minimumSignificantPercent: result.minimumSignificantPercent,
+      bootstrap: {
+        resamples: boot.resamples,
+        seed: boot.seed,
+        confidenceLevel: boot.confidenceLevel,
+        standardError: boot.standardError,
+        confidenceInterval: [...boot.interval],
+        percentConfidenceInterval: [...boot.percentInterval],
+      },
+    };
+  }
 
   for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
     const label =
@@ -535,35 +580,12 @@ async function main(): Promise<void> {
       model,
       allPriorMean,
     );
-    reportComparison("baseline: last 3 games", model, lastThree);
+    const vsLastThree = reportComparison("baseline: last 3 games", model, lastThree);
 
     if (season === EVALUATION_SEASON) {
       reportQuantiles(model);
-      significance = {
-        comparison: "baseline: mean of prior games",
-        clusters: vsPriorGamesMean.result.clusters,
-        meanDelta: vsPriorGamesMean.result.meanDelta,
-        clusteredStandardError: vsPriorGamesMean.result.standardError,
-        iidStandardError: vsPriorGamesMean.result.iidStandardError,
-        degreesOfFreedom: vsPriorGamesMean.result.degreesOfFreedom,
-        t: vsPriorGamesMean.result.t,
-        pValue: vsPriorGamesMean.result.pValue,
-        confidenceLevel: vsPriorGamesMean.result.confidenceLevel,
-        confidenceInterval: [...vsPriorGamesMean.result.interval],
-        percentConfidenceInterval: [...vsPriorGamesMean.result.percentInterval],
-        minimumDetectableEffect: vsPriorGamesMean.result.minimumDetectableEffect,
-        minimumDetectablePercent: vsPriorGamesMean.result.minimumDetectablePercent,
-        minimumSignificantEffect: vsPriorGamesMean.result.minimumSignificantEffect,
-        minimumSignificantPercent: vsPriorGamesMean.result.minimumSignificantPercent,
-        bootstrap: {
-          resamples: vsPriorGamesMean.boot.resamples,
-          seed: vsPriorGamesMean.boot.seed,
-          confidenceLevel: vsPriorGamesMean.boot.confidenceLevel,
-          standardError: vsPriorGamesMean.boot.standardError,
-          confidenceInterval: [...vsPriorGamesMean.boot.interval],
-          percentConfidenceInterval: [...vsPriorGamesMean.boot.percentInterval],
-        },
-      };
+      significance = toPublished("baseline: mean of prior games", vsPriorGamesMean);
+      significanceVsLastThree = toPublished("baseline: last 3 games", vsLastThree);
       publishedMetrics = {
         season,
         sampleSize: model.length,
@@ -704,10 +726,18 @@ async function main(): Promise<void> {
   if (publishedMetrics === null) throw new Error("evaluation season produced no metrics");
   if (calibrationEffect === null) throw new Error("calibration effect not measured");
   if (significance === null) throw new Error("significance not measured");
+  if (significanceVsLastThree === null) {
+    throw new Error("last-3-games significance not measured");
+  }
   writeFileSync(
     PUBLISHED_METRICS_PATH,
     `${JSON.stringify(
-      { ...publishedMetrics, calibration: calibrationEffect, significance },
+      {
+        ...publishedMetrics,
+        calibration: calibrationEffect,
+        significance,
+        significanceVsLastThree,
+      },
       null,
       2,
     )}\n`,

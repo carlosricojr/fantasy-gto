@@ -122,7 +122,13 @@ past about *t* = 8 — the last-3-games comparison below would otherwise print a
 claiming infinite certainty from 308 players.
 
 Against the weaker last-3-games baseline the same run gives ΔMAE +0.5383, clustered SE
-0.0527, *t* = 10.21, *p* = 3.01e-21, and a 95% CI on the edge of 6.83% to 10.09%.
+0.0527, *t* = 10.21, *p* = 3.01e-21, a 95% CI on the edge of 6.83% to 10.09%, a minimum
+detectable effect of 0.1478 (2.32%), and a significance floor of 0.1038 (1.63%). The
+bootstrap returns 0.0531 against the analytic 0.0527.
+
+Those figures are carried in `published-metrics.json` under `significanceVsLastThree` and
+asserted, for the same reason as the headline comparison: they were stated here in prose
+with nothing producing them, which is precisely the failure the artifact exists to prevent.
 
 ### The bootstrap cross-check
 
@@ -151,8 +157,7 @@ barely worth having and modestly worth having", not "2.74%".
 
 The line that matters most for anything built next is the **minimum detectable effect: 0.1242
 MAE, or 2.07% of the baseline**. That is the smallest true improvement this sample could
-distinguish from noise at 80% power. On the tuning season, where the clustered SE is 0.0392,
-it is 0.1099 — 1.83%.
+distinguish from noise at 80% power.
 
 A feature that genuinely improves weekly MAE by 1% therefore cannot be established on one
 season of this population — and the way it fails is worse than an honestly wide interval.

@@ -260,6 +260,41 @@ describe("published significance", () => {
     }
   });
 
+  it("carries the weaker comparison too, and agrees with the document about it", () => {
+    // The document quotes this comparison in prose, and nothing produced or checked it
+    // until a reviewer noticed. Every figure it states is now derived here from the
+    // artifact and matched against the document at the precision it is printed with.
+    const weak = metrics.significanceVsLastThree;
+    expect(weak.comparison).toContain("last 3");
+    expect(weak.meanDelta).toBeCloseTo(metrics.lastThreeMae - metrics.modelMae, 10);
+    expect(weak.t).toBeCloseTo(weak.meanDelta / weak.clusteredStandardError, 10);
+    expect(weak.pValue).toBeCloseTo(
+      studentTTwoSided(weak.t, weak.degreesOfFreedom),
+      12,
+    );
+    expect(weak.minimumSignificantEffect).toBeCloseTo(
+      (weak.confidenceInterval[1] - weak.confidenceInterval[0]) / 2,
+      10,
+    );
+    // Measured against the weaker baseline, so the edge must be the larger of the two —
+    // the same invariant the headline percentages are held to, one level down.
+    expect(weak.meanDelta).toBeGreaterThan(significance.meanDelta);
+
+    expect(validation).toContain(weak.meanDelta.toFixed(4));
+    expect(validation).toContain(weak.clusteredStandardError.toFixed(4));
+    expect(validation).toContain(weak.t.toFixed(2));
+    expect(validation).toContain(weak.minimumDetectableEffect.toFixed(4));
+    expect(validation).toContain(`${weak.minimumDetectablePercent.toFixed(2)}%`);
+    expect(validation).toContain(weak.minimumSignificantEffect.toFixed(4));
+    expect(validation).toContain(`${weak.minimumSignificantPercent.toFixed(2)}%`);
+    expect(validation).toContain(weak.bootstrap.standardError.toFixed(4));
+    for (const end of [0, 1] as const) {
+      expect(validation).toContain(
+        `${weak.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
+    }
+  });
+
   it("agrees with the README honesty ledger, which is what a reader checks", () => {
     // The ledger row for the headline edge quotes the interval. Nothing asserted that
     // before, so a backtest that moved the interval would have left the ledger — the

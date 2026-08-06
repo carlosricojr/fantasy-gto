@@ -54,5 +54,42 @@
         4.182722529393904
       ]
     }
+  },
+  "significanceVsLastThree": {
+    "comparison": "baseline: last 3 games",
+    "clusters": 308,
+    "meanDelta": 0.5382603446383482,
+    "clusteredStandardError": 0.0527432831030602,
+    "iidStandardError": 0.05354915846479314,
+    "degreesOfFreedom": 307,
+    "t": 10.205287061607242,
+    "pValue": 3.0142572184042845e-21,
+    "confidenceLevel": 95,
+    "confidenceInterval": [
+      0.4344762636692411,
+      0.6420444256074552
+    ],
+    "percentConfidenceInterval": [
+      6.829440766320668,
+      10.092160931881345
+    ],
+    "minimumDetectableEffect": 0.14776480229628094,
+    "minimumDetectablePercent": 2.3226837666735767,
+    "minimumSignificantEffect": 0.10378408096910709,
+    "minimumSignificantPercent": 1.6313600827803378,
+    "bootstrap": {
+      "resamples": 2000,
+      "seed": 8675309,
+      "confidenceLevel": 95,
+      "standardError": 0.05307060884689133,
+      "confidenceInterval": [
+        0.4328207908967607,
+        0.6437793735476848
+      ],
+      "percentConfidenceInterval": [
+        6.944624828344037,
+        9.888468105460635
+      ]
+    }
   }
 }
