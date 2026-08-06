@@ -183,6 +183,7 @@ Every claim the interface makes, and the computation behind it.
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
 | Residual bias of −0.57 points | Published on `/accuracy` rather than hidden. |
+| Pairwise start/sit accuracy and lineup regret | `pnpm backtest`, **in-sample** on the development (2013–2021) and tuning (2022–2024) sets — no decision metric is measured on the 2025 holdout, and none reaches the interface. Pair counts, accuracy by projected gap, points forgone with a pair-clustered 95% CI, and regret against a perfect-hindsight lineup are recorded in [`docs/model-validation.md`](docs/model-validation.md). The headline is that on the closest calls the model is barely better than a coin flip. |
 | Draft recommendations ranked by championship probability | Simulated season in `lib/core/season-sim.ts`; each recommendation carries its standard error and a tied-with-leader flag. **No ranking edge over ADP is claimed** — measured out-of-sample, the market ranks players better than our model. See [`docs/draft-validation.md`](docs/draft-validation.md). |
 
 **Withdrawn.** The original plan claimed "+8.2 points/week vs platform projections" and

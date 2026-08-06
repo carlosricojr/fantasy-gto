@@ -47,6 +47,13 @@ import {
   pairedComparison,
   quantile,
 } from "@/lib/core/stats";
+import {
+  lineupRegret,
+  pairwiseDecisions,
+  stratifyByGap,
+  summarizePairwise,
+} from "@/lib/core/decisions";
+import { type RosterSlot, solveLineup } from "@/lib/core/optimizer";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { scoreOffense } from "@/lib/nfl/scoring/score";
 import type { Position } from "@/lib/nfl/scoring/types";
@@ -249,9 +256,21 @@ function mean(values: readonly number[]): number {
 interface Evaluation {
   /** The clustering unit. Kept per row so a comparison can be player-clustered. */
   competitorId: string;
+  season: number;
+  week: number;
   position: Position;
   predicted: number;
   actual: number;
+}
+
+/** The unit a start/sit choice is posed within: one week, one position. */
+function decisionGroup(row: Evaluation): string {
+  return `${row.season}:${row.week}:${row.position}`;
+}
+
+/** The unit a lineup is set within: one week. */
+function weekGroup(row: Evaluation): string {
+  return `${row.season}:${row.week}`;
 }
 
 /**
@@ -468,16 +487,16 @@ async function main(): Promise<void> {
         });
 
         const competitorId = week.competitor.id;
-        model.push({ competitorId, position, predicted: projection.mean, actual });
-        allPriorMean.push({
+        const identity = {
           competitorId,
+          season: week.period.season,
+          week: week.period.index,
           position,
-          predicted: mean(priorPoints),
-          actual,
-        });
+        };
+        model.push({ ...identity, predicted: projection.mean, actual });
+        allPriorMean.push({ ...identity, predicted: mean(priorPoints), actual });
         lastThree.push({
-          competitorId,
-          position,
+          ...identity,
           predicted: mean(priorPoints.slice(-3)),
           actual,
         });
@@ -685,6 +704,267 @@ async function main(): Promise<void> {
   }
 
   /**
+   * Decision quality, which is what the product is actually graded on.
+   *
+   * MAE is the wrong instrument for a start/sit call. Subtract a constant from every
+   * projection and MAE moves while every ordering is untouched; nudge two close projections
+   * past each other and MAE barely notices while a user starts the wrong player. These
+   * measure the decision instead, for the model and for the strongest baseline side by side.
+   *
+   * The interval on pairwise accuracy is clustered on the unordered pair, which handles the
+   * largest dependency — the same two players meeting week after week — but not all of it,
+   * since one player's bad season correlates every pair he appears in. It is therefore
+   * optimistic, and that is said here rather than left for a reader to deduce.
+   */
+  function reportDecisions(
+    model: readonly Evaluation[],
+    baseline: readonly Evaluation[],
+  ): void {
+    const toOutcome = (rows: readonly Evaluation[]) =>
+      rows.map((r) => ({
+        competitorId: r.competitorId,
+        groupId: decisionGroup(r),
+        predicted: r.predicted,
+        actual: r.actual,
+      }));
+
+    const modelDecisions = pairwiseDecisions(toOutcome(model));
+    const baselineDecisions = pairwiseDecisions(toOutcome(baseline));
+
+    // The two arrays describe the same decisions in the same order, and the reason is
+    // subtle enough to be worth enforcing rather than trusting: `evaluate` emits both
+    // predictors from one loop so the rows align, group order follows row order, within a
+    // group the sort key is `competitorId` alone, and the tie-drop rule reads `actual`,
+    // which is identical across predictors. So who is *favoured* can differ while pair
+    // membership and position cannot. Any future filter that reads `predicted` would break
+    // that silently, and a shifted-but-equal-length pairing produces a plausible mean
+    // difference with a standard error that means nothing — the same failure `paired()`
+    // above already refuses to risk.
+    if (modelDecisions.length !== baselineDecisions.length) {
+      throw new Error(
+        `decisions: ${modelDecisions.length} model against ${baselineDecisions.length} baseline`,
+      );
+    }
+    modelDecisions.forEach((d, i) => {
+      const b = baselineDecisions[i];
+      if (b.cluster !== d.cluster || b.actualGap !== d.actualGap) {
+        throw new Error(`decisions: misaligned at ${i}`);
+      }
+    });
+    const modelSummary = summarizePairwise(modelDecisions);
+    const baselineSummary = summarizePairwise(baselineDecisions);
+
+    process.stdout.write(
+      `\n  decision quality — same week, same position\n` +
+        `    ${"predictor".padEnd(22)}${"pairs".padStart(9)}${"correct".padStart(10)}` +
+        `${"forgone/pair".padStart(14)}${"forgone/miss".padStart(14)}\n`,
+    );
+    for (const [name, summary] of [
+      ["FGTO model", modelSummary],
+      ["prior-games mean", baselineSummary],
+    ] as const) {
+      process.stdout.write(
+        `    ${name.padEnd(22)}${String(summary.pairs).padStart(9)}` +
+          `${`${(summary.accuracy * 100).toFixed(2)}%`.padStart(10)}` +
+          `${summary.meanForgone.toFixed(3).padStart(14)}` +
+          `${summary.meanForgoneWhenWrong.toFixed(3).padStart(14)}\n`,
+      );
+    }
+
+    // Stratified, because the pooled rate is dominated by calls nobody would hesitate over.
+    // Two models that differ only on the hard ones look identical pooled, and the hard ones
+    // are the only reason to consult a model at all.
+    process.stdout.write(
+      `\n    ${"by the model's gap".padEnd(21)}${"pairs".padStart(9)}${"model".padStart(10)}` +
+        `${"baseline".padStart(10)}${"delta".padStart(9)}${"95% CI".padStart(20)}\n`,
+    );
+    const edges = [1, 2, 4, 8];
+    const modelStrata = stratifyByGap(modelDecisions, edges);
+    // Stratified by the **model's** gap on both sides. Splitting the baseline by its own
+    // projected gap puts the same decision in different rows for the two predictors, so the
+    // table would read as a like-for-like split of one population while being two — and the
+    // row that carries this section's headline claim would compare different decisions.
+    // Caught in review: re-weighting the baseline column by the printed pair counts gave
+    // 62.91% against a pooled 63.01%, which is how a difference of populations shows up.
+    const baselineStrata = stratifyByGap(
+      baselineDecisions.map((d, i) => ({ ...d, projectedGap: modelDecisions[i].projectedGap })),
+      edges,
+    );
+    for (let i = 0; i < modelStrata.length; i += 1) {
+      const m = modelStrata[i];
+      const b = baselineStrata[i];
+      // Every difference here gets its own clustered interval, for the same reason the
+      // pooled one does: a 0.45-point gap in accuracy presented bare is a point estimate
+      // masquerading as a finding, and this file's own docstring forbids exactly that.
+      const inStratum = modelDecisions
+        .map((d, k) => ({
+          cluster: d.cluster,
+          model: d.forgone,
+          baseline: baselineDecisions[k].forgone,
+          gap: d.projectedGap,
+        }))
+        .filter((r) => r.gap >= (i === 0 ? 0 : edges[i - 1]) && (i >= edges.length || r.gap < edges[i]));
+      let interval = "";
+      if (inStratum.length > 1 && new Set(inStratum.map((r) => r.cluster)).size > 1) {
+        const test = pairedComparison(inStratum);
+        interval =
+          `${`${test.meanDelta >= 0 ? "+" : ""}${test.meanDelta.toFixed(3)}`.padStart(9)}` +
+          `${`[${test.interval[0].toFixed(3)}, ${test.interval[1].toFixed(3)}]`.padStart(20)}`;
+      }
+      process.stdout.write(
+        `    ${m.label.padEnd(21)}${String(m.summary.pairs).padStart(9)}` +
+          `${`${(m.summary.accuracy * 100).toFixed(2)}%`.padStart(10)}` +
+          `${`${(b.summary.accuracy * 100).toFixed(2)}%`.padStart(10)}${interval}\n`,
+      );
+    }
+
+    const paired = modelDecisions.map((d, i) => ({
+      cluster: d.cluster,
+      // Errors, so lower is better and the sign convention matches every other comparison
+      // in this script: positive delta means the model gave up less.
+      model: d.forgone,
+      baseline: baselineDecisions[i].forgone,
+    }));
+    if (paired.length > 1 && new Set(paired.map((p) => p.cluster)).size > 1) {
+      const comparison = pairedComparison(paired);
+      process.stdout.write(
+        `\n    points forgone per decision: model ${comparison.modelMean.toFixed(4)} ` +
+          `vs baseline ${comparison.baselineMean.toFixed(4)}\n` +
+          `      delta ${comparison.meanDelta >= 0 ? "+" : ""}${comparison.meanDelta.toFixed(4)} ` +
+          `(SE ${comparison.standardError.toFixed(4)} clustered on the pair, G = ${comparison.clusters})\n` +
+          `      ${comparison.confidenceLevel}% CI [${comparison.interval[0].toFixed(4)}, ${comparison.interval[1].toFixed(4)}]  ` +
+          `p ${formatP(comparison.pValue)}\n` +
+          `      clustering on the pair understates dependence — one player's season\n` +
+          `      correlates every pair he is in — so this interval is optimistic.\n`,
+      );
+    }
+
+    reportRegret(model, baseline);
+  }
+
+  /**
+   * Points left on the bench against a lineup set with hindsight.
+   *
+   * The rosters are synthetic and the construction is stated rather than buried: each week's
+   * scored players are dealt round-robin in competitor-id order into twelve rosters. That is
+   * a judgement, not a measurement, and the absolute number depends on it. The deal is
+   * keyed on neither predictor, so the comparison does not — both sides receive identical
+   * rosters built without reference to either set of projections.
+   *
+   * Both lineups on both sides are solved by the same optimizer, so the difference is down
+   * to projections alone. Filling the hindsight side greedily would credit the projections
+   * with the solver's work.
+   */
+  function reportRegret(
+    model: readonly Evaluation[],
+    baseline: readonly Evaluation[],
+  ): void {
+    const slots: RosterSlot[] = [
+      { id: "qb", label: "QB", eligiblePositions: ["QB"] },
+      { id: "rb1", label: "RB", eligiblePositions: ["RB"] },
+      { id: "rb2", label: "RB", eligiblePositions: ["RB"] },
+      { id: "wr1", label: "WR", eligiblePositions: ["WR"] },
+      { id: "wr2", label: "WR", eligiblePositions: ["WR"] },
+      { id: "te", label: "TE", eligiblePositions: ["TE"] },
+      { id: "flex", label: "FLEX", eligiblePositions: ["RB", "WR", "TE"] },
+    ];
+    const TEAMS = 12;
+
+    const byWeek = new Map<string, Evaluation[]>();
+    for (const row of model) {
+      const bucket = byWeek.get(weekGroup(row)) ?? [];
+      bucket.push(row);
+      byWeek.set(weekGroup(row), bucket);
+    }
+    const baselineById = new Map(
+      baseline.map((r) => [`${weekGroup(r)}:${r.competitorId}`, r.predicted]),
+    );
+
+    let modelRegret = 0;
+    let baselineRegret = 0;
+    let best = 0;
+    let rosterWeeks = 0;
+
+    for (const key of [...byWeek.keys()].sort()) {
+      const rows = byWeek.get(key)!;
+      // Dealt round-robin in competitor-id order. Deliberately **not** by projection rank:
+      // ranking by one of the two predictors builds every roster to span that predictor's
+      // range, which makes the deal a function of the thing being compared. It was keyed on
+      // the model's projections until a reviewer pointed out that "identical on both sides"
+      // and "neutral between the two" are different claims, and only the first was true.
+      const ranked = [...rows].sort((a, b) =>
+        a.competitorId < b.competitorId ? -1 : a.competitorId > b.competitorId ? 1 : 0,
+      );
+      const rosters: Evaluation[][] = Array.from({ length: TEAMS }, () => []);
+      ranked.forEach((row, i) => rosters[i % TEAMS].push(row));
+
+      for (const roster of rosters) {
+        const actual = new Map(roster.map((r) => [r.competitorId, r.actual]));
+        const asCompetitors = (predicted: (row: Evaluation) => number) =>
+          roster.map((r) => ({
+            id: r.competitorId,
+            name: r.competitorId,
+            position: r.position,
+            projectedPoints: predicted(r),
+            availability: "active" as const,
+          }));
+
+        // Feasibility asked of the solver, not of a proxy. Checking each slot independently
+        // for "some eligible player exists" passes a roster with one running back against
+        // two RB slots, so an unfillable lineup would be counted with empty slots scoring
+        // zero — deflating the achievable total and, with it, the published percentage.
+        //
+        // Every player valued at 1, which turns the min-cost assignment into a pure
+        // maximum-cardinality matching and asks the only question being posed: does a legal
+        // lineup exist? Solving on *actual* points instead — which this did in its first
+        // revision — makes the gate a function of the outcomes, because the optimizer will
+        // not seat a player whose cost exceeds the empty slot's. A roster whose only
+        // quarterback lost a fumble and scored −1.5 came back "infeasible" though it fills
+        // perfectly, so rosters were being excluded for having scored badly. That is exactly
+        // the outcome-correlated selection the rest of this script avoids.
+        const structural = solveLineup(slots, asCompetitors(() => 1));
+        if (structural.assignments.some((a) => a.competitorId === null)) continue;
+
+        const withModel = lineupRegret(key, slots, asCompetitors((r) => r.predicted), actual);
+        const withBaseline = lineupRegret(
+          key,
+          slots,
+          // Throws rather than falling back to zero. A missing baseline projection would
+          // bench that player, lowering the baseline lineup's total and inflating its
+          // regret — so the comparison would favour the model for a reason that has nothing
+          // to do with the model. Unreachable today, since `evaluate` emits both predictors
+          // from one loop, and asserted for the same reason `reportDecisions` asserts its
+          // own alignment rather than trusting it.
+          asCompetitors((r) => {
+            const projected = baselineById.get(`${key}:${r.competitorId}`);
+            if (projected === undefined) {
+              throw new Error(`regret: no baseline projection for ${key}:${r.competitorId}`);
+            }
+            return projected;
+          }),
+          actual,
+        );
+        modelRegret += withModel.regret;
+        baselineRegret += withBaseline.regret;
+        best += withModel.best;
+        rosterWeeks += 1;
+      }
+    }
+
+    if (rosterWeeks === 0) return;
+    process.stdout.write(
+      `\n    lineup regret against perfect hindsight, ${rosterWeeks.toLocaleString("en-US")} roster-weeks\n` +
+        `      model    ${(modelRegret / rosterWeeks).toFixed(3)} points/week ` +
+        `(${((modelRegret / best) * 100).toFixed(2)}% of the achievable total)\n` +
+        `      baseline ${(baselineRegret / rosterWeeks).toFixed(3)} points/week ` +
+        `(${((baselineRegret / best) * 100).toFixed(2)}% of the achievable total)\n` +
+        `      rosters are synthetic: each week's scored players dealt round-robin in\n` +
+        `      competitor-id order into ${TEAMS} teams, identical on both sides and keyed\n` +
+        `      on neither predictor. Counted only where a legal lineup exists.\n`,
+    );
+  }
+
+  /**
    * Scores a whole set of seasons and reports it pooled.
    *
    * Pooling is the entire point of the expanded window. The clustered standard error falls
@@ -745,6 +1025,7 @@ async function main(): Promise<void> {
       allPriorMean,
     );
     reportComparison("baseline: last 3 games", model, lastThree);
+    reportDecisions(model, allPriorMean);
     return { model, allPriorMean, lastThree, vsPriorGamesMean };
   }
 
