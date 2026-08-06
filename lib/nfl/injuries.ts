@@ -189,14 +189,27 @@ export function indexInjuries(
  *
  * Per week, because the designation is. A player ruled out in week 3 and cleared for week 4
  * must be projectable in week 4; keying this any other way removes him for the season.
+ *
+ * **A later row supersedes an earlier one**, matching `indexInjuries` rather than taking the
+ * union of the week. Upstream ships corrections: a player listed `Out` on Friday and
+ * downgraded to `Questionable` on Saturday has two rows, and a union would keep ruling him
+ * out. That is not a harmless over-caution — `runProjectWeek` writes no row for him, and
+ * `pruneStale` then deletes the row an earlier run had written, so the lineup page cannot
+ * offer a player who is going to play and has no way to recover, since its whole pool comes
+ * from projection rows.
  */
 export function ruledOutForWeek(
   reports: readonly InjuryReport[],
   week: number,
 ): Set<string> {
-  const out = new Set<string>();
+  const latest = new Map<string, GameStatus>();
   for (const report of reports) {
-    if (report.week === week && report.gameStatus === "out") out.add(report.playerId);
+    if (report.week !== week) continue;
+    latest.set(report.playerId, report.gameStatus);
+  }
+  const out = new Set<string>();
+  for (const [playerId, status] of latest) {
+    if (status === "out") out.add(playerId);
   }
   return out;
 }

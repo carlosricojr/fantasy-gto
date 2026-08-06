@@ -219,6 +219,36 @@ describe("ruledOutForWeek", () => {
     expect([...ruledOutForWeek(reports, 3)]).toEqual(["out"]);
   });
 
+  it("lets a correction supersede an earlier designation", () => {
+    // Upstream ships corrections. A union over the week would keep ruling out a player who
+    // was downgraded to Questionable on the Saturday — and that is not harmless caution:
+    // no projection row is written, `pruneStale` deletes the one an earlier run wrote, and
+    // the lineup page cannot offer a player who is going to play.
+    const downgraded = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+    ]).reports;
+    expect(ruledOutForWeek(downgraded, 5).has("x")).toBe(false);
+
+    // And the other direction: upgraded to Out on the Saturday.
+    const upgraded = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Questionable" },
+      { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Out" },
+    ]).reports;
+    expect(ruledOutForWeek(upgraded, 5).has("y")).toBe(true);
+  });
+
+  it("agrees with indexInjuries about which row wins", () => {
+    // The two functions read the same array and must not contradict each other.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+    ]).reports;
+    const indexed = indexInjuries(reports).get(injuryKey("x", 2024, 5));
+    expect(indexed?.gameStatus).toBe("questionable");
+    expect(ruledOutForWeek(reports, 5).has("x")).toBe(false);
+  });
+
   it("does not leak a designation from another week", () => {
     // Out is a per-week fact. A player ruled out in week 3 and cleared for week 4 must be
     // projectable in week 4 — otherwise one injury removes him for the rest of the season.

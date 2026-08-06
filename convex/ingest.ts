@@ -182,10 +182,24 @@ export interface ProjectWeekResult {
    * Skipped because the league designated them `Out` for this week.
    *
    * Reported separately from `unknownTeam` because it is a different fact about a different
-   * kind of absence, and because it is the number that says whether the injury report was
-   * actually consulted on a given run.
+   * kind of absence.
+   *
+   * On its own this number cannot say whether the guard ran: zero means both "nobody was
+   * ruled out" and "the injury report failed to load". `injuryReportLoaded` is what
+   * distinguishes them, and it exists because the docstring here previously claimed this
+   * field made that distinction and it did not.
    */
   ruledOut: number;
+  /**
+   * Whether the weekly injury report was successfully loaded for this run.
+   *
+   * A failed fetch is deliberately not fatal — a transient upstream blip must not empty a
+   * week — but it does mean every ruled-out player was projected at full confidence, and
+   * nothing else about the run would show it. The roster's failure is at least visible
+   * through the coverage gate, because losing it drops coverage; losing this has no
+   * consequence the run can detect on its own.
+   */
+  injuryReportLoaded: boolean;
 }
 
 /** The database surface the run needs. Narrowed so a test can supply it directly. */
@@ -469,9 +483,6 @@ export async function runProjectWeek(
           const weeksSincePlayed = weeksBetween(lastPlayed, { season, index: week });
           if (weeksSincePlayed > INACTIVITY_WEEKS) continue;
 
-          // Never fall back to `latest.competitor.team`: at week 1 that is last season's
-          // team. Without current-season evidence the player's team is genuinely unknown,
-          // and skipping is better than projecting them into the wrong game.
           // Ruled out before anything else is considered. A projection for him would be a
           // confident number for a player who is not going to play.
           if (ruledOut.has(playerId)) {
@@ -479,6 +490,9 @@ export async function runProjectWeek(
             continue;
           }
 
+          // Never fall back to `latest.competitor.team`: at week 1 that is last season's
+          // team. Without current-season evidence the player's team is genuinely unknown,
+          // and skipping is better than projecting them into the wrong game.
           const team = currentTeam.get(playerId) ?? null;
           if (!team) {
             unknownTeamPlayers.add(playerId);
@@ -584,10 +598,20 @@ export async function runProjectWeek(
                   `current-season appearance could have established one, and they have none`
                 : `the weekly roster could not be loaded (${weeklyRoster.reason}), so only ` +
                   `a current-season appearance could have established one, and they have none`) +
-            `). Nothing was written: a partial board would be served as though it were the ` +
+            `). ` +
+            (injuries.ok
+              ? `${ruledOutCount} more were skipped as ruled out. `
+              : `The injury report could not be loaded, so nobody was skipped as ruled out. `) +
+            `Nothing was written: a partial board would be served as though it were the ` +
             `whole week.`,
         });
-        return { projections: 0, players: identities.size, unknownTeam, ruledOut: ruledOutCount };
+        return {
+          projections: 0,
+          players: identities.size,
+          unknownTeam,
+          ruledOut: ruledOutCount,
+          injuryReportLoaded: injuries.ok,
+        };
       }
 
       // One stamp for the whole run. Every row this run writes carries it, so the prune
@@ -625,7 +649,13 @@ export async function runProjectWeek(
         error: null,
       });
 
-      return { projections: written, players: identities.size, unknownTeam, ruledOut: ruledOutCount };
+      return {
+        projections: written,
+        players: identities.size,
+        unknownTeam,
+        ruledOut: ruledOutCount,
+        injuryReportLoaded: injuries.ok,
+      };
     } catch (error) {
       await ctx.runMutation(internal.jobs.finish, {
         jobId,
