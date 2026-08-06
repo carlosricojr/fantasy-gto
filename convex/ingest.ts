@@ -163,7 +163,13 @@ export const projectWeek = internalAction({
 export interface ProjectWeekResult {
   projections: number;
   players: number;
-  /** Skipped because no current-season appearance established their team. */
+  /**
+   * Skipped because nothing established their team for this season.
+   *
+   * Two sources can: an active entry on the target week's roster, or an appearance in a
+   * current-season game. Before the roster existed only the second could, and the name of
+   * this field and the message below still said so after it stopped being true.
+   */
   unknownTeam: number;
 }
 
@@ -504,9 +510,9 @@ export async function runProjectWeek(
           status: "failed",
           error:
             `Only ${coveredTeams.size} of ${teamsPlaying} teams playing ${season} week ${week} ` +
-            `had a projectable player (${unknownTeam} skipped for no current-season ` +
-            `appearance). Nothing was written: a partial board would be served as though it ` +
-            `were the whole week.`,
+            `had a projectable player (${unknownTeam} skipped for no current-season team — ` +
+            `neither an active weekly-roster entry nor a current-season appearance). Nothing ` +
+            `was written: a partial board would be served as though it were the whole week.`,
         });
         return { projections: 0, players: identities.size, unknownTeam };
       }

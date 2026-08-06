@@ -345,7 +345,7 @@ describe("week 1 before kickoff", () => {
 
     const failure = finishes(calls).at(-1);
     expect(failure?.args.status).toBe("failed");
-    expect(String(failure?.args.error)).toMatch(/no current-season appearance/);
+    expect(String(failure?.args.error)).toMatch(/no current-season team/);
   });
 
   it("with the weekly roster, the full board is written before kickoff", async () => {

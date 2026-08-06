@@ -134,11 +134,18 @@ describe("teamsForWeek", () => {
   });
 
   it("does not leak a player from another week", () => {
-    // Rodgers is active in both weeks here, but a week-2 lookup must not see week 1's row
-    // for a player who has since been traded.
-    const week2 = teamsForWeek(parsed.entries, 2);
-    expect(week2.size).toBe(1);
-    expect(week2.get("00-0023459")).toBe("PIT");
+    // The fixture has Rodgers on PIT in both weeks, so asserting against it would pass even
+    // for an implementation that ignored `entry.week` entirely. Different teams per week is
+    // what actually distinguishes the two — and a mid-season trade is precisely the case a
+    // *weekly* roster exists to represent.
+    const entries = toWeeklyRoster([
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "1", team: "SF", status: "ACT" },
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "2", team: "MIN", status: "ACT" },
+    ]).entries;
+    expect(teamsForWeek(entries, 1).get("x")).toBe("SF");
+    expect(teamsForWeek(entries, 2).get("x")).toBe("MIN");
+    // And the fixture's own week-2 lookup still holds.
+    expect(teamsForWeek(parsed.entries, 2).size).toBe(1);
   });
 
   it("resolves a mid-week duplicate deterministically", () => {
@@ -173,7 +180,14 @@ describe("statusesForWeek", () => {
   });
 
   it("does not leak a status from another week", () => {
-    expect(statusesForWeek(parsed.entries, 2).size).toBe(1);
+    // Different statuses per week, so an implementation that ignored `entry.week` and kept
+    // the first match would return "active" here and fail.
+    const entries = toWeeklyRoster([
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "1", team: "SF", status: "ACT" },
+      { game_type: "REG", gsis_id: "x", season: "2025", week: "2", team: "SF", status: "CUT" },
+    ]).entries;
+    expect(statusesForWeek(entries, 1).get("x")).toBe("active");
+    expect(statusesForWeek(entries, 2).get("x")).toBe("cut");
   });
 
   it("resolves a duplicate the same way teamsForWeek does", () => {
