@@ -253,6 +253,11 @@ A median of 47 hours is Friday for a Sunday game, which is exactly when the NFL 
 final injury report. The single exception is one `Out` designation on the Thursday-night
 opener, edited about three hours after kickoff — plausibly a post-game correction.
 
+`ruledOutForWeek` in `lib/nfl/injuries.ts` is the one consumer in the product today:
+`projectWeek` skips any player designated `Out` for the week being projected. That is a
+correctness guard rather than a model feature — see the honesty ledger — and it is
+deliberately confined to `Out`.
+
 **Verdict, scoped to what was measured: in 2024, 5,953 of 5,954 regular-season rows were
 written before their game. That is the only season this can be checked on, and the finding
 is about those rows — not about "the injury reports" in general.** On that evidence the

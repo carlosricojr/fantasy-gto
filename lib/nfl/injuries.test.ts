@@ -6,6 +6,7 @@ import { parseCsv } from "./csv";
 import {
   indexInjuries,
   injuryKey,
+  ruledOutForWeek,
   toGameStatus,
   toPracticeStatus,
   toRegularSeasonInjuries,
@@ -187,5 +188,40 @@ describe("indexInjuries", () => {
     ];
     const parsed = toRegularSeasonInjuries(rows);
     expect(indexInjuries(parsed.reports).get(injuryKey("x", 2024, 3))?.gameStatus).toBe("out");
+  });
+});
+
+describe("ruledOutForWeek", () => {
+  const parsed = toRegularSeasonInjuries(parseCsv(csv2024));
+
+  it("returns only the players designated Out for that week", () => {
+    const out = ruledOutForWeek(parsed.reports, parsed.reports[0].week);
+    for (const id of out) {
+      const report = parsed.reports.find((r) => r.playerId === id);
+      expect(report?.gameStatus).toBe("out");
+    }
+  });
+
+  it("does not include Questionable or Doubtful", () => {
+    // They play, often. Excluding them is a modelling decision rather than a correctness
+    // fix, and it is a pre-registered hypothesis that has not been evaluated.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "3", gsis_id: "out", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "3", gsis_id: "q", game_type: "REG", report_status: "Questionable" },
+      { season: "2024", week: "3", gsis_id: "d", game_type: "REG", report_status: "Doubtful" },
+      { season: "2024", week: "3", gsis_id: "n", game_type: "REG", report_status: "" },
+    ]).reports;
+    expect([...ruledOutForWeek(reports, 3)]).toEqual(["out"]);
+  });
+
+  it("does not leak a designation from another week", () => {
+    // Out is a per-week fact. A player ruled out in week 3 and cleared for week 4 must be
+    // projectable in week 4 — otherwise one injury removes him for the rest of the season.
+    const reports = toRegularSeasonInjuries([
+      { season: "2024", week: "3", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      { season: "2024", week: "4", gsis_id: "x", game_type: "REG", report_status: "" },
+    ]).reports;
+    expect(ruledOutForWeek(reports, 3).has("x")).toBe(true);
+    expect(ruledOutForWeek(reports, 4).has("x")).toBe(false);
   });
 });

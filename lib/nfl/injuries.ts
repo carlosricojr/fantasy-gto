@@ -173,3 +173,30 @@ export function indexInjuries(
   }
   return index;
 }
+
+/**
+ * The players the league has ruled out for a given week.
+ *
+ * `out` is not a probability. It is the team's statement that the player will not take a
+ * snap, so he will score zero exactly as a bye-week player does — and this project's schema
+ * is explicit that a bye-week projection row "cannot be written at all", with the lineup
+ * page relying on that invariant rather than filtering. A projection written for a ruled-out
+ * player breaks it, and the optimizer then recommends starting him.
+ *
+ * Deliberately only `out`. `doubtful` and `questionable` players do play, often enough that
+ * excluding them is a modelling decision rather than a correctness fix — and that decision
+ * is a pre-registered hypothesis which has not been evaluated.
+ *
+ * Per week, because the designation is. A player ruled out in week 3 and cleared for week 4
+ * must be projectable in week 4; keying this any other way removes him for the season.
+ */
+export function ruledOutForWeek(
+  reports: readonly InjuryReport[],
+  week: number,
+): Set<string> {
+  const out = new Set<string>();
+  for (const report of reports) {
+    if (report.week === week && report.gameStatus === "out") out.add(report.playerId);
+  }
+  return out;
+}
