@@ -12,8 +12,10 @@ roster scores higher.
 ```bash
 pnpm install
 pnpm verify                # typecheck, lint, tests
-pnpm backtest              # reproduce the published accuracy figures
+pnpm backtest              # development + tuning sets; leaves the 2025 holdout untouched
+pnpm backtest -- --holdout # scores the holdout and rewrites the published figures
 pnpm backtest -- --sweeps  # reproduce how each parameter was chosen
+pnpm verify-sources        # reproduce every measured figure in docs/data-sources.md
 pnpm dev                   # Next.js + Convex
 ```
 
@@ -175,7 +177,7 @@ Every claim the interface makes, and the computation behind it.
 
 | Claim | Backed by |
 | --- | --- |
-| "2.74% better than a prior-games-mean baseline, 95% CI 1.28% to 4.20%" | `pnpm backtest`, out-of-sample on 2025, n=3,037 player-weeks over 308 players. The interval uses a standard error clustered by player — the same player appears up to seventeen times, and the clustered error is 22% larger than the i.i.d. one that treats each week as fresh evidence. Two-sided *p* = 0.00025, cross-checked by a seeded block bootstrap over players. Recorded in [`docs/model-validation.md`](docs/model-validation.md), and written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing page render directly rather than restating. `published-metrics.test.ts` recomputes every figure in that artifact from the others and asserts it agrees with the document. |
+| "2.74% better than a prior-games-mean baseline, 95% CI 1.28% to 4.20%" | `pnpm backtest -- --holdout`, out-of-sample on 2025, n=3,037 player-weeks over 308 players. The interval uses a standard error clustered by player — the same player appears up to seventeen times, and the clustered error is 22% larger than the i.i.d. one that treats each week as fresh evidence. Two-sided *p* = 0.00025, cross-checked by a seeded block bootstrap over players. Recorded in [`docs/model-validation.md`](docs/model-validation.md), and written to `lib/nfl/model/published-metrics.json`, which `/accuracy` and the landing page render directly rather than restating. `published-metrics.test.ts` recomputes every figure in that artifact from the others and asserts it agrees with the document. |
 | Projection floor and ceiling | Empirical 10th/90th percentiles of actual/projected, measured per position after calibration, **under PPR**. Other rulesets carry a visible caveat. |
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
@@ -290,8 +292,11 @@ Stated plainly rather than left to be discovered.
 - **One season cannot detect an improvement smaller than about 2%.** The minimum detectable
   effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline, and no
   measured effect below 1.46% can be reported as significant at all. A true 1% improvement
-  therefore cannot produce a significant result at its own size — only an inflated one — so
-  the fix is a wider evaluation window, not a more hopeful reading of one season. See
+  therefore cannot produce a significant result at its own size — only an inflated one. The
+  development set brings that floor down by roughly a factor of three, which is why anything
+  smaller is measured there and not on one season. The 2025 figures come from
+  `pnpm backtest -- --holdout`; the development and tuning figures from the default
+  `pnpm backtest`. Both are recorded in
   [`docs/model-validation.md`](docs/model-validation.md).
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the

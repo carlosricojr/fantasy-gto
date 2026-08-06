@@ -5,14 +5,17 @@
  * downloads real nflverse data, replays historical weeks using only information that was
  * available before kickoff, and reports MAE against baselines.
  *
- * Run with `pnpm backtest`. Downloads are cached under `.cache/nflverse`.
+ * `pnpm backtest` scores the development and tuning sets. `pnpm backtest -- --holdout`
+ * scores the holdout and is the only run that rewrites the published figures. Downloads are
+ * cached under `.cache/nflverse`.
  *
  * Method, and why each choice matters:
  *
- * - Hyperparameters were chosen on the tuning season and are frozen in `config.ts`. The
- *   evaluation season is therefore genuinely out-of-sample.
- * - Defense-vs-position factors always come from the *prior* season. Building them from
- *   the evaluation season would leak the outcome into the prediction.
+ * - Hyperparameters were chosen on the tuning seasons and are frozen in `config.ts`. The
+ *   holdout is therefore genuinely out-of-sample, and stays that way only because scoring
+ *   it takes a flag.
+ * - Defense-vs-position factors always come from the *preceding* season. Building them from
+ *   the season being evaluated would leak the outcome into the prediction.
  * - Only rosterable players are scored: at least `MIN_PRIOR_GAMES` of history and a
  *   recent average of at least `MIN_RECENT_AVERAGE`. Including deep-bench players with no
  *   usage would flatter every model equally and measure nothing.
@@ -54,8 +57,53 @@ import {
 } from "@/lib/sources/nflverse";
 import type { PlayerWeek } from "@/lib/nfl/stats/parse";
 
-const TUNING_SEASON = 2024;
-const EVALUATION_SEASON = 2025;
+/**
+ * The evaluation protocol, named rather than spelled as loop literals.
+ *
+ * Development seasons are free to explore. Tuning seasons are where hyperparameters may be
+ * selected. The holdout is evaluated **once per hypothesis, at a pre-registered decision
+ * point**, and `pnpm backtest` does not touch it without `--holdout`.
+ *
+ * The floor is 2013, not 2012 as originally scoped. The stated reason for 2012 was that
+ * `snap_counts` begins there; it does not. `snap_counts_2012.csv` answers HTTP 200 with a
+ * valid sixteen-column header and **zero data rows**, and the release is first populated in
+ * 2013. A split whose first development season carries no snap data is a split that cannot
+ * carry every planned feature, which was the criterion that chose the floor in the first
+ * place. See `docs/data-sources.md`.
+ */
+const DEVELOPMENT_SEASONS = [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021] as const;
+const TUNING_SEASONS = [2022, 2023, 2024] as const;
+const HOLDOUT_SEASON = 2025;
+
+/**
+ * How many prior seasons of a player's history a projection may see.
+ *
+ * Two, which is what the frozen configuration was given when it was evaluated on the
+ * holdout — the script loaded 2023, 2024, and 2025, so a 2025 projection saw two prior
+ * seasons. That was previously implicit in the loadout rather than stated, and it was not
+ * even consistent: evaluating 2024 from the same loadout gave a projection only *one* prior
+ * season, because 2025 sits after it chronologically and is sliced away.
+ *
+ * Naming it matters more than it looks. Expanding the window without fixing the lookback
+ * would hand every projection up to thirteen seasons of history, which changes the holdout
+ * prediction itself — and a changed holdout prediction is a fresh evaluation of the holdout,
+ * spent on a refactor.
+ */
+const SEASON_HISTORY_LOOKBACK = 2;
+
+/**
+ * The exact season loadout that produced every published figure.
+ *
+ * Restricting a player's history to this set reproduces the frozen pipeline exactly for
+ * *both* things it is the authority for: the holdout evaluation, and the calibration
+ * factors derived on 2024. One set covers both because the chronological slice already
+ * drops everything after the week being projected, so including 2025 here cannot leak into
+ * a 2024 projection.
+ */
+const FROZEN_HISTORY_SEASONS: readonly number[] = [2023, 2024, HOLDOUT_SEASON];
+
+/** The season the calibration factors in `config.ts` were derived on. */
+const CALIBRATION_SEASON = 2024;
 
 /**
  * Resamples in the block bootstrap, and the seed that drives it.
@@ -138,7 +186,42 @@ interface PublishedMetrics {
    */
   significanceVsLastThree: PublishedSignificance;
 }
-const PRIOR_SEASON = 2023;
+/**
+ * Every season that has to be loaded: each evaluated season plus its lookback.
+ *
+ * The holdout's own season is added **only** when it is going to be scored, so a default run
+ * never loads a single 2025 player-week. That makes the guard a property of the data the
+ * process touches rather than only of which function it calls. The calibration derivation
+ * still runs under `FROZEN_HISTORY_SEASONS` and does not need it: it evaluates 2024, and
+ * 2025 sits after every 2024 week, so the chronological slice drops it regardless.
+ *
+ * Note what this does *not* claim. `games.csv` is one file covering every season, so a
+ * default run does read 2025 schedule and betting rows — they reach the printed league-mean
+ * implied total. No 2025 production is loaded and no 2025 player-week is projected or
+ * scored, which is what the holdout protects; but "never touches 2025 at all" would be
+ * false, and this comment previously said it.
+ */
+function seasonsToLoad(evaluated: readonly number[], includeHoldout: boolean): number[] {
+  const wanted = new Set<number>();
+  for (const season of evaluated) {
+    for (let back = 0; back <= SEASON_HISTORY_LOOKBACK; back += 1) {
+      wanted.add(season - back);
+    }
+  }
+  for (const season of FROZEN_HISTORY_SEASONS) {
+    if (season === HOLDOUT_SEASON && !includeHoldout) continue;
+    wanted.add(season);
+  }
+  return [...wanted].sort((a, b) => a - b);
+}
+
+/** The history a projection for `season` may see, under the uniform lookback. */
+function historyWindow(season: number): number[] {
+  return Array.from(
+    { length: SEASON_HISTORY_LOOKBACK + 1 },
+    (_, back) => season - back,
+  );
+}
 
 const MIN_PRIOR_GAMES = 4;
 const MIN_RECENT_AVERAGE = 6;
@@ -171,14 +254,56 @@ interface Evaluation {
   actual: number;
 }
 
+/**
+ * Refuses a season that parsed cleanly and means nothing.
+ *
+ * The failure this exists for is not a missing file — that throws loudly. It is a file that
+ * answers 200, carries every expected column, and is empty or unpopulated. Both forms are
+ * real in these releases: `snap_counts_2012.csv` has a valid header and zero rows, and the
+ * `stats_player_week` files for 2004 through 2008 have all 145 columns with **0%** of skill
+ * rows carrying a target share, a WOPR, or even a target. `num()` reads a missing or blank
+ * cell as zero, so those seasons produce a complete, plausible, entirely fictional usage
+ * signal and a backtest that reports a confident number built from nothing.
+ *
+ * Coverage is therefore asserted per season rather than assumed, on the column that would
+ * fail first and silently. See `docs/data-sources.md`.
+ */
+const MIN_USAGE_COVERAGE = 0.5;
+
+function assertSeasonUsable(season: number, weeks: readonly PlayerWeek[]): void {
+  if (weeks.length === 0) {
+    throw new Error(`${season}: parsed to zero regular-season player-weeks`);
+  }
+  const receivers = weeks.filter((w) =>
+    ["WR", "TE", "RB"].includes(w.competitor.position),
+  );
+  if (receivers.length === 0) {
+    throw new Error(`${season}: parsed ${weeks.length} rows but no skill positions`);
+  }
+  const withUsage = receivers.filter((w) => w.usage.targetShare > 0).length;
+  const coverage = withUsage / receivers.length;
+  if (coverage < MIN_USAGE_COVERAGE) {
+    throw new Error(
+      `${season}: only ${(coverage * 100).toFixed(1)}% of ${receivers.length} skill ` +
+        `player-weeks carry a target share, below the ${MIN_USAGE_COVERAGE * 100}% floor. ` +
+        `The release is present but unpopulated; the usage term would be built from zeros.`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   process.stdout.write("Fantasy GTO model backtest\n\n");
+
+  const startedAt = process.hrtime.bigint();
+  const wantsHoldout = process.argv.includes("--holdout");
+  const evaluatedSeasons = [...DEVELOPMENT_SEASONS, ...TUNING_SEASONS];
+  const loadSeasons = seasonsToLoad(evaluatedSeasons, wantsHoldout);
 
   const provider = new NflverseProvider(cachedFetch);
 
   // Warm the cache explicitly so the download messages appear before the work.
   await cachedFetch(schedulesUrl());
-  for (const season of [PRIOR_SEASON, TUNING_SEASON, EVALUATION_SEASON]) {
+  for (const season of loadSeasons) {
     await cachedFetch(weeklyStatsUrl(season));
   }
 
@@ -215,26 +340,27 @@ async function main(): Promise<void> {
   }
 
   const seasons = new Map<number, PlayerWeek[]>();
-  for (const season of [PRIOR_SEASON, TUNING_SEASON, EVALUATION_SEASON]) {
+  for (const season of loadSeasons) {
     const result = await provider.playerWeeks(season);
     if (!result.ok) throw new Error(`${season}: ${result.reason}`);
+    assertSeasonUsable(season, result.data);
     seasons.set(season, result.data);
   }
 
-  const defenseFactors = new Map<number, Map<string, number>>([
-    [
-      TUNING_SEASON,
-      buildDefenseFactors(seasons.get(PRIOR_SEASON)!, PPR, DVP_SHRINKAGE),
-    ],
-    [
-      EVALUATION_SEASON,
-      buildDefenseFactors(seasons.get(TUNING_SEASON)!, PPR, DVP_SHRINKAGE),
-    ],
-  ]);
+  // Defense-vs-position always comes from the season before the one being evaluated.
+  // Building it from the evaluated season would leak the outcome into the prediction.
+  const defenseFactors = new Map<number, Map<string, number>>();
+  for (const season of loadSeasons) {
+    const previous = seasons.get(season - 1);
+    if (previous) {
+      defenseFactors.set(season, buildDefenseFactors(previous, PPR, DVP_SHRINKAGE));
+    }
+  }
 
-  // Chronological history per player across all loaded seasons.
+  // Chronological history per player across every loaded season. The window a given
+  // projection may actually see is applied per evaluation, not here.
   const history = new Map<string, PlayerWeek[]>();
-  for (const season of [PRIOR_SEASON, TUNING_SEASON, EVALUATION_SEASON]) {
+  for (const season of loadSeasons) {
     for (const week of seasons.get(season)!) {
       const bucket = history.get(week.competitor.id) ?? [];
       bucket.push(week);
@@ -247,16 +373,38 @@ async function main(): Promise<void> {
     );
   }
 
+  const orderedCompetitorIds = [...history.keys()].sort();
+
+  const elapsedSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+  process.stdout.write(
+    `loaded ${loadSeasons.length} seasons (${loadSeasons[0]}–${loadSeasons[loadSeasons.length - 1]}), ` +
+      `${[...seasons.values()].reduce((n, s) => n + s.length, 0).toLocaleString("en-US")} ` +
+      `player-weeks, ${history.size.toLocaleString("en-US")} players, in ${elapsedSeconds.toFixed(1)}s\n`,
+  );
+
+  /**
+   * Scores one season.
+   *
+   * `historySeasons` is the set of seasons a projection is allowed to see. It is the whole
+   * of the evaluation protocol expressed as a parameter: pass `FROZEN_HISTORY_SEASONS` and
+   * this reproduces the pipeline the published figures came from, pass `historyWindow(s)`
+   * and every season is treated identically under the uniform lookback.
+   *
+   * Without it, "load more seasons" and "leave the holdout prediction alone" are in direct
+   * conflict, because the model's history is whatever happens to be in memory.
+   */
   function evaluate(
     season: number,
     config: ModelConfig = DEFAULT_MODEL_CONFIG,
+    historySeasons: readonly number[] = historyWindow(season),
   ): {
     model: Evaluation[];
     allPriorMean: Evaluation[];
     lastThree: Evaluation[];
   } {
+    const allowed = new Set(historySeasons);
     const model: Evaluation[] = [];
-    // Named for what it is: the mean of every prior game in the loaded history, which
+    // Named for what it is: the mean of every prior game inside the history window, which
     // spans up to three seasons. Calling it a "season-to-date mean" would be wrong, and
     // restricting it to the current season would hand the model an unfair advantage early
     // in the year — the baseline should see exactly the history the model sees.
@@ -264,14 +412,24 @@ async function main(): Promise<void> {
     const lastThree: Evaluation[] = [];
     const factors = defenseFactors.get(season);
 
-    for (const bucket of history.values()) {
+    // Players in a canonical order rather than in whatever order they first appeared in the
+    // loaded files. Every mean below is a floating-point sum, so the order the rows are
+    // produced in decides the last digit or two of every published figure — and that order
+    // used to change whenever the set of loaded seasons changed. Sorting makes the artifact
+    // a function of the data alone.
+    for (const competitorId of orderedCompetitorIds) {
+      const bucket = history.get(competitorId)!;
       for (let i = 0; i < bucket.length; i += 1) {
         const week = bucket[i];
         if (week.period.season !== season) continue;
         const position = week.competitor.position;
         if (position === "K") continue;
 
-        const prior = bucket.slice(0, i);
+        // Chronologically prior *and* inside the window. The slice already drops everything
+        // after the week being projected, so the filter only ever removes seasons that are
+        // too far back — which is why one allowed-set reproduces the frozen pipeline for
+        // both the holdout and the calibration season.
+        const prior = bucket.slice(0, i).filter((w) => allowed.has(w.period.season));
         if (prior.length < MIN_PRIOR_GAMES) continue;
 
         const priorPoints = prior.map((w) => scoreOffense(w.stats, PPR).total);
@@ -491,13 +649,7 @@ async function main(): Promise<void> {
    * moment the model changes, the page states something no longer true and nothing
    * detects it.
    */
-  let publishedMetrics: Omit<
-    PublishedMetrics,
-    "calibration" | "significance" | "significanceVsLastThree"
-  > | null = null;
   let calibrationEffect: PublishedMetrics["calibration"] | null = null;
-  let significance: PublishedSignificance | null = null;
-  let significanceVsLastThree: PublishedSignificance | null = null;
 
   /** One comparison, in the shape the artifact publishes. */
   function toPublished(
@@ -532,12 +684,103 @@ async function main(): Promise<void> {
     };
   }
 
-  for (const season of [TUNING_SEASON, EVALUATION_SEASON]) {
-    const label =
-      season === TUNING_SEASON ? "TUNING (in-sample)" : "EVALUATION (out-of-sample)";
-    const { model, allPriorMean, lastThree } = evaluate(season);
+  /**
+   * Scores a whole set of seasons and reports it pooled.
+   *
+   * Pooling is the entire point of the expanded window. The clustered standard error falls
+   * roughly as one over the square root of the number of *players*, and a player appearing
+   * across nine seasons is still one cluster — which is correct, since the model misreads
+   * him the same way every year, and treating each of his seasons as independent evidence
+   * would rebuild the error the clustering exists to remove.
+   *
+   * Per-season rows are printed too, because a set whose seasons disagree is telling you
+   * something a pooled mean hides.
+   */
+  function evaluateSet(
+    label: string,
+    setSeasons: readonly number[],
+    config: ModelConfig = DEFAULT_MODEL_CONFIG,
+  ) {
+    const model: Evaluation[] = [];
+    const allPriorMean: Evaluation[] = [];
+    const lastThree: Evaluation[] = [];
 
-    process.stdout.write(`\n${season} — ${label}    n = ${model.length}\n`);
+    process.stdout.write(
+      `\n${"=".repeat(78)}\n${label}: ${setSeasons[0]}–${setSeasons[setSeasons.length - 1]}\n${"=".repeat(78)}\n` +
+        `${"season".padEnd(10)}${"n".padStart(8)}${"players".padStart(9)}` +
+        `${"model".padStart(10)}${"prior-mean".padStart(12)}${"last-3".padStart(10)}${"edge".padStart(9)}\n`,
+    );
+    for (const season of setSeasons) {
+      const scored = evaluate(season, config);
+      const m = mae(scored.model);
+      const b = mae(scored.allPriorMean);
+      process.stdout.write(
+        `${String(season).padEnd(10)}${String(scored.model.length).padStart(8)}` +
+          `${String(new Set(scored.model.map((r) => r.competitorId)).size).padStart(9)}` +
+          `${m.toFixed(4).padStart(10)}${b.toFixed(4).padStart(12)}` +
+          `${mae(scored.lastThree).toFixed(4).padStart(10)}` +
+          `${`${(((b - m) / b) * 100).toFixed(2)}%`.padStart(9)}\n`,
+      );
+      model.push(...scored.model);
+      allPriorMean.push(...scored.allPriorMean);
+      lastThree.push(...scored.lastThree);
+    }
+
+    process.stdout.write(`${"-".repeat(78)}\n`);
+    process.stdout.write(
+      `${"POOLED".padEnd(10)}${String(model.length).padStart(8)}` +
+        `${String(new Set(model.map((r) => r.competitorId)).size).padStart(9)}` +
+        `${mae(model).toFixed(4).padStart(10)}${mae(allPriorMean).toFixed(4).padStart(12)}` +
+        `${mae(lastThree).toFixed(4).padStart(10)}` +
+        `${`${(((mae(allPriorMean) - mae(model)) / mae(allPriorMean)) * 100).toFixed(2)}%`.padStart(9)}\n`,
+    );
+    process.stdout.write(
+      `\n  bias (actual - predicted): ${bias(model) >= 0 ? "+" : ""}${bias(model).toFixed(3)}\n` +
+        `  per position: ${positions.map((p) => `${p} ${mae(model, p).toFixed(3)}`).join("  ")}\n`,
+    );
+
+    const vsPriorGamesMean = reportComparison(
+      "baseline: mean of prior games",
+      model,
+      allPriorMean,
+    );
+    reportComparison("baseline: last 3 games", model, lastThree);
+    return { model, allPriorMean, lastThree, vsPriorGamesMean };
+  }
+
+  evaluateSet("DEVELOPMENT — free exploration", DEVELOPMENT_SEASONS);
+  evaluateSet("TUNING — hyperparameter selection only", TUNING_SEASONS);
+
+  /**
+   * The holdout, behind a flag.
+   *
+   * `pnpm backtest` cannot reach this. Evaluating 2025 is a deliberate act taken once per
+   * hypothesis at a pre-registered decision point, and the single most valuable property
+   * this repository has is that the frozen configuration was chosen before 2025 was ever
+   * looked at. A default run that quietly scored it would spend that property on every
+   * routine invocation.
+   *
+   * It runs under `FROZEN_HISTORY_SEASONS` rather than the uniform lookback, so it
+   * reproduces the published figures exactly rather than approximately.
+   */
+  function runHoldout(): {
+    published: Omit<
+      PublishedMetrics,
+      "calibration" | "significance" | "significanceVsLastThree"
+    >;
+    significance: PublishedSignificance;
+    significanceVsLastThree: PublishedSignificance;
+  } {
+    const season = HOLDOUT_SEASON;
+    const { model, allPriorMean, lastThree } = evaluate(
+      season,
+      DEFAULT_MODEL_CONFIG,
+      FROZEN_HISTORY_SEASONS,
+    );
+
+    process.stdout.write(
+      `\n${"=".repeat(78)}\nHOLDOUT ${season} — frozen pipeline, out-of-sample    n = ${model.length}\n${"=".repeat(78)}\n`,
+    );
     process.stdout.write(
       `${"model".padEnd(28)}${"ALL".padStart(9)}${positions
         .map((p) => p.padStart(8))
@@ -571,10 +814,6 @@ async function main(): Promise<void> {
       `  vs last 3 games: ${(((lastMae - modelMae) / lastMae) * 100).toFixed(2)}%\n`,
     );
 
-    // Both baselines, both seasons. The tuning season's figures are in-sample and are not
-    // a claim about accuracy, but their standard error is the one that sizes every future
-    // hypothesis: an effect below the MDE printed there cannot be established on a single
-    // season of this population, whichever season it is.
     const vsPriorGamesMean = reportComparison(
       "baseline: mean of prior games",
       model,
@@ -582,11 +821,11 @@ async function main(): Promise<void> {
     );
     const vsLastThree = reportComparison("baseline: last 3 games", model, lastThree);
 
-    if (season === EVALUATION_SEASON) {
-      reportQuantiles(model);
-      significance = toPublished("baseline: mean of prior games", vsPriorGamesMean);
-      significanceVsLastThree = toPublished("baseline: last 3 games", vsLastThree);
-      publishedMetrics = {
+    reportQuantiles(model);
+    return {
+      significance: toPublished("baseline: mean of prior games", vsPriorGamesMean),
+      significanceVsLastThree: toPublished("baseline: last 3 games", vsLastThree),
+      published: {
         season,
         sampleSize: model.length,
         modelMae,
@@ -598,8 +837,8 @@ async function main(): Promise<void> {
         perPositionMae: Object.fromEntries(
           positions.map((p) => [p, mae(model, p)]),
         ) as Record<string, number>,
-      };
-    }
+      },
+    };
   }
 
   /**
@@ -611,13 +850,20 @@ async function main(): Promise<void> {
    * rule the rest of this script exists to satisfy.
    */
   function reportCalibration(): void {
-    const uncalibrated = evaluate(TUNING_SEASON, {
-      ...DEFAULT_MODEL_CONFIG,
-      calibrate: false,
-    }).model;
+    // Under the frozen history seasons, not the uniform lookback. `CALIBRATION` in
+    // `config.ts` was derived from this exact pipeline and then frozen before the holdout
+    // was evaluated; re-deriving it under the wider window would move the constants, and
+    // copying those back in would move the published holdout figure — which is a fresh
+    // evaluation of the holdout, spent on a refactor. The constants stay reproducible
+    // because the pipeline that produced them is preserved rather than replaced.
+    const uncalibrated = evaluate(
+      CALIBRATION_SEASON,
+      { ...DEFAULT_MODEL_CONFIG, calibrate: false },
+      FROZEN_HISTORY_SEASONS,
+    ).model;
 
     process.stdout.write(
-      `\n${"=".repeat(69)}\nCALIBRATION FACTORS, derived on ${TUNING_SEASON} with calibration off\n` +
+      `\n${"=".repeat(69)}\nCALIBRATION FACTORS, derived on ${CALIBRATION_SEASON} with calibration off\n` +
         `${"=".repeat(69)}\n` +
         `  ${"position".padEnd(10)}${"n".padStart(6)}${"mean pred".padStart(11)}` +
         `${"mean actual".padStart(13)}${"factor".padStart(9)}\n`,
@@ -640,9 +886,11 @@ async function main(): Promise<void> {
     // Both sides of the calibration comparison, so `/accuracy` can render the effect
     // instead of transcribing it from the sweeps table.
     calibrationEffect = {
-      season: TUNING_SEASON,
+      season: CALIBRATION_SEASON,
       offMae: mae(uncalibrated),
-      onMae: mae(evaluate(TUNING_SEASON).model),
+      onMae: mae(
+        evaluate(CALIBRATION_SEASON, DEFAULT_MODEL_CONFIG, FROZEN_HISTORY_SEASONS).model,
+      ),
     };
   }
 
@@ -652,24 +900,70 @@ async function main(): Promise<void> {
   // be published.
   if (process.argv.includes("--sweeps")) {
     process.stdout.write(
-      `\n\n${"=".repeat(69)}\nPARAMETER SWEEPS on ${TUNING_SEASON} (the tuning season)\n` +
+      `\n\n${"=".repeat(69)}\nPARAMETER SWEEPS on the tuning set ${TUNING_SEASONS[0]}–${TUNING_SEASONS[TUNING_SEASONS.length - 1]}\n` +
         `${"=".repeat(69)}\n` +
         "Each row varies one parameter with the others at their frozen values.\n" +
         "This is how the frozen configuration was chosen.\n",
     );
 
+    /**
+     * One sweep, with each variant tested against the frozen configuration properly.
+     *
+     * The delta between two variants is **not** comparable to the significance floor of the
+     * model-versus-baseline comparison, and reading it that way was a real error in an
+     * earlier revision of `docs/model-validation.md`. Two variants of this model agree with
+     * each other far more closely than the model agrees with a baseline, so their paired
+     * differences have a much smaller standard error and a correspondingly smaller floor.
+     * Judging a 0.0003 sweep delta against a floor of 0.0474 borrowed from a different
+     * estimator understates what the sweep can resolve by more than an order of magnitude.
+     *
+     * So each variant gets its own paired, player-clustered comparison against the frozen
+     * configuration, on identical player-weeks. That is the number that says whether a
+     * sweep difference is real.
+     */
     const sweep = (
       label: string,
       variants: Array<{ name: string; config: ModelConfig }>,
     ) => {
-      process.stdout.write(`\n${label}\n${"-".repeat(69)}\n`);
+      process.stdout.write(
+        `\n${label}\n${"-".repeat(78)}\n` +
+          `  ${"variant".padEnd(30)}${"MAE".padStart(9)}${"vs frozen".padStart(11)}` +
+          `${"SE".padStart(9)}${"p".padStart(11)}${"floor".padStart(9)}\n`,
+      );
+      // Pooled across the whole tuning set, which is the point of widening it: a sweep
+      // resolved on one season picks its optimum out of noise the size of the effect.
+      const rowsFor = (config: ModelConfig) =>
+        TUNING_SEASONS.flatMap((season) => evaluate(season, config).model);
+      const frozenRows = rowsFor(DEFAULT_MODEL_CONFIG);
+
       let best = { name: "", mae: Number.POSITIVE_INFINITY };
       for (const variant of variants) {
-        const result = mae(evaluate(TUNING_SEASON, variant.config).model);
+        const rows = rowsFor(variant.config);
+        const result = mae(rows);
         if (result < best.mae) best = { name: variant.name, mae: result };
-        process.stdout.write(`  ${variant.name.padEnd(34)}${result.toFixed(4)}\n`);
+
+        // Paired against the frozen configuration on the same player-weeks. `model` is the
+        // variant and `baseline` is frozen, so a positive delta means the variant is better.
+        const paired = rows.map((row, i) => ({
+          cluster: row.competitorId,
+          model: Math.abs(row.predicted - row.actual),
+          baseline: Math.abs(frozenRows[i].predicted - frozenRows[i].actual),
+        }));
+        const identical = paired.every((r) => r.model === r.baseline);
+        const line = `  ${variant.name.padEnd(30)}${result.toFixed(4).padStart(9)}`;
+        if (identical) {
+          process.stdout.write(`${line}${"— frozen —".padStart(40)}\n`);
+          continue;
+        }
+        const test = pairedComparison(paired);
+        process.stdout.write(
+          `${line}${`${test.meanDelta >= 0 ? "+" : ""}${test.meanDelta.toFixed(4)}`.padStart(11)}` +
+            `${test.standardError.toFixed(4).padStart(9)}` +
+            `${(test.pValue < 1e-4 ? test.pValue.toExponential(1) : test.pValue.toFixed(4)).padStart(11)}` +
+            `${test.minimumSignificantEffect.toFixed(4).padStart(9)}\n`,
+        );
       }
-      process.stdout.write(`  -> best: ${best.name} (${best.mae.toFixed(4)})\n`);
+      process.stdout.write(`  -> lowest MAE: ${best.name} (${best.mae.toFixed(4)})\n`);
     };
 
     const base = DEFAULT_MODEL_CONFIG;
@@ -723,20 +1017,30 @@ async function main(): Promise<void> {
   reportCalibration();
   reportLeagueMeanImpliedTotal();
 
-  if (publishedMetrics === null) throw new Error("evaluation season produced no metrics");
-  if (calibrationEffect === null) throw new Error("calibration effect not measured");
-  if (significance === null) throw new Error("significance not measured");
-  if (significanceVsLastThree === null) {
-    throw new Error("last-3-games significance not measured");
+  if (!wantsHoldout) {
+    process.stdout.write(
+      `\n${"=".repeat(78)}\n` +
+        `HOLDOUT ${HOLDOUT_SEASON} NOT EVALUATED.\n` +
+        `${"=".repeat(78)}\n` +
+        `This run scored the development and tuning sets only, and did not rewrite\n` +
+        `${PUBLISHED_METRICS_PATH.replace(`${process.cwd()}/`, "")}.\n\n` +
+        `Run \`pnpm backtest -- --holdout\` to score it. Do that once per hypothesis, at a\n` +
+        `decision point written down in advance — not to see how a change landed.\n`,
+    );
+    return;
   }
+
+  const holdout = runHoldout();
+
+  if (calibrationEffect === null) throw new Error("calibration effect not measured");
   writeFileSync(
     PUBLISHED_METRICS_PATH,
     `${JSON.stringify(
       {
-        ...publishedMetrics,
+        ...holdout.published,
         calibration: calibrationEffect,
-        significance,
-        significanceVsLastThree,
+        significance: holdout.significance,
+        significanceVsLastThree: holdout.significanceVsLastThree,
       },
       null,
       2,

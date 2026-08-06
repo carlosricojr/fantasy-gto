@@ -17,9 +17,17 @@ rather than soften it. This project previously advertised "+8.2 points/week" and
 ESPN by ≥8%" with nothing behind either; the measured edge is 2.74%.
 
 **Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
-same commit.** Hyperparameters in `lib/nfl/model/config.ts` were chosen on 2024 and frozen
-before evaluating on 2025. Retuning them against 2025 destroys that property and makes the
-published figure meaningless.
+same commit.** That is the *default* run: development (2013–2021) and tuning (2022–2024).
+It never touches 2025 and never rewrites `published-metrics.json`. Hyperparameters in
+`lib/nfl/model/config.ts` were chosen on the tuning seasons and frozen before 2025 was
+evaluated; retuning them against 2025 destroys that property and makes the published figure
+meaningless.
+
+**`pnpm backtest -- --holdout` is the only run that scores 2025 or rewrites the published
+figures, and it is not part of the ordinary change loop.** Use it once per hypothesis, at a
+decision point written down in advance — not to see how a change landed. A hypothesis that
+fails is closed, not retuned. The published figures therefore lag the default run by design:
+they describe the last pre-registered holdout evaluation, not the current tip.
 
 **Keep the domain core pure.** Nothing in `lib/core`, `lib/nfl`, or `lib/billing` may
 import Convex, Clerk, React, or call `fetch`, `Date.now()`, or `Math.random()`. Pass the
@@ -49,7 +57,9 @@ and nothing used it. nflverse supplies statistics, schedule, and Vegas lines for
 ```bash
 pnpm verify     # typecheck, lint, tests (both projects) — run before every commit
 pnpm test       # watch mode
-pnpm backtest   # reproduce accuracy figures (add -- --sweeps for parameter sweeps)
+pnpm backtest   # development + tuning sets; does NOT touch the 2025 holdout
+pnpm backtest -- --holdout   # scores 2025 and rewrites published-metrics.json
+pnpm backtest -- --sweeps    # reproduce the parameter sweeps on the tuning set
 pnpm dev        # frontend + Convex
 ```
 

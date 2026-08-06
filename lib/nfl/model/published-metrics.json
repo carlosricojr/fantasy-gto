@@ -1,94 +1,94 @@
 {
   "season": 2025,
   "sampleSize": 3037,
-  "modelMae": 5.823552848205465,
-  "priorGamesMeanMae": 5.9877068464428955,
-  "lastThreeMae": 6.361813192843801,
-  "edgeVsPriorGamesMean": 2.741516952102438,
-  "edgeVsLastThree": 8.460800849100812,
-  "bias": -0.572673691142574,
+  "modelMae": 5.8235528482054635,
+  "priorGamesMeanMae": 5.987706846442901,
+  "lastThreeMae": 6.361813192843804,
+  "edgeVsPriorGamesMean": 2.741516952102554,
+  "edgeVsLastThree": 8.46080084910088,
+  "bias": -0.5726736911425744,
   "perPositionMae": {
-    "QB": 6.734749999999997,
-    "RB": 5.803328947368416,
-    "WR": 5.6574095394736785,
+    "QB": 6.734749999999998,
+    "RB": 5.803328947368414,
+    "WR": 5.657409539473681,
     "TE": 5.238982035928148
   },
   "calibration": {
     "season": 2024,
-    "offMae": 5.882092473844083,
-    "onMae": 5.834647316908539
+    "offMae": 5.8820924738440805,
+    "onMae": 5.8346473169085415
   },
   "significance": {
     "comparison": "baseline: mean of prior games",
     "clusters": 308,
-    "meanDelta": 0.16415399823742924,
+    "meanDelta": 0.1641539982374294,
     "clusteredStandardError": 0.04432354412310725,
-    "iidStandardError": 0.03642950998940415,
+    "iidStandardError": 0.03642950998940416,
     "degreesOfFreedom": 307,
-    "t": 3.703539540554263,
+    "t": 3.703539540554267,
     "pValue": 0.00025204430694651686,
     "confidenceLevel": 95,
     "confidenceInterval": [
-      0.07693761689988876,
-      0.2513703795749697
+      0.07693761689988893,
+      0.2513703795749699
     ],
     "percentConfidenceInterval": [
-      1.28492624761005,
-      4.198107656594791
+      1.2849262476100516,
+      4.19810765659479
     ],
     "minimumDetectableEffect": 0.12417618602967521,
-    "minimumDetectablePercent": 2.0738521309446587,
+    "minimumDetectablePercent": 2.073852130944657,
     "minimumSignificantEffect": 0.08721638133754048,
-    "minimumSignificantPercent": 1.4565907044923705,
+    "minimumSignificantPercent": 1.4565907044923692,
     "bootstrap": {
       "resamples": 2000,
       "seed": 8675309,
       "confidenceLevel": 95,
-      "standardError": 0.04443948535787112,
+      "standardError": 0.04397556242817321,
       "confidenceInterval": [
-        0.07690554519275836,
-        0.2515445188163361
+        0.07836956921502326,
+        0.248524301766911
       ],
       "percentConfidenceInterval": [
-        1.2920483666164129,
-        4.182722529393904
+        1.3131440397083278,
+        4.139934158318781
       ]
     }
   },
   "significanceVsLastThree": {
     "comparison": "baseline: last 3 games",
     "clusters": 308,
-    "meanDelta": 0.5382603446383482,
-    "clusteredStandardError": 0.0527432831030602,
-    "iidStandardError": 0.05354915846479314,
+    "meanDelta": 0.5382603446383485,
+    "clusteredStandardError": 0.05274328310306019,
+    "iidStandardError": 0.05354915846479315,
     "degreesOfFreedom": 307,
-    "t": 10.205287061607242,
-    "pValue": 3.0142572184042845e-21,
+    "t": 10.205287061607251,
+    "pValue": 3.0142572184041115e-21,
     "confidenceLevel": 95,
     "confidenceInterval": [
-      0.4344762636692411,
-      0.6420444256074552
+      0.4344762636692414,
+      0.6420444256074556
     ],
     "percentConfidenceInterval": [
-      6.829440766320668,
+      6.829440766320671,
       10.092160931881345
     ],
-    "minimumDetectableEffect": 0.14776480229628094,
-    "minimumDetectablePercent": 2.3226837666735767,
-    "minimumSignificantEffect": 0.10378408096910709,
-    "minimumSignificantPercent": 1.6313600827803378,
+    "minimumDetectableEffect": 0.14776480229628092,
+    "minimumDetectablePercent": 2.3226837666735753,
+    "minimumSignificantEffect": 0.10378408096910706,
+    "minimumSignificantPercent": 1.631360082780337,
     "bootstrap": {
       "resamples": 2000,
       "seed": 8675309,
       "confidenceLevel": 95,
-      "standardError": 0.05307060884689133,
+      "standardError": 0.05336693907287311,
       "confidenceInterval": [
-        0.4328207908967607,
-        0.6437793735476848
+        0.4342884738093507,
+        0.64268432312466
       ],
       "percentConfidenceInterval": [
-        6.944624828344037,
-        9.888468105460635
+        6.947207181517748,
+        9.895640010365556
       ]
     }
   }

@@ -8,15 +8,81 @@ computation behind it.
 **Those claims are not achievable and have been removed.** The measured edge is roughly
 2.7%, not 8%. What follows is how that was established.
 
+## Evaluation protocol
+
+Three disjoint sets of seasons, named in `scripts/backtest.ts` rather than spelled as loop
+literals so the split is greppable.
+
+| Set | Seasons | What it is for |
+| --- | --- | --- |
+| Development | 2013–2021 | Free exploration. Iterate as much as you like. |
+| Tuning | 2022–2024 | Hyperparameter selection only. |
+| **Holdout** | **2025** | Evaluated **once per hypothesis**, at a pre-registered decision point. |
+
+`pnpm backtest` scores development and tuning and **does not touch the holdout**. Scoring
+2025 requires `pnpm backtest -- --holdout`, and that is also the only run that rewrites
+`lib/nfl/model/published-metrics.json`. The guard is not ceremony: the most valuable
+property this repository has is that the frozen configuration was chosen before 2025 was
+ever looked at, and a default run that quietly scored it would spend that property on every
+routine invocation.
+
+**A hypothesis that fails is closed, not retuned.** Re-running the holdout to see whether a
+variant lands better is how a held-out season stops being held out.
+
+### Why the floor is 2013, not 2012
+
+The original scope put it at 2012 on the grounds that `snap_counts` begins there. It does
+not. `snap_counts_2012.csv` answers HTTP 200 with a valid sixteen-column header and **zero
+data rows**; the release is first populated in 2013 with 23,799 rows. A split whose first
+development season carries no snap data cannot support the features it was widened for,
+which was the criterion that chose the floor in the first place. See `docs/data-sources.md`.
+
+### How much history a projection sees
+
+Two prior seasons, named as `SEASON_HISTORY_LOOKBACK`. That is what the frozen configuration
+was given when it was evaluated on 2025, and it was previously implicit in which files
+happened to be loaded — inconsistently, since evaluating 2024 from the same loadout gave a
+projection only *one* prior season.
+
+Making it explicit is what lets the window widen without disturbing the holdout. Loading
+thirteen seasons and letting history accumulate naturally would change the 2025 prediction
+itself, and a changed holdout prediction is a fresh evaluation of the holdout — spent on a
+refactor rather than on a hypothesis.
+
+### What the wider window buys
+
+The reason the epic starts here. Every figure below is the model against the prior-games-mean
+baseline, from one `pnpm backtest -- --holdout` run.
+
+| Set | n | players | clustered SE | MDE at 80% power | smallest reportable |
+| --- | --- | --- | --- | --- | --- |
+| Development 2013–2021 | 26,837 | 846 | **0.0153** | 0.0430 (**0.72%**) | 0.0301 (0.50%) |
+| Tuning 2022–2024 | 9,063 | 448 | 0.0241 | 0.0676 (1.14%) | 0.0474 (0.80%) |
+| Holdout 2025 | 3,037 | 308 | 0.0443 | 0.1242 (2.07%) | 0.0872 (1.46%) |
+
+The detection floor falls from **2.07%** on one season to **0.72%** on the development set.
+That is the difference between an epic that can distinguish a 1% feature from noise and one
+that cannot.
+
+It is worth noting that the standard error did **not** fall by the square root of the season
+count. Nine development seasons carry 8.8× the player-weeks of the holdout but only 2.7× the
+players, because the same players recur year after year and a player is one cluster however
+many seasons he appears in. The gain is 2.9× rather than the 3.0× the season count suggests,
+and the reason is the same fact the clustering exists for.
+
+Edges by set: development **2.13%**, tuning **2.93%**, holdout 2.74%. They are close, which
+is the useful signal — the model is not carried by one favourable stretch.
+
 ## Method
 
-Data: nflverse weekly player stats for 2023, 2024, and 2025 regular seasons, joined to
-`games.csv` for schedule, Vegas lines, and venue. See `docs/data-sources.md`.
+Data: nflverse weekly player stats for the 2011–2025 regular seasons, joined to
+`games.csv` for schedule, Vegas lines, and venue. Seasons 2011 and 2012 are loaded only as
+history for the first evaluated season, never scored. See `docs/data-sources.md`.
 
 Target: PPR fantasy points for QB, RB, WR, and TE.
 
-The baseline is the mean of **every prior game in the loaded history**, which spans up to
-three seasons — not a season-to-date mean. It sees exactly the history the model sees;
+The baseline is the mean of **every prior game inside the history window**, which spans up
+to three seasons — not a season-to-date mean. It sees exactly the history the model sees;
 restricting it to the current season would hand the model an unfair advantage early in the
 year and inflate the reported edge.
 
@@ -28,11 +94,11 @@ flatter every model equally and measure nothing useful.
 Prediction uses only information available before kickoff: prior weeks for the player,
 and the game's Vegas line and venue. There is no leakage of same-week production.
 
-Defense-vs-position factors are always built from a **prior** season (2023 factors when
-evaluating 2024; 2024 factors when evaluating 2025), never from the evaluation season.
+Defense-vs-position factors are always built from the **preceding** season — 2024 factors
+when evaluating 2025 — never from the season being evaluated.
 
-Hyperparameters were selected on **2024**, then frozen and evaluated once on **2025**. The
-2025 number is therefore a genuine out-of-sample estimate, not a tuned one.
+Hyperparameters were selected on the tuning seasons, then frozen and evaluated once on
+**2025**. The 2025 number is therefore a genuine out-of-sample estimate, not a tuned one.
 
 ## Frozen configuration
 
@@ -49,8 +115,9 @@ All values live in `lib/nfl/model/config.ts`.
 
 ## Results
 
-Produced by `pnpm backtest`, which is the authoritative run. The 2024 row is in-sample
-(hyperparameters were chosen there); only the 2025 row is a valid accuracy claim.
+Produced by `pnpm backtest -- --holdout`, which is the authoritative run. The tuning rows
+are in-sample (hyperparameters were chosen there); only the 2025 row is a valid accuracy
+claim.
 
 ### 2025 — out-of-sample, n = 3,037 player-weeks
 
@@ -67,11 +134,26 @@ calibration, because the evaluation population is selected for recent production
 regresses. This is disclosed rather than hidden, and it is why the interface leads with a
 range rather than a single number.
 
-### 2024 — in-sample, n = 2,963
+### Tuning set — in-sample, 2022–2024
 
-MAE 5.8346 against a prior-games-mean baseline of 6.0009, a 2.77% edge, and essentially zero bias by construction. That this is nearly
-identical to the out-of-sample figure is the useful signal here: the model is not
-overfitted to its tuning season.
+| Season | n | players | model | prior-games mean | last 3 | edge |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2022 | 3,126 | 324 | 5.7271 | 5.8714 | 6.3030 | 2.46% |
+| 2023 | 2,949 | 307 | 5.7556 | 5.9509 | 6.2507 | 3.28% |
+| 2024 | 2,988 | 296 | 5.8320 | 6.0169 | 6.3311 | 3.07% |
+| **Pooled** | **9,063** | **448** | **5.7709** | **5.9453** | **6.2952** | **2.93%** |
+
+Development set, 2013–2021: 26,837 player-weeks over 846 players, model 5.8818 against a
+prior-games-mean baseline of 6.0099, a **2.13%** edge.
+
+That in-sample and out-of-sample land within a percentage point of each other — 2.93%,
+2.13%, 2.74% — is the useful signal here. The model is not carried by its tuning seasons.
+
+A separate 2024 figure appears below in the calibration section: MAE 5.8346 against 5.8821
+uncalibrated, on n = 2,963. That is the **frozen** pipeline, which gives a 2024 projection
+only one prior season rather than two, and it is reported unchanged because it is the run
+the constants in `config.ts` were derived from. The 2024 row above sees 2022 as well, which
+is why its sample and its error differ.
 
 **The headline number the product may state is 2.74%**, measured against the strongest
 baseline. The 8.46% figure against a last-3-game baseline is real, but quoting it while
@@ -81,9 +163,9 @@ omitting the stronger baseline would be cherry-picking.
 
 For a long time this document published a point estimate and nothing beside it, which left
 a reader no way to distinguish a measured result from a coin landing the same way twice.
-`pnpm backtest` now prints an interval and a significance test for every model-versus-
-baseline comparison, on both seasons, and `lib/nfl/model/published-metrics.json` carries
-the evaluation-season one.
+The backtest now prints an interval and a significance test for every model-versus-baseline
+comparison, on every set, and `lib/nfl/model/published-metrics.json` carries the holdout
+one.
 
 Two properties of the data set the method.
 
@@ -124,7 +206,7 @@ claiming infinite certainty from 308 players.
 Against the weaker last-3-games baseline the same run gives ΔMAE +0.5383, clustered SE
 0.0527, *t* = 10.21, *p* = 3.01e-21, a 95% CI on the edge of 6.83% to 10.09%, a minimum
 detectable effect of 0.1478 (2.32%), and a significance floor of 0.1038 (1.63%). The
-bootstrap returns 0.0531 against the analytic 0.0527.
+bootstrap returns 0.0534 against the analytic 0.0527.
 
 Those figures are carried in `published-metrics.json` under `significanceVsLastThree` and
 asserted, for the same reason as the headline comparison: they were stated here in prose
@@ -140,9 +222,17 @@ player-weeks would destroy the very correlation the clustering exists to account
 would agree with the naive estimator instead, an agreement proving only that both sides made
 the same mistake.
 
-It returns a standard error of 0.0444 against the analytic 0.0443, and an interval on the
-edge of 1.29% to 4.18% against 1.28% to 4.20%. The two methods agree to well within their
+It returns a standard error of 0.0440 against the analytic 0.0443, and an interval on the
+edge of 1.31% to 4.14% against 1.28% to 4.20%. The two methods agree to well within their
 own Monte Carlo error.
+
+Clusters are resampled in sorted key order. That sounds like a detail and is not: the
+resample picks clusters by index, so before it was sorted the seed drew whichever players
+happened to be inserted first, and *insertion* order was a property of which season files
+the script loaded rather than of the data. Widening the evaluation window reordered the map
+and moved this interval while every analytic figure stayed put — a published number that
+changed for no statistical reason. The same fix applies to the evaluation itself, which now
+iterates players in a canonical order so that floating-point summation cannot drift either.
 
 The percentage interval is the interval on ΔMAE rescaled by the baseline MAE, which treats
 that baseline as fixed. The bootstrap recomputes both MAEs inside every resample and so
@@ -200,7 +290,7 @@ projection's baseline.
 ### Outcome quantiles
 
 Every floor and ceiling shown in the interface is `mean × p10` and `mean × p90` from this
-table. `pnpm backtest` prints it on the evaluation season, from the same predictions the
+table. `pnpm backtest -- --holdout` prints it on the holdout season, from the same predictions the
 MAE table is built from, and `OUTCOME_QUANTILES` in `lib/nfl/model/config.ts` is copied
 from that output.
 
@@ -220,29 +310,83 @@ those positions, so there is no backtest behind their bands and the type says so
 
 ### Reproducing the sweeps
 
-`pnpm backtest -- --sweeps` re-runs every parameter sweep on the tuning season and prints
+`pnpm backtest -- --sweeps` re-runs every parameter sweep on the tuning set and prints
 the table below. Every claim in this section comes from that command; none is asserted
 from memory.
 
-On the tuning season, holding the other parameters at their frozen values:
+On the pooled tuning set, holding the other parameters at their frozen values. Each variant
+is also tested **against the frozen configuration on identical player-weeks**, paired and
+clustered by player, which is the only comparison that says whether a sweep difference is
+real:
 
-| Sweep | Result |
-| --- | --- |
-| EMA alpha | 0.05→5.8781, 0.10→5.8433, **0.15→5.8346**, 0.20→5.8438, 0.30→5.9052, 0.40→5.9963 |
-| Usage cap | 0→5.8428, **0.2→5.8346**, 0.4→5.8347, 0.6→5.8410, 0.8→5.8516 |
-| Vegas (team reference) | 0→5.8576, 0.25→5.8408, **0.5→5.8346**, 0.75→5.8407, 1→5.8597 |
-| Vegas (league reference) | 0→5.8576, 0.25→5.8493, 0.5→5.8608, 0.75→5.8909, 1→5.9393 |
-| Opponent weight | 0→5.8396, **0.25→5.8346**, 0.5→5.8358, 0.75→5.8417, 1→5.8530 |
-| Calibration | **on→5.8346**, off→5.8821 |
+| Sweep | variant | MAE | vs frozen | SE | *p* | floor |
+| --- | --- | --- | --- | --- | --- | --- |
+| EMA alpha | 0.05 | 5.8007 | −0.0297 | 0.0127 | 0.0200 | 0.0250 |
+| | **0.10** | **5.7706** | **+0.0003** | **0.0057** | **0.9539** | **0.0112** |
+| | *0.15 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.20 | 5.7852 | −0.0143 | 0.0049 | 0.0040 | 0.0097 |
+| | 0.30 | 5.8434 | −0.0724 | 0.0131 | 5.2e-8 | 0.0257 |
+| | 0.40 | 5.9314 | −0.1605 | 0.0196 | 2.4e-15 | 0.0384 |
+| Usage cap | 0 (off) | 5.7770 | −0.0061 | 0.0035 | 0.0818 | 0.0069 |
+| | *0.2 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.4 | 5.7756 | −0.0047 | 0.0035 | 0.1890 | 0.0070 |
+| | 0.6 | 5.7896 | −0.0187 | 0.0072 | 0.0101 | 0.0142 |
+| | 0.8 | 5.8129 | −0.0419 | 0.0111 | 0.0002 | 0.0218 |
+| Vegas (team) | 0 | 5.7996 | −0.0287 | 0.0071 | 6.0e-5 | 0.0139 |
+| | 0.25 | 5.7796 | −0.0086 | 0.0035 | 0.0149 | 0.0069 |
+| | *0.5 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.75 | 5.7751 | −0.0042 | 0.0034 | 0.2187 | 0.0067 |
+| | 1 | 5.7911 | −0.0202 | 0.0068 | 0.0032 | 0.0134 |
+| Vegas (league) | 0.25 | 5.7959 | −0.0249 | 0.0058 | 1.8e-5 | 0.0113 |
+| | 1 | 5.8937 | −0.1228 | 0.0170 | 2.0e-12 | 0.0333 |
+| Opponent | 0 (off) | 5.7745 | −0.0036 | 0.0019 | 0.0667 | 0.0038 |
+| | *0.25 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.5 | 5.7714 | −0.0004 | 0.0019 | 0.8217 | 0.0038 |
+| | 1 | 5.7830 | −0.0121 | 0.0058 | 0.0367 | 0.0113 |
+| Calibration | off | 5.8243 | −0.0533 | 0.0038 | 2.2e-37 | 0.0075 |
 
-Every row that sits at the frozen value reads 5.8346, because those runs *are* the frozen
-configuration. Earlier revisions of this table were self-contradictory — two runs of one
-identical configuration printing different numbers — because rows were carried over from a
-previous pipeline instead of being re-measured. They are now all from one run.
+A negative "vs frozen" means the variant is worse. The floor is that comparison's own
+interval half-width — the smallest delta it could report as significant.
+
+### The alpha sweep now prefers 0.10, and the configuration is not changing
+
+Widened from one tuning season to three, the sweep puts its lowest MAE at 0.10 rather than
+the frozen 0.15. Paired against frozen on identical player-weeks the difference is
+**+0.0003 with a standard error of 0.0057, and *p* = 0.95**. There is no result here at all.
+
+Both neighbours are significantly worse — 0.20 at *p* = 0.004 and 0.05 at *p* = 0.02 — so
+the basin is genuinely {0.10, 0.15} and the two are indistinguishable inside it. Re-freezing
+on 0.10 would be selecting a hyperparameter on a coin flip, which is the failure the whole
+protocol exists to prevent. `EMA_ALPHA` stays at 0.15, recorded here because the next reader
+will see 0.10 on the "lowest MAE" line and deserves to know it was considered and declined.
+
+**An earlier revision of this section got the method wrong**, and the correction is worth
+keeping. It judged sweep deltas against the 0.0474 significance floor of the
+*model-versus-baseline* comparison. That is the wrong yardstick by more than a factor of
+four: two variants of this model agree with each other far more closely than the model
+agrees with a baseline, so their paired differences carry a much smaller standard error and
+a correspondingly smaller floor — 0.0112 for the alpha comparison, not 0.0474. The
+conclusion happened to survive; the reasoning did not, and a floor borrowed from a different
+estimator is exactly the kind of plausible-looking mistake this document exists to catch.
+
+### Usage and opponent adjustments sit just short of significance
+
+Switching the usage blend off costs 0.0061 MAE at *p* = 0.082, and switching the opponent
+adjustment off costs 0.0036 at *p* = 0.067. Neither clears α = 0.05 on the tuning set, even
+with three seasons behind it. They are retained because they are directionally sound and
+improve explainability, not because they move the metric — which was already the honest
+reading and is now a measurement rather than a judgement.
+
+Calibration is the opposite: 0.0533 MAE at *p* = 2.2e-37. It is worth more than the usage
+and opponent terms combined by an order of magnitude, which is the honest ordering of what
+actually matters here.
 
 ### Calibration factors
 
-`pnpm backtest` also derives these, on the tuning season with calibration switched off:
+`pnpm backtest` also derives these, on 2024 with calibration switched off, under the frozen
+history window that produced them. The sweep row above (5.8243 against 5.7709) is a
+different measurement: it is calibration on and off across the whole tuning set under the
+uniform lookback, not the derivation run.
 
 | Position | n | mean predicted | mean actual | factor |
 | --- | --- | --- | --- | --- |
@@ -277,27 +421,30 @@ statement about *port fidelity*, not about current accuracy. The current number 
 
 These are the findings that shaped the model, each measured rather than assumed.
 
-**Long memory beats recency.** Sweeping alpha from 0.05 to 0.40 gives a clear optimum at
-0.15, and a last-3-game baseline (6.36) is substantially *worse* than a mean over all prior
-games (5.99). Weekly fantasy scoring is noisy enough that aggressive recency weighting discards
-more signal than it captures. This contradicts the common intuition that "recent form"
-should dominate.
+**Long memory beats recency.** Sweeping alpha from 0.05 to 0.40 gives a flat basin between
+0.10 and 0.15 and steep degradation outside it — 5.9314 at 0.40 against 5.7706 at the
+bottom — and a last-3-game baseline (6.30) is substantially *worse* than a mean over every
+prior game in the window (5.95). Weekly fantasy scoring is noisy enough that aggressive
+recency weighting discards more signal than it captures. This contradicts the common
+intuition that "recent form" should dominate.
 
 **The Vegas reference matters more than the Vegas weight.** Both references start from the
-same 5.8576 at weight 0 — with the weight at zero the block is skipped entirely, so the
+same 5.7996 at weight 0 — with the weight at zero the block is skipped entirely, so the
 reference is irrelevant there. From there they diverge sharply. Against the team's own
-prior weeks the term has a genuine interior optimum, 5.8346 at 0.5, and degrades gently on
-either side. Against the *league* average it manages only a shallow gain (5.8493 at 0.25)
-before turning and degrading steeply to 5.9393 at full weight — worse than not using the
+prior weeks the term has a genuine interior optimum, 5.7709 at 0.5, and degrades gently on
+either side. Against the *league* average it manages only a shallow gain (5.7959 at 0.25)
+before turning and degrading steeply to 5.8937 at full weight — worse than not using the
 term at all. The cause is double-counting: a player on a high-scoring offense already
 carries that team's quality in their own scoring history, so scaling by team strength again
 applies it twice. Only the game-specific deviation is new information.
 
-**Usage and opponent adjustments are real but very small.** Against switching each off,
-the usage cap is worth 0.0082 MAE and the opponent weight 0.0050; across their full sweep
-ranges, 0.0170 and 0.0184. They are retained because they are directionally sound and
-improve explainability, not because they move the metric. Calibration, at 0.0475, is worth
-more than both combined — which is the honest ordering of what actually matters here.
+**Usage and opponent adjustments are real but very small, and do not clear significance.**
+Switching the usage blend off costs 0.0061 MAE at *p* = 0.082; switching the opponent
+adjustment off costs 0.0036 at *p* = 0.067. Neither reaches α = 0.05 even on three pooled
+seasons. They are retained because they are directionally sound and improve explainability,
+not because they move the metric. Calibration is the opposite — 0.0533 MAE at *p* = 2.2e-37,
+worth more than both combined by an order of magnitude — which is the honest ordering of
+what actually matters here. The per-variant tests are in the sweeps section above.
 
 ## Honest interpretation
 
@@ -320,7 +467,8 @@ The product's defensible value is therefore **not** projection supremacy. It is:
 The backtest is implemented as a checked-in script and run against real downloaded data:
 
 ```bash
-pnpm backtest
+pnpm backtest              # development and tuning sets
+pnpm backtest -- --holdout # the holdout, and the published figures
 ```
 
 Any change to the model must re-run this and update the table above in the same commit. A
