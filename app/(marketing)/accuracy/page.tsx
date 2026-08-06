@@ -30,12 +30,36 @@ const VALIDATION_DOC = `${REPO}/blob/main/docs/model-validation.md`;
  * backtest could have made the old hard-coded "Quarterbacks are our worst position" false
  * with every test still green.
  *
+ * The headline edge is shown with its confidence interval rather than alone. A point
+ * estimate quietly invites the reader to believe every digit of it, and this one is far
+ * less precise than two decimal places suggest. The interval is measured against the
+ * full-history average specifically, so it is rendered only when that is the baseline being
+ * quoted; attaching it to the other comparison would be pairing a number with an
+ * uncertainty computed for something else.
+ *
+ * The paragraph about the same players recurring is there because the alternative is worse
+ * than omitting it. Anyone who divides the spread of weekly errors by the square root of
+ * the sample gets a visibly tighter interval than the one on this page and concludes we
+ * padded it. The reason it is wider is the clustering, and saying so is cheaper than being
+ * disbelieved.
+ *
  * The one number still written literally is the "around 12" typical weekly score used to
  * give the error a sense of scale. It is deliberately rounded and illustrative rather than
  * a measurement, it is not a claim about the model, and it appears in
  * `docs/model-validation.md` — which is the rule: a number absent from that document may
  * not appear in the interface. The nearby sentence therefore claims provenance only for
  * the *measured* figures, since this one is not read from the artifact.
+ *
+ * That list is load-bearing, and it has already been wrong twice in this file's short
+ * history. A literal "seventeen" — the number of games a player can appear in — was added
+ * to the clustering paragraph while the docstring still claimed a single literal. And the
+ * confidence level was spelled out as "nineteen times out of twenty", which reads as prose
+ * rather than as a number and so slipped past the same check; it is a parameter of the
+ * estimator, and an estimator moved to 90% would have left the page confidently stating
+ * the wrong frequency with nothing to catch it. Both are gone: the first reworded away, the
+ * second now rendered from `significance.confidenceLevel` in the artifact. The lesson is
+ * that this paragraph has to be updated in the same edit that adds a number, and that a
+ * number written as a word is still a number.
  *
  * Two claims were removed rather than reworded. A "0 peeks at the held-out season" stat
  * asserted more than the record supports: hyperparameters were chosen on the tuning season
@@ -91,6 +115,44 @@ export default function AccuracyPage() {
   const toughest = priorGames.mae <= lastThree.mae ? priorGames : lastThree;
   const weakest = toughest === priorGames ? lastThree : priorGames;
 
+  // The interval is measured against the full-history average, so it may only be shown
+  // next to that comparison. `toughest` is chosen by measured error and could in principle
+  // land on the other baseline; if it ever did, quoting this interval beside it would be
+  // attaching an uncertainty to a number it was not computed for.
+  const [intervalLow, intervalHigh] = metrics.significance.percentConfidenceInterval;
+  const intervalApplies = toughest === priorGames;
+  // Read off the interval rather than written down. "It does not include zero, so the edge
+  // is real" is a conclusion, not a fact the page is entitled to assert — the same reason
+  // the leaderboard sorts by measured error and the "we win by" wording follows the sign.
+  // An interval that straddled zero would otherwise leave the page insisting the edge was
+  // real while printing the numbers that say it might not be.
+  //
+  // Both bounds, not just the lower one. An interval lying entirely *below* zero also
+  // excludes it — that is a model losing to the baseline by a margin too large to be
+  // chance, which is a real finding and the opposite of inconclusive. Testing only the
+  // lower bound would have filed it under "we cannot rule out luck".
+  const intervalExcludesZero = intervalLow > 0 === intervalHigh > 0;
+  // `>` binds tighter than `===`, so that reads "the two bounds fall on the same side of
+  // zero" — written out here because it is the sort of expression a reader re-derives.
+
+  // Whether clustering actually widened the interval. It usually does, but not always:
+  // against the last-three-games baseline a player's paired differences partly cancel and
+  // the clustered error comes out smaller. The paragraph below exists to preempt "you
+  // padded this"; if clustering did not widen anything there is nothing to preempt, and
+  // rendering it anyway would print a negative percentage as though it were tighter.
+  const clusteringWidened =
+    metrics.significance.clusteredStandardError > metrics.significance.iidStandardError;
+  // Stated as "the clustered error is N% larger", which is the direction the README ledger
+  // and docs/model-validation.md both record. The inverse framing — "the naive interval
+  // would look N% tighter" — is a different number for the same measurement (18 against
+  // 22), and publishing it here would put a figure on the page that no ledger row backs.
+  // Same gap, one number.
+  const widenedBy =
+    (metrics.significance.clusteredStandardError /
+      metrics.significance.iidStandardError -
+      1) *
+    100;
+
   // Ranked by measured error rather than by assumption. Finishing first is what the
   // backtest says today, not something the page is entitled to assert — if a future run
   // puts a baseline ahead of us, this renders that instead of still claiming the win.
@@ -139,6 +201,13 @@ export default function AccuracyPage() {
             <dt className="mt-1 text-sm text-muted-foreground">
               {toughest.edge >= 0 ? "sharper than" : "behind"} the stronger of the two
               baselines we tried
+              {intervalApplies && (
+                <>
+                  , somewhere between{" "}
+                  <span className="tabular-nums">{intervalLow.toFixed(2)}%</span> and{" "}
+                  <span className="tabular-nums">{intervalHigh.toFixed(2)}%</span>
+                </>
+              )}
             </dt>
             <dd className="text-3xl font-semibold tracking-tight tabular-nums text-brand">
               {toughest.edge.toFixed(2)}%
@@ -213,6 +282,41 @@ export default function AccuracyPage() {
           {weakest.edge.toFixed(2)}% is real too, but leading with it would be picking the
           easier matchup and calling it a win.
         </p>
+
+        {intervalApplies && (
+          <div className="mt-6 rounded-xl border border-dashed p-5">
+            <h3 className="font-medium">How sure are we about that number?</h3>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Reasonably, and not more than that. The range we can actually defend is{" "}
+              <strong className="tabular-nums text-foreground">
+                {intervalLow.toFixed(2)}%
+              </strong>{" "}
+              to{" "}
+              <strong className="tabular-nums text-foreground">
+                {intervalHigh.toFixed(2)}%
+              </strong>{" "}
+              &mdash; an interval built this way covers the true edge in{" "}
+              {metrics.significance.confidenceLevel}% of samples.{" "}
+              {intervalExcludesZero
+                ? "It does not include zero, so the edge is real rather than luck"
+                : "It includes zero, so we cannot rule out that this edge is luck"}{" "}
+              &mdash; and &ldquo;{toughest.edge.toFixed(2)}%&rdquo; on its own is more
+              precision than {metrics.sampleSize.toLocaleString("en-US")} player-weeks can
+              support.
+            </p>
+            {clusteringWidened && (
+              <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
+                That range is wider than the obvious arithmetic gives, on purpose. The same{" "}
+                {metrics.significance.clusters} players account for all{" "}
+                {metrics.sampleSize.toLocaleString("en-US")} of those weeks, and a player we
+                consistently misread produces the same miss over and over rather than a
+                fresh independent verdict on the model each time. Accounting for that makes
+                the error bar {widenedBy.toFixed(0)}% larger than counting every week as new
+                evidence would have.
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="relative mx-auto max-w-4xl px-6 py-10">

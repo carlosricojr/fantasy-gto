@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  POWER_MULTIPLIER,
+  studentTQuantile,
+  studentTTwoSided,
+} from "../../core/stats";
 import metrics from "./published-metrics.json";
 
 /**
@@ -22,6 +27,16 @@ const validation = readFileSync(
   join(__dirname, "../../../docs/model-validation.md"),
   "utf8",
 );
+
+/**
+ * The honesty ledger, which is the other document these figures have to agree with.
+ *
+ * `docs/model-validation.md` is the authority for how a number was measured; the README
+ * ledger is the index of what the product actually *claims*. A drift between the artifact
+ * and the ledger is the more dangerous of the two, because the ledger is what a reader
+ * checks a marketing claim against.
+ */
+const readme = readFileSync(join(__dirname, "../../../README.md"), "utf8");
 
 describe("published metrics", () => {
   it("derives its percentages from its own error figures", () => {
@@ -83,5 +98,239 @@ describe("published metrics", () => {
     for (const position of ["QB", "RB", "WR", "TE"]) {
       expect(metrics.perPositionMae[position as "QB"]).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The interval published beside the headline edge.
+ *
+ * These checks matter more than the ones above, because an interval is the one figure on
+ * the page a reader cannot sanity-check by eye. A point estimate that drifts looks wrong
+ * eventually; an interval that is too narrow by a factor of 1.22 looks exactly like a
+ * correct one, and it is the number every future decision about this model gets made
+ * against.
+ *
+ * So each figure is recomputed here from the others using the same estimators the script
+ * used, rather than compared against a value written down once. That is what would catch a
+ * hand-edited artifact, a swapped standard error, or an interval left behind by a model
+ * change.
+ */
+describe("published significance", () => {
+  const { significance } = metrics;
+
+  it("differences the two MAEs it claims to difference", () => {
+    expect(significance.meanDelta).toBeCloseTo(
+      metrics.priorGamesMeanMae - metrics.modelMae,
+      10,
+    );
+    expect(significance.comparison).toContain("prior games");
+  });
+
+  it("has fewer players than player-weeks, which is why it clusters at all", () => {
+    // The whole reason the clustered standard error exists. If these were equal, every
+    // player appeared once and there would be nothing to cluster.
+    expect(significance.clusters).toBeGreaterThan(1);
+    expect(significance.clusters).toBeLessThan(metrics.sampleSize);
+    expect(significance.degreesOfFreedom).toBe(significance.clusters - 1);
+  });
+
+  it("builds t and p from the clustered standard error, not the i.i.d. one", () => {
+    // The single most consequential way this artifact could be wrong: the two standard
+    // errors differ by 22% on this sample, so a swap would still look entirely plausible
+    // while overstating every significance claim built on it.
+    expect(significance.t).toBeCloseTo(
+      significance.meanDelta / significance.clusteredStandardError,
+      10,
+    );
+    expect(significance.pValue).toBeCloseTo(
+      studentTTwoSided(significance.t, significance.degreesOfFreedom),
+      12,
+    );
+    expect(significance.pValue).toBeGreaterThan(0);
+    expect(significance.pValue).toBeLessThanOrEqual(1);
+  });
+
+  it("is the interval those figures imply", () => {
+    const half =
+      studentTQuantile(0.975, significance.degreesOfFreedom) *
+      significance.clusteredStandardError;
+    expect(significance.confidenceInterval[0]).toBeCloseTo(
+      significance.meanDelta - half,
+      10,
+    );
+    expect(significance.confidenceInterval[1]).toBeCloseTo(
+      significance.meanDelta + half,
+      10,
+    );
+    expect(significance.confidenceInterval[0]).toBeLessThan(significance.meanDelta);
+    expect(significance.confidenceInterval[1]).toBeGreaterThan(significance.meanDelta);
+  });
+
+  it("scales the percentage interval by the same baseline the edge is scaled by", () => {
+    // If these used different denominators, the interval on the page would not be an
+    // interval around the number printed next to it.
+    for (const end of [0, 1] as const) {
+      expect(significance.percentConfidenceInterval[end]).toBeCloseTo(
+        (significance.confidenceInterval[end] / metrics.priorGamesMeanMae) * 100,
+        10,
+      );
+    }
+    expect(metrics.edgeVsPriorGamesMean).toBeGreaterThan(
+      significance.percentConfidenceInterval[0],
+    );
+    expect(metrics.edgeVsPriorGamesMean).toBeLessThan(
+      significance.percentConfidenceInterval[1],
+    );
+  });
+
+  it("derives the minimum detectable effect from the standard error", () => {
+    expect(significance.minimumDetectableEffect).toBeCloseTo(
+      POWER_MULTIPLIER * significance.clusteredStandardError,
+      10,
+    );
+    expect(significance.minimumDetectablePercent).toBeCloseTo(
+      (significance.minimumDetectableEffect / metrics.priorGamesMeanMae) * 100,
+      10,
+    );
+  });
+
+  it("puts the significance floor at the edge of the published interval", () => {
+    // The floor is what a measured effect has to exceed before p < 0.05, so it is the
+    // interval's half-width. Published because it is the sharper of the two power figures:
+    // the MDE says what this sample could find, the floor says that anything it does find
+    // below the floor is not reportable and anything smaller than the floor can only be
+    // reported by overstating itself.
+    const half =
+      (significance.confidenceInterval[1] - significance.confidenceInterval[0]) / 2;
+    expect(significance.minimumSignificantEffect).toBeCloseTo(half, 10);
+    expect(significance.minimumSignificantPercent).toBeCloseTo(
+      (significance.minimumSignificantEffect / metrics.priorGamesMeanMae) * 100,
+      10,
+    );
+    expect(significance.minimumSignificantEffect).toBeLessThan(
+      significance.minimumDetectableEffect,
+    );
+  });
+
+  it("agrees with the bootstrap that cross-checks it", () => {
+    // A distribution-free estimate of the same quantity, from resampled players. The
+    // tolerance is 10% and describes the method rather than this run: 2,000 resamples carry
+    // a Monte Carlo error near 1.6% on a standard error, and the two estimators are not the
+    // same algebra. Agreement here is what says the analytic formula is not quietly wrong.
+    expect(significance.bootstrap.resamples).toBeGreaterThanOrEqual(2000);
+    const ratio =
+      significance.bootstrap.standardError / significance.clusteredStandardError;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+    for (const end of [0, 1] as const) {
+      expect(
+        Math.abs(
+          significance.bootstrap.percentConfidenceInterval[end] -
+            significance.percentConfidenceInterval[end],
+        ),
+      ).toBeLessThan(0.1 * significance.minimumDetectablePercent);
+    }
+  });
+
+  it("agrees with docs/model-validation.md, the sole authority for these claims", () => {
+    expect(validation).toContain(significance.clusteredStandardError.toFixed(4));
+    expect(validation).toContain(significance.iidStandardError.toFixed(4));
+    expect(validation).toContain(significance.t.toFixed(2));
+    expect(validation).toContain(significance.pValue.toFixed(5));
+    expect(validation).toContain(String(significance.clusters));
+    expect(validation).toContain(significance.minimumDetectableEffect.toFixed(4));
+    expect(validation).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
+    expect(validation).toContain(significance.minimumSignificantEffect.toFixed(4));
+    expect(validation).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);
+    expect(validation).toContain(`${significance.confidenceLevel}%`);
+    expect(validation).toContain(significance.bootstrap.standardError.toFixed(4));
+    // The seed and the resample count are the document's reproducibility claim: someone
+    // re-running the backtest has to be able to land on the same interval. Change either in
+    // the script without touching the document and the claim is quietly false, so both are
+    // pinned here rather than only the figure they produced.
+    expect(validation).toContain(String(significance.bootstrap.seed));
+    expect(validation).toContain(
+      significance.bootstrap.resamples.toLocaleString("en-US"),
+    );
+    for (const end of [0, 1] as const) {
+      expect(validation).toContain(significance.confidenceInterval[end].toFixed(4));
+      expect(validation).toContain(
+        `${significance.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
+    }
+  });
+
+  it("carries the weaker comparison too, and agrees with the document about it", () => {
+    // The document quotes this comparison in prose, and nothing produced or checked it
+    // until a reviewer noticed. Every figure it states is now derived here from the
+    // artifact and matched against the document at the precision it is printed with.
+    const weak = metrics.significanceVsLastThree;
+    expect(weak.comparison).toContain("last 3");
+    expect(weak.meanDelta).toBeCloseTo(metrics.lastThreeMae - metrics.modelMae, 10);
+    expect(weak.t).toBeCloseTo(weak.meanDelta / weak.clusteredStandardError, 10);
+    expect(weak.pValue).toBeCloseTo(
+      studentTTwoSided(weak.t, weak.degreesOfFreedom),
+      12,
+    );
+    expect(weak.minimumSignificantEffect).toBeCloseTo(
+      (weak.confidenceInterval[1] - weak.confidenceInterval[0]) / 2,
+      10,
+    );
+    // Measured against the weaker baseline, so the edge must be the larger of the two —
+    // the same invariant the headline percentages are held to, one level down.
+    expect(weak.meanDelta).toBeGreaterThan(significance.meanDelta);
+
+    expect(validation).toContain(weak.meanDelta.toFixed(4));
+    expect(validation).toContain(weak.clusteredStandardError.toFixed(4));
+    expect(validation).toContain(weak.t.toFixed(2));
+    expect(validation).toContain(weak.minimumDetectableEffect.toFixed(4));
+    expect(validation).toContain(`${weak.minimumDetectablePercent.toFixed(2)}%`);
+    expect(validation).toContain(weak.minimumSignificantEffect.toFixed(4));
+    expect(validation).toContain(`${weak.minimumSignificantPercent.toFixed(2)}%`);
+    expect(validation).toContain(weak.bootstrap.standardError.toFixed(4));
+    for (const end of [0, 1] as const) {
+      expect(validation).toContain(
+        `${weak.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
+    }
+  });
+
+  it("agrees with the README honesty ledger, which is what a reader checks", () => {
+    // The ledger row for the headline edge quotes the interval. Nothing asserted that
+    // before, so a backtest that moved the interval would have left the ledger — the
+    // document whose entire job is mapping a claim to its computation — quoting a number
+    // the code no longer produces. That is the specific failure the ledger exists to catch,
+    // happening to the ledger itself.
+    //
+    // Matched against the artifact rather than against literals, so this cannot be
+    // satisfied by editing the test to agree with a stale README.
+    const ledgerRow = readme
+      .split("\n")
+      .find((line) => line.includes("prior-games-mean baseline"));
+    expect(ledgerRow, "honesty ledger row for the headline edge").toBeDefined();
+    expect(ledgerRow).toContain(`${metrics.edgeVsPriorGamesMean.toFixed(2)}%`);
+    expect(ledgerRow).toContain(`${significance.confidenceLevel}% CI`);
+    for (const end of [0, 1] as const) {
+      expect(ledgerRow).toContain(
+        `${significance.percentConfidenceInterval[end].toFixed(2)}%`,
+      );
+    }
+    expect(ledgerRow).toContain(String(metrics.significance.clusters));
+    expect(ledgerRow).toContain(metrics.sampleSize.toLocaleString("en-US"));
+
+    // The clustering gap, stated in one direction everywhere. `/accuracy` renders this
+    // same figure, and it previously rendered the inverse — 18% against the ledger's 22%,
+    // both arithmetically right, describing one measurement with two numbers. A reader
+    // checking the page against the ledger would have found them disagreeing.
+    const widenedBy = Math.round(
+      (significance.clusteredStandardError / significance.iidStandardError - 1) * 100,
+    );
+    expect(ledgerRow).toContain(`${widenedBy}% larger`);
+    expect(validation).toContain(`${widenedBy}% larger`);
+
+    // The known gap that bounds every future claim about this model.
+    expect(readme).toContain(`${significance.minimumDetectablePercent.toFixed(2)}%`);
+    expect(readme).toContain(`${significance.minimumSignificantPercent.toFixed(2)}%`);
+    expect(readme).toContain(significance.minimumDetectableEffect.toFixed(4));
   });
 });
