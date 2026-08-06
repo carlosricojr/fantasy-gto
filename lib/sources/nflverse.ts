@@ -9,6 +9,7 @@ import {
 import { type CsvRow, num, numOrNull, parseCsv, str } from "../nfl/csv";
 import { normalizeTeam } from "../nfl/teams";
 
+import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
@@ -44,6 +45,18 @@ export function schedulesUrl(): string {
  */
 export function seasonRosterUrl(season: number): string {
   return `${RELEASE_BASE}/rosters/roster_${season}.csv`;
+}
+
+/**
+ * The player directory.
+ *
+ * One file, every player, no season parameter. Carries the birth date the model needs for
+ * any notion of age, and — the reason it is load-bearing rather than convenient — both
+ * `gsis_id` and `pfr_id`, which is the only bridge between weekly statistics and snap
+ * counts. See `lib/nfl/players.ts`.
+ */
+export function playersUrl(): string {
+  return `${RELEASE_BASE}/players/players.csv`;
 }
 
 /** Fetches a URL as text. Injectable so tests never touch the network. */
@@ -280,13 +293,22 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
 
   /** All regular-season player-weeks for a season. */
   private readonly weeksCache = new Map<number, ProviderResult<PlayerWeek[]>>();
+  private readonly weeksInFlight = new Map<number, Promise<ProviderResult<PlayerWeek[]>>>();
 
   async playerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     // Same reasoning as the roster cache: one action builds many boards from the same two
     // seasons of statistics, and these are the largest files the project touches.
     const cached = this.weeksCache.get(season);
     if (cached !== undefined) return cached;
-    const result = await this.fetchPlayerWeeks(season);
+    // The in-flight promise is shared too, for the same reason as `players`.
+    let inFlight = this.weeksInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchPlayerWeeks(season).finally(() => {
+        this.weeksInFlight.delete(season);
+      });
+      this.weeksInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
     // Only successes are cached. A failure is usually transient — a network blip, or a
     // release that upstream has not published yet — and one provider serves a whole
     // board-building run, so caching the failure turns a single bad fetch into every
@@ -315,6 +337,10 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * recommending players who will not take a snap.
    */
   private readonly rosterCache = new Map<number, ProviderResult<RosterEntry[]>>();
+  private readonly rosterInFlight = new Map<
+    number,
+    Promise<ProviderResult<RosterEntry[]>>
+  >();
 
   async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
     // Cached for the provider's lifetime. A single action builds a board for every scoring
@@ -322,7 +348,14 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     // fetched and parsed once per shape.
     const cached = this.rosterCache.get(season);
     if (cached !== undefined) return cached;
-    const result = await this.fetchSeasonRoster(season);
+    let inFlight = this.rosterInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchSeasonRoster(season).finally(() => {
+        this.rosterInFlight.delete(season);
+      });
+      this.rosterInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
     // Only successes are cached. A failure is usually transient — a network blip, or a
     // release that upstream has not published yet — and one provider serves a whole
     // board-building run, so caching the failure turns a single bad fetch into every
@@ -350,6 +383,54 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
           `the season starts.`,
         cause,
       );
+    }
+  }
+
+  /**
+   * Every player upstream knows about, with age, experience, and the `pfr_id` bridge.
+   *
+   * Cached for the provider's lifetime like the roster and weekly files. This one is a
+   * single multi-megabyte download shared by every caller that needs an age or a bridge
+   * lookup, so re-fetching it per use would dominate the cost of any run that touches it.
+   */
+  private playersCache: ProviderResult<PlayerProfile[]> | null = null;
+  private playersInFlight: Promise<ProviderResult<PlayerProfile[]>> | null = null;
+
+  async players(): Promise<ProviderResult<PlayerProfile[]>> {
+    if (this.playersCache !== null) return this.playersCache;
+    // The in-flight promise is shared, not just the settled result. Populating the cache
+    // only after the fetch resolves leaves a window in which every concurrent caller starts
+    // its own download of the same multi-megabyte file — and callers here are concurrent by
+    // construction, since one action builds many boards at once. Cleared on settlement, so a
+    // failure is retried rather than remembered.
+    this.playersInFlight ??= this.fetchPlayers().finally(() => {
+      this.playersInFlight = null;
+    });
+    const result = await this.playersInFlight;
+    // Only successes are cached, for the same reason as everywhere else here: a transient
+    // failure cached for the provider's lifetime turns one bad fetch into every later call
+    // failing too.
+    if (result.ok) this.playersCache = result;
+    return result;
+  }
+
+  private async fetchPlayers(): Promise<ProviderResult<PlayerProfile[]>> {
+    try {
+      const text = await this.fetchText(playersUrl());
+      const profiles = toPlayerProfiles(parseCsv(text));
+      // A file that answers 200 with a valid header and no usable rows parses cleanly and
+      // reports success, leaving every caller to conclude the league has no players. That
+      // exact shape is real in these releases — `snap_counts_2012.csv` is one — so it is
+      // refused here rather than propagated.
+      if (profiles.length === 0) {
+        return failed(
+          "The player directory parsed to no players with a gsis_id. The release is " +
+            "probably a placeholder that has not been populated yet.",
+        );
+      }
+      return ok(profiles);
+    } catch (cause) {
+      return failed("The nflverse player directory is unavailable.", cause);
     }
   }
 
