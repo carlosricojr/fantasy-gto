@@ -195,9 +195,14 @@ describe("ruledOutForWeek", () => {
   const parsed = toRegularSeasonInjuries(parseCsv(csv2024));
 
   it("returns only the players designated Out for that week", () => {
-    const out = ruledOutForWeek(parsed.reports, parsed.reports[0].week);
+    // Matched on player *and* week. A player can appear in several weeks with different
+    // designations, so finding him by id alone could check the wrong row and pass while the
+    // function returned someone it should not have.
+    const week = parsed.reports[0].week;
+    const out = ruledOutForWeek(parsed.reports, week);
+    expect(out.size).toBeGreaterThan(0);
     for (const id of out) {
-      const report = parsed.reports.find((r) => r.playerId === id);
+      const report = parsed.reports.find((r) => r.playerId === id && r.week === week);
       expect(report?.gameStatus).toBe("out");
     }
   });
