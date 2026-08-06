@@ -53,7 +53,7 @@ import {
   stratifyByGap,
   summarizePairwise,
 } from "@/lib/core/decisions";
-import type { RosterSlot } from "@/lib/core/optimizer";
+import { type RosterSlot, solveLineup } from "@/lib/core/optimizer";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { scoreOffense } from "@/lib/nfl/scoring/score";
 import type { Position } from "@/lib/nfl/scoring/types";
@@ -730,6 +730,27 @@ async function main(): Promise<void> {
 
     const modelDecisions = pairwiseDecisions(toOutcome(model));
     const baselineDecisions = pairwiseDecisions(toOutcome(baseline));
+
+    // The two arrays describe the same decisions in the same order, and the reason is
+    // subtle enough to be worth enforcing rather than trusting: `evaluate` emits both
+    // predictors from one loop so the rows align, group order follows row order, within a
+    // group the sort key is `competitorId` alone, and the tie-drop rule reads `actual`,
+    // which is identical across predictors. So who is *favoured* can differ while pair
+    // membership and position cannot. Any future filter that reads `predicted` would break
+    // that silently, and a shifted-but-equal-length pairing produces a plausible mean
+    // difference with a standard error that means nothing — the same failure `paired()`
+    // above already refuses to risk.
+    if (modelDecisions.length !== baselineDecisions.length) {
+      throw new Error(
+        `decisions: ${modelDecisions.length} model against ${baselineDecisions.length} baseline`,
+      );
+    }
+    modelDecisions.forEach((d, i) => {
+      const b = baselineDecisions[i];
+      if (b.cluster !== d.cluster || b.actualGap !== d.actualGap) {
+        throw new Error(`decisions: misaligned at ${i}`);
+      }
+    });
     const modelSummary = summarizePairwise(modelDecisions);
     const baselineSummary = summarizePairwise(baselineDecisions);
 
@@ -754,18 +775,46 @@ async function main(): Promise<void> {
     // Two models that differ only on the hard ones look identical pooled, and the hard ones
     // are the only reason to consult a model at all.
     process.stdout.write(
-      `\n    by projected gap${" ".repeat(6)}${"pairs".padStart(9)}${"model".padStart(10)}${"baseline".padStart(10)}\n`,
+      `\n    ${"by the model's gap".padEnd(21)}${"pairs".padStart(9)}${"model".padStart(10)}` +
+        `${"baseline".padStart(10)}${"delta".padStart(9)}${"95% CI".padStart(20)}\n`,
     );
     const edges = [1, 2, 4, 8];
     const modelStrata = stratifyByGap(modelDecisions, edges);
-    const baselineStrata = stratifyByGap(baselineDecisions, edges);
+    // Stratified by the **model's** gap on both sides. Splitting the baseline by its own
+    // projected gap puts the same decision in different rows for the two predictors, so the
+    // table would read as a like-for-like split of one population while being two — and the
+    // row that carries this section's headline claim would compare different decisions.
+    // Caught in review: re-weighting the baseline column by the printed pair counts gave
+    // 62.91% against a pooled 63.01%, which is how a difference of populations shows up.
+    const baselineStrata = stratifyByGap(
+      baselineDecisions.map((d, i) => ({ ...d, projectedGap: modelDecisions[i].projectedGap })),
+      edges,
+    );
     for (let i = 0; i < modelStrata.length; i += 1) {
       const m = modelStrata[i];
       const b = baselineStrata[i];
+      // Every difference here gets its own clustered interval, for the same reason the
+      // pooled one does: a 0.45-point gap in accuracy presented bare is a point estimate
+      // masquerading as a finding, and this file's own docstring forbids exactly that.
+      const inStratum = modelDecisions
+        .map((d, k) => ({
+          cluster: d.cluster,
+          model: d.forgone,
+          baseline: baselineDecisions[k].forgone,
+          gap: d.projectedGap,
+        }))
+        .filter((r) => r.gap >= (i === 0 ? 0 : edges[i - 1]) && (i >= edges.length || r.gap < edges[i]));
+      let interval = "";
+      if (inStratum.length > 1 && new Set(inStratum.map((r) => r.cluster)).size > 1) {
+        const test = pairedComparison(inStratum);
+        interval =
+          `${`${test.meanDelta >= 0 ? "+" : ""}${test.meanDelta.toFixed(3)}`.padStart(9)}` +
+          `${`[${test.interval[0].toFixed(3)}, ${test.interval[1].toFixed(3)}]`.padStart(20)}`;
+      }
       process.stdout.write(
         `    ${m.label.padEnd(21)}${String(m.summary.pairs).padStart(9)}` +
           `${`${(m.summary.accuracy * 100).toFixed(2)}%`.padStart(10)}` +
-          `${`${(b.summary.accuracy * 100).toFixed(2)}%`.padStart(10)}\n`,
+          `${`${(b.summary.accuracy * 100).toFixed(2)}%`.padStart(10)}${interval}\n`,
       );
     }
 
@@ -797,11 +846,10 @@ async function main(): Promise<void> {
    * Points left on the bench against a lineup set with hindsight.
    *
    * The rosters are synthetic and the construction is stated rather than buried: each week's
-   * scored players are dealt round-robin by projection rank into twelve rosters, so every
-   * roster gets a comparable mix rather than one collecting all the best players. That is a
-   * judgement, not a measurement, and the absolute number depends on it. What does not
-   * depend on it is the comparison — the model and the baseline are dealt the identical
-   * rosters and differ only in the projections used to set the lineup.
+   * scored players are dealt round-robin in competitor-id order into twelve rosters. That is
+   * a judgement, not a measurement, and the absolute number depends on it. The deal is
+   * keyed on neither predictor, so the comparison does not — both sides receive identical
+   * rosters built without reference to either set of projections.
    *
    * Both lineups on both sides are solved by the same optimizer, so the difference is down
    * to projections alone. Filling the hindsight side greedily would credit the projections
@@ -839,24 +887,18 @@ async function main(): Promise<void> {
 
     for (const key of [...byWeek.keys()].sort()) {
       const rows = byWeek.get(key)!;
-      // Ranked by projection, then dealt round-robin. Ties broken by id so the deal is a
-      // function of the data rather than of iteration order.
-      const ranked = [...rows].sort(
-        (a, b) =>
-          b.predicted - a.predicted ||
-          (a.competitorId < b.competitorId ? -1 : a.competitorId > b.competitorId ? 1 : 0),
+      // Dealt round-robin in competitor-id order. Deliberately **not** by projection rank:
+      // ranking by one of the two predictors builds every roster to span that predictor's
+      // range, which makes the deal a function of the thing being compared. It was keyed on
+      // the model's projections until a reviewer pointed out that "identical on both sides"
+      // and "neutral between the two" are different claims, and only the first was true.
+      const ranked = [...rows].sort((a, b) =>
+        a.competitorId < b.competitorId ? -1 : a.competitorId > b.competitorId ? 1 : 0,
       );
       const rosters: Evaluation[][] = Array.from({ length: TEAMS }, () => []);
       ranked.forEach((row, i) => rosters[i % TEAMS].push(row));
 
       for (const roster of rosters) {
-        // A roster that cannot fill every slot would report regret against an incomplete
-        // lineup, which is not the decision being measured.
-        const filled = slots.every((slot) =>
-          roster.some((r) => slot.eligiblePositions.includes(r.position)),
-        );
-        if (!filled) continue;
-
         const actual = new Map(roster.map((r) => [r.competitorId, r.actual]));
         const asCompetitors = (predicted: (row: Evaluation) => number) =>
           roster.map((r) => ({
@@ -866,6 +908,14 @@ async function main(): Promise<void> {
             projectedPoints: predicted(r),
             availability: "active" as const,
           }));
+
+        // Feasibility asked of the solver, not of a proxy. Checking each slot independently
+        // for "some eligible player exists" passes a roster with one running back against
+        // two RB slots, so an unfillable lineup would be counted with empty slots scoring
+        // zero — deflating the achievable total and, with it, the published percentage.
+        // The comparison would have survived that; the level would not.
+        const feasible = solveLineup(slots, asCompetitors((r) => r.actual));
+        if (feasible.assignments.some((a) => a.competitorId === null)) continue;
 
         const withModel = lineupRegret(key, slots, asCompetitors((r) => r.predicted), actual);
         const withBaseline = lineupRegret(

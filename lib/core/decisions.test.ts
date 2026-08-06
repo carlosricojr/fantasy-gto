@@ -256,17 +256,28 @@ describe("lineupRegret", () => {
     expect(result.best).toBeCloseTo(12, 10);
   });
 
-  it("never reports negative regret", () => {
-    // The hindsight lineup maximises actual points by construction, so a negative value
-    // would mean the solver disagreed with itself. Clamped so a solver bug cannot surface
-    // as a flattering statistic.
+  it("clamps regret where the solver's quantization can actually make it negative", () => {
+    // The previous version of this test used three players with identical actuals and
+    // asserted `>= 0`. It passed with or without the clamp, because `best >= achieved`
+    // holds by construction whenever the solver is exact — a mutation survivor asserting a
+    // property no implementation can violate.
+    //
+    // The clamp is only reachable through the one place the solver is *not* exact:
+    // `solveLineup` scales projections by 100 and rounds, so actual points with more than
+    // two decimals can make the hindsight lineup pick a different assignment than the
+    // unrounded sum would. Below, a and b differ by a thousandth — invisible after
+    // quantization, so the hindsight solve may choose either, and the achieved lineup can
+    // legitimately hold the fractionally better one.
     const roster = [player("a", "WR", 1), player("b", "WR", 2), player("c", "RB", 3)];
     const actual = new Map([
-      ["a", 5],
-      ["b", 5],
-      ["c", 5],
+      ["a", 5.0004],
+      ["b", 5.0],
+      ["c", 5.0],
     ]);
-    expect(lineupRegret("w1", SLOTS, roster, actual).regret).toBeGreaterThanOrEqual(0);
+    const result = lineupRegret("w1", SLOTS, roster, actual);
+    expect(result.regret).toBeGreaterThanOrEqual(0);
+    // And the clamp is doing the work rather than the arithmetic happening to agree.
+    expect(result.regret).toBe(Math.max(0, result.best - result.achieved));
   });
 
   it("compares like with like — both lineups solved by the same optimizer", () => {

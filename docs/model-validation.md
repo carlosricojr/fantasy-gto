@@ -103,25 +103,39 @@ appears in, and no multi-way clustered estimator is implemented here.
 ### The number that matters, stratified by how hard the call was
 
 The pooled rate is dominated by calls nobody would hesitate over. Split by the gap between
-the two projections:
+the two projections — **the model's gap on both sides**, so the two columns describe the
+same decisions — with a paired, pair-clustered interval on the points each predictor gave
+up:
 
-| Projected gap | pairs | model | baseline |
-| --- | --- | --- | --- |
-| 0–1 points | 101,351 | **51.77%** | 51.32% |
-| 1–2 | 96,182 | 55.80% | 54.49% |
-| 2–4 | 163,344 | 61.09% | 59.25% |
-| 4–8 | 205,105 | 69.50% | 67.12% |
-| 8+ | 112,988 | 80.54% | 78.14% |
+| Model's projected gap | pairs | model | baseline | forgone delta | 95% CI |
+| --- | --- | --- | --- | --- | --- |
+| 0–1 points | 101,351 | **51.77%** | 50.77% | +0.121 | 0.079 to 0.163 |
+| 1–2 | 96,182 | 55.80% | 53.27% | +0.308 | 0.271 to 0.345 |
+| 2–4 | 163,344 | 61.09% | 58.03% | +0.386 | 0.363 to 0.408 |
+| 4–8 | 205,105 | 69.50% | 68.04% | +0.193 | 0.180 to 0.205 |
+| 8+ | 112,988 | 80.54% | 80.34% | +0.033 | 0.026 to 0.040 |
 
-**On the closest calls the model is 51.77% — barely better than a coin flip, and barely
-better than the baseline's 51.32%.** Those are precisely the decisions a user consults a
-projection for. The 64.73% headline is carried by pairs where the answer was already
-obvious, and quoting it without this table would be the same kind of overclaim as leading
-with the last-3-games baseline.
+**On the closest calls the model is 51.77% — barely better than a coin flip.** Those are
+precisely the decisions a user consults a projection for, and the 64.73% headline is carried
+by pairs where the answer was already obvious. Quoting it without this table would be the
+same kind of overclaim as leading with the last-3-games baseline.
+
+The model does beat the baseline in every stratum and every interval excludes zero, but the
+shape is worth reading: the advantage peaks in the middle, at 2–4 points of gap, and nearly
+vanishes at 8+ where both predictors are right about four times in five anyway. The model
+earns its keep on moderately close calls, not on the hardest ones and not on the easy ones.
 
 This is not a defect being disclosed reluctantly. It is the honest shape of the problem:
 when two players project within a point of each other, weekly variance decides, and no model
 built on public box-score data changes that.
+
+**An earlier revision of this table was wrong**, and the correction is worth keeping. It
+stratified each predictor by *its own* projected gap, so a pair the model projected 0.4
+apart and the baseline projected 6 apart landed in different rows for the two columns — two
+populations presented as one. The tell was arithmetic: re-weighting the baseline column by
+the printed pair counts gave 62.91% against a pooled figure of 63.01%. Every baseline number
+in that table moved when it was fixed, and the headline sentence had been comparing
+different decisions.
 
 ### Lineup regret
 
@@ -130,16 +144,22 @@ the same optimizer so the difference is down to projections alone.
 
 | Set | roster-weeks | model | baseline |
 | --- | --- | --- | --- |
-| Development 2013–2021 | 1,582 | 19.869 pts/week (16.95% of achievable) | 22.187 (18.93%) |
-| Tuning 2022–2024 | 552 | 17.535 pts/week (15.42% of achievable) | 19.228 (16.91%) |
+| Development 2013–2021 | 1,456 | 21.024 pts/week (17.82% of achievable) | 22.529 (19.10%) |
 
 The rosters are **synthetic** and the construction is a judgement, not a measurement: each
-week's scored players are dealt round-robin by projection rank into twelve teams, so no
-roster collects all the best players. The absolute regret depends on that choice. The
-comparison does not — both sides are dealt identical rosters.
+week's scored players are dealt round-robin in competitor-id order into twelve teams. The
+deal is keyed on neither predictor, so both sides receive identical rosters built without
+reference to either set of projections. The absolute regret still depends on the choice; the
+comparison does not.
+
+A roster-week is counted only if the *solver* can fill every slot from it. Checking each
+slot independently for an eligible player is not the same test — two RB slots are both
+satisfied by a roster holding one running back — and counting those weeks left empty slots
+scoring zero, deflating the achievable total. Fixing it dropped 126 roster-weeks and moved
+the model's regret from 19.869 to 21.024 points a week.
 
 Read the level, not just the gap: a real lineup gives up **roughly a sixth** of what perfect
-hindsight would have scored, and the model recovers about two percentage points of that
+hindsight would have scored, and the model recovers about 1.3 percentage points of that
 against the baseline. That is a real improvement and a small one, and it is the same story
 the MAE table tells.
 
