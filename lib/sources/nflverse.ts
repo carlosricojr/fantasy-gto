@@ -293,13 +293,22 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
 
   /** All regular-season player-weeks for a season. */
   private readonly weeksCache = new Map<number, ProviderResult<PlayerWeek[]>>();
+  private readonly weeksInFlight = new Map<number, Promise<ProviderResult<PlayerWeek[]>>>();
 
   async playerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     // Same reasoning as the roster cache: one action builds many boards from the same two
     // seasons of statistics, and these are the largest files the project touches.
     const cached = this.weeksCache.get(season);
     if (cached !== undefined) return cached;
-    const result = await this.fetchPlayerWeeks(season);
+    // The in-flight promise is shared too, for the same reason as `players`.
+    let inFlight = this.weeksInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchPlayerWeeks(season).finally(() => {
+        this.weeksInFlight.delete(season);
+      });
+      this.weeksInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
     // Only successes are cached. A failure is usually transient — a network blip, or a
     // release that upstream has not published yet — and one provider serves a whole
     // board-building run, so caching the failure turns a single bad fetch into every
@@ -328,6 +337,10 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * recommending players who will not take a snap.
    */
   private readonly rosterCache = new Map<number, ProviderResult<RosterEntry[]>>();
+  private readonly rosterInFlight = new Map<
+    number,
+    Promise<ProviderResult<RosterEntry[]>>
+  >();
 
   async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
     // Cached for the provider's lifetime. A single action builds a board for every scoring
@@ -335,7 +348,14 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     // fetched and parsed once per shape.
     const cached = this.rosterCache.get(season);
     if (cached !== undefined) return cached;
-    const result = await this.fetchSeasonRoster(season);
+    let inFlight = this.rosterInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchSeasonRoster(season).finally(() => {
+        this.rosterInFlight.delete(season);
+      });
+      this.rosterInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
     // Only successes are cached. A failure is usually transient — a network blip, or a
     // release that upstream has not published yet — and one provider serves a whole
     // board-building run, so caching the failure turns a single bad fetch into every
@@ -374,10 +394,19 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * lookup, so re-fetching it per use would dominate the cost of any run that touches it.
    */
   private playersCache: ProviderResult<PlayerProfile[]> | null = null;
+  private playersInFlight: Promise<ProviderResult<PlayerProfile[]>> | null = null;
 
   async players(): Promise<ProviderResult<PlayerProfile[]>> {
     if (this.playersCache !== null) return this.playersCache;
-    const result = await this.fetchPlayers();
+    // The in-flight promise is shared, not just the settled result. Populating the cache
+    // only after the fetch resolves leaves a window in which every concurrent caller starts
+    // its own download of the same multi-megabyte file — and callers here are concurrent by
+    // construction, since one action builds many boards at once. Cleared on settlement, so a
+    // failure is retried rather than remembered.
+    this.playersInFlight ??= this.fetchPlayers().finally(() => {
+      this.playersInFlight = null;
+    });
+    const result = await this.playersInFlight;
     // Only successes are cached, for the same reason as everywhere else here: a transient
     // failure cached for the provider's lifetime turns one bad fetch into every later call
     // failing too.

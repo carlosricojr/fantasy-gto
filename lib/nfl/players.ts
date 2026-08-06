@@ -128,13 +128,28 @@ interface CalendarDate {
   day: number;
 }
 
+/** Days in each month, with February resolved against the year. */
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return leap ? 29 : 28;
+  }
+  return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+}
+
 function parseIsoDate(value: string): CalendarDate | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (month < 1 || month > 12 || day < 1) return null;
+  // Per month, not a flat 31. Validating the two fields independently accepts
+  // `1993-02-31`, and `ageAt` would then return a number for a date that never existed —
+  // contradicting its own contract of returning null for anything it cannot parse. A
+  // birth date that impossible is corrupt input, and an age derived from it is worse than
+  // no age at all because nothing downstream can tell it apart from a real one.
+  if (day > daysInMonth(year, month)) return null;
   return { year, month, day };
 }
 

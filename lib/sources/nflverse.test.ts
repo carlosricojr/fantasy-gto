@@ -312,6 +312,29 @@ describe("NflverseProvider.players", () => {
     expect(calls).toBe(1);
   });
 
+  it("coalesces concurrent callers into one download", async () => {
+    // The settled result being cached is not enough: callers here are concurrent by
+    // construction — one action builds many boards at once — and without sharing the
+    // in-flight promise each of them starts its own download of the same multi-megabyte
+    // file before the first has resolved.
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      // Resolve on a later tick so all four callers are genuinely in flight together.
+      await Promise.resolve();
+      if (url === playersUrl()) return playersCsv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    const results = await Promise.all([
+      provider.players(),
+      provider.players(),
+      provider.players(),
+      provider.players(),
+    ]);
+    expect(calls).toBe(1);
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+
   it("returns a failure rather than throwing past the seam", async () => {
     const provider = new NflverseProvider(async () => {
       throw new Error("network down");

@@ -62,8 +62,13 @@ describe("toPlayerProfiles", () => {
   });
 
   it("drops a row with no gsis_id rather than keeping an unjoinable profile", () => {
+    // The column count comes from the parsed fixture, not from splitting the header on
+    // commas. These files carry quoted fields containing commas — `headshot_url` is the
+    // usual offender — and splitting on `,` is the exact defect `lib/nfl/csv.ts` exists to
+    // prevent. Reaching for it inside a test is no safer than reaching for it in the parser.
+    const columns = Object.keys(parseCsv(FIXTURE)[0]).length;
     const header = FIXTURE.split("\n")[0];
-    const blank = `${header}\n${header.split(",").map(() => "").join(",")}\n`;
+    const blank = `${header}\n${new Array(columns).fill("").join(",")}\n`;
     expect(toPlayerProfiles(parseCsv(blank))).toHaveLength(0);
   });
 
@@ -122,6 +127,22 @@ describe("ageAt", () => {
     expect(ageAt(born, "2023-09-10")).toBe(26);
     expect(ageAt(born, "2023-12-31")).toBe(27);
     expect(ageAt(born, "2024-09-08")).toBe(27);
+  });
+
+  it("rejects a date that never existed", () => {
+    // Validating month and day independently accepts 31 February, and an age derived from
+    // an impossible birth date is worse than no age: nothing downstream can tell it apart
+    // from a real one.
+    expect(ageAt("1993-02-31", "2024-09-08")).toBeNull();
+    expect(ageAt("1993-04-31", "2024-09-08")).toBeNull();
+    expect(ageAt("1993-06-31", "2024-09-08")).toBeNull();
+    // 1900 is not a leap year — divisible by 100 and not by 400.
+    expect(ageAt("1900-02-29", "2024-09-08")).toBeNull();
+    // 2000 is, being divisible by 400.
+    expect(ageAt("2000-02-29", "2024-09-08")).toBe(24);
+    // And the last legitimate day of each short month still parses.
+    expect(ageAt("1993-02-28", "2024-09-08")).toBe(31);
+    expect(ageAt("1993-04-30", "2024-09-08")).toBe(31);
   });
 
   it("returns null rather than a number when it cannot know", () => {
