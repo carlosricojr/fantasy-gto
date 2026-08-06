@@ -189,11 +189,17 @@ interface PublishedMetrics {
 /**
  * Every season that has to be loaded: each evaluated season plus its lookback.
  *
- * The holdout's own season is added **only** when it is going to be scored. A default run
- * therefore never fetches 2025 at all, which makes the guard a property of the data the
+ * The holdout's own season is added **only** when it is going to be scored, so a default run
+ * never loads a single 2025 player-week. That makes the guard a property of the data the
  * process touches rather than only of which function it calls. The calibration derivation
  * still runs under `FROZEN_HISTORY_SEASONS` and does not need it: it evaluates 2024, and
  * 2025 sits after every 2024 week, so the chronological slice drops it regardless.
+ *
+ * Note what this does *not* claim. `games.csv` is one file covering every season, so a
+ * default run does read 2025 schedule and betting rows — they reach the printed league-mean
+ * implied total. No 2025 production is loaded and no 2025 player-week is projected or
+ * scored, which is what the holdout protects; but "never touches 2025 at all" would be
+ * false, and this comment previously said it.
  */
 function seasonsToLoad(evaluated: readonly number[], includeHoldout: boolean): number[] {
   const wanted = new Set<number>();

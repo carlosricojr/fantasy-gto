@@ -362,6 +362,13 @@ describe("published significance", () => {
       .split("\n")
       .find((line) => line.includes("prior-games-mean baseline"));
     expect(ledgerRow, "honesty ledger row for the headline edge").toBeDefined();
+
+    // The command, not only the numbers. The ledger's job is mapping a claim to the
+    // computation behind it, and this row credited a plain `pnpm backtest` after that run
+    // stopped scoring the holdout entirely — it now prints "HOLDOUT NOT EVALUATED". Every
+    // figure in the row was still correct, so nothing here caught it. A reader following
+    // the ledger would have run the command and found none of these numbers.
+    expect(ledgerRow).toContain("pnpm backtest -- --holdout");
     expect(ledgerRow).toContain(`${metrics.edgeVsPriorGamesMean.toFixed(2)}%`);
     expect(ledgerRow).toContain(`${significance.confidenceLevel}% CI`);
     for (const end of [0, 1] as const) {
