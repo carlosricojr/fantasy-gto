@@ -100,8 +100,14 @@ async function main(): Promise<void> {
     process.stdout.write(
       `  ${String(season).padEnd(8)}${String(reg.length).padStart(10)}` +
         `${String(skill.length).padStart(8)}` +
+        // A dash, not `NaN%`. A season with no skill rows at all is a different finding
+        // from one whose skill rows carry no usage, and rendering both as a percentage
+        // would let the emptier failure hide inside the table as a number.
         `${usageColumns
-          .map((c) => `${(populated(skill, c) * 100).toFixed(0)}%`.padStart(11))
+          .map((c) => {
+            const share = populated(skill, c);
+            return (Number.isNaN(share) ? "—" : `${(share * 100).toFixed(0)}%`).padStart(11);
+          })
           .join("")}\n`,
     );
   }
