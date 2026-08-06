@@ -331,7 +331,7 @@ export async function runProjectWeek(
       // which is the pre-existing behaviour rather than a regression.
       const injuries = await provider.injuries(season);
       const ruledOut = injuries.ok
-        ? ruledOutForWeek(injuries.data.reports, week)
+        ? ruledOutForWeek(injuries.data.reports, season, week)
         : new Set<string>();
 
       const weeklyRoster = await provider.weeklyRoster(season);

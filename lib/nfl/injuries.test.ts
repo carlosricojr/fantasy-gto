@@ -199,7 +199,7 @@ describe("ruledOutForWeek", () => {
     // designations, so finding him by id alone could check the wrong row and pass while the
     // function returned someone it should not have.
     const week = parsed.reports[0].week;
-    const out = ruledOutForWeek(parsed.reports, week);
+    const out = ruledOutForWeek(parsed.reports, 2024, week);
     expect(out.size).toBeGreaterThan(0);
     for (const id of out) {
       const report = parsed.reports.find((r) => r.playerId === id && r.week === week);
@@ -216,7 +216,7 @@ describe("ruledOutForWeek", () => {
       { season: "2024", week: "3", gsis_id: "d", game_type: "REG", report_status: "Doubtful" },
       { season: "2024", week: "3", gsis_id: "n", game_type: "REG", report_status: "" },
     ]).reports;
-    expect([...ruledOutForWeek(reports, 3)]).toEqual(["out"]);
+    expect([...ruledOutForWeek(reports, 2024, 3)]).toEqual(["out"]);
   });
 
   it("lets a correction supersede an earlier designation", () => {
@@ -228,14 +228,14 @@ describe("ruledOutForWeek", () => {
       { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
       { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
     ]).reports;
-    expect(ruledOutForWeek(downgraded, 5).has("x")).toBe(false);
+    expect(ruledOutForWeek(downgraded, 2024, 5).has("x")).toBe(false);
 
     // And the other direction: upgraded to Out on the Saturday.
     const upgraded = toRegularSeasonInjuries([
       { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Questionable" },
       { season: "2024", week: "5", gsis_id: "y", game_type: "REG", report_status: "Out" },
     ]).reports;
-    expect(ruledOutForWeek(upgraded, 5).has("y")).toBe(true);
+    expect(ruledOutForWeek(upgraded, 2024, 5).has("y")).toBe(true);
   });
 
   it("agrees with indexInjuries about which row wins", () => {
@@ -246,7 +246,23 @@ describe("ruledOutForWeek", () => {
     ]).reports;
     const indexed = indexInjuries(reports).get(injuryKey("x", 2024, 5));
     expect(indexed?.gameStatus).toBe("questionable");
-    expect(ruledOutForWeek(reports, 5).has("x")).toBe(false);
+    expect(ruledOutForWeek(reports, 2024, 5).has("x")).toBe(false);
+  });
+
+  it("does not let one season overwrite another", () => {
+    // Week alone was enough only because every caller passed a single season's file. The
+    // last-write-wins rule turns that accident into a hazard: week 5 of 2023 would silently
+    // overwrite week 5 of 2024 rather than merely joining it.
+    const reports = [
+      ...toRegularSeasonInjuries([
+        { season: "2024", week: "5", gsis_id: "x", game_type: "REG", report_status: "Out" },
+      ]).reports,
+      ...toRegularSeasonInjuries([
+        { season: "2023", week: "5", gsis_id: "x", game_type: "REG", report_status: "Questionable" },
+      ]).reports,
+    ];
+    expect(ruledOutForWeek(reports, 2024, 5).has("x")).toBe(true);
+    expect(ruledOutForWeek(reports, 2023, 5).has("x")).toBe(false);
   });
 
   it("does not leak a designation from another week", () => {
@@ -256,7 +272,7 @@ describe("ruledOutForWeek", () => {
       { season: "2024", week: "3", gsis_id: "x", game_type: "REG", report_status: "Out" },
       { season: "2024", week: "4", gsis_id: "x", game_type: "REG", report_status: "" },
     ]).reports;
-    expect(ruledOutForWeek(reports, 3).has("x")).toBe(true);
-    expect(ruledOutForWeek(reports, 4).has("x")).toBe(false);
+    expect(ruledOutForWeek(reports, 2024, 3).has("x")).toBe(true);
+    expect(ruledOutForWeek(reports, 2024, 4).has("x")).toBe(false);
   });
 });

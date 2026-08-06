@@ -187,6 +187,13 @@ export function indexInjuries(
  * excluding them is a modelling decision rather than a correctness fix — and that decision
  * is a pre-registered hypothesis which has not been evaluated.
  *
+ * Keyed on season **and** week, matching `injuryKey` and `indexInjuries`. Week alone was
+ * enough while every caller passed one season's file, but only accidentally — and the
+ * last-write-wins rule below turned that accident into a hazard, because week 5 of one
+ * season would silently overwrite week 5 of another rather than merely joining it. A
+ * function whose correctness depends on what its caller happens to pass is one refactor
+ * away from being wrong.
+ *
  * Per week, because the designation is. A player ruled out in week 3 and cleared for week 4
  * must be projectable in week 4; keying this any other way removes him for the season.
  *
@@ -200,11 +207,12 @@ export function indexInjuries(
  */
 export function ruledOutForWeek(
   reports: readonly InjuryReport[],
+  season: number,
   week: number,
 ): Set<string> {
   const latest = new Map<string, GameStatus>();
   for (const report of reports) {
-    if (report.week !== week) continue;
+    if (report.season !== season || report.week !== week) continue;
     latest.set(report.playerId, report.gameStatus);
   }
   const out = new Set<string>();
