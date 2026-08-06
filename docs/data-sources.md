@@ -237,7 +237,10 @@ A median of 47 hours is Friday for a Sunday game, which is exactly when the NFL 
 final injury report. The single exception is one `Out` designation on the Thursday-night
 opener, edited about three hours after kickoff — plausibly a post-game correction.
 
-**Verdict: the 2024 data is pre-kickoff and the family is usable for projections.**
+**Verdict, scoped to what was measured: in 2024, 5,953 of 5,954 regular-season rows were
+written before their game. That is the only season this can be checked on, and the finding
+is about those rows — not about "the injury reports" in general.** On that evidence the
+family is usable for projections, with the exception counted rather than rounded away.
 
 **The caveat that must not be dropped: 2025 has no `date_modified` at all**, so this check
 cannot be run on the holdout season. The claim there rests on inference — same upstream

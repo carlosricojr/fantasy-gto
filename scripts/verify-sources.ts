@@ -85,6 +85,18 @@ function kickoffsByTeamWeek(rows: readonly Record<string, string>[], season: num
   return kickoffs;
 }
 
+/**
+ * Median of an already-sorted sample, averaging the two central values on an even count.
+ *
+ * Taking the upper central value is off by half an observation, which is nothing on a
+ * continuous sample of thousands — but this figure is published, and a published number
+ * should be the statistic it is named after rather than an approximation to it.
+ */
+function median(sorted: readonly number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
 /** Share of rows carrying a value that is neither blank nor zero. */
 function populated(rows: readonly Record<string, string>[], column: string): number {
   if (rows.length === 0) return Number.NaN;
@@ -312,7 +324,7 @@ async function main(): Promise<void> {
         `    modified BEFORE kickoff: ${before} (${((before / matched) * 100).toFixed(2)}%)\n` +
         `    modified AFTER  kickoff: ${after} (${((after / matched) * 100).toFixed(2)}%)\n` +
         `    hours before kickoff — min ${lateness[0].toFixed(1)}, ` +
-        `median ${lateness[Math.floor(lateness.length / 2)].toFixed(1)}, ` +
+        `median ${median(lateness).toFixed(1)}, ` +
         `max ${lateness[lateness.length - 1].toFixed(1)}\n`,
     );
   }
