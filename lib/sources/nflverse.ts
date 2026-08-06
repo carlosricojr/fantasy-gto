@@ -453,11 +453,23 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * should be visible, not folded into "no designation" and discovered a season later.
    */
   private readonly injuriesCache = new Map<number, ProviderResult<InjuryParseReport>>();
+  private readonly injuriesInFlight = new Map<
+    number,
+    Promise<ProviderResult<InjuryParseReport>>
+  >();
 
   async injuries(season: number): Promise<ProviderResult<InjuryParseReport>> {
     const cached = this.injuriesCache.get(season);
     if (cached !== undefined) return cached;
-    const result = await this.fetchInjuries(season);
+    // Concurrent callers for one season share a single download, as everywhere else here.
+    let inFlight = this.injuriesInFlight.get(season);
+    if (inFlight === undefined) {
+      inFlight = this.fetchInjuries(season).finally(() => {
+        this.injuriesInFlight.delete(season);
+      });
+      this.injuriesInFlight.set(season, inFlight);
+    }
+    const result = await inFlight;
     if (result.ok) this.injuriesCache.set(season, result);
     return result;
   }

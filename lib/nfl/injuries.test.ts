@@ -141,8 +141,12 @@ describe("both shapes agree", () => {
   });
 
   it("drops a row with no player identifier", () => {
+    // Built from the parsed column names rather than by splitting the header on commas.
+    // These files carry quoted fields — one of them contains a newline — and reaching for
+    // `String.split(",")` inside a test is no safer than reaching for it in the parser.
+    const columns = Object.keys(parseCsv(csv2025)[0]);
     const header = csv2025.split("\n")[0];
-    const blank = `${header}\n${header.split(",").map((c) => (c === "game_type" ? "REG" : "")).join(",")}\n`;
+    const blank = `${header}\n${columns.map((c) => (c === "game_type" ? "REG" : "")).join(",")}\n`;
     expect(toRegularSeasonInjuries(parseCsv(blank)).reports).toHaveLength(0);
   });
 });

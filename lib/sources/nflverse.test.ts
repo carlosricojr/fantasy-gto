@@ -403,6 +403,23 @@ describe("NflverseProvider.injuries", () => {
     expect(result.reason).toMatch(/header shape has drifted/i);
   });
 
+  it("coalesces concurrent callers for one season into a single download", async () => {
+    let calls = 0;
+    const provider = new NflverseProvider(async (url) => {
+      calls += 1;
+      await Promise.resolve();
+      if (url === injuriesUrl(2024)) return injuries2024Csv;
+      throw new Error(`unexpected url ${url}`);
+    });
+    const results = await Promise.all([
+      provider.injuries(2024),
+      provider.injuries(2024),
+      provider.injuries(2024),
+    ]);
+    expect(calls).toBe(1);
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+
   it("caches per season and does not cache a failure", async () => {
     let calls = 0;
     const provider = new NflverseProvider(async (url) => {
