@@ -913,9 +913,17 @@ async function main(): Promise<void> {
         // for "some eligible player exists" passes a roster with one running back against
         // two RB slots, so an unfillable lineup would be counted with empty slots scoring
         // zero — deflating the achievable total and, with it, the published percentage.
-        // The comparison would have survived that; the level would not.
-        const feasible = solveLineup(slots, asCompetitors((r) => r.actual));
-        if (feasible.assignments.some((a) => a.competitorId === null)) continue;
+        //
+        // Every player valued at 1, which turns the min-cost assignment into a pure
+        // maximum-cardinality matching and asks the only question being posed: does a legal
+        // lineup exist? Solving on *actual* points instead — which this did in its first
+        // revision — makes the gate a function of the outcomes, because the optimizer will
+        // not seat a player whose cost exceeds the empty slot's. A roster whose only
+        // quarterback lost a fumble and scored −1.5 came back "infeasible" though it fills
+        // perfectly, so rosters were being excluded for having scored badly. That is exactly
+        // the outcome-correlated selection the rest of this script avoids.
+        const structural = solveLineup(slots, asCompetitors(() => 1));
+        if (structural.assignments.some((a) => a.competitorId === null)) continue;
 
         const withModel = lineupRegret(key, slots, asCompetitors((r) => r.predicted), actual);
         const withBaseline = lineupRegret(
@@ -938,8 +946,9 @@ async function main(): Promise<void> {
         `(${((modelRegret / best) * 100).toFixed(2)}% of the achievable total)\n` +
         `      baseline ${(baselineRegret / rosterWeeks).toFixed(3)} points/week ` +
         `(${((baselineRegret / best) * 100).toFixed(2)}% of the achievable total)\n` +
-        `      rosters are synthetic: each week's scored players dealt round-robin by\n` +
-        `      projection rank into ${TEAMS} teams, identical on both sides.\n`,
+        `      rosters are synthetic: each week's scored players dealt round-robin in\n` +
+        `      competitor-id order into ${TEAMS} teams, identical on both sides and keyed\n` +
+        `      on neither predictor. Counted only where a legal lineup exists.\n`,
     );
   }
 

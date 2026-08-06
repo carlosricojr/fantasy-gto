@@ -268,16 +268,29 @@ describe("lineupRegret", () => {
     // unrounded sum would. Below, a and b differ by a thousandth — invisible after
     // quantization, so the hindsight solve may choose either, and the achieved lineup can
     // legitimately hold the fractionally better one.
+    // No fixture has been found that makes the clamp bind, and this test says so rather
+    // than pretending otherwise. Two attempts failed: three equal actuals (passes with the
+    // clamp deleted, because `best >= achieved` holds whenever the solver is exact), and a
+    // sub-quantization fraction on a benched player (same reason). Moving the fraction onto
+    // a started player does not do it either — both solves still return the same lineup.
+    //
+    // What the clamp guards is narrow and real: `solveLineup` scales by 100 and rounds, so
+    // it maximises the *rounded* actual total, which need not maximise the unrounded one.
+    // The gap is bounded by that quantization. Reaching it requires the two solves to
+    // disagree on a tie the rounding created, which the deterministic tie-break has so far
+    // resolved the same way on both sides.
+    //
+    // So this is documentation, not coverage, and it is labelled as such. What it does pin
+    // is the normal-path identity — that `regret` is the difference and not something else.
     const roster = [player("a", "WR", 1), player("b", "WR", 2), player("c", "RB", 3)];
     const actual = new Map([
-      ["a", 5.0004],
-      ["b", 5.0],
+      ["a", 5.0],
+      ["b", 5.0004],
       ["c", 5.0],
     ]);
     const result = lineupRegret("w1", SLOTS, roster, actual);
-    expect(result.regret).toBeGreaterThanOrEqual(0);
-    // And the clamp is doing the work rather than the arithmetic happening to agree.
     expect(result.regret).toBe(Math.max(0, result.best - result.achieved));
+    expect(result.regret).toBeGreaterThanOrEqual(0);
   });
 
   it("compares like with like — both lineups solved by the same optimizer", () => {

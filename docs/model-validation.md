@@ -144,7 +144,8 @@ the same optimizer so the difference is down to projections alone.
 
 | Set | roster-weeks | model | baseline |
 | --- | --- | --- | --- |
-| Development 2013–2021 | 1,456 | 21.024 pts/week (17.82% of achievable) | 22.529 (19.10%) |
+| Development 2013–2021 | 1,467 | 21.039 pts/week (17.86% of achievable) | 22.562 (19.16%) |
+| Tuning 2022–2024 | 494 | 17.607 pts/week (15.36% of achievable) | 19.749 (17.23%) |
 
 The rosters are **synthetic** and the construction is a judgement, not a measurement: each
 week's scored players are dealt round-robin in competitor-id order into twelve teams. The
@@ -152,11 +153,17 @@ deal is keyed on neither predictor, so both sides receive identical rosters buil
 reference to either set of projections. The absolute regret still depends on the choice; the
 comparison does not.
 
-A roster-week is counted only if the *solver* can fill every slot from it. Checking each
-slot independently for an eligible player is not the same test — two RB slots are both
-satisfied by a roster holding one running back — and counting those weeks left empty slots
-scoring zero, deflating the achievable total. Fixing it dropped 126 roster-weeks and moved
-the model's regret from 19.869 to 21.024 points a week.
+A roster-week is counted only where a legal lineup exists, decided by running the optimizer
+with every player valued equally — which turns it into a pure maximum-cardinality matching
+and asks only whether the slots can be filled.
+
+Two earlier versions of that test were wrong in opposite directions. The first asked each
+slot independently whether *some* eligible player existed, which two RB slots both pass on a
+roster holding one running back; unfillable lineups were counted with empty slots scoring
+zero, deflating the achievable total. The second solved on *actual* points, which made the
+gate a function of the outcomes — the optimizer will not seat a player whose points are
+negative, so a roster whose only quarterback lost a fumble came back "infeasible" though it
+fills perfectly, and rosters were being excluded for having scored badly.
 
 Read the level, not just the gap: a real lineup gives up **roughly a sixth** of what perfect
 hindsight would have scored, and the model recovers about 1.3 percentage points of that

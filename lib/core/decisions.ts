@@ -230,9 +230,12 @@ export function lineupRegret(
     groupId,
     achieved,
     best,
-    // Clamped at zero. The hindsight lineup maximises actual points by construction, so a
-    // negative value is impossible and would mean the solver disagreed with itself; the
-    // clamp keeps a solver bug from surfacing as a flattering statistic.
+    // Clamped at zero, and the clamp is narrower than it looks. `solveLineup` scales points
+    // by 100 and rounds, so it maximises the *rounded* actual total, which need not maximise
+    // the unrounded one — the only way `best` can fall below `achieved` is by that
+    // quantization, and only when the two solves resolve a rounding-induced tie differently.
+    // No constructed input has reached it; `decisions.test.ts` records the attempts and says
+    // plainly that the case is documentation rather than coverage.
     regret: Math.max(0, best - achieved),
   };
 }
