@@ -186,15 +186,26 @@ interface PublishedMetrics {
    */
   significanceVsLastThree: PublishedSignificance;
 }
-/** Every season that has to be loaded: each evaluated season plus its lookback. */
-function seasonsToLoad(evaluated: readonly number[]): number[] {
+/**
+ * Every season that has to be loaded: each evaluated season plus its lookback.
+ *
+ * The holdout's own season is added **only** when it is going to be scored. A default run
+ * therefore never fetches 2025 at all, which makes the guard a property of the data the
+ * process touches rather than only of which function it calls. The calibration derivation
+ * still runs under `FROZEN_HISTORY_SEASONS` and does not need it: it evaluates 2024, and
+ * 2025 sits after every 2024 week, so the chronological slice drops it regardless.
+ */
+function seasonsToLoad(evaluated: readonly number[], includeHoldout: boolean): number[] {
   const wanted = new Set<number>();
   for (const season of evaluated) {
     for (let back = 0; back <= SEASON_HISTORY_LOOKBACK; back += 1) {
       wanted.add(season - back);
     }
   }
-  for (const season of FROZEN_HISTORY_SEASONS) wanted.add(season);
+  for (const season of FROZEN_HISTORY_SEASONS) {
+    if (season === HOLDOUT_SEASON && !includeHoldout) continue;
+    wanted.add(season);
+  }
   return [...wanted].sort((a, b) => a - b);
 }
 
@@ -280,10 +291,7 @@ async function main(): Promise<void> {
   const startedAt = process.hrtime.bigint();
   const wantsHoldout = process.argv.includes("--holdout");
   const evaluatedSeasons = [...DEVELOPMENT_SEASONS, ...TUNING_SEASONS];
-  // The holdout's own seasons are loaded either way, because the calibration factors are
-  // derived under `FROZEN_HISTORY_SEASONS` and that set names them. Loading a season is not
-  // evaluating it; only `runHoldout` scores 2025.
-  const loadSeasons = seasonsToLoad(evaluatedSeasons);
+  const loadSeasons = seasonsToLoad(evaluatedSeasons, wantsHoldout);
 
   const provider = new NflverseProvider(cachedFetch);
 
@@ -892,22 +900,64 @@ async function main(): Promise<void> {
         "This is how the frozen configuration was chosen.\n",
     );
 
+    /**
+     * One sweep, with each variant tested against the frozen configuration properly.
+     *
+     * The delta between two variants is **not** comparable to the significance floor of the
+     * model-versus-baseline comparison, and reading it that way was a real error in an
+     * earlier revision of `docs/model-validation.md`. Two variants of this model agree with
+     * each other far more closely than the model agrees with a baseline, so their paired
+     * differences have a much smaller standard error and a correspondingly smaller floor.
+     * Judging a 0.0003 sweep delta against a floor of 0.0474 borrowed from a different
+     * estimator understates what the sweep can resolve by more than an order of magnitude.
+     *
+     * So each variant gets its own paired, player-clustered comparison against the frozen
+     * configuration, on identical player-weeks. That is the number that says whether a
+     * sweep difference is real.
+     */
     const sweep = (
       label: string,
       variants: Array<{ name: string; config: ModelConfig }>,
     ) => {
-      process.stdout.write(`\n${label}\n${"-".repeat(69)}\n`);
+      process.stdout.write(
+        `\n${label}\n${"-".repeat(78)}\n` +
+          `  ${"variant".padEnd(30)}${"MAE".padStart(9)}${"vs frozen".padStart(11)}` +
+          `${"SE".padStart(9)}${"p".padStart(11)}${"floor".padStart(9)}\n`,
+      );
+      // Pooled across the whole tuning set, which is the point of widening it: a sweep
+      // resolved on one season picks its optimum out of noise the size of the effect.
+      const rowsFor = (config: ModelConfig) =>
+        TUNING_SEASONS.flatMap((season) => evaluate(season, config).model);
+      const frozenRows = rowsFor(DEFAULT_MODEL_CONFIG);
+
       let best = { name: "", mae: Number.POSITIVE_INFINITY };
       for (const variant of variants) {
-        // Pooled across the whole tuning set, which is the point of widening it: a sweep
-        // resolved on one season picks its optimum out of noise the size of the effect.
-        const result = mae(
-          TUNING_SEASONS.flatMap((season) => evaluate(season, variant.config).model),
-        );
+        const rows = rowsFor(variant.config);
+        const result = mae(rows);
         if (result < best.mae) best = { name: variant.name, mae: result };
-        process.stdout.write(`  ${variant.name.padEnd(34)}${result.toFixed(4)}\n`);
+
+        // Paired against the frozen configuration on the same player-weeks. `model` is the
+        // variant and `baseline` is frozen, so a positive delta means the variant is better.
+        const paired = rows.map((row, i) => ({
+          cluster: row.competitorId,
+          model: Math.abs(row.predicted - row.actual),
+          baseline: Math.abs(frozenRows[i].predicted - frozenRows[i].actual),
+        }));
+        const identical = paired.every((r) => r.model === r.baseline);
+        const line = `  ${variant.name.padEnd(30)}${result.toFixed(4).padStart(9)}`;
+        if (identical) {
+          process.stdout.write(`${line}${"— frozen —".padStart(40)}\n`);
+          continue;
+        }
+        const test = pairedComparison(paired);
+        process.stdout.write(
+          `${line}${`${test.meanDelta >= 0 ? "+" : ""}${test.meanDelta.toFixed(4)}`.padStart(11)}` +
+            `${test.standardError.toFixed(4).padStart(9)}` +
+            `${(test.pValue < 1e-4 ? test.pValue.toExponential(1) : test.pValue.toFixed(4)).padStart(11)}` +
+            `${test.minimumSignificantEffect.toFixed(4).padStart(9)}\n`,
+        );
       }
-      process.stdout.write(`  -> best: ${best.name} (${best.mae.toFixed(4)})\n`);
+      process.stdout.write(`  -> lowest MAE: ${best.name} (${best.mae.toFixed(4)})\n`);
     };
 
     const base = DEFAULT_MODEL_CONFIG;

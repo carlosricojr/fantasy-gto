@@ -314,37 +314,72 @@ those positions, so there is no backtest behind their bands and the type says so
 the table below. Every claim in this section comes from that command; none is asserted
 from memory.
 
-On the pooled tuning set, holding the other parameters at their frozen values:
+On the pooled tuning set, holding the other parameters at their frozen values. Each variant
+is also tested **against the frozen configuration on identical player-weeks**, paired and
+clustered by player, which is the only comparison that says whether a sweep difference is
+real:
 
-| Sweep | Result |
-| --- | --- |
-| EMA alpha | 0.05→5.8007, **0.10→5.7706**, 0.15→5.7709, 0.20→5.7852, 0.30→5.8434, 0.40→5.9314 |
-| Usage cap | 0→5.7770, **0.2→5.7709**, 0.4→5.7756, 0.6→5.7896, 0.8→5.8129 |
-| Vegas (team reference) | 0→5.7996, 0.25→5.7796, **0.5→5.7709**, 0.75→5.7751, 1→5.7911 |
-| Vegas (league reference) | 0→5.7996, **0.25→5.7959**, 0.5→5.8103, 0.75→5.8433, 1→5.8937 |
-| Opponent weight | 0→5.7745, **0.25→5.7709**, 0.5→5.7714, 0.75→5.7753, 1→5.7830 |
-| Calibration | **on→5.7709**, off→5.8243 |
+| Sweep | variant | MAE | vs frozen | SE | *p* | floor |
+| --- | --- | --- | --- | --- | --- | --- |
+| EMA alpha | 0.05 | 5.8007 | −0.0297 | 0.0127 | 0.0200 | 0.0250 |
+| | **0.10** | **5.7706** | **+0.0003** | **0.0057** | **0.9539** | **0.0112** |
+| | *0.15 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.20 | 5.7852 | −0.0143 | 0.0049 | 0.0040 | 0.0097 |
+| | 0.30 | 5.8434 | −0.0724 | 0.0131 | 5.2e-8 | 0.0257 |
+| | 0.40 | 5.9314 | −0.1605 | 0.0196 | 2.4e-15 | 0.0384 |
+| Usage cap | 0 (off) | 5.7770 | −0.0061 | 0.0035 | 0.0818 | 0.0069 |
+| | *0.2 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.4 | 5.7756 | −0.0047 | 0.0035 | 0.1890 | 0.0070 |
+| | 0.6 | 5.7896 | −0.0187 | 0.0072 | 0.0101 | 0.0142 |
+| | 0.8 | 5.8129 | −0.0419 | 0.0111 | 0.0002 | 0.0218 |
+| Vegas (team) | 0 | 5.7996 | −0.0287 | 0.0071 | 6.0e-5 | 0.0139 |
+| | 0.25 | 5.7796 | −0.0086 | 0.0035 | 0.0149 | 0.0069 |
+| | *0.5 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.75 | 5.7751 | −0.0042 | 0.0034 | 0.2187 | 0.0067 |
+| | 1 | 5.7911 | −0.0202 | 0.0068 | 0.0032 | 0.0134 |
+| Vegas (league) | 0.25 | 5.7959 | −0.0249 | 0.0058 | 1.8e-5 | 0.0113 |
+| | 1 | 5.8937 | −0.1228 | 0.0170 | 2.0e-12 | 0.0333 |
+| Opponent | 0 (off) | 5.7745 | −0.0036 | 0.0019 | 0.0667 | 0.0038 |
+| | *0.25 (frozen)* | *5.7709* | — | — | — | — |
+| | 0.5 | 5.7714 | −0.0004 | 0.0019 | 0.8217 | 0.0038 |
+| | 1 | 5.7830 | −0.0121 | 0.0058 | 0.0367 | 0.0113 |
+| Calibration | off | 5.8243 | −0.0533 | 0.0038 | 2.2e-37 | 0.0075 |
 
-Every row that sits at the frozen value reads 5.7709, because those runs *are* the frozen
-configuration.
+A negative "vs frozen" means the variant is worse. The floor is that comparison's own
+interval half-width — the smallest delta it could report as significant.
 
 ### The alpha sweep now prefers 0.10, and the configuration is not changing
 
-Widened from one tuning season to three, the EMA sweep puts its optimum at 0.10 rather than
-the frozen 0.15. The difference is **0.0003 MAE**.
+Widened from one tuning season to three, the sweep puts its lowest MAE at 0.10 rather than
+the frozen 0.15. Paired against frozen on identical player-weeks the difference is
+**+0.0003 with a standard error of 0.0057, and *p* = 0.95**. There is no result here at all.
 
-The tuning set cannot report an effect below **0.0474** as significant. 0.0003 is two orders
-of magnitude under that floor — it is not a smaller optimum, it is the same optimum with
-noise on it, and both values sit in a basin that is flat to four decimal places between 0.10
-and 0.15 while degrading sharply outside it. Re-freezing on 0.10 would be selecting a
-hyperparameter on a difference this sample cannot see, which is the failure the whole
-protocol exists to prevent.
+Both neighbours are significantly worse — 0.20 at *p* = 0.004 and 0.05 at *p* = 0.02 — so
+the basin is genuinely {0.10, 0.15} and the two are indistinguishable inside it. Re-freezing
+on 0.10 would be selecting a hyperparameter on a coin flip, which is the failure the whole
+protocol exists to prevent. `EMA_ALPHA` stays at 0.15, recorded here because the next reader
+will see 0.10 on the "lowest MAE" line and deserves to know it was considered and declined.
 
-`EMA_ALPHA` therefore stays at 0.15. Recorded here because the temptation to move it is
-exactly the kind of thing that goes unrecorded, and because the next reader running the
-sweeps will see 0.10 in the "best" line and deserve to know it was considered and declined.
+**An earlier revision of this section got the method wrong**, and the correction is worth
+keeping. It judged sweep deltas against the 0.0474 significance floor of the
+*model-versus-baseline* comparison. That is the wrong yardstick by more than a factor of
+four: two variants of this model agree with each other far more closely than the model
+agrees with a baseline, so their paired differences carry a much smaller standard error and
+a correspondingly smaller floor — 0.0112 for the alpha comparison, not 0.0474. The
+conclusion happened to survive; the reasoning did not, and a floor borrowed from a different
+estimator is exactly the kind of plausible-looking mistake this document exists to catch.
 
-The other five sweeps put their optimum at the frozen value unchanged.
+### Usage and opponent adjustments sit just short of significance
+
+Switching the usage blend off costs 0.0061 MAE at *p* = 0.082, and switching the opponent
+adjustment off costs 0.0036 at *p* = 0.067. Neither clears α = 0.05 on the tuning set, even
+with three seasons behind it. They are retained because they are directionally sound and
+improve explainability, not because they move the metric — which was already the honest
+reading and is now a measurement rather than a judgement.
+
+Calibration is the opposite: 0.0533 MAE at *p* = 2.2e-37. It is worth more than the usage
+and opponent terms combined by an order of magnitude, which is the honest ordering of what
+actually matters here.
 
 ### Calibration factors
 
@@ -403,16 +438,13 @@ term at all. The cause is double-counting: a player on a high-scoring offense al
 carries that team's quality in their own scoring history, so scaling by team strength again
 applies it twice. Only the game-specific deviation is new information.
 
-**Usage and opponent adjustments are real but very small — and now provably below the
-noise floor.** Against switching each off, the usage cap is worth 0.0061 MAE and the
-opponent weight 0.0036; across their full sweep ranges, 0.0420 and 0.0121. The tuning set's
-significance floor is 0.0474, so **neither term's contribution can be reported as
-significant on it**, and the full-range usage figure only just reaches it. They are retained
-because they are directionally sound and improve explainability, not because they move the
-metric — and that was true when the numbers were larger on one season, but it can now be
-stated as a measurement rather than as a judgement. Calibration, at 0.0534, clears the floor
-and is worth more than both combined, which is the honest ordering of what actually matters
-here.
+**Usage and opponent adjustments are real but very small, and do not clear significance.**
+Switching the usage blend off costs 0.0061 MAE at *p* = 0.082; switching the opponent
+adjustment off costs 0.0036 at *p* = 0.067. Neither reaches α = 0.05 even on three pooled
+seasons. They are retained because they are directionally sound and improve explainability,
+not because they move the metric. Calibration is the opposite — 0.0533 MAE at *p* = 2.2e-37,
+worth more than both combined by an order of magnitude — which is the honest ordering of
+what actually matters here. The per-variant tests are in the sweeps section above.
 
 ## Honest interpretation
 

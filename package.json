@@ -18,6 +18,7 @@
     "test:coverage": "vitest run --coverage",
     "verify": "pnpm typecheck && pnpm typecheck:convex && pnpm lint && pnpm test:run",
     "backtest": "tsx scripts/backtest.ts",
+    "verify-sources": "tsx scripts/verify-sources.ts",
     "draft-backtest": "tsx scripts/draft-backtest.ts",
     "mutate": "tsx scripts/mutate.ts"
   },

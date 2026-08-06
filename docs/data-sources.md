@@ -74,6 +74,9 @@ production and game context.
 ### 1.2a Historical coverage — a present column is not a populated one
 
 Verified 2026-08-05 by direct request, parsed with this repository's own CSV reader.
+**`pnpm verify-sources` reproduces every figure in this section**, so none of it is asserted
+from memory. Re-run it before trusting these numbers; upstream retires and repopulates
+releases.
 
 **The header does not drift.** All 145 columns are byte-identical for every season from
 1999 through 2025. Coding against a renamed column is not the historical hazard here.
@@ -84,13 +87,23 @@ non-empty, non-zero value:
 | Season | `target_share` | `air_yards_share` | `wopr` | `racr` | `targets` |
 | --- | --- | --- | --- | --- | --- |
 | 1999 | 80% | 11% | 52% | 9% | 80% |
-| 2004–2008 | **0%** | **0%** | **0%** | **0%** | **0%** |
-| 2009–2011 | 81–82% | 79–80% | 81–82% | 68–69% | 81–82% |
-| 2012–2025 | 79–84% | 77–82% | 79–84% | 67–72% | 79–84% |
+| 2004 | **0%** | **0%** | **0%** | **0%** | **0%** |
+| 2006 | **0%** | **0%** | **0%** | **0%** | **0%** |
+| 2008 | **0%** | **0%** | **0%** | **0%** | **0%** |
+| 2009 | 82% | 80% | 82% | 69% | 82% |
+| 2012 | 82% | 80% | 82% | 70% | 82% |
+| 2016 | 83% | 81% | 83% | 72% | 83% |
+| 2021 | 83% | 81% | 83% | 70% | 83% |
+| 2024 | 81% | 78% | 81% | 68% | 81% |
+| 2025 | 79% | 77% | 79% | 67% | 79% |
 
 2004 through 2008 parse cleanly, carry every expected column, and contain **no receiving
 usage at all** — not even a target. `num()` reads a blank cell as zero, so those seasons
-produce a complete, plausible, entirely fictional usage signal. 2000–2003 were not checked.
+produce a complete, plausible, entirely fictional usage signal. 2000–2003, 2005 and 2007
+were not checked; 2005 and 2007 are bracketed by zero-coverage seasons on both sides.
+
+The header is byte-identical across every season sampled — 145 columns from 1999 to 2025 —
+so a renamed column is not the historical hazard. Population is.
 
 `scripts/backtest.ts` therefore asserts per-season usage coverage rather than trusting the
 parse, and refuses a season below 50%. A row count alone would not have caught this: the
@@ -110,14 +123,15 @@ Columns: `game_id`, `pfr_game_id`, `season`, `game_type`, `week`, `player`,
 **`snap_counts_2012.csv` answers HTTP 200 with a valid header and zero data rows.** Measured
 row counts: 2012 → 0, 2013 → 23,799, 2014 → 23,864, 2015 → 23,842, 2016 → 23,890,
 2017 → 23,862. The release is first populated in 2013, and that is why the development
-window starts there.
+window starts there. `pnpm verify-sources` reproduces this.
 
 The bridge to `gsis_id` is `players.csv`, which carries both identifiers for 22,556 of its
-25,037 rows. Measured join rates for regular-season skill rows: 2013 **100.0%**, 2016
-**99.9%**, 2020 **99.9%**, 2024 **99.7%** — two or three players per season fail to join,
-and they are genuinely marginal (mean `offense_pct` 11.8% against 39.8% for the joinable
-set). Report on the joinable subset and do not impute the gap, but do not caveat it as
-though it were large either.
+25,037 rows. Measured join rates for regular-season skill rows (QB/RB/WR/TE/FB): 2013
+**100.0%** (0 unjoinable players), 2016 **99.9%** (2), 2020 **99.9%** (2), 2024 **99.7%**
+(3). The players who fail to join are genuinely marginal — their mean `offense_pct` is
+17.1%, 8.6% and 10.8% in those three seasons, against a league where a starter sits far
+higher. Report on the joinable subset and do not impute the gap, but do not caveat a
+0.3% gap as though it were large either.
 
 ### 1.3 CSV parsing hazard
 
