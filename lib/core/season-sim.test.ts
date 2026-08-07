@@ -357,9 +357,15 @@ describe("when the final is played changes what a bye is worth", () => {
   it("costs less in a round the top seeds sit out", () => {
     // A six-team field gives seeds one and two a first-round bye, so week 14 of a league
     // ending in week 16 is only played by the teams that finished third to sixth. The cost
-    // is therefore real but far smaller than that of a round every qualifier plays — a
-    // distinction the simulation gets for free by playing the bracket, and that no per-week
+    // is therefore real but far smaller than a semi-final's: a top seed is guaranteed not
+    // to play week 14, and no seed is guaranteed to skip a later round. That is a
+    // distinction the simulation gets for free by playing the bracket, and one no per-week
     // weighting could express.
+    //
+    // "A round every qualifier plays" would be wrong here and is worth not writing: in a
+    // six-team, three-round bracket no round is played by all six. It fits the four-team
+    // case in the test above and was carried across to this one, which is exactly the kind
+    // of nearly-right sentence a reader would take at face value.
     const cfg = league(16, 6);
     // Named rather than assumed, because which round each week *is* carries the whole
     // claim: 14 is the quarter-final, 15 the semi-final, 16 the final.

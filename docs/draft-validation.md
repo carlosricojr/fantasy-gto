@@ -387,7 +387,7 @@ things followed, and neither announced itself:
 
 - **A league that ends early was advised about a season it does not play.** Byes run
   through week 14, so under a week-17 final no bye can reach a playoff round at all. Move
-  the final to week 15 and week 14 becomes the semi-final, which every qualifier plays.
+  the final to week 15 and week 14 becomes the semi-final, which no surviving team sits out.
   On a synthetic twelve-team league — same roster, same seed, the star's bye week the only
   thing changed, and the streams keyed per player so the two runs draw identical numbers —
   a bye in a round you have to play takes **at least 30%** off the owner's championship
