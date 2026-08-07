@@ -632,8 +632,14 @@ export default function DraftPage() {
                   <Button
                     key={preset.id}
                     size="sm"
+                    // `aria-pressed` tracks `variant`, not the confirmation. They are the
+                    // same fact — which preset is currently selected — and letting them
+                    // disagree would tell a screen reader nothing is selected while the
+                    // screen shows one highlighted. The unconfirmed state is carried by the
+                    // hint below and by the disabled Start button, which is where a state
+                    // about the *form* belongs rather than on a radio-like control.
                     variant={preset.id === scoringId ? "default" : "outline"}
-                    aria-pressed={preset.id === scoringId && scoringConfirmed}
+                    aria-pressed={preset.id === scoringId}
                     onClick={() => {
                       setScoringId(preset.id);
                       setScoringConfirmed(true);
@@ -649,7 +655,10 @@ export default function DraftPage() {
                 for each — so a league that plays standard and drafts off the PPR board is
                 reading prices for a game it is not playing.
               */}
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p
+                id="scoring-confirmation-hint"
+                className="mt-2 text-sm text-muted-foreground"
+              >
                 {scoringConfirmed
                   ? `${scoringPresetById(scoringId).label} · ${scoringPresetById(scoringId).offense.receptionPoints} point${
                       scoringPresetById(scoringId).offense.receptionPoints === 1 ? "" : "s"
@@ -716,6 +725,9 @@ export default function DraftPage() {
             <Button
               className="mt-6"
               disabled={!scoringConfirmed}
+              // Named rather than left to a disabled control with no explanation. A button
+              // that does nothing and says nothing is the worst of the three states.
+              aria-describedby="scoring-confirmation-hint"
               onClick={() => setStarted(true)}
             >
               Start draft
