@@ -86,7 +86,7 @@ describe("draft board publishing", () => {
     const served = await t.query(api.draft.board, shape);
     expect(served.map((r) => r.playerId)).toEqual(["a", "b"]);
     expect(served.find((r) => r.playerId === "a")?.blendedPoints).toBe(200);
-    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 1_000, adpSourceTeams: 12 });
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 1_000, adpSourceTeams: 12, lastAttemptAt: null, lastAttemptStatus: null });
   });
 
   it("swaps the whole board at once when the rebuild finishes", async () => {
@@ -111,7 +111,7 @@ describe("draft board publishing", () => {
     const served = await t.query(api.draft.board, shape);
     expect(served.map((r) => r.playerId)).toEqual(["a", "c"]);
     expect(served.find((r) => r.playerId === "a")?.blendedPoints).toBe(111);
-    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000, adpSourceTeams: 12 });
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000, adpSourceTeams: 12, lastAttemptAt: null, lastAttemptStatus: null });
   });
 
   it("serves the provenance it stored, both values", async () => {
@@ -158,7 +158,7 @@ describe("draft board publishing", () => {
     });
     await t.mutation(internal.draft.publishBoard, { ...shape, computedAt: 4_000, adpSourceTeams: 12 });
 
-    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 5_000, adpSourceTeams: 12 });
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 5_000, adpSourceTeams: 12, lastAttemptAt: null, lastAttemptStatus: null });
     expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
 
     // And the stale run's own prune cannot remove the live board either.
@@ -208,10 +208,7 @@ describe("draft board publishing", () => {
     });
 
     // The newer run is served, not whichever row came back first.
-    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({
-      computedAt: 2_000,
-      adpSourceTeams: 12,
-    });
+    expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 2_000, adpSourceTeams: 12, lastAttemptAt: null, lastAttemptStatus: null });
     expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["new"]);
 
     // And the next publish collapses them rather than half-updating one.
@@ -241,10 +238,84 @@ describe("draft board publishing", () => {
           publishedAt: 1_000,
         });
       });
-      expect(await t.query(api.draft.boardFreshness, shape)).toEqual({
+      expect(await t.query(api.draft.boardFreshness, shape)).toEqual({ computedAt: 1_000, adpSourceTeams: null, lastAttemptAt: null, lastAttemptStatus: null });
+    })();
+  });
+
+  it("reports a failed rebuild beside a board that still looks fresh", () => {
+    // The state this whole surface exists for. `publishBoard` is atomic, so a failed run
+    // leaves the previous board intact — which is correct, and is exactly why the failure is
+    // invisible in a timestamp. Somebody about to draft off a board that is two hours old
+    // and *wrong* has nothing to go on unless the attempt is reported alongside it.
+    return (async () => {
+      const t = convexTest(schema, modules);
+      await t.mutation(internal.draft.upsertBoardBatch, {
+        ...shape,
         computedAt: 1_000,
-        adpSourceTeams: null,
+        rows: [row("a", 111)],
       });
+      await t.mutation(internal.draft.publishBoard, {
+        ...shape,
+        computedAt: 1_000,
+        adpSourceTeams: 12,
+      });
+      const jobId = await t.mutation(internal.jobs.start, {
+        kind: `draft:${SEASON}-${SCORING}-${TEAMS}`,
+        detail: "Building",
+      });
+      await t.mutation(internal.jobs.finish, {
+        jobId,
+        status: "failed",
+        error: "provider 500",
+      });
+
+      const freshness = await t.query(api.draft.boardFreshness, shape);
+      expect(freshness?.computedAt).toBe(1_000);
+      expect(freshness?.lastAttemptStatus).toBe("failed");
+      expect(freshness?.lastAttemptAt).not.toBeNull();
+      // The error text is not exposed. It can carry a provider URL, and this query is public
+      // for the same reason the board is.
+      expect(JSON.stringify(freshness)).not.toContain("provider 500");
+      // And the board itself is still whole, which is the behaviour that makes the failure
+      // invisible in the first place.
+      expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual(["a"]);
+    })();
+  });
+
+  it("reports a rebuild in flight for a shape that has never built", () => {
+    // `never-built` and `refreshing` lead to different actions, and a shape being built for
+    // the first time must not read as broken.
+    return (async () => {
+      const t = convexTest(schema, modules);
+      await t.mutation(internal.jobs.start, {
+        kind: `draft:${SEASON}-${SCORING}-${TEAMS}`,
+        detail: "Building",
+      });
+      const freshness = await t.query(api.draft.boardFreshness, shape);
+      expect(freshness?.computedAt).toBeNull();
+      expect(freshness?.lastAttemptStatus).toBe("running");
+    })();
+  });
+
+  it("keeps one shape's attempt out of another's", () => {
+    // The job kind carries the season, scoring and size. A build for the ten-team board
+    // failing must not make the twelve-team board look broken.
+    return (async () => {
+      const t = convexTest(schema, modules);
+      const jobId = await t.mutation(internal.jobs.start, {
+        kind: `draft:${SEASON}-${SCORING}-10`,
+        detail: "Building",
+      });
+      await t.mutation(internal.jobs.finish, {
+        jobId,
+        status: "failed",
+        error: "no board",
+      });
+      expect(await t.query(api.draft.boardFreshness, shape)).toBeNull();
+      expect(
+        (await t.query(api.draft.boardFreshness, { ...shape, teams: 10 }))
+          ?.lastAttemptStatus,
+      ).toBe("failed");
     })();
   });
 
@@ -271,7 +342,7 @@ describe("draft board publishing", () => {
     await t.mutation(internal.draft.pruneBoard, { ...shape, computedBefore: 3_000 });
 
     expect((await t.query(api.draft.board, ten))[0].blendedPoints).toBe(200);
-    expect(await t.query(api.draft.boardFreshness, ten)).toEqual({ computedAt: 1_000, adpSourceTeams: 12 });
+    expect(await t.query(api.draft.boardFreshness, ten)).toEqual({ computedAt: 1_000, adpSourceTeams: 12, lastAttemptAt: null, lastAttemptStatus: null });
     expect((await t.query(api.draft.board, shape))[0].blendedPoints).toBe(42);
   });
 });
