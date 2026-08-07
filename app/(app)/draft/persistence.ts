@@ -18,6 +18,7 @@
  * seeding from it would make the server and client render different markup.
  */
 
+import { SUPPORTED_LEAGUE_SIZES } from "@/lib/nfl/draft/league-size";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 
@@ -25,13 +26,18 @@ import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 export const DRAFT_STORAGE_KEY = "fantasy-gto:draft:v1";
 
 /**
- * League sizes a board is built for. ADP is published per league size, so a board is not
- * transferable. Mirrors `DRAFT_BOARD_LEAGUE_SIZES` in `convex/ingest.ts`.
+ * League sizes a board is built for.
  *
- * These live here rather than in the page because this is the module that has to decide
- * whether a stored draft is one the product can actually serve.
+ * One list, in `lib/nfl/draft/league-size.ts`, which is also what `DRAFT_BOARD_LEAGUE_SIZES`
+ * in `convex/ingest.ts` is. They were two literals that had to be kept in step by hand, and
+ * the direction they would drift in is the bad one: a size the page offers and the cron does
+ * not build is a league whose board is permanently empty.
+ *
+ * ADP is published per league size, so a board is not transferable between them — seven of
+ * the eleven are derived from a neighbour by rescaling every pick number, and the board
+ * carries which.
  */
-export const LEAGUE_SIZES = [8, 10, 12, 14] as const;
+export const LEAGUE_SIZES = SUPPORTED_LEAGUE_SIZES;
 
 export const PLAYOFF_FIELDS = [4, 6] as const;
 

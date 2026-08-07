@@ -7,6 +7,34 @@ endpoint, and update this file in the same commit.
 All primary sources are **free and unauthenticated**. The product requires no paid data
 vendor to produce a projection.
 
+## Average draft position is published for four league sizes, not eleven
+
+Confirmed by direct request on **2026-08-07** — later than the date at the top of this file,
+and worth saying so, because this is the check that decides which leagues the product can
+serve. Every integer size from 6 to 16, on 2026 standard
+(`https://fantasyfootballcalculator.com/api/v1/adp/standard?teams=N&year=2026`):
+
+| Teams | Response |
+| ---: | --- |
+| 6, 7, 9, 11, 13, 15, 16 | HTTP 400, `{"status":"Error"}` |
+| 8, 10, 12, 14 | HTTP 200, 201 players |
+
+The product offers 6–16 because those are ordinary leagues. The seven with no published
+board are **derived** from the nearest published one by rescaling every pick number by
+`teams / sourceTeams`, which maps a pick onto the same *round* in the target league — the
+thing the market actually measures. Ties go to the smaller board, whose residual error points
+toward players going earlier than they will; overstating scarcity costs a round where
+understating it costs the player.
+
+`lib/nfl/draft/league-size.ts` holds the rule, `draftBoardRuns.adpSourceTeams` records which
+board each run used, and the draft screen says so. A board whose provenance predates the field
+reports "not recorded" rather than "published" — those are different claims.
+
+**The rescale is an approximation and no measurement here says how far off it is.** Real
+drafts are not exactly linear in league size. What is asserted is that the transform is
+monotone, so it cannot reorder the board — the market's *ranking* is the half of a player's
+value this project measured as better than its own model, and that half survives intact.
+
 ## 1. nflverse — primary statistical source
 
 Public GitHub release assets. No API key, no rate limit of practical concern.

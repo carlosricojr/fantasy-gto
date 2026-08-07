@@ -16,6 +16,12 @@ import {
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
+import {
+  SUPPORTED_LEAGUE_SIZES,
+  adpSourceFor,
+  distinctAdpSources,
+  scalePick,
+} from "../lib/nfl/draft/league-size";
 import { ruledOutForWeek } from "../lib/nfl/injuries";
 import { scoreOffense } from "../lib/nfl/scoring/score";
 import {
@@ -113,7 +119,16 @@ function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): numb
  * transferable. These are the sizes that cover almost every real league; an unusual one
  * has to be built by hand.
  */
-const DRAFT_BOARD_LEAGUE_SIZES = [8, 10, 12, 14] as const;
+/**
+ * Every league size a board is built for.
+ *
+ * Was the four the market publishes a board for, which presented a provider limitation as a
+ * product one — a nine-team league is an ordinary league. `lib/nfl/draft/league-size.ts`
+ * decides where each size's prices come from and carries the provenance through; the seven
+ * sizes with no published board are derived from the nearest one by rescaling every pick
+ * number, which preserves the round a player goes in.
+ */
+const DRAFT_BOARD_LEAGUE_SIZES = SUPPORTED_LEAGUE_SIZES;
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
@@ -808,8 +823,28 @@ export async function runBuildDraftBoard(
       priorSeasons.push(result.data);
     }
 
-    const adpResult = await adpProvider.forSeason(season, scoringId, teams);
-    if (!adpResult.ok) throw new Error(adpResult.reason);
+    // The size the market publishes for, which is `teams` itself for four of the eleven and
+    // the nearest published one for the rest. Requesting a size the provider has no board
+    // for answers HTTP 400 with `{"status":"Error"}`, which `AdpProvider` reports as a
+    // failure — so before this the seven derived sizes could not build a board at all.
+    const adpSource = adpSourceFor(teams);
+    // The rescale applies to *pick numbers* and not to prices, and the difference is the
+    // whole reason it is applied at the write rather than at the fetch.
+    //
+    // `adp` and `adpStdev` are read by the survival model, which compares them against this
+    // league's overall pick numbers — so they have to be in this league's picks. A player's
+    // *value* does not change with league size: the market curve maps "how early is he
+    // taken", in the source league's own units, onto "how good is he", and it is fitted on
+    // the same units. Rescaling the input to that curve would price a player in a sixteen-
+    // team league as worse than the same player in a fourteen-team one, which is not a
+    // thing the market is saying.
+    const sourceResult = await adpProvider.forSeason(
+      season,
+      scoringId,
+      adpSource.sourceTeams,
+    );
+    if (!sourceResult.ok) throw new Error(sourceResult.reason);
+    const adpResult = sourceResult;
 
     const scoring = SCORING_PRESETS.find((preset) => preset.id === scoringId);
     if (!scoring) throw new Error(`Unknown scoring ruleset "${scoringId}".`);
@@ -872,7 +907,14 @@ export async function runBuildDraftBoard(
       [2, priorSeasons[0]],
     ] as const) {
       const candidateSeason = season - offset;
-      const candidateAdp = await adpProvider.forSeason(candidateSeason, scoringId, teams);
+      // The same published size, unscaled. The curve maps a source-league pick number onto
+      // that season's actual points, and both sides of that fit have to be in the same
+      // units — rescaling one of them would fit a curve to a league nobody played in.
+      const candidateAdp = await adpProvider.forSeason(
+        candidateSeason,
+        scoringId,
+        adpSource.sourceTeams,
+      );
       if (!candidateAdp.ok) {
         curveAttempts.push(`${candidateSeason}: no ADP board`);
         continue;
@@ -1019,8 +1061,8 @@ export async function runBuildDraftBoard(
         modelPoints,
         marketPoints,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
-        adp: market?.adp ?? null,
-        adpStdev: market?.stdev ?? null,
+        adp: scalePick(market?.adp ?? null, adpSource),
+        adpStdev: scalePick(market?.stdev ?? null, adpSource),
         byeWeek: market?.bye ?? null,
         availability: shrunkAvailability(
           priorGames.get(entry.playerId) ?? 0,
@@ -1051,8 +1093,8 @@ export async function runBuildDraftBoard(
         modelPoints: null,
         marketPoints,
         blendedPoints: blendedSeasonValue(null, marketPoints),
-        adp: entry.adp,
-        adpStdev: entry.stdev,
+        adp: scalePick(entry.adp, adpSource),
+        adpStdev: scalePick(entry.stdev, adpSource),
         byeWeek: entry.bye,
         // No games-played history exists for a defense; a team plays every week it is not
         // on bye, so availability is the bye alone.
@@ -1098,6 +1140,7 @@ export async function runBuildDraftBoard(
       scoringId,
       teams,
       computedAt,
+      adpSourceTeams: adpSource.sourceTeams,
     });
     // Drained rather than called once. `pruneBoard` deletes a bounded page and says
     // whether more remain, because the stale set includes every failed rebuild's rows and
@@ -1162,6 +1205,14 @@ export const refreshDraftBoards = internalAction({
     let rebuilt = 0;
     const failed: string[] = [];
     for (const scoringId of SCORING_PRESETS.map((preset) => preset.id)) {
+      // The distinct published boards this scoring format's eleven sizes need, warmed before
+      // the per-size loop. `AdpProvider` caches, so this is not what bounds the request count
+      // — that is the cache — but it makes the bound *visible*: four requests for eleven
+      // boards, named in one line rather than implied by eleven cache hits. A failure here is
+      // deliberately not fatal; the per-size build reports it with the shape it belongs to.
+      for (const sourceTeams of distinctAdpSources([...DRAFT_BOARD_LEAGUE_SIZES])) {
+        await adpProvider.forSeason(target, scoringId, sourceTeams);
+      }
       for (const teams of DRAFT_BOARD_LEAGUE_SIZES) {
         try {
           await runBuildDraftBoard(
