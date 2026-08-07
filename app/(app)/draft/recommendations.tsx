@@ -30,6 +30,7 @@ import { positionChipClass, positionLabel } from "./positions";
 export function Recommendations({
   state,
   scenarios,
+  candidates,
   onTheClock,
   draftComplete,
   onPick,
@@ -40,6 +41,8 @@ export function Recommendations({
 }: {
   state: ReturnType<typeof useRecommendations>;
   scenarios: number;
+  /** How many the page asks for, so the loading skeleton is the height of the answer. */
+  candidates: number;
   onTheClock: boolean;
   draftComplete: boolean;
   onPick: (playerId: string) => void;
@@ -90,12 +93,82 @@ export function Recommendations({
   }
 
   if (state.loading || state.recommendations.length === 0) {
+    // Shaped like the panel it stands in for, not three bars. This state is entered every
+    // time the league changes — the answers belong to the previous scoring and are
+    // discarded rather than shown — so a placeholder a fraction of the panel's height is a
+    // page that jumps under the reader at the exact moment they are deciding a pick.
+    //
+    // Every region the loaded panel has, under the same condition it has it: the header,
+    // the figures, the primary button *or* the "not your pick yet" line, the ranked rows
+    // *or* the disclosure that reveals them, and the footer — which is six lines of body
+    // copy in a 21rem column and was the largest thing missing from the first attempt. The
+    // row count is the one the page asks for, so the two agree by construction.
     return (
       <Panel>
-        <div className="space-y-2 p-4" aria-hidden>
+        <div className="space-y-2 border-b p-4" aria-hidden>
+          <div className="h-3.5 w-24 motion-safe:animate-pulse rounded bg-muted" />
+          <div className="h-6 w-56 max-w-full motion-safe:animate-pulse rounded bg-muted" />
           <div className="h-4 w-32 motion-safe:animate-pulse rounded bg-muted" />
-          <div className="h-12 motion-safe:animate-pulse rounded bg-muted" />
-          <div className="h-8 motion-safe:animate-pulse rounded bg-muted" />
+        </div>
+        <div className="border-b p-4" aria-hidden>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:gap-x-6 3xl:grid 3xl:gap-y-3">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="h-7 w-16 motion-safe:animate-pulse rounded bg-muted" />
+                <div className="h-3 w-24 motion-safe:animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+          {onTheClock ? (
+            <div className="mt-3 h-9 motion-safe:animate-pulse rounded-md bg-muted" />
+          ) : (
+            // The "Not your pick yet…" line, which is `text-sm` over two lines in a
+            // narrow column.
+            <div className="mt-3 space-y-1.5">
+              <div className="h-4 motion-safe:animate-pulse rounded bg-muted" />
+              <div className="h-4 w-2/3 motion-safe:animate-pulse rounded bg-muted" />
+            </div>
+          )}
+        </div>
+        {onTheClock ? (
+          <div className="divide-y" aria-hidden>
+            {Array.from({ length: candidates - 1 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 p-3">
+                <div className="size-5 shrink-0 motion-safe:animate-pulse rounded bg-muted" />
+                <div className="h-5 w-11 shrink-0 motion-safe:animate-pulse rounded bg-muted" />
+                {/* Three lines, because a ranked row carries three: the name, the odds
+                    with their interval, and the paired comparison against the leader. */}
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-4 w-40 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-56 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-48 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // The disclosure that stands in for the rows when they are collapsed.
+          <div className="p-2.5" aria-hidden>
+            <div className="mx-auto h-4 w-48 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+          </div>
+        )}
+        {/* The footer is rendered unconditionally by the loaded panel, so it is here
+            unconditionally too.
+
+            A flat five lines, and deliberately not a per-breakpoint count. Its ~430
+            characters wrap to about four lines in the widest column this panel gets, six in
+            the 30rem column it becomes at `3xl` — which is the *narrowest* it is on a
+            desktop, not the widest — and eight on a phone. A first attempt had that
+            backwards and shortened the placeholder at exactly the width the real footer is
+            tallest. No single count is right everywhere, so this takes the middle and the
+            panel settles by a line or two either way. */}
+        <div className="space-y-1.5 border-t p-3" aria-hidden>
+          {Array.from({ length: 5 }, (_, i) => (
+            <div
+              key={i}
+              className={cn("h-3 motion-safe:animate-pulse rounded bg-muted", i === 4 && "w-2/3")}
+            />
+          ))}
         </div>
         <p className="sr-only" role="status">
           Simulating the rest of the draft.

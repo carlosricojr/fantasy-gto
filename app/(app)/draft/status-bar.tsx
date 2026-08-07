@@ -29,6 +29,7 @@ export function StatusBar({
   canUndo,
   onUndo,
   onOpenSettings,
+  reloading = false,
 }: {
   turn: TurnDescription;
   /** "3.07" for the pick on the clock. */
@@ -41,6 +42,15 @@ export function StatusBar({
   canUndo: boolean;
   onUndo: () => void;
   onOpenSettings: () => void;
+  /**
+   * True while the board on screen belongs to a setup the controls have moved on from.
+   *
+   * Said rather than hidden. Holding the previous board is what stops a scoring change
+   * unmounting the page, but every projection, ADP and availability figure under this bar
+   * is then the old format's — and printing those under a heading that names the new one
+   * is exactly the kind of number this product does not render.
+   */
+  reloading?: boolean;
 }) {
   const made = Math.min(currentPick - 1, totalPicks);
   const progress = totalPicks === 0 ? 0 : (made / totalPicks) * 100;
@@ -78,6 +88,30 @@ export function StatusBar({
             </span>
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums">
+            {/* Always in the DOM, empty when there is nothing to say. A live region added
+                at the moment its content appears is frequently not announced at all, which
+                would leave the one sentence explaining why the numbers are wrong as the one
+                sentence a screen reader user never hears.
+
+                It sits inside the existing line, so appearing costs no vertical space —
+                the whole point of holding the board was that nothing moves — and it comes
+                *first* on that line, because the line is `truncate`: appended, the warning
+                was the part a phone cut off. Two lengths for the same reason. Amber 700,
+                not 600: this is 12px text and 600 measures about 3.2:1 on the light
+                background, under the 4.5:1 ordinary text has to clear. */}
+            <span
+              role="status"
+              className={cn(reloading && "font-medium text-amber-700 dark:text-amber-300")}
+            >
+              {reloading ? (
+                <>
+                  <span className="hidden lg:inline">
+                    Loading the new board — the figures below are the previous setup&rsquo;s ·{" "}
+                  </span>
+                  <span className="lg:hidden">Previous setup&rsquo;s figures · </span>
+                </>
+              ) : null}
+            </span>
             {made} of {totalPicks} picks recorded
             {picksUntilTurn === null || turn.complete
               ? ""
