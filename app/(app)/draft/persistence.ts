@@ -28,10 +28,12 @@ export const DRAFT_STORAGE_KEY = "fantasy-gto:draft:v1";
 /**
  * League sizes a board is built for.
  *
- * One list, in `lib/nfl/draft/league-size.ts`, which is also what `DRAFT_BOARD_LEAGUE_SIZES`
- * in `convex/ingest.ts` is. They were two literals that had to be kept in step by hand, and
- * the direction they would drift in is the bad one: a size the page offers and the cron does
- * not build is a league whose board is permanently empty.
+ * One list, in `lib/nfl/draft/league-size.ts`, which the ingest path reads through
+ * `adpSourceFor` and the refresh plan through `draftBoardMatrix`. It used to be two literals
+ * kept in step by hand, and the direction they drift in is the bad one: a size the page
+ * offers and the cron does not build is a league whose board is permanently empty. The
+ * constant this comment named on the other side of that pairing is gone, which is what a
+ * stale guideline looks like from the inside.
  *
  * ADP is published per league size, so a board is not transferable between them — seven of
  * the eleven are derived from a neighbour by rescaling every pick number, and the board
