@@ -9,10 +9,12 @@ import {
   type MarketPlayer,
   normalCdf,
   normalizeLeagueSetup,
+  pickCoordinates,
   pickOwnership,
   seatForTeamIndex,
   snakePicks,
   survivalProbability,
+  teamIndexForSeat,
 } from "./draft";
 
 /**
@@ -486,5 +488,64 @@ describe("normalizeLeagueSetup always returns a setup the draft accepts", () => 
       const setup = normalizeLeagueSetup(raw);
       expect(() => snakePicks(setup.slot, setup.teams, setup.rounds)).not.toThrow();
     }
+  });
+});
+
+describe("the grid inverse", () => {
+  it("round-trips every seat of every league size", () => {
+    // The property, not an example. An off-by-one here draws a pick under the wrong
+    // manager and nothing about the rendered board says so, and an example is exactly what
+    // an off-by-one survives.
+    for (let teams = 2; teams <= 20; teams += 1) {
+      for (let slot = 1; slot <= teams; slot += 1) {
+        for (let index = 0; index < teams; index += 1) {
+          expect(teamIndexForSeat(seatForTeamIndex(index, slot), slot)).toBe(index);
+        }
+      }
+    }
+  });
+
+  it("puts the manager being advised in their own seat and nobody else there", () => {
+    const seats = Array.from({ length: 12 }, (_, seat) => teamIndexForSeat(seat + 1, 4));
+    expect(seats.filter((index) => index === 0)).toHaveLength(1);
+    expect(seats[3]).toBe(0);
+    expect(new Set(seats).size).toBe(12);
+  });
+});
+
+describe("pickCoordinates", () => {
+  it("inverts snakePicks for every pick of a draft", () => {
+    // The two pieces of snake arithmetic in this module have to agree exactly: one decides
+    // who owns a pick, the other decides where it is drawn. Checked against each other
+    // rather than against a table, so neither can be "fixed" alone.
+    for (const teams of [8, 10, 12, 14]) {
+      for (let slot = 1; slot <= teams; slot += 1) {
+        const picks = snakePicks(slot, teams, 15);
+        picks.forEach((pick, roundIndex) => {
+          expect(pickCoordinates(pick, teams)).toEqual({ round: roundIndex + 1, seat: slot });
+        });
+      }
+    }
+  });
+
+  it("covers every cell of the grid exactly once", () => {
+    const teams = 10;
+    const rounds = 15;
+    const cells = new Set<string>();
+    for (let pick = 1; pick <= teams * rounds; pick += 1) {
+      const { round, seat } = pickCoordinates(pick, teams);
+      expect(round).toBeGreaterThanOrEqual(1);
+      expect(round).toBeLessThanOrEqual(rounds);
+      expect(seat).toBeGreaterThanOrEqual(1);
+      expect(seat).toBeLessThanOrEqual(teams);
+      cells.add(`${round}.${seat}`);
+    }
+    expect(cells.size).toBe(teams * rounds);
+  });
+
+  it("refuses input that is not a pick in a league", () => {
+    expect(() => pickCoordinates(0, 10)).toThrow();
+    expect(() => pickCoordinates(1.5, 10)).toThrow();
+    expect(() => pickCoordinates(1, 0)).toThrow();
   });
 });

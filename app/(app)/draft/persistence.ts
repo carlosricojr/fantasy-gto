@@ -54,6 +54,18 @@ export interface PersistedDraft {
   started: boolean;
   /** Overall pick number to player id. */
   picks: Record<number, string>;
+  /**
+   * Player ids the manager is watching, in their own order.
+   *
+   * Read leniently — a payload without it restores as an empty queue rather than being
+   * refused. That is deliberately different from every other field here. The rest decide
+   * *whose picks are whose*, and a half-read one produces a board belonging to a different
+   * league; a queue is a note to self, and a build that adds one must not throw away the
+   * in-progress drafts of everybody who was mid-draft when it shipped. Refusing on an
+   * absent optional field is how a storage-version bump loses a real draft to a cosmetic
+   * change.
+   */
+  queue: string[];
 }
 
 /**
@@ -114,7 +126,35 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   const picks = parsePicks(row.picks, teams * rounds);
   if (picks === null) return null;
 
-  return { teams, rounds, slot, scoringId, templateId, playoffTeams, started, picks };
+  return {
+    teams,
+    rounds,
+    slot,
+    scoringId,
+    templateId,
+    playoffTeams,
+    started,
+    picks,
+    queue: parseQueue(row.queue),
+  };
+}
+
+/**
+ * A stored queue, or an empty one for anything unreadable.
+ *
+ * Total by construction, for the reason `PersistedDraft.queue` gives: nothing about a
+ * watch list justifies discarding a draft. Duplicates and non-strings are dropped rather
+ * than rejected — a queue holding the same player twice renders two identical rows whose
+ * remove buttons both delete the first, which is a defect, not a corrupt draft.
+ */
+function parseQueue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry === "") continue;
+    seen.add(entry);
+  }
+  return [...seen];
 }
 
 /**
