@@ -69,9 +69,12 @@ function unclippedScrollers(source: string): string[] {
     const classes = (m[1] ?? m[2] ?? "").replace(/\s+/g, " ").trim();
     if (EXEMPT.has(classes)) continue;
     const utilities = classes.split(" ");
-    const scrolls = utilities.some((u) =>
-      /^(?:[a-z0-9-]+:)*overflow(?:-[xy])?-(?:auto|scroll)$/.test(u),
-    );
+    // Variants are stripped by taking the segment after the last colon rather than by
+    // matching a prefix pattern: `data-[state=open]:`, `supports-[…]:` and `[&_svg]:` all
+    // carry brackets, and a `[a-z0-9-]+:` prefix silently failed to see any of them — so a
+    // scroller declared behind one would not have been checked at all.
+    const base = (u: string) => u.slice(u.lastIndexOf(":") + 1);
+    const scrolls = utilities.some((u) => /^overflow(?:-[xy])?-(?:auto|scroll)$/.test(base(u)));
     if (!scrolls) continue;
     // Unprefixed, deliberately, and asymmetric with the test above on purpose: a scroller
     // that only scrolls at `lg` still scrolls, but a containing block that only exists at
@@ -117,6 +120,10 @@ describe("every scroll container clips what it scrolls", () => {
     expect(unclippedScrollers('cn("max-h-40 overflow-y-auto rounded border", className)')).toHaveLength(1);
     // A containing block that only exists at one breakpoint does not clip the others.
     expect(unclippedScrollers('<div className="overflow-y-auto lg:relative" />')).toHaveLength(1);
+    // Variants carrying brackets are seen too — a prefix pattern of `[a-z0-9-]+:` was not.
+    expect(unclippedScrollers('"data-[state=open]:overflow-y-auto rounded"')).toHaveLength(1);
+    expect(unclippedScrollers('"[&_div]:overflow-auto p-1"')).toHaveLength(1);
+    expect(unclippedScrollers('"data-[state=open]:overflow-y-auto relative"')).toEqual([]);
     // The documented exemption is matched on the class list, not the file it lives in.
     expect(unclippedScrollers('<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">')).toEqual([]);
     // `overflow-hidden` is not a scroll container and is not what this rule is about.
