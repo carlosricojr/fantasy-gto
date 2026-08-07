@@ -584,3 +584,20 @@ pnpm backtest -- --holdout # the holdout, and the published figures
 Any change to the model must re-run this and update the table above in the same commit. A
 claim that is not in this table may not appear in the UI. See the honesty ledger in
 `README.md`.
+
+### Run log
+
+Changes that are required to re-run the backtest but do not move it are recorded here
+rather than left implicit. "No figure moved" is a result, and one a reader can only trust if
+somebody wrote down that the command was run.
+
+| Change | Command | Result |
+| --- | --- | --- |
+| #38 — roster-state-aware draft replacement demand | `pnpm backtest` | Every figure in this document reproduced unchanged. `lib/nfl/model/published-metrics.json` untouched, working tree otherwise clean. Holdout not evaluated: the run printed `HOLDOUT 2025 NOT EVALUATED.` |
+
+That result is expected rather than surprising, and the reason is worth stating: the draft
+policy consumes the weekly model's output and does not participate in producing it, so
+`scripts/backtest.ts` shares no code path with `lib/core/draft-policy.ts`. The run is
+evidence of exactly that independence. What the draft *board* claims about ranking players
+is measured separately, by `pnpm draft-backtest`, and lives in
+[`docs/draft-validation.md`](draft-validation.md).
