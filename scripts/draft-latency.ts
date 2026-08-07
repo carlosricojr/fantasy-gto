@@ -15,7 +15,7 @@ import {
 } from "@/lib/core/draft-speculation";
 import { createRng } from "@/lib/core/rng";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
-import type { LeagueConfig } from "@/lib/core/season-sim";
+import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { slotsForTemplate } from "@/lib/nfl/roster";
 
 /**
@@ -65,6 +65,16 @@ const TEAMS = 12;
 const ROUNDS = 15;
 const SLOT = 9;
 const CANDIDATES = 10;
+/**
+ * The league shape the timings are measured for: the default a draft opens with.
+ *
+ * A six-team bracket ending in week 17 is fourteen regular weeks plus three playoff ones,
+ * which is what the season simulation actually iterates and therefore what these numbers
+ * describe. Derived rather than written out, so a change to how a season is laid out moves
+ * the benchmark with it instead of leaving it measuring a season nothing runs.
+ */
+const PLAYOFF_TEAMS = 6;
+const CHAMPIONSHIP_WEEK = 17;
 const SCENARIO_COUNTS = [150, 300, 600, 1000] as const;
 
 /**
@@ -229,9 +239,8 @@ function main(): void {
   for (const scenarios of SCENARIO_COUNTS) {
     const config: LeagueConfig = {
       slots,
-      weeks: Array.from({ length: 14 }, (_, i) => i + 1),
-      playoffWeeks: [15, 16, 17],
-      playoffTeams: 6,
+      ...fantasySeasonWeeks(CHAMPIONSHIP_WEEK, PLAYOFF_TEAMS),
+      playoffTeams: PLAYOFF_TEAMS,
       scenarios,
       meanAbsenceWeeks: 3,
     };

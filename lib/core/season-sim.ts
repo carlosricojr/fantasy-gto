@@ -131,6 +131,68 @@ export function bracketRoundsRequired(playoffTeams: number): number {
 }
 
 /**
+ * The weeks a fantasy season is played over, from the week its final is played.
+ *
+ * **Which weeks, not how many.** A bye lands inside one league's playoffs and outside
+ * another's, and that difference is the whole reason the objective simulates weeks rather
+ * than summing points. A league whose final is in week 15 plays its semi-final in week 14,
+ * where a dozen NFL teams are idle; a league whose final is in week 17 plays its first
+ * playoff round in week 15, after every bye has passed. Two players with identical
+ * projections are not worth the same to those two leagues, and nothing short of knowing
+ * the weeks can see it.
+ *
+ * Leagues end early on purpose — most often to keep the final out of the NFL weeks where
+ * a team with its seed locked rests its starters. That is a real and common setting on
+ * every mainstream platform, and it is expressed there the same way it is here: as the
+ * week of the final. Everything else follows from it, so there is no combination of
+ * controls that can describe a season nobody plays.
+ *
+ * The bracket length is derived rather than configured for the same reason. A four-team
+ * field is two rounds and a six-team field is three; asking for both the field and the
+ * number of playoff weeks invites a pair that disagree, and the pair that disagreed here
+ * was a four-team field over three playoff weeks — a final round played by one team
+ * against itself, and a regular-season week that belonged to neither half of the season.
+ *
+ * A one-team "bracket" needs no rounds, so the season is regular weeks alone and
+ * `championshipWeek` is the last of them. That is degenerate but coherent, and it falls
+ * out of `bracketRoundsRequired` rather than needing a case.
+ */
+export function fantasySeasonWeeks(
+  championshipWeek: number,
+  playoffTeams: number,
+): Pick<LeagueConfig, "weeks" | "playoffWeeks"> {
+  if (!Number.isInteger(championshipWeek) || championshipWeek < 1) {
+    throw new Error(
+      `A fantasy season cannot end in week ${championshipWeek}. The final is played in a ` +
+        `whole, positive week.`,
+    );
+  }
+  if (!Number.isInteger(playoffTeams) || playoffTeams < 1) {
+    throw new Error(
+      `playoffTeams must be a positive integer, got ${playoffTeams}. A non-positive ` +
+        `field has no bracket to place.`,
+    );
+  }
+
+  const rounds = bracketRoundsRequired(playoffTeams);
+  // Strictly greater. Equality would leave a bracket with every week of the season and no
+  // regular season to seed it from, so every team would enter on an identical record and
+  // the seeding would be decided entirely by the tiebreak hash.
+  if (championshipWeek <= rounds) {
+    throw new Error(
+      `A ${playoffTeams}-team bracket needs ${rounds} week(s), which a season ending in ` +
+        `week ${championshipWeek} cannot give it while still playing a regular season.`,
+    );
+  }
+
+  const firstPlayoffWeek = championshipWeek - rounds + 1;
+  return {
+    weeks: Array.from({ length: firstPlayoffWeek - 1 }, (_, i) => i + 1),
+    playoffWeeks: Array.from({ length: rounds }, (_, i) => firstPlayoffWeek + i),
+  };
+}
+
+/**
  * A simulation with the per-scenario result kept, not only the rates it aggregates to.
  *
  * `simulateLeague` throws the scenario dimension away, which is right for reporting a

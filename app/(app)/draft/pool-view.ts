@@ -237,6 +237,18 @@ export interface ByeGap {
   week: number;
   /** Slot labels that go empty that week, one entry per empty slot. */
   slots: string[];
+  /**
+   * Whether the week is one of the league's playoff rounds.
+   *
+   * A hole in a regular-season week costs part of one matchup out of a dozen. The same
+   * hole in a playoff round is a title lost, and the difference is entirely a fact about
+   * the league's calendar — a bye in week 14 is ordinary for a league whose final is in
+   * week 17 and is the semi-final for a league whose final is in week 15. The simulation
+   * already prices this correctly, because it plays the weeks out; this exists so the
+   * screen can say which of the two a listed gap is instead of leaving the reader to
+   * remember their own settings.
+   */
+  inPlayoffs: boolean;
 }
 
 /**
@@ -261,7 +273,16 @@ export interface ByeGap {
 export function byeGaps(
   slots: readonly RosterSlot[],
   roster: readonly PlayerRisk[],
+  /**
+   * The league's playoff rounds, so a gap can say which half of the season it falls in.
+   *
+   * Defaulted to none rather than to a literal bracket. A caller that does not know the
+   * league's calendar must not have one invented for it — the wrong three weeks would
+   * label a regular-season bye as a lost semi-final, which is worse than saying nothing.
+   */
+  playoffWeeks: readonly number[] = [],
 ): ByeGap[] {
+  const inPlayoffs = new Set(playoffWeeks);
   const weeks = [
     ...new Set(
       roster
@@ -291,7 +312,9 @@ export function byeGaps(
       const extra = count - (baseline.get(label) ?? 0);
       for (let i = 0; i < extra && worse.length < lost; i += 1) worse.push(label);
     }
-    if (worse.length > 0) gaps.push({ week, slots: worse });
+    if (worse.length > 0) {
+      gaps.push({ week, slots: worse, inPlayoffs: inPlayoffs.has(week) });
+    }
   }
   return gaps;
 }
