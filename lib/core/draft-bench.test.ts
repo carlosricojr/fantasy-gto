@@ -12,8 +12,12 @@ import { type DepthPlayer, coverValue } from "./draft-bench";
  */
 
 /**
- * A fourteen-week fantasy regular season, which is what the draft screen hands the depth
- * model — as week numbers rather than as a count.
+ * A fourteen-week regular season, as week numbers rather than as a count.
+ *
+ * A fixture, not the product's season. The draft screen hands `coverValue` whatever
+ * regular season the league's championship week implies — fourteen weeks for a week-17
+ * final, twelve for a week-15 one with a six-team bracket — so a test that described this
+ * as "what the screen passes" would be describing one league of six.
  *
  * The weeks themselves, because `coverValue` uses this argument for two different jobs: it
  * is the denominator, and it is the set each bye is tested for membership in. A count only
