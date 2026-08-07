@@ -1677,6 +1677,102 @@ describe("narrowing the field cannot change the base policy's answer", () => {
     }
   });
 
+  it("agrees on a board where durability does not follow projection", () => {
+    // `board()` gives every player the same availability, and `fullBoard()` makes it fall
+    // with the projection — so on both of them `weeklyMean * availability` orders candidates
+    // the same way their value does, and the narrowing cannot be caught dropping the wrong
+    // one. That is the shape a real board *mostly* has and not the shape it always has: a
+    // fragile star and a durable ordinary player can have the same expected worth and very
+    // different worth as cover, which is what `draft-bench.ts` exists to price.
+    //
+    // This board varies the two independently, which is the only arrangement that can expose
+    // it. See `contendersFor` — the dominance argument that used to justify keeping one
+    // player per position is false, and this is the test that would catch it costing
+    // something.
+    const varied: PlayerRisk[] = [];
+    for (const [position, count, top, step] of [
+      ["QB", 30, 20.0, 0.35],
+      ["RB", 60, 17.5, 0.28],
+      ["WR", 60, 16.0, 0.2],
+      ["TE", 40, 13.0, 0.3],
+      ["K", 20, 8.0, 0.04],
+      ["DST", 20, 8.5, 0.05],
+    ] as const) {
+      for (let i = 0; i < count; i += 1) {
+        varied.push(
+          player(`${position}${i}`, position, top - i * step, {
+            // Deterministic, and deliberately uncorrelated with the projection: a sawtooth
+            // over the index rather than a decline with it.
+            availability: position === "DST" ? 1 : 0.55 + ((i * 13) % 9) * 0.05,
+            byeWeek: 5 + ((i * 5) % 9),
+          }),
+        );
+      }
+    }
+    const slots = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
+    const league = leagueWith(slots);
+    let roster: PlayerRisk[] = [];
+    let pool = varied;
+    for (let pick = 0; pick < 15; pick += 1) {
+      const demand = demandFor(
+        [roster, ...Array.from({ length: 11 }, (): PlayerRisk[] => [])],
+        slots,
+      );
+      const narrowed = basePolicyPick(roster, pool, league, demand)!;
+      const whole = scoreCandidates(roster, pool, league, demand)[0].player;
+      expect(narrowed.id).toBe(whole.id);
+      roster = [...roster, narrowed];
+      pool = pool.filter((p) => p.id !== narrowed.id);
+    }
+  });
+
+  it("prices two players of equal expected worth differently when their shape differs", () => {
+    // The fact that breaks the dominance argument, asserted directly so the docstring above
+    // `contendersFor` cannot drift back to claiming otherwise. All three have
+    // `weeklyMean * availability` of exactly 12.00 and none of them scores the same.
+    const slots = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
+    const league = leagueWith(slots);
+    const starter = player("qbStarter", "QB", 16, { availability: 0.6, byeWeek: 6 });
+    const filler: PlayerRisk[] = [];
+    for (const [position, count, top, step] of [
+      ["RB", 40, 17, 0.3],
+      ["WR", 40, 15, 0.25],
+      ["TE", 20, 12, 0.3],
+      ["K", 12, 8, 0.05],
+      ["DST", 12, 8.5, 0.06],
+      ["QB", 20, 11, 0.3],
+    ] as const) {
+      for (let i = 0; i < count; i += 1) {
+        filler.push(
+          player(`${position}${i}`, position, top - i * step, {
+            availability: 0.9,
+            byeWeek: 5 + (i % 9),
+          }),
+        );
+      }
+    }
+    const demand = demandFor(
+      [[starter], ...Array.from({ length: 11 }, (): PlayerRisk[] => [])],
+      slots,
+    );
+    const scoreOf = (candidate: PlayerRisk): number =>
+      scoreCandidates([starter], [candidate, ...filler], league, demand).find(
+        (entry) => entry.player.id === candidate.id,
+      )!.value;
+
+    const durable = player("durable", "QB", 12.5, { availability: 0.96, byeWeek: 9 });
+    const fragile = player("fragile", "QB", 24, { availability: 0.5, byeWeek: 9 });
+    const sharedBye = player("sharedBye", "QB", 12.5, { availability: 0.96, byeWeek: 6 });
+    for (const candidate of [durable, fragile, sharedBye]) {
+      expect(candidate.weeklyMean * candidate.availability).toBeCloseTo(12, 10);
+    }
+
+    // Measured: 3.09394, 2.40000, 2.99520. The durable backup covers more weeks than the
+    // fragile one; the one sharing his starter's bye covers fewer than the one who does not.
+    expect(scoreOf(durable)).toBeGreaterThan(scoreOf(sharedBye));
+    expect(scoreOf(sharedBye)).toBeGreaterThan(scoreOf(fragile));
+  });
+
   it("agrees when a position is exhausted and when one has no demand left", () => {
     // Both boundaries at once: a two-team league whose kickers nobody can start, and a
     // tight-end pool shorter than the demand for it.

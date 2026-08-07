@@ -93,17 +93,61 @@ export function planDraftRefresh(state: SeasonState | null): RefreshPlan {
 /**
  * How old a board may be before the interface says so.
  *
- * **Justified against the cron cadence rather than chosen.** The rebuild runs at 11:00 and
- * 23:00 UTC, so a healthy board is at most twelve hours old and a board older than that has
- * missed at least one scheduled run. Twenty-six hours is two full cycles plus two hours of
- * slack, which is the smallest threshold that does not fire on a single late or slow run —
- * and firing on a single late run would be worse than not firing at all, because a warning
- * that appears routinely is a warning nobody reads.
- *
- * The two numbers are coupled: change the cron and this has to change with it, which is why
- * the cadence is written down here beside it rather than only in `convex/crons.ts`.
+ * **Derived from the cron cadence rather than chosen, and derived from the schedule itself
+ * rather than from a copy of it.** `convex/crons.ts` imports `BOARD_REFRESH_CRON` from here,
+ * so there is one schedule and the interval below is read off it. A board older than two full
+ * cycles plus two hours has missed at least one run; the slack is what stops a single late or
+ * slow run from firing a warning, because a warning that appears routinely is a warning
+ * nobody reads.
  */
-export const BOARD_REFRESH_INTERVAL_HOURS = 12;
+export const BOARD_REFRESH_CRON = "0 11,23 * * *";
+
+/**
+ * The longest gap between two scheduled rebuilds, derived from the schedule itself.
+ *
+ * This was the literal `12` sitting beside a cron expression in another file, with nothing
+ * connecting them. Change the cron to `0 * /6 * * *` and the threshold below silently becomes
+ * four times too loose: the interface would go on calling a twenty-six-hour-old board fresh
+ * when it had missed four runs. Two constants that must agree and cannot check each other are
+ * the same defect as the league-size list the page and the cron each kept their own copy of.
+ *
+ * Only the hour field is read, because that is the only field this schedule uses and a parser
+ * that pretended to handle the rest would be claiming more than it does. A schedule this
+ * cannot read throws rather than guessing — a wrong interval here produces a plausible
+ * threshold, which is the failure this exists to prevent.
+ */
+export function cronIntervalHours(expression: string): number {
+  const fields = expression.trim().split(/\s+/);
+  if (fields.length !== 5) {
+    throw new Error(`Not a five-field cron expression: "${expression}".`);
+  }
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
+  if (dayOfMonth !== "*" || month !== "*" || dayOfWeek !== "*") {
+    throw new Error(
+      `Only a daily schedule can be reduced to one interval; "${expression}" is not one.`,
+    );
+  }
+  if (!/^\d+$/.test(minute)) {
+    throw new Error(`Only a fixed minute is supported, got "${minute}".`);
+  }
+  const hours = hour.split(",").map((part) => {
+    if (!/^\d+$/.test(part)) {
+      throw new Error(`Only explicit hours are supported, got "${hour}".`);
+    }
+    return Number(part);
+  });
+  if (hours.length === 0) throw new Error(`No hours in "${expression}".`);
+  const sorted = [...hours].sort((a, b) => a - b);
+  // Including the wrap past midnight, which is the gap a naive `max(diff)` misses — and
+  // misses in the unsafe direction, reporting a schedule as tighter than it is.
+  let longest = 24 - sorted[sorted.length - 1] + sorted[0];
+  for (let i = 1; i < sorted.length; i += 1) {
+    longest = Math.max(longest, sorted[i] - sorted[i - 1]);
+  }
+  return longest;
+}
+
+export const BOARD_REFRESH_INTERVAL_HOURS = cronIntervalHours(BOARD_REFRESH_CRON);
 export const BOARD_STALE_AFTER_MS = (2 * BOARD_REFRESH_INTERVAL_HOURS + 2) * 60 * 60 * 1000;
 
 export type BoardHealth =

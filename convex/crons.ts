@@ -1,6 +1,7 @@
 import { cronJobs } from "convex/server";
 
 import { internal } from "./_generated/api";
+import { BOARD_REFRESH_CRON } from "../lib/nfl/draft/refresh-plan";
 
 /**
  * Scheduled refreshes.
@@ -43,9 +44,14 @@ crons.cron(
 // Twice a day through the preseason. The market moves continuously as camp news lands,
 // and a board built yesterday misprices exactly the players whose value just changed.
 // Outside the preseason this exits immediately, so it costs nothing in season.
+//
+// The expression comes from `refresh-plan.ts`, which also derives the staleness threshold
+// the interface warns on from it. They were two independent literals — a `12` beside a cron
+// nothing connected it to — so changing this schedule to every six hours would have left the
+// interface calling a board that had missed four runs "fresh".
 crons.cron(
   "rebuild draft boards",
-  "0 11,23 * * *",
+  BOARD_REFRESH_CRON,
   internal.ingest.refreshDraftBoards,
   {},
 );

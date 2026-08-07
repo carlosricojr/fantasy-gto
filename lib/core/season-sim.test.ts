@@ -860,3 +860,82 @@ describe("the tiebreak key is a fixed function, not just any function", () => {
     }
   });
 });
+
+/**
+ * Identities the simulation cannot violate without being wrong.
+ *
+ * Every one of these is a conservation law over the whole league rather than a property of
+ * any team, which is what makes them worth pinning: a bug in seeding, in the bracket, or in
+ * how ties are awarded shows up here as a total that does not add up, whatever it does to the
+ * individual numbers. They were never asserted, and each of the three has a plausible way to
+ * break silently.
+ */
+describe("league-wide conservation", () => {
+  const teamsOf = (count: number, config: LeagueConfig) =>
+    Array.from({ length: count }, (_, t) =>
+      sampleTeamWeeklyScores(
+        Array.from({ length: 9 }, (_, i) =>
+          player(`t${t}p${i}`, ["QB", "RB", "RB", "WR", "WR", "TE", "RB", "WR", "TE"][i], 15 - i - t * 0.3),
+        ),
+        config,
+        100 + t,
+      ),
+    );
+
+  for (const count of [6, 8, 10, 12]) {
+    it(`adds up across ${count} teams`, () => {
+      const config: LeagueConfig = {
+        slots: SLOTS,
+        weeks: Array.from({ length: 14 }, (_, i) => i + 1),
+        playoffWeeks: [15, 16, 17],
+        playoffTeams: 4,
+        scenarios: 200,
+        meanAbsenceWeeks: 3,
+      };
+      const outcomes = simulateLeague(teamsOf(count, config), config);
+
+      // Exactly one champion per scenario. Below one would mean a bracket that sometimes
+      // crowns nobody — the failure `bracketRoundsRequired` guards — and above one is
+      // impossible without double-counting a scenario.
+      expect(
+        outcomes.reduce((sum, o) => sum + o.championshipProbability, 0),
+      ).toBeCloseTo(1, 10);
+
+      // Exactly `playoffTeams` qualifiers per scenario. A seeding tiebreak that favoured a
+      // position would move the individual probabilities and leave this untouched, which is
+      // why it is the *count* that is asserted and not any team's share.
+      expect(
+        outcomes.reduce((sum, o) => sum + o.playoffProbability, 0),
+      ).toBeCloseTo(config.playoffTeams, 10);
+
+      // One win awarded per game, whether it is split or not. Ties used to go entirely to
+      // the home side, which conserves this total exactly — so it does not catch that bug,
+      // and it does catch the ones that award a win twice or not at all.
+      expect(outcomes.reduce((sum, o) => sum + o.expectedWins, 0)).toBeCloseTo(
+        config.weeks.length * Math.floor(count / 2),
+        10,
+      );
+    });
+  }
+
+  it("still crowns exactly one champion when every team is identical", () => {
+    // The degenerate case the tiebreak was wrong for: our team is always index 0, and
+    // breaking ties by position gave it a championship probability of exactly 1.
+    const config: LeagueConfig = {
+      slots: SLOTS,
+      weeks: Array.from({ length: 14 }, (_, i) => i + 1),
+      playoffWeeks: [15, 16, 17],
+      playoffTeams: 4,
+      scenarios: 200,
+      meanAbsenceWeeks: 3,
+    };
+    const one = sampleTeamWeeklyScores(
+      [player("a", "QB", 15), player("b", "RB", 12), player("c", "WR", 11)],
+      config,
+      7,
+    );
+    const outcomes = simulateLeague([one, one, one, one, one, one], config);
+    expect(outcomes.reduce((sum, o) => sum + o.championshipProbability, 0)).toBeCloseTo(1, 10);
+    expect(outcomes[0].championshipProbability).toBeLessThan(0.9);
+  });
+});

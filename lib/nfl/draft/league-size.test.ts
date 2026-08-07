@@ -162,17 +162,36 @@ describe("distinctAdpSources", () => {
 
 describe("adpSourceLabel", () => {
   it("says nothing approximate about a published board", () => {
-    const text = adpSourceLabel(adpSourceFor(12));
-    expect(text).toContain("as published");
+    const text = adpSourceLabel(12, 12);
+    expect(text).toContain("published");
     expect(text).not.toMatch(/approxim|derived|rescal/i);
   });
 
   it("names the source, the factor and the approximation for a derived one", () => {
-    const text = adpSourceLabel(adpSourceFor(9));
+    const text = adpSourceLabel(9, 8);
     expect(text).toContain("9-team");
     expect(text).toContain("8-team");
     expect(text).toContain("1.125");
     expect(text).toContain("approximation");
+  });
+
+  it("says unknown rather than published when the board does not record a source", () => {
+    // The reassuring default is the dangerous one: a run written before the field existed
+    // has unknown provenance, and reading unknown as "published" is how a derived board comes
+    // to be presented as a real one.
+    const text = adpSourceLabel(9, null);
+    expect(text).toContain("not recorded");
+    expect(text).not.toMatch(/published for|as published/);
+  });
+
+  it("describes what a board was built from, not what it would be built from now", () => {
+    // Takes the stored source rather than re-deriving it. The two differ exactly when the
+    // fallback rule has changed since the board was built, which is when the difference
+    // matters — a nine-team board recorded as coming from ten is described as coming from
+    // ten, whatever `adpSourceFor(9)` says today.
+    expect(adpSourceFor(9).sourceTeams).toBe(8);
+    expect(adpSourceLabel(9, 10)).toContain("10-team");
+    expect(adpSourceLabel(9, 10)).not.toContain("8-team");
   });
 });
 
