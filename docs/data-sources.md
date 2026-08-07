@@ -7,6 +7,55 @@ endpoint, and update this file in the same commit.
 All primary sources are **free and unauthenticated**. The product requires no paid data
 vendor to produce a projection.
 
+## Runbook: refreshing the draft boards before a draft
+
+The boards rebuild twice a day at 11:00 and 23:00 UTC through the offseason and preseason,
+and not during the regular season — `planDraftRefresh` in `lib/nfl/draft/refresh-plan.ts`
+decides that, and it is tested across every phase. The matrix is three scoring formats across
+eleven league sizes: **33 boards**.
+
+**A failed rebuild is invisible in a timestamp.** `publishBoard` is atomic, so a run that
+fails leaves the previous board whole — which is the behaviour you want, and is exactly why
+the failure does not show up as an old date. The board can be two hours old and not be the
+board the last run was trying to produce. `boardFreshness` therefore carries the last
+attempt's time and status alongside the published timestamp, and the draft screen shows one
+of five states: fresh, stale, refreshing, last-refresh-failed, never-built.
+
+### Check
+
+```bash
+npx convex run --prod draft:boardFreshness \
+  '{"season": 2026, "scoringId": "standard", "teams": 10}'
+```
+
+Read `lastAttemptStatus`. `"failed"` means the board on screen is not the one the last run
+intended, whatever `computedAt` says. `"running"` means a rebuild is in flight and nothing
+needs doing.
+
+### Force a rebuild
+
+```bash
+npx convex run --prod --push ingest:refreshDraftBoards '{}'
+```
+
+It returns `{rebuilt, failed, attempted}` — or `{rebuilt: 0, failed: [], skipped}` with a
+sentence saying why nothing was built, which is the case to read before assuming a break.
+`failed` names each shape that did not build and the reason. One shape failing does not stop
+the rest: a market board can be missing for an unusual size while the common ones are fine.
+
+### Before a live draft
+
+Check the exact shape being drafted, not the default. A board is per `(season, scoring,
+teams)`, and the seven league sizes with no published market board are derived from a
+neighbour — `adpSourceTeams` says which, and it is worth reading before trusting a price.
+
+### Staleness
+
+`BOARD_STALE_AFTER_MS` is 26 hours: two full 12-hour cycles plus two hours of slack, the
+smallest threshold that does not fire on a single late or slow run. A warning that appears
+routinely is a warning nobody reads. Change the cron and this has to change with it; both
+numbers live beside each other in `refresh-plan.ts`.
+
 ## Average draft position is published for four league sizes, not eleven
 
 Confirmed by direct request on **2026-08-07** — later than the date at the top of this file,

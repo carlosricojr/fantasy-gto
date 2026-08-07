@@ -35,6 +35,7 @@ import {
   slotsForTemplate,
 } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
+import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
 import {
   DEFAULT_SCORING,
   SCORING_PRESETS,
@@ -576,6 +577,13 @@ export default function DraftPage() {
         title="Draft"
         subtitle="Set your league up once. Everything after that is one click per pick."
       >
+        {/*
+          Before the draft starts, not after. A board whose last rebuild failed is only hours
+          old — the failed run left the previous one intact, which is correct and is exactly
+          why the failure is invisible in a timestamp — and somebody about to spend an hour
+          drafting off it needs to know at the point they choose to.
+        */}
+        <BoardHealthNotice freshness={freshness ?? null} />
         <section className="rounded-lg border p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Teams">
@@ -841,6 +849,8 @@ export default function DraftPage() {
         {turnSummary}
       </p>
 
+      <BoardHealthNotice freshness={freshness ?? null} />
+
       {/*
         The league's shape, kept in front of the reader for the whole draft rather than only
         on the setup screen it was chosen on. A draft is an hour of picks made against a
@@ -1087,12 +1097,62 @@ function ByeSummary({ roster }: { roster: readonly PlayerRisk[] }) {
   );
 }
 
+interface BoardFreshness {
+  computedAt: number | null;
+  adpSourceTeams: number | null;
+  lastAttemptAt: number | null;
+  lastAttemptStatus: "running" | "succeeded" | "failed" | null;
+}
+
+/**
+ * How healthy the board is, in one prominent line above everything else.
+ *
+ * Separated from the small-print caveat below, and deliberately: a board whose last rebuild
+ * *failed* looks entirely healthy in a timestamp — it is only hours old, because the failed
+ * run left the previous one intact, which is the correct behaviour and exactly why the
+ * failure is invisible. Somebody about to draft off it has to be told before they start, not
+ * in a paragraph at the bottom of a sidebar.
+ */
+function BoardHealthNotice({
+  freshness,
+}: {
+  freshness: BoardFreshness | null;
+}) {
+  // `Date.now()` at mount rather than during render, for the same hydration reason the
+  // formatted timestamp below has: a server render and a client render happen at different
+  // instants and would disagree about how many hours old a board is.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), [freshness]);
+  if (now === null) return null;
+
+  const health = boardHealth({
+    now,
+    publishedAt: freshness?.computedAt ?? null,
+    lastAttemptAt: freshness?.lastAttemptAt ?? null,
+    lastAttemptFailed: freshness?.lastAttemptStatus === "failed",
+    refreshing: freshness?.lastAttemptStatus === "running",
+  });
+  if (health === "fresh") return null;
+
+  return (
+    <p
+      className="mb-4 rounded-md border border-dashed p-3 text-sm"
+      role={health === "refreshing" ? "status" : "alert"}
+    >
+      {describeBoardHealth(health, {
+        now,
+        publishedAt: freshness?.computedAt ?? null,
+      })}
+    </p>
+  );
+}
+
 function Caveat({
   freshness,
   boardSize,
   teams,
 }: {
-  freshness: { computedAt: number; adpSourceTeams: number | null } | null;
+  freshness: BoardFreshness | null;
   boardSize: number;
   teams: number;
 }) {
@@ -1105,7 +1165,9 @@ function Caveat({
   const [builtAt, setBuiltAt] = useState<string | null>(null);
   useEffect(() => {
     setBuiltAt(
-      freshness === null ? null : new Date(freshness.computedAt).toLocaleString(),
+      freshness?.computedAt == null
+        ? null
+        : new Date(freshness.computedAt).toLocaleString(),
     );
   }, [freshness]);
 
@@ -1114,7 +1176,7 @@ function Caveat({
   // would present an approximation as a published board — which is the one thing this whole
   // provenance chain exists to prevent.
   const provenance =
-    freshness === null
+    freshness?.computedAt == null
       ? "No board has been built for this league size yet."
       : freshness.adpSourceTeams === null
         ? "This board predates source tracking, so where its market prices came from is not recorded."
