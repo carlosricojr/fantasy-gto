@@ -203,7 +203,10 @@ export function PlayerPool({
   }, [focus, rows, visible, query, position, filter]);
 
   return (
-    <section className="flex min-h-0 flex-col rounded-xl border bg-card">
+    // `min-w-0` because from `3xl` this is a grid item rather than a flex child (see the
+    // draft page's `3xl:contents`), and a grid item's automatic minimum size is its
+    // min-content width — which for a table of names is wider than the track it was given.
+    <section className="flex min-h-0 min-w-0 flex-col rounded-xl border bg-card">
       <header className="flex flex-col gap-3 border-b p-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[11rem] flex-1">
@@ -280,7 +283,13 @@ export function PlayerPool({
         <>
           <div
             ref={scroller}
-            className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem]"
+            // The `lg` cap is there because at that width the list sits *below* the
+            // recommendation panel in the same column, and a viewport-tall list pushes
+            // everything after it — the roster, the queue — off the bottom of the screen.
+            // From `3xl` they are side by side in separate columns, nothing follows the
+            // list in its own column, and the phone's viewport-relative height is right
+            // again: the extra rows are free.
+            className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem] 3xl:max-h-[70dvh]"
           >
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-card">

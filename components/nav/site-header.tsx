@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
+import { APP_CONTAINER, MARKETING_CONTAINER } from "@/components/app-container";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/components/ui/cn";
@@ -40,7 +41,12 @@ export function SiteHeader({ variant }: { variant: NavVariant }) {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      {/* The app shell's width comes from the page under it — `APP_CONTAINER` resolves to
+          a variable the current `PageShell` sets — so this bar is inset by exactly as much
+          as the content it frames, on the wide draft board and on the narrow screens alike.
+          Marketing has one width and no wide surface, so it has a constant of its own
+          rather than a second literal written out here. */}
+      <div className={cn(variant === "app" ? APP_CONTAINER : MARKETING_CONTAINER, "px-4 sm:px-6")}>
         <div className="flex h-14 items-center gap-6">
           <Link href="/" className="shrink-0 font-semibold tracking-tight">
             Fantasy GTO

@@ -3,6 +3,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  /* One step above Tailwind's `2xl` (96rem), for the desktop widths the draft board is
+     actually used at. Tailwind stops at 96rem, so without this every rule for a 1792px
+     display has to be written as an arbitrary `min-[...]` variant and the number is then
+     repeated at each call site. The app shell and the draft screen read it. */
+  --breakpoint-3xl: 112rem;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -124,6 +132,41 @@
 }
 
 @layer base {
+  /* The signed-in app's content width, read by the header, the footer and the page through
+     `APP_CONTAINER` in `components/app-container.ts`.
+
+     It is set here, on the shell, rather than written into the class list of each of those
+     three, because the width belongs to the *page* and the chrome has to follow it: only
+     the started draft board is wide, and a header that widened on the other three app
+     screens would inset the brand hundreds of pixels from the content it sits above. That
+     is what the first version of this change did, and two independent reviews found it
+     immediately. `PageShell` marks its own measure with `data-shell`, and `:has()` is what
+     lets the shell above it read that without the layout holding a list of which routes are
+     wide — a list that would drift from the call sites the moment a fourth screen was added.
+
+     Why it steps rather than growing without limit. A draft board is scanned, not read, so
+     it genuinely wants width: fourteen seats need 14 x 5.5rem plus the round gutter, which
+     does not fit in 72rem and scrolled sideways on a desktop with half its width empty. It
+     fits from 88rem. Past roughly 104rem the eye travel between the recommendation on the
+     left and the roster on the right costs more than more columns are worth, so the draft
+     page reflows to three columns at `3xl` instead of stretching two.
+
+     A browser without `:has()` keeps 72rem everywhere, which is exactly what shipped before
+     this change — the degradation is the old layout, not a broken one. */
+  [data-app-shell] {
+    --app-shell-max: 72rem;
+  }
+  @media (width >= 96rem) {
+    [data-app-shell]:has([data-shell="wide"]) {
+      --app-shell-max: 88rem;
+    }
+  }
+  @media (width >= 112rem) {
+    [data-app-shell]:has([data-shell="wide"]) {
+      --app-shell-max: 104rem;
+    }
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

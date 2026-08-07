@@ -140,8 +140,15 @@ export function Recommendations({
 
       <div className="border-b p-4">
         {/* Two columns on a phone rather than a wrapping row, which left the fourth
-            figure alone on its own line with three-quarters of the width empty. */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-y-1">
+            figure alone on its own line with three-quarters of the width empty — and again
+            from `3xl`, where this panel is a 30rem column beside the player list rather
+            than the full width of the page, so the wrapping row has the same problem for
+            the same reason. The breakpoint is the layout's, not this component's: it is the
+            width at which the draft page splits into three columns. Only `display` and the
+            row gap are restored: `grid-cols-2` was never overridden, only made inert, and
+            the baseline alignment the `sm` row brings with it is worth keeping — it lines
+            the large figure up with the ordinary-sized one beside it. */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-y-1 3xl:grid 3xl:gap-y-3">
           <Figure
             value={`${(leader.championshipProbability * 100).toFixed(1)}%`}
             unit={`± ${(leader.standardError * 100).toFixed(1)}`}
@@ -342,6 +349,9 @@ function Figure({
 
 function Panel({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <section className={cn("rounded-xl border bg-card", className)}>{children}</section>
+    // `min-w-0` for the same reason `PlayerPool`'s root has it: from `3xl` this panel is a
+    // grid item, whose automatic minimum size is min-content unless it is told otherwise,
+    // and the figures row and player names inside it are `nowrap`.
+    <section className={cn("min-w-0 rounded-xl border bg-card", className)}>{children}</section>
   );
 }
