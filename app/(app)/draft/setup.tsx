@@ -99,10 +99,17 @@ export function DraftSetup({
               that does nothing and says nothing is the worst of the three states. */}
           <Button
             size="lg"
-            className="w-full sm:w-auto"
-            disabled={!scoringConfirmed}
+            className={cn("w-full sm:w-auto", !scoringConfirmed && "opacity-50")}
+            // `aria-disabled`, not `disabled`. A disabled button is out of the tab order, so
+            // the hint it points at with `aria-describedby` is the one thing a keyboard or
+            // screen reader user could never reach — leaving the control unexplained for
+            // exactly the people the explanation was written for.
+            aria-disabled={!scoringConfirmed}
             aria-describedby="scoring-confirmation-hint"
-            onClick={onStart}
+            onClick={() => {
+              if (!scoringConfirmed) return;
+              onStart();
+            }}
           >
             Start draft
             <ArrowRight />

@@ -211,7 +211,9 @@ export function Recommendations({
 
       <footer className="border-t p-3 text-xs text-muted-foreground">
         Ranked by the probability of winning the league, simulated over {scenarios} seasons
-        against the rosters your opponents have actually drafted. Candidates within a couple
+        against the picks your opponents have actually made — their unfilled spots are
+        completed by a simple best-available rule, so an early-round answer leans on that
+        assumption more than a late one. Candidates within a couple
         of standard errors are statistically tied and are ordered by playoff probability,
         which resolves at this sample size when title odds do not.
         {state.lastElapsedMs === null

@@ -290,6 +290,24 @@ describe("byeGaps", () => {
     expect(byeGaps(slots, [])).toEqual([]);
   });
 
+  it("never names more empty slots than the week actually costs", () => {
+    // The per-label difference can name a different slot than the one that emptied when two
+    // are interchangeable — a back moving from RB to FLEX is not a new gap. The count comes
+    // from the totals, and the names are capped at it, so the list cannot over-report.
+    for (const roster of [
+      fullRoster(),
+      [...fullRoster(), risk("rb3", "RB", 2)],
+      [risk("rb1", "RB", 4), risk("rb2", "RB", 4), risk("wr1", "WR", 4)],
+    ]) {
+      for (const gap of byeGaps(slots, roster)) {
+        const available = roster.filter((player) => player.byeWeek !== gap.week);
+        const lost =
+          unfilledSlots(slots, available).length - unfilledSlots(slots, roster).length;
+        expect(gap.slots.length).toBe(lost);
+      }
+    }
+  });
+
   it("returns weeks in order", () => {
     const weeks = byeGaps(slots, fullRoster()).map((gap) => gap.week);
     expect(weeks).toEqual([...weeks].sort((a, b) => a - b));

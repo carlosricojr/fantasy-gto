@@ -125,6 +125,14 @@ export function PlayerPool({
     [players, filter, position, query, sort],
   );
 
+  // A position whose tab has gone cannot stay selected. The tabs only offer positions with
+  // rows behind them, so taking the last available kicker removed the K tab while `position`
+  // still held "K" — an empty list, no tab showing as selected, and nothing on screen naming
+  // the filter that was hiding everything.
+  useEffect(() => {
+    if (position !== null && (counts[position] ?? 0) === 0) setPosition(null);
+  }, [counts, position]);
+
   // Back to the top of the list whenever what the list *is* changes. Without this, typing
   // a search after paging deep left the count expanded at 300 rows for a two-row result,
   // and clearing it dumped the reader 300 rows down a list they had not scrolled.

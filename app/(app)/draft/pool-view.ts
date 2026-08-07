@@ -278,14 +278,28 @@ export function byeGaps(
     const available = roster.filter((player) => player.byeWeek !== week);
     const missing = countLabels(unfilledSlots(slots, available));
 
+    // How many slots the week actually costs. Counted as a total first, because the
+    // per-label difference below can name a *different* slot than the one that emptied when
+    // two are interchangeable — a back moving from RB to FLEX is not a new gap. The names
+    // are then capped at that total, so the list can never claim more empty slots than the
+    // solve lost. The count is exact; each label is a reasonable name for one of them.
+    const lost = total(missing) - total(baseline);
+    if (lost <= 0) continue;
+
     const worse: string[] = [];
     for (const [label, count] of missing) {
       const extra = count - (baseline.get(label) ?? 0);
-      for (let i = 0; i < extra; i += 1) worse.push(label);
+      for (let i = 0; i < extra && worse.length < lost; i += 1) worse.push(label);
     }
     if (worse.length > 0) gaps.push({ week, slots: worse });
   }
   return gaps;
+}
+
+function total(counts: ReadonlyMap<string, number>): number {
+  let sum = 0;
+  for (const count of counts.values()) sum += count;
+  return sum;
 }
 
 function countLabels(labels: readonly string[]): Map<string, number> {

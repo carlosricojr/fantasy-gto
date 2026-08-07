@@ -15,13 +15,17 @@ import { basisBadge, basisExplanation, type ValueBasis } from "@/lib/nfl/draft/p
 export function BasisBadge({ basis }: { basis: ValueBasis }) {
   const badge = basisBadge(basis);
   if (badge === null) return null;
+  // The explanation is real text rather than an `aria-label`. A `<span>` has an implicit
+  // role of `generic`, which prohibits naming — so the label was dropped by the very
+  // technology it was written for, and a screen reader read the two-word abbreviation with
+  // no way to find out what it meant. `title` still carries it for a pointer.
   return (
     <span
       className="ml-1 shrink-0 rounded border px-1 py-px text-[10px] tracking-wide text-muted-foreground uppercase"
       title={basisExplanation(basis)}
-      aria-label={basisExplanation(basis)}
     >
-      {badge}
+      <span aria-hidden>{badge}</span>
+      <span className="sr-only">{basisExplanation(basis)}</span>
     </span>
   );
 }

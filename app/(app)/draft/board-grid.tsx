@@ -85,6 +85,10 @@ export function BoardGrid({
       // each cell's accessible name instead, which is honest and needs no plumbing.
       role="group"
       aria-label={`Draft board, ${teams} teams, ${rounds} rounds`}
+      // Focusable, so the arrow keys can scroll it. Before any pick is recorded every cell
+      // is a plain span, so the region has no focusable child at all and a keyboard user
+      // cannot reach the later rounds — a scrollable region with no keyboard route into it.
+      tabIndex={0}
       className="max-h-[13rem] overflow-auto overscroll-contain rounded-xl border bg-card sm:max-h-[18rem] lg:max-h-[22rem]"
     >
       <div
