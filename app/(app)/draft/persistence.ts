@@ -22,7 +22,17 @@ import { SUPPORTED_LEAGUE_SIZES } from "@/lib/nfl/draft/league-size";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 
-/** Bumped when the shape below changes, so an old payload is ignored rather than misread. */
+/**
+ * Bumped when an old payload could be *misread*, which is not the same as whenever the
+ * shape changes.
+ *
+ * A field added with a default that reproduces the behaviour the old payload already had
+ * needs no bump, and must not get one: bumping discards every draft in progress, and doing
+ * that to avoid a migration that consists of one default is the cure being worse than the
+ * disease. `championshipWeek` is exactly that case — absent means week 17, which is what a
+ * payload written before it existed was already being simulated as. A field whose absence
+ * cannot be filled in that way is what this constant is for.
+ */
 export const DRAFT_STORAGE_KEY = "fantasy-gto:draft:v1";
 
 /**
