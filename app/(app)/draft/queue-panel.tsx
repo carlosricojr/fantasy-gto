@@ -67,7 +67,14 @@ export function QueuePanel({
             </div>
           ) : null}
           <ol className="divide-y">
-            {rows.map((player, index) => (
+            {rows.map((player, index) => {
+              // Resolved here rather than indexed inside the handlers. `rows[index - 1].id`
+              // is only safe because `IconButton` returns early, which makes a guard in one
+              // component load-bearing for an expression in another — the kind of coupling
+              // that turns into a TypeError the next time either is touched.
+              const above = rows[index - 1];
+              const below = rows[index + 1];
+              return (
               <li key={player.id} className="flex items-center gap-2 px-3 py-2">
                 <span className="w-3 shrink-0 text-xs text-muted-foreground tabular-nums">
                   {index + 1}
@@ -89,15 +96,19 @@ export function QueuePanel({
                       is returned to <body> by the act of using the control. */}
                   <IconButton
                     label={`Move ${player.name} up the queue`}
-                    unavailable={index === 0}
-                    onClick={() => onSwap(player.id, rows[index - 1].id)}
+                    unavailable={above === undefined}
+                    onClick={() => {
+                      if (above !== undefined) onSwap(player.id, above.id);
+                    }}
                   >
                     <ChevronUp className="size-3.5" />
                   </IconButton>
                   <IconButton
                     label={`Move ${player.name} down the queue`}
-                    unavailable={index === rows.length - 1}
-                    onClick={() => onSwap(player.id, rows[index + 1].id)}
+                    unavailable={below === undefined}
+                    onClick={() => {
+                      if (below !== undefined) onSwap(player.id, below.id);
+                    }}
                   >
                     <ChevronDown className="size-3.5" />
                   </IconButton>
@@ -109,7 +120,8 @@ export function QueuePanel({
                   </IconButton>
                 </span>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </>
       )}

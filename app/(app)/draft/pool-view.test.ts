@@ -199,8 +199,16 @@ describe("what the roster still needs", () => {
   });
 
   it("does not count a bench player as filling a slot twice", () => {
+    // The whole unfilled set, not just the absence of QB. Asserting only that "QB" is
+    // gone passes even if the second quarterback wrongly occupied some other slot, which
+    // is the failure the test is named for.
     const roster = [risk("qb1", "QB"), risk("qb2", "QB")];
-    expect(unfilledSlots(slots, roster)).not.toContain("QB");
+    expect(unfilledSlots(slots, roster).sort()).toEqual(
+      slots
+        .filter((slot) => slot.label !== "QB")
+        .map((slot) => slot.label)
+        .sort(),
+    );
   });
 });
 

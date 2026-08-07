@@ -96,6 +96,7 @@ export function PlayerPool({
   const [sort, setSort] = useState<PoolSort>("value");
   const [visible, setVisible] = useState(PAGE);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
 
   // Counted over the rows this filter actually selects. Counting availability
   // unconditionally made the tabs read "RB 41" over a list of 168 drafted players, and hid
@@ -143,6 +144,29 @@ export function PlayerPool({
   }, [focus, rows]);
 
   const shown = rows.slice(0, visible);
+
+  // Brings the revealed row into view *inside this list*, not by scrolling the page.
+  //
+  // `scrollIntoView` moves every scrollable ancestor, which on a phone takes the search
+  // box and the record controls off the screen with it — the same reason `board-grid.tsx`
+  // does its own arithmetic. Runs after `shown` has grown to contain the row, which is
+  // what `visible` in the deps is for.
+  useEffect(() => {
+    if (focus === null) return;
+    const container = scroller.current;
+    const row = container?.querySelector<HTMLElement>('[data-focused="true"]');
+    if (container == null || row == null) return;
+    const offset = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTo({
+      top: Math.max(
+        0,
+        container.scrollTop + offset - container.clientHeight / 2 + row.clientHeight / 2,
+      ),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [focus, visible]);
 
   return (
     <section className="flex min-h-0 flex-col rounded-xl border bg-card">
@@ -220,7 +244,10 @@ export function PlayerPool({
         </p>
       ) : (
         <>
-          <div className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem]">
+          <div
+            ref={scroller}
+            className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem]"
+          >
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b text-xs text-muted-foreground">
@@ -329,11 +356,6 @@ function PoolRow({
   focused: boolean;
   onOpenDetail: (playerId: string) => void;
 }) {
-  const row = useRef<HTMLTableRowElement | null>(null);
-  useEffect(() => {
-    if (focused) row.current?.scrollIntoView({ block: "center" });
-  }, [focused]);
-
   const drafted = player.draftedAt !== null;
 
   // The probability the market leaves him on the board until your next turn. This is the
@@ -348,7 +370,9 @@ function PoolRow({
 
   return (
     <tr
-      ref={row}
+      // Read by the list's scroll effect above, which scrolls its own container rather
+      // than every ancestor of this row.
+      data-focused={focused ? "true" : undefined}
       className={cn(
         "border-b last:border-b-0",
         focused && "bg-brand/10",

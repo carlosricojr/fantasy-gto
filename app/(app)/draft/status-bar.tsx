@@ -118,7 +118,9 @@ export function StatusBar({
 
       <div className="h-0.5 w-full rounded-full bg-muted" aria-hidden>
         <div
-          className="h-full rounded-full bg-brand transition-[width] duration-300"
+          // `motion-safe`, like the skeletons and the board's scroll. This bar animates on
+          // every recorded pick, which is the most frequent motion on the screen.
+          className="h-full rounded-full bg-brand motion-safe:transition-[width] motion-safe:duration-300"
           style={{ width: `${progress}%` }}
         />
       </div>
