@@ -1,3 +1,4 @@
+import { APP_CONTAINER } from "@/components/app-container";
 import { cn } from "@/lib/utils";
 
 /** Shared page chrome, so every screen frames its title and empty states identically. */
@@ -13,7 +14,8 @@ export function PageShell({
   /** Controls that belong beside the title rather than in the content. */
   actions?: React.ReactNode;
   /**
-   * `wide` matches the header's own `max-w-6xl`.
+   * `wide` is the app shell's own width, shared with the header and footer via
+   * `APP_CONTAINER` so the two insets cannot disagree.
    *
    * Reading text wants a narrow measure, which is what the default is for. A draft board
    * is a grid of fourteen columns and is not read, it is scanned — squeezing it into a
@@ -25,8 +27,9 @@ export function PageShell({
   return (
     <main
       className={cn(
-        "mx-auto",
-        size === "wide" ? "max-w-6xl px-4 py-6 sm:px-6" : "max-w-3xl px-6 py-10",
+        size === "wide"
+          ? `${APP_CONTAINER} px-4 py-6 sm:px-6`
+          : "mx-auto max-w-3xl px-6 py-10",
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">

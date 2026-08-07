@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { APP_CONTAINER } from "@/components/app-container";
 import { EnsureUser } from "@/components/ensure-user";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { SiteHeader } from "@/components/nav/site-header";
@@ -29,7 +30,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex-1">{children}</div>
 
       <footer className="border-t py-6 pb-20 sm:pb-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground">
+        <div
+          className={`${APP_CONTAINER} flex flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground`}
+        >
           <span>Fantasy GTO</span>
           <Link href="/accuracy" className="hover:text-foreground">
             How accurate is this?

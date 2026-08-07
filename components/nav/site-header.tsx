@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
+import { APP_CONTAINER } from "@/components/app-container";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/components/ui/cn";
@@ -40,7 +41,17 @@ export function SiteHeader({ variant }: { variant: NavVariant }) {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      {/* The app shell widens on large displays and the marketing site does not, so the
+          header follows whichever it is sitting on top of. A brand pinned to the far edge
+          of a 104rem bar above a 48rem article reads as a broken page; above the draft
+          board, which is that wide, it reads as the app frame it is. */}
+      <div
+        className={
+          variant === "app"
+            ? `${APP_CONTAINER} px-4 sm:px-6`
+            : "mx-auto max-w-6xl px-4 sm:px-6"
+        }
+      >
         <div className="flex h-14 items-center gap-6">
           <Link href="/" className="shrink-0 font-semibold tracking-tight">
             Fantasy GTO

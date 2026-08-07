@@ -3,6 +3,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  /* One step above Tailwind's `2xl` (96rem), for the desktop widths the draft board is
+     actually used at. Tailwind stops at 96rem, so without this every rule for a 1792px
+     display has to be written as an arbitrary `min-[...]` variant and the number is then
+     repeated at each call site. Only the app shell's width and the draft page's column
+     count read it. */
+  --breakpoint-3xl: 112rem;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

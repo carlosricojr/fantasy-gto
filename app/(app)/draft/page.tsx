@@ -718,8 +718,22 @@ export default function DraftPage() {
         </div>
       </section>
 
-      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="flex min-w-0 flex-col gap-4">
+      {/* One column on a phone, two from `lg`, three from `3xl`.
+
+          The third column is a reflow, not a stretch. From `3xl` the shell is 104rem wide,
+          and spending all of it on two columns makes a table whose widest cell is a
+          player's name a thousand pixels across while the recommendation that decides the
+          pick sits off the bottom of the screen. Splitting instead puts what to take, who
+          is left, and what you have side by side, which is the whole page on one screen and
+          no scrolling between the two panels a pick is actually decided from.
+
+          `3xl:contents` rather than a second grid: below that width these two panels share
+          one column and stack, and `display: contents` promotes them to grid items of the
+          outer grid without a wrapper element to lay out. The div carries no role and no
+          styling of its own at that width, so removing its box removes nothing from the
+          accessibility tree either. */}
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]">
+        <div className="flex min-w-0 flex-col gap-4 3xl:contents">
           <Recommendations
             state={recommender}
             scenarios={SCENARIOS}
