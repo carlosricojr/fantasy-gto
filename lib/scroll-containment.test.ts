@@ -26,17 +26,19 @@ import { describe, expect, it } from "vitest";
 const SCANNED = ["app", "components"];
 
 /**
- * Scrollers whose positioning is set by a primitive's own base classes rather than at the
- * call site, so the class list here legitimately does not carry it.
+ * Class lists whose element is positioned by a primitive's own base classes rather than at
+ * the call site.
  *
- * `DialogContent` is `fixed`, which already makes it a containing block. Adding `relative`
- * at these call sites would not be redundant — it would *win* over the base `fixed` through
- * `twMerge` and unpin the dialog.
+ * `DialogContent` is `fixed` (and `translate-x-[-50%]`, so a containing block twice over).
+ * Adding `relative` at these call sites would not be redundant — tailwind-merge puts every
+ * position utility in one conflict group, so the call-site class would *win* over the base
+ * and unpin the dialog.
+ *
+ * Keyed on the class list and not on the file. Exempting the file skips it before the scan
+ * runs, and these two are content-heavy dialogs — the likeliest place for somebody to add a
+ * second, ordinary inner scroller that would then pass silently.
  */
-const EXEMPT = new Set([
-  join("app", "(app)", "draft", "player-detail.tsx"),
-  join("app", "(app)", "draft", "settings-dialog.tsx"),
-]);
+const EXEMPT = new Set(["max-h-[85dvh] overflow-y-auto sm:max-w-md", "max-h-[85dvh] overflow-y-auto sm:max-w-lg"]);
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -52,19 +54,32 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-/** Class lists that scroll on some axis but establish no containing block. */
+/**
+ * Class lists that scroll on some axis but establish no containing block.
+ *
+ * Every double-quoted string in the file is considered, not only the ones spelled
+ * `className="…"`. Every primitive under `components/ui/` composes its classes through
+ * `cn(...)` or `cva(...)`, so a `className=`-only match was blind to exactly the directory
+ * the next scroller will come from — `dropdown-menu.tsx` already had one it could not see.
+ * A string with an `overflow-*-auto` utility in it is a class list; there is no other kind.
+ */
 function unclippedScrollers(source: string): string[] {
   const found: string[] = [];
-  for (const m of source.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{"([^"]*)"\})/g)) {
-    const classes = (m[1] ?? m[2] ?? m[3] ?? "").replace(/\s+/g, " ").trim();
+  for (const m of source.matchAll(/"([^"\n]*)"|`([^`]*)`/g)) {
+    const classes = (m[1] ?? m[2] ?? "").replace(/\s+/g, " ").trim();
+    if (EXEMPT.has(classes)) continue;
     const utilities = classes.split(" ");
     const scrolls = utilities.some((u) =>
       /^(?:[a-z0-9-]+:)*overflow(?:-[xy])?-(?:auto|scroll)$/.test(u),
     );
     if (!scrolls) continue;
-    const positioned = utilities.some((u) =>
-      /^(?:[a-z0-9-]+:)*(?:relative|absolute|fixed|sticky)$/.test(u) ||
-      /^(?:[a-z0-9-]+:)*contain-(?:layout|paint|strict|content)$/.test(u),
+    // Unprefixed, deliberately, and asymmetric with the test above on purpose: a scroller
+    // that only scrolls at `lg` still scrolls, but a containing block that only exists at
+    // `lg` leaves every narrower viewport unclipped.
+    const positioned = utilities.some(
+      (u) =>
+        /^(?:relative|absolute|fixed|sticky)$/.test(u) ||
+        /^contain-(?:layout|paint|strict|content)$/.test(u),
     );
     if (!positioned) found.push(classes.slice(0, 70));
   }
@@ -78,7 +93,6 @@ describe("every scroll container clips what it scrolls", () => {
     for (const dir of SCANNED) {
       for (const file of sourceFiles(dir)) {
         scanned += 1;
-        if (EXEMPT.has(file)) continue;
         for (const classes of unclippedScrollers(readFileSync(file, "utf8"))) {
           offenders.push(`${file}: ${classes}`);
         }
@@ -99,6 +113,12 @@ describe("every scroll container clips what it scrolls", () => {
     expect(unclippedScrollers('<div className="relative overflow-y-auto" />')).toEqual([]);
     expect(unclippedScrollers('<div className="sticky top-0 overflow-auto" />')).toEqual([]);
     expect(unclippedScrollers('<div className="overflow-x-scroll contain-paint" />')).toEqual([]);
+    // A class list composed through `cn()` is seen, which a `className=`-only match was not.
+    expect(unclippedScrollers('cn("max-h-40 overflow-y-auto rounded border", className)')).toHaveLength(1);
+    // A containing block that only exists at one breakpoint does not clip the others.
+    expect(unclippedScrollers('<div className="overflow-y-auto lg:relative" />')).toHaveLength(1);
+    // The documented exemption is matched on the class list, not the file it lives in.
+    expect(unclippedScrollers('<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">')).toEqual([]);
     // `overflow-hidden` is not a scroll container and is not what this rule is about.
     expect(unclippedScrollers('<div className="overflow-hidden" />')).toEqual([]);
     // A responsive variant still scrolls, and still needs it.
