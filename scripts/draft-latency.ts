@@ -34,11 +34,17 @@ import { slotsForTemplate } from "@/lib/nfl/roster";
  *   path a user actually waits on and the one the budget has to be built from.
  * - **warm** — the same position again, served by the LRU memo the worker already keeps.
  *   Real because picks are corrected constantly: a board changes and changes back.
- * - **speculative hit** — the position was precomputed while an opponent was on the clock
- *   and the board that arrived matches the prepared one exactly.
- * - **speculative miss** — it was precomputed and the board that arrived does not match, so
- *   the answer is computed live. This is the *cost* of speculating and being wrong, and it
- *   is the number that decides whether speculating is worth it.
+ * - **speculative prepare** — solving the futures a board might reach while an opponent is on
+ *   the clock. Paid whether or not the guess turns out right, which is why it is its own row
+ *   rather than folded into either outcome.
+ * - **speculative hit** — the board that arrived matches a prepared one exactly, so the
+ *   answer is a lookup. This row is the lookup alone; the preparation is above it.
+ * - **speculative miss (fallback only)** — the board does not match, so the answer is
+ *   computed live. This row is the fallback alone.
+ *
+ * The **cost of speculating and being wrong** is prepare + miss, and it is printed as its own
+ * line rather than left to a reader to add up — because the row labelled "miss" measuring
+ * only the fallback is exactly the sort of thing that gets quoted as the whole cost.
  *
  * **The speculative paths are prototype measurements.** `recommendWithCache` and
  * `precomputeRecommendations` have no production caller — the worker uses the memo and not
@@ -60,6 +66,24 @@ const ROUNDS = 15;
 const SLOT = 9;
 const CANDIDATES = 10;
 const SCENARIO_COUNTS = [150, 300, 600, 1000] as const;
+
+/**
+ * How many futures the speculative rows prepare.
+ *
+ * The preparation cost scales with this and the hit cost does not, so the two are reported
+ * separately and this number is printed beside them. Four is small enough to be honest about:
+ * a real speculative path would want more, and would pay proportionally more to be wrong.
+ */
+const PREPARED_FUTURES = 4;
+
+/**
+ * Samples for the preparation row.
+ *
+ * Fewer than the rest: each one solves `PREPARED_FUTURES` positions from scratch, so a dozen
+ * at a thousand scenarios is three minutes for one row. Every row prints its own `n`, which
+ * is the point — a thin row that says so is honest, and one that hides it is not.
+ */
+const PREPARE_SAMPLES = 3;
 
 /** The two-minute pick clock this has to fit inside, in milliseconds. */
 const PICK_CLOCK_MS = 120_000;
@@ -140,9 +164,13 @@ interface Sample {
   timings: number[];
 }
 
-function measure(label: string, run: (index: number) => void): Sample {
+function measure(
+  label: string,
+  run: (index: number) => void,
+  samples: number = SAMPLES,
+): Sample {
   const timings: number[] = [];
-  for (let i = 0; i < SAMPLES; i += 1) {
+  for (let i = 0; i < samples; i += 1) {
     const started = process.hrtime.bigint();
     run(i);
     timings.push(Number(process.hrtime.bigint() - started) / 1e6);
@@ -168,7 +196,7 @@ function report(sample: Sample): string {
   const p95 = percentile(sample.timings, 95);
   const worst = Math.max(...sample.timings);
   return (
-    `  ${sample.label.padEnd(22)} n=${String(sample.timings.length).padStart(3)}  ` +
+    `  ${sample.label.padEnd(28)} n=${String(sample.timings.length).padStart(3)}  ` +
     `p50 ${p50.toFixed(0).padStart(6)}ms  p95 ${p95.toFixed(0).padStart(6)}ms  ` +
     `worst ${worst.toFixed(0).padStart(6)}ms`
   );
@@ -211,8 +239,13 @@ function main(): void {
     // A different position per sample, so nothing is accidentally served warm. Picks 1
     // through 24 is the first two rounds, which is where the pool is largest and the work
     // therefore heaviest.
+    //
+    // Built before the clock starts, like every other row. `stateFor` filters a 614-player
+    // board and builds a pick-ownership map; folding that into the cold row and not into the
+    // warm one would make the comparison between them a comparison of two different things.
+    const coldStates = Array.from({ length: SAMPLES }, (_, i) => stateFor(pool, i * 2));
     const cold = measure("cold", (i) => {
-      recommendByChampionship(stateFor(pool, i * 2), config, SEED, CANDIDATES);
+      recommendByChampionship(coldStates[i], config, SEED, CANDIDATES);
     });
 
     const warmState = stateFor(pool, 11);
@@ -227,17 +260,37 @@ function main(): void {
     // whatever the preparation cost, which is the number that decides whether it is worth
     // doing at all.
     const before = stateFor(pool, 10);
-    // One opponent pick between the current board and ours, sampled a few times from the
-    // ADP dispersion the survival model already uses. Four samples rather than forty: this
-    // measures the *lookup*, and preparing more futures makes the preparation slower without
-    // changing what a hit costs.
-    const anticipated = anticipateStates(before, [{ team: 1 }], 4, createRng(SEED));
-    const cache = precomputeRecommendations(before, anticipated, config, SEED, {
+    // One opponent pick between the current board and ours, sampled from the ADP dispersion
+    // the survival model already uses. `PREPARED_FUTURES` of them, because the preparation
+    // cost scales with that number and the hit cost does not — so the two have to be
+    // reported separately or the trade cannot be read.
+    const anticipated = anticipateStates(
+      before,
+      [{ team: 1 }],
+      PREPARED_FUTURES,
+      createRng(SEED),
+    );
+    // Timed. This is paid on every opponent pick whether the guess turns out right or not,
+    // and leaving it out of the report is how "speculation is nearly free" gets said.
+    let cache = precomputeRecommendations(before, anticipated, config, SEED, {
       candidateLimit: CANDIDATES,
-      maxStates: 4,
+      maxStates: PREPARED_FUTURES,
     });
-    const hitState =
-      cache.entries.length > 0 ? anticipated[0].state : before;
+    // Fewer samples, because each one solves `PREPARED_FUTURES` positions from scratch — a
+    // dozen of them at a thousand scenarios is three minutes for one row. The count is
+    // printed per row, so a reader can see which rows are thin rather than having to trust
+    // that they are not.
+    const prepare = measure(
+      "speculative prepare",
+      () => {
+        cache = precomputeRecommendations(before, anticipated, config, SEED, {
+          candidateLimit: CANDIDATES,
+          maxStates: PREPARED_FUTURES,
+        });
+      },
+      PREPARE_SAMPLES,
+    );
+    const hitState = cache.entries.length > 0 ? anticipated[0].state : before;
     const hitResolution = resolveFromCache(cache, hitState);
     const hit = measure("speculative hit", () => {
       recommendWithCache(cache, hitState, config, SEED, {
@@ -245,17 +298,32 @@ function main(): void {
       });
     });
     const missState = stateFor(pool, 13);
-    const miss = measure("speculative miss", () => {
+    const miss = measure("speculative miss (fallback)", () => {
       recommendWithCache(cache, missState, config, SEED, {
         candidateLimit: CANDIDATES,
       });
     });
 
     process.stdout.write(`\n${scenarios} scenarios\n`);
-    for (const sample of [cold, warm, hit, miss]) process.stdout.write(`${report(sample)}\n`);
+    for (const sample of [cold, warm, prepare, hit, miss]) {
+      process.stdout.write(`${report(sample)}\n`);
+    }
+    // Spelled out rather than left to a reader to add up, because a row labelled "miss" that
+    // measures only the fallback is exactly what gets quoted as the whole cost of being
+    // wrong — and because the two costs land in different places, which the arithmetic
+    // alone does not say.
+    const wrongGuess = percentile(prepare.timings, 95) + percentile(miss.timings, 95);
+    const coldP95 = percentile(cold.timings, 95);
     process.stdout.write(
-      `  speculative cache: ${cache.entries.length} entr(ies) prepared, ` +
-        `hit path resolved as "${hitResolution.kind}"\n`,
+      `  work done when the guess is wrong: ${wrongGuess.toFixed(0)}ms ` +
+        `(prepare ${percentile(prepare.timings, 95).toFixed(0)} + fallback ` +
+        `${percentile(miss.timings, 95).toFixed(0)}), against ${coldP95.toFixed(0)}ms for ` +
+        `not speculating — ${(wrongGuess / coldP95).toFixed(1)}x the CPU\n` +
+        `  of which the user waits for the fallback alone; the preparation runs while an ` +
+        `opponent is on the clock, unless it is still running when the turn arrives\n` +
+        `  speculative cache: ${cache.entries.length} entr(ies) prepared from ` +
+        `${PREPARED_FUTURES} sampled future(s), hit path resolved as ` +
+        `"${hitResolution.kind}"\n`,
     );
     if (hitResolution.kind !== "exact") {
       process.stdout.write(

@@ -293,24 +293,44 @@ outcomes.
 displayed elapsed time is not a budget: it says how long one call took on one machine, tells
 nobody what the tail looks like, and cannot fail.
 
-```
+```text
 node v24.18.0, darwin arm64, Apple M4 Max x14, 36.0 GiB
 board 614 players (DST 15, K 15, QB 81, RB 147, TE 124, WR 232)
 12 teams, 15 rounds, seat 9, standard (9 starters), 10 candidates, seed 20260101
-12 samples per row, percentiles by nearest rank
+percentiles by nearest rank
 ```
 
-| Scenarios | cold p50 | cold p95 | warm p95 | speculative hit p95 | speculative miss p95 |
-| --- | --- | --- | --- | --- | --- |
-| 150 | 627 ms | 679 ms | 1 ms | 0 ms | 634 ms |
-| 300 | 1189 ms | 1220 ms | 0 ms | 0 ms | 1196 ms |
-| 600 | 2396 ms | 2487 ms | 0 ms | 0 ms | 2465 ms |
-| 1000 | 3950 ms | 4100 ms | 0 ms | 0 ms | 4048 ms |
+| Scenarios | cold p50 | cold p95 | warm p95 | spec prepare p95 | spec hit p95 | spec miss p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 150 | 632 ms | 665 ms | 1 ms | 2514 ms | 0 ms | 631 ms |
+| 300 | 1202 ms | 1235 ms | 0 ms | 4809 ms | 0 ms | 1203 ms |
+| 600 | 2350 ms | 2429 ms | 0 ms | 9523 ms | 0 ms | 2355 ms |
+| 1000 | 3816 ms | 3949 ms | 0 ms | 15355 ms | 0 ms | 3916 ms |
 
-**The budget is the worst cold p95: 4100 ms at 1000 scenarios, against a two-minute pick
-clock. That is 3.42% of the clock — a margin of 29×.** At the shipped default of 600 it is
-2487 ms, or 2.07%. Read off the measurement rather than chosen before it, which is why the
+Twelve samples per row except `prepare`, which is three — each of those solves four positions
+from scratch. Every row prints its own `n`.
+
+**The budget is the worst cold p95: 3949 ms at 1000 scenarios, against a two-minute pick
+clock. That is 3.29% of the clock — a margin of 30×.** At the shipped default of 600 it is
+2429 ms, or 2.02%. Read off the measurement rather than chosen before it, which is why the
 row it comes from is in the table.
+
+#### What the speculative rows say about whether to wire it
+
+Preparing four futures costs **4.9× a cold computation**, which is what it should cost: it is
+four of them. A wrong guess therefore does 19.3 seconds of work at 1000 scenarios where not
+speculating does 3.9.
+
+That is not the same as 19.3 seconds of waiting, and the distinction is the whole decision.
+The preparation runs while an opponent is on the clock, so a *hit* takes the user's wait from
+2.4 seconds to nothing and a *miss* leaves it exactly where it was — the fallback measures the
+same as cold. From the user's side speculation is strictly better.
+
+What it costs is the client's CPU, five times over, on a phone, and what it risks is
+contention: preparation that has not finished when the turn arrives queues the fallback behind
+itself, turning a 2.4-second wait into a longer one. That risk is not measured here and it is
+the thing a production implementation would have to bound — by budget, by cancellation, or by
+preparing fewer futures.
 
 The board is synthetic and deterministic, sized and shaped like the real published one. A
 benchmark that depended on a live provider would measure the provider, and one that depended
@@ -348,7 +368,7 @@ This section previously said otherwise: that "the board requests a recommendatio
 speculatively while opponents are on the clock" and "takes a precomputed answer only when the
 board that arrives matches one of them exactly". The first half described the ordinary
 recompute and the second described code nothing calls. Wiring it is #58, and the numbers
-above are the reason it is not urgent: a 29× margin on the path that *is* wired.
+above are the reason it is not urgent: a 30× margin on the path that *is* wired.
 
 ### League rules
 
