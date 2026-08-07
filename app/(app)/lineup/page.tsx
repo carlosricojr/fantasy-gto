@@ -166,10 +166,15 @@ export default function LineupPage() {
     // presets — rather than a round number, so the row wraps to the same height as the row
     // it replaces instead of half of it.
     return (
-      <PageShell
-        title="Lineup optimizer"
-        subtitle={<Skeleton className="h-4 w-64 max-w-full" />}
-      >
+      <PageShell title="Lineup optimizer" subtitle={<Skeleton className="h-5 w-64 max-w-full" />}>
+        {/* `h-5`, which is `text-sm`'s 1.25rem line box — not `h-4`, which was the
+              first guess and four pixels short of the paragraph it stands in for.
+
+              One line, and it can only reserve one. `describeSeasonState` returns a
+              sentence whose length depends on where the season is — 76 characters in the
+              offseason, a dozen in week 3 — so on a narrow phone the real subtitle
+              sometimes wraps to two and this still gives up a line. A fixed reserve cannot
+              track that, and reserving two lines everywhere would over-reserve in season. */}
         <div className="mb-4 flex flex-wrap gap-2">
           {ROSTER_TEMPLATES.map((template) => (
             <Skeleton key={template.id} className="h-8 w-24" />
@@ -182,7 +187,13 @@ export default function LineupPage() {
             state, then the picker. */}
         <div className="mb-3 h-4" />
         <Skeleton className="h-[9.5rem] rounded-lg" />
-        <Skeleton className="mt-6 h-64 rounded-lg" />
+        {/* `mt-8` and 8rem, matching the picker as it renders at the moment the season
+            resolves — not as it settles. `projections` is still `"skip"`-ed at that instant,
+            so the section is its heading row, the search input, "Loading players…" and an
+            empty bordered list: about 126px, not the 256px a filled picker occupies. The
+            block above this one was rewritten for exactly this reason and this one was left
+            aimed at the settled page. */}
+        <Skeleton className="mt-8 h-32 rounded-lg" />
         <p className="sr-only" role="status">
           Loading the optimizer.
         </p>

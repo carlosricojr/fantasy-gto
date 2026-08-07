@@ -42,9 +42,20 @@ function utilities(source: string, name: string): string[] {
   return [...stripComments(source).matchAll(pattern)].map((m) => m[1]);
 }
 
+/**
+ * Whether a utility's variant chain asks the operating system first.
+ *
+ * `includes`, not equality with `motion-safe:x` — a guarded utility can carry other
+ * variants too, and `md:motion-safe:transition-transform` is guarded. Equality reported it
+ * as an offender, which is a guard that punishes the correct thing.
+ */
+function guarded(utility: string): boolean {
+  return utility.includes("motion-safe:");
+}
+
 /** `animate-pulse` written without the variant that makes it optional. */
 function unguardedPulses(source: string): string[] {
-  return utilities(source, "animate-pulse").filter((u) => u !== "motion-safe:animate-pulse");
+  return utilities(source, "animate-pulse").filter((u) => !guarded(u));
 }
 
 /** `transition-all`, under any variant. */
@@ -61,9 +72,19 @@ function transitionAll(source: string): string[] {
  * it, and was missed by a first version of this file that only knew about `animate-pulse`.
  */
 function unguardedTransforms(source: string): string[] {
-  return utilities(source, "transition-transform").filter(
-    (u) => u !== "motion-safe:transition-transform",
-  );
+  const named = utilities(source, "transition-transform");
+  // Bare `transition` animates transform, translate, scale and rotate in Tailwind v4 — a
+  // superset of the utility above, sitting one keystroke away from it — and an arbitrary
+  // list can name any of the four. Neither is used here today, which is when a rule is
+  // free to add.
+  const bare = [...stripComments(source).matchAll(/(?:^|[\s"'`])((?:[^\s"'`]*:)?transition)(?![-\w[])/g)]
+    .map((m) => m[1]);
+  const arbitrary = [
+    ...stripComments(source).matchAll(/(?:^|[\s"'`])((?:[^\s"'`]*:)?transition-\[[^\]]*\])/g),
+  ]
+    .map((m) => m[1])
+    .filter((u) => /transform|translate|scale|rotate/.test(u));
+  return [...named, ...bare, ...arbitrary].filter((u) => !guarded(u));
 }
 
 describe("motion is asked for, not assumed", () => {
@@ -123,6 +144,15 @@ describe("motion is asked for, not assumed", () => {
       "transition-transform",
     ]);
     expect(unguardedTransforms('className="motion-safe:transition-transform"')).toEqual([]);
+    // A guard under another variant is still a guard.
+    expect(unguardedTransforms('className="md:motion-safe:transition-transform"')).toEqual([]);
+    expect(unguardedPulses('className="lg:motion-safe:animate-pulse"')).toEqual([]);
+    // The two ways of animating a transform without naming it.
+    expect(unguardedTransforms('className="transition duration-200"')).toEqual(["transition"]);
+    expect(unguardedTransforms('className="transition-[transform,opacity]"')).toEqual([
+      "transition-[transform,opacity]",
+    ]);
+    expect(unguardedTransforms('className="transition-[color,box-shadow]"')).toEqual([]);
   });
 
   it("keeps the reduced-motion rule the animation library does not ship", () => {

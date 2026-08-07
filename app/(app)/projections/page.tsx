@@ -72,7 +72,10 @@ export default function ProjectionsPage() {
     return (
       // The same title and a reserved subtitle line, because the resolved page has one and
       // `PageShell` only emits the paragraph when it is given something to put in it.
-      <PageShell title="Projections" subtitle={<Skeleton className="h-4 w-64 max-w-full" />}>
+      <PageShell
+        title="Projections"
+        subtitle={<Skeleton className="h-5 w-64 max-w-full" />}
+      >
         <div className="mb-4 flex flex-wrap gap-2">
           {SCORING_PRESETS.map((preset) => (
             <Skeleton key={preset.id} className="h-8 w-24" />
