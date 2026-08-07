@@ -147,11 +147,14 @@ function contendersFor(available: readonly PlayerRisk[]): PlayerRisk[] {
 }
 
 /**
- * Marginal starting-lineup value, used only to narrow the field.
+ * Value over replacement, used only to narrow the field.
  *
- * Deliberately cheap and deliberately not the objective. It ranks by what a player adds to
- * the best legal lineup right now, which is a good enough filter to find the handful of
- * picks worth simulating properly.
+ * Deliberately cheap and deliberately not the objective. It ranks by how much more a player
+ * adds to the best legal lineup than whoever would still be there at his position, which is
+ * a good enough filter to find the handful of picks worth simulating properly.
+ *
+ * It ranked by what a player adds to the lineup *as it stands* until #38. See
+ * `replacementLevels` for why that put ten quarterbacks on every board.
  */
 function toCompetitor(p: PlayerRisk) {
   return {
@@ -173,17 +176,106 @@ function toCompetitor(p: PlayerRisk) {
  * number and there was nothing to test; it is now required, which is what the callers were
  * already doing.
  */
+/**
+ * How many starters the league demands at each position.
+ *
+ * A slot that accepts one position contributes a whole starter to it. A FLEX accepting three
+ * contributes a third to each, because across a league that is how its demand actually falls.
+ * Derived from `slots` rather than hardcoded, so a 2-FLEX or superflex template prices its
+ * own scarcity instead of the standard template's.
+ */
+function positionalDemand(slots: readonly RosterSlot[]): Map<string, number> {
+  const demand = new Map<string, number>();
+  for (const slot of slots) {
+    const share = 1 / Math.max(slot.eligiblePositions.length, 1);
+    for (const position of slot.eligiblePositions) {
+      demand.set(position, (demand.get(position) ?? 0) + share);
+    }
+  }
+  return demand;
+}
+
+/**
+ * The replacement-level player at each position: the one still there after the league has
+ * filled every starting slot it demands.
+ *
+ * This is what makes the prefilter answer the question a draft actually asks. Measuring what
+ * a player adds to the lineup *as it stands* prices him against an empty slot, and while a
+ * slot is open that is simply his whole projection — so with quarterbacks outscoring every
+ * other position in raw points, every open-QB-slot state ranked ten quarterbacks first.
+ * Drafting a running back did not change it, because the quarterback slot was still open, and
+ * the advice was a fixed point: take a quarterback, at every pick, until you take one.
+ *
+ * Pricing against replacement is what separates 21.3 points from a quarterback the league is
+ * deep enough to still offer at 17.9, and 13.5 points from a running back who will be 5.5 by
+ * the time the position runs out.
+ */
+function replacementLevels(
+  available: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  teams: number,
+): Map<string, number> {
+  const byPosition = new Map<string, number[]>();
+  for (const player of available) {
+    const list = byPosition.get(player.position);
+    const value = player.weeklyMean * player.availability;
+    if (list === undefined) byPosition.set(player.position, [value]);
+    else list.push(value);
+  }
+
+  const demand = positionalDemand(slots);
+  const levels = new Map<string, number>();
+  for (const [position, values] of byPosition) {
+    const starters = (demand.get(position) ?? 0) * teams;
+    if (starters <= 0) {
+      // The league starts nobody here, so there is no scarcity to price and every player at
+      // the position is worth what he adds and nothing more. A kicker in a no-kicker league
+      // must not acquire value from being scarce.
+      levels.set(position, 0);
+      continue;
+    }
+    values.sort((a, b) => b - a);
+    // Zero once the position is exhausted: a league that demands more starters than the
+    // board holds has no replacement to fall back on, and the honest value of the last one
+    // available is his whole projection.
+    levels.set(position, values[Math.floor(starters)] ?? 0);
+  }
+  return levels;
+}
+
+/**
+ * A stand-in for the replacement-level player, valued at his projection and nothing else.
+ *
+ * `toCompetitor` reads only position and points, so this is all the lineup solver needs to
+ * answer "what would this slot be worth if I filled it with whoever is left instead".
+ */
+function replacementCompetitor(position: string, points: number) {
+  return {
+    id: `__replacement__${position}`,
+    name: `replacement ${position}`,
+    position,
+    projectedPoints: points,
+    availability: "active" as const,
+  };
+}
+
 function prefilterValue(
   roster: readonly PlayerRisk[],
   candidate: PlayerRisk,
   slots: readonly RosterSlot[],
-  baseline: number,
+  replacement: Map<string, number>,
 ): number {
-  const before = baseline;
   const after = solveLineup(
     slots,
     [...roster, candidate].map(toCompetitor),
   ).totalPoints;
+  // What the same slot would be worth filled by whoever is left at the position. Solved
+  // through the lineup rather than subtracted from the projection, so FLEX and SUPERFLEX
+  // eligibility is handled by the optimizer that already knows the rules.
+  const withReplacement = solveLineup(slots, [
+    ...roster.map(toCompetitor),
+    replacementCompetitor(candidate.position, replacement.get(candidate.position) ?? 0),
+  ]).totalPoints;
   // A player who does not crack the lineup still has worth as depth; the tiny tiebreak
   // keeps the filter from discarding every bench candidate before the objective is
   // consulted, which is where depth is actually priced.
@@ -196,13 +288,15 @@ function prefilterValue(
   // by the same factor and only ever favors the player who improves the lineup. Both
   // bounds are pinned; the exact value between them is not a behavior.
   //
-  // `after - before` and `after + before` give the same ordering, so no test can tell them
-  // apart: `before` is the same number for every candidate compared in one call, and both
-  // callers use this only to rank. The subtraction is still the right expression — it is
-  // what makes the value "what this player adds" rather than "twice the lineup plus what
-  // this player adds" — but it is not a behavior, and it is recorded here so nobody
-  // spends a second afternoon trying to pin it.
-  return after - before + candidate.weeklyMean * candidate.availability * 1e-3;
+  // `after - before` used to stand where `after - withReplacement` does now, and that pair
+  // genuinely did rank identically: `before` is the roster's own lineup value, the same
+  // number for every candidate in one call, so subtracting it changed no ordering. Which is
+  // exactly why the defect it caused was invisible. `withReplacement` differs per candidate,
+  // because it depends on his position — that is the whole point, and it is what makes this
+  // a value rather than a projection wearing one.
+  return (
+    after - withReplacement + candidate.weeklyMean * candidate.availability * 1e-3
+  );
 }
 
 /**
@@ -215,6 +309,7 @@ export function basePolicyPick(
   roster: readonly PlayerRisk[],
   available: readonly PlayerRisk[],
   slots: readonly RosterSlot[],
+  teams: number,
 ): PlayerRisk | null {
   // Only one player per position can win a base-policy pick, so the rest are not
   // evaluated. Without this the completion solves a lineup for every one of several hundred
@@ -222,11 +317,11 @@ export function basePolicyPick(
   // whole cost of a recommendation.
   const contenders = contendersFor(available);
 
-  const baseline = solveLineup(slots, roster.map(toCompetitor)).totalPoints;
+  const replacement = replacementLevels(available, slots, teams);
   let best: PlayerRisk | null = null;
   let bestValue = -Infinity;
   for (const candidate of contenders) {
-    const value = prefilterValue(roster, candidate, slots, baseline);
+    const value = prefilterValue(roster, candidate, slots, replacement);
     if (value > bestValue) {
       bestValue = value;
       best = candidate;
@@ -260,7 +355,8 @@ export function completeOwnRoster(
   pool: readonly PlayerRisk[],
   slots: readonly RosterSlot[],
   forcedFirstPick: PlayerRisk | null,
-  rosterSize?: number,
+  rosterSize: number | undefined,
+  teams: number,
 ): PlayerRisk[] {
   const out = [...roster];
   const taken = new Set(out.map((p) => p.id));
@@ -295,7 +391,7 @@ export function completeOwnRoster(
     // with a longer roster than anyone it plays — which lifts every candidate's title odds
     // together and reads as a better board rather than as a bug.
     if (rosterSize !== undefined && out.length >= rosterSize) break;
-    const pick = basePolicyPick(out, available, slots);
+    const pick = basePolicyPick(out, available, slots, teams);
     if (pick === null) break;
     out.push(pick);
     available = available.filter((p) => p.id !== pick.id);
@@ -334,7 +430,7 @@ export function completeDraft(
   for (const { team } of order) {
     if (rosters[team].length >= state.rosterSize) continue;
     if (pool.length === 0) break;
-    const pick = basePolicyPick(rosters[team], pool, slots);
+    const pick = basePolicyPick(rosters[team], pool, slots, state.teams.length);
     if (pick === null) break;
     rosters[team].push(pick);
     pool = pool.filter((p) => p.id !== pick.id);
@@ -375,16 +471,15 @@ export function recommendByChampionship(
   if (state.available.length === 0) return [];
 
   // Narrow the field cheaply, then judge what is left properly.
-  // The roster's own lineup value does not depend on the candidate, so it is solved once
-  // rather than once per player on a board of several hundred.
-  const rosterBaseline = solveLineup(
+  const replacement = replacementLevels(
+    state.available,
     config.slots,
-    me.roster.map(toCompetitor),
-  ).totalPoints;
+    state.teams.length,
+  );
   const shortlist = [...state.available]
     .map((player) => ({
       player,
-      filter: prefilterValue(me.roster, player, config.slots, rosterBaseline),
+      filter: prefilterValue(me.roster, player, config.slots, replacement),
     }))
     .sort((a, b) => b.filter - a.filter)
     .slice(0, Math.max(candidateLimit, 1))
@@ -442,7 +537,12 @@ export function recommendByChampionship(
     // `forced` is on an opponent roster in this branch, so `claimedByOthers` already kept
     // it out of `poolForUs` and no further filtering is needed here.
     const without = opponentRosters[owner].filter((p) => p.id !== forced.id);
-    const replacement = basePolicyPick(without, poolForUs, config.slots);
+    const replacement = basePolicyPick(
+      without,
+      poolForUs,
+      config.slots,
+      state.teams.length,
+    );
     const scores = [...baselineOpponentScores];
     scores[owner] = sampleTeamWeeklyScores(
       replacement === null ? without : [...without, replacement],
@@ -473,6 +573,7 @@ export function recommendByChampionship(
       config.slots,
       forced,
       state.rosterSize,
+      state.teams.length,
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
     return championshipProbability(mine, scores, config);

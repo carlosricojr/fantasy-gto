@@ -91,11 +91,11 @@ describe("basePolicyPick", () => {
     const roster = [player("qb", "QB", 20)];
     const available = [player("qb2", "QB", 19), player("rb", "RB", 12)];
     // A second quarterback cannot start; a back fills an empty slot.
-    expect(basePolicyPick(roster, available, SLOTS)?.id).toBe("rb");
+    expect(basePolicyPick(roster, available, SLOTS, 12)?.id).toBe("rb");
   });
 
   it("returns null on an empty board rather than throwing", () => {
-    expect(basePolicyPick([], [], SLOTS)).toBeNull();
+    expect(basePolicyPick([], [], SLOTS, 12)).toBeNull();
   });
 });
 
@@ -486,7 +486,7 @@ describe("completeDraft, at its boundaries", () => {
       SLOTS,
       null,
     );
-    const best = basePolicyPick([], board(), SLOTS)!;
+    const best = basePolicyPick([], board(), SLOTS, 12)!;
     expect(rosters[1].map((p) => p.id)).toEqual([best.id]);
     expect(rosters[0].map((p) => p.id)).not.toEqual([best.id]);
   });
@@ -544,17 +544,17 @@ describe("completeOwnRoster", () => {
     // Given more picks than seats it would otherwise build a longer roster than anyone we
     // play, and a team with an extra starter wins more titles — every candidate's odds
     // rise together, which reads as a better board rather than as a bug.
-    const filled = completeOwnRoster([], 12, board(), SLOTS, null, 5);
+    const filled = completeOwnRoster([], 12, board(), SLOTS, null, 5, 12);
     expect(filled).toHaveLength(5);
   });
 
   it("still fills only as many picks as it holds when that is the tighter bound", () => {
-    expect(completeOwnRoster([], 3, board(), SLOTS, null, 10)).toHaveLength(3);
+    expect(completeOwnRoster([], 3, board(), SLOTS, null, 10, 12)).toHaveLength(3);
   });
 
   it("counts the forced pick against both bounds", () => {
     const forced = board()[0];
-    const filled = completeOwnRoster([], 9, board(), SLOTS, forced, 4);
+    const filled = completeOwnRoster([], 9, board(), SLOTS, forced, 4, 12);
     expect(filled).toHaveLength(4);
     expect(filled.map((p) => p.id)).toContain(forced.id);
   });
@@ -565,8 +565,8 @@ describe("completeOwnRoster", () => {
     // left still drafted. Both make our simulated team bigger than the ones it plays.
     const forced = board()[0];
     const full = board().slice(1, 5);
-    expect(completeOwnRoster(full, 3, board(), SLOTS, forced, 4)).toHaveLength(4);
-    expect(completeOwnRoster([], 0, board(), SLOTS, forced, 10)).toHaveLength(0);
+    expect(completeOwnRoster(full, 3, board(), SLOTS, forced, 4, 12)).toHaveLength(4);
+    expect(completeOwnRoster([], 0, board(), SLOTS, forced, 10, 12)).toHaveLength(0);
   });
 });
 
@@ -603,7 +603,7 @@ describe("basePolicyPick", () => {
     // he stays the best, he is skipped for ever.
     const dominant = player("STAR", "RB", 60);
     const pool = [...board(), dominant];
-    expect(basePolicyPick([], pool, SLOTS)?.id).toBe("STAR");
+    expect(basePolicyPick([], pool, SLOTS, 12)?.id).toBe("STAR");
   });
 
   it("takes the player who fills an empty slot over deep bench at a full one", () => {
@@ -627,8 +627,8 @@ describe("basePolicyPick", () => {
     const depth = Array.from({ length: 60 }, (_, i) => player(`rb${i}`, "RB", 12 - i * 0.1));
     const pool = [...depth, player("theQB", "QB", 5)];
 
-    expect(basePolicyPick(roster, pool, SLOTS)?.id).toBe("theQB");
-    const completed = completeOwnRoster(roster, 3, pool, SLOTS, null, 9);
+    expect(basePolicyPick(roster, pool, SLOTS, 12)?.id).toBe("theQB");
+    const completed = completeOwnRoster(roster, 3, pool, SLOTS, null, 9, 12);
     expect(completed.map((p) => p.id)).toContain("theQB");
   });
 
@@ -647,7 +647,16 @@ describe("basePolicyPick", () => {
         bestAt.set(p.position, p);
       }
     }
-    const narrowed = pool.filter((p) => bestAt.get(p.position) === p);
+    // Passing `narrowed` in as the board no longer expresses this. Replacement level is a
+    // property of the board — the player still there once the league has filled the position
+    // — so a board holding one player per position has no replacement at any of them and
+    // every candidate is priced at his whole projection again. That is a different question
+    // from the one this test asks.
+    //
+    // The dominance argument itself is unchanged and is what is asserted instead: within a
+    // position, replacement is one number, so value over it is still monotone in
+    // `weeklyMean * availability` and the best available at a position still beats every
+    // other player at it. Narrowing to the contenders therefore drops nobody who could win.
 
     const rosters: PlayerRisk[][] = [
       [],
@@ -662,9 +671,8 @@ describe("basePolicyPick", () => {
       ],
     ];
     for (const roster of rosters) {
-      expect(basePolicyPick(roster, pool, SLOTS)?.id).toBe(
-        basePolicyPick(roster, narrowed, SLOTS)?.id,
-      );
+      const chosen = basePolicyPick(roster, pool, SLOTS, 12)!;
+      expect(chosen.id).toBe(bestAt.get(chosen.position)?.id);
     }
   });
 
@@ -684,8 +692,8 @@ describe("basePolicyPick", () => {
     const durable = player("durable", "WR", 6, { availability: 0.95 });
     const fragile = player("fragile", "WR", 6, { availability: 0.45 });
     // Both orders, so a tie broken by argument order cannot pass this.
-    expect(basePolicyPick(full, [durable, fragile], SLOTS)?.id).toBe("durable");
-    expect(basePolicyPick(full, [fragile, durable], SLOTS)?.id).toBe("durable");
+    expect(basePolicyPick(full, [durable, fragile], SLOTS, 12)?.id).toBe("durable");
+    expect(basePolicyPick(full, [fragile, durable], SLOTS, 12)?.id).toBe("durable");
   });
 
   it("takes the better bench player when neither can start", () => {
@@ -702,8 +710,8 @@ describe("basePolicyPick", () => {
     ];
     const better = player("better", "TE", 8);
     const worse = player("worse", "TE", 2);
-    expect(basePolicyPick(full, [better, worse], SLOTS)?.id).toBe("better");
-    expect(basePolicyPick(full, [worse, better], SLOTS)?.id).toBe("better");
+    expect(basePolicyPick(full, [better, worse], SLOTS, 12)?.id).toBe("better");
+    expect(basePolicyPick(full, [worse, better], SLOTS, 12)?.id).toBe("better");
   });
 
   it("fills every starting slot across a run of picks", () => {
@@ -712,7 +720,7 @@ describe("basePolicyPick", () => {
     let roster: PlayerRisk[] = [];
     let pool = board();
     for (let i = 0; i < SLOTS.length; i += 1) {
-      const pick = basePolicyPick(roster, pool, SLOTS)!;
+      const pick = basePolicyPick(roster, pool, SLOTS, 12)!;
       expect(pick).not.toBeNull();
       roster = [...roster, pick];
       pool = pool.filter((p) => p.id !== pick.id);
@@ -734,9 +742,14 @@ describe("the shortlist is the top of the board", () => {
       9,
       4,
     );
-    // On an empty roster every position is open, so the best of each is what a lineup
-    // gains most from.
-    expect(recs.map((r) => r.player.id).sort()).toEqual(["QB0", "RB0", "TE0", "WR0"]);
+    // Every position on this board carries the same value curve, so what separates them is
+    // how deep the league drafts each one. Twelve teams start one QB and 2.33 RB — two plus
+    // a third of the FLEX — so the replacement quarterback is QB12 at 13.8 and the
+    // replacement back is RB28 at 8.2. RB0 is therefore worth 9.8 over replacement where
+    // QB0 is worth 4.2, and the shortlist is backs and receivers rather than the raw-points
+    // leaders. Before replacement pricing this returned the best of each position, which on
+    // a real board means ten quarterbacks.
+    expect(recs.map((r) => r.player.id).sort()).toEqual(["RB0", "RB1", "WR0", "WR1"]);
   });
 });
 
@@ -749,9 +762,9 @@ describe("a forced pick is honored when only one remains", () => {
     // policy happened to pick him" cannot be confused. The first player on the board is
     // exactly what the policy takes anyway, which is how the first version of this passed.
     const unwanted = board()[board().length - 1];
-    expect(basePolicyPick([], board(), SLOTS)?.id).not.toBe(unwanted.id);
+    expect(basePolicyPick([], board(), SLOTS, 12)?.id).not.toBe(unwanted.id);
     expect(
-      completeOwnRoster([], 1, board(), SLOTS, unwanted, 10).map((p) => p.id),
+      completeOwnRoster([], 1, board(), SLOTS, unwanted, 10, 12).map((p) => p.id),
     ).toEqual([unwanted.id]);
 
     const teams = freshTeams().map((t) => ({ ...t, remainingPicks: t.remainingPicks.slice(-1) }));
@@ -1029,10 +1042,12 @@ describe("the ranking follows its documented order", () => {
 
 describe("the base policy's tie-break", () => {
   it("takes the first of the tied maxima, not the last", () => {
-    // On an empty roster QB0, RB0, WR0 and TE0 add exactly the same lineup value, so this
-    // is purely about which tied maximum wins. Ties are the normal case on a real board,
-    // so flipping `>` to `>=` changes essentially every pick in every completion.
-    expect(basePolicyPick([], board(), SLOTS)?.id).toBe("QB0");
+    // RB and WR share a value curve and a starter count on this board — 2.33 each, two plus
+    // a third of the FLEX — so RB0 and WR0 are worth exactly the same over replacement and
+    // this is purely about which tied maximum wins. RB0 comes first. Ties are the normal
+    // case on a real board, so flipping `>` to `>=` changes essentially every pick in every
+    // completion.
+    expect(basePolicyPick([], board(), SLOTS, 12)?.id).toBe("RB0");
   });
 
   it("weights a projection by availability, not against it", () => {
@@ -1043,7 +1058,16 @@ describe("the base policy's tie-break", () => {
       ...p,
       availability: 0.32 + ((i * 37) % 68) / 100,
     }));
-    expect(basePolicyPick([], risky, SLOTS)?.id).toBe("TE1");
+    const chosen = basePolicyPick([], risky, SLOTS, 12)!;
+    expect(chosen.id).toBe("RB2");
+    // The discrimination has to stay live under replacement pricing, so this pins the thing
+    // the assertion above is protecting rather than only its answer: dividing by
+    // availability would prefer a different player at the same position.
+    const atPosition = risky.filter((p) => p.position === chosen.position);
+    const divided = atPosition.reduce((a, b) =>
+      b.weeklyMean / b.availability > a.weeklyMean / a.availability ? b : a,
+    );
+    expect(divided.id).not.toBe(chosen.id);
   });
 });
 
@@ -1192,7 +1216,7 @@ describe("the depth tiebreak inside the prefilter", () => {
     // `starter` beats the weakest flex by a tenth of a point, so he improves it barely.
     const bench = player("bench", "RB", 14.8);
     const starter = player("starter", "RB", 15.0);
-    expect(basePolicyPick(roster, [bench, starter], SLOTS)?.id).toBe("starter");
+    expect(basePolicyPick(roster, [bench, starter], SLOTS, 12)?.id).toBe("starter");
   });
 
   it("separates bench candidates by projection when none of them can start", () => {
@@ -1325,7 +1349,7 @@ describe("the prefilter's own boundaries", () => {
     // is the pick. Evaluating the whole board would have kept the first; keeping the last
     // instead makes the answer depend on the order the board arrived in.
     expect(
-      basePolicyPick([], [player("first", "RB", 10), player("second", "RB", 10)], SLOTS)
+      basePolicyPick([], [player("first", "RB", 10), player("second", "RB", 10)], SLOTS, 12)
         ?.id,
     ).toBe("first");
   });
@@ -1351,7 +1375,7 @@ describe("the prefilter's own boundaries", () => {
     ];
     const starter = player("starter", "RB", 14.05, { availability: 1 });
     const bench = player("bench", "QB", 20.0, { availability: 1 });
-    expect(basePolicyPick(roster, [bench, starter], SLOTS)?.id).toBe("starter");
+    expect(basePolicyPick(roster, [bench, starter], SLOTS, 12)?.id).toBe("starter");
   });
 });
 
@@ -1403,7 +1427,7 @@ describe("availability is priced into the lineup, not just into the shortlist", 
     ];
     const fragileStar = player("fragileStar", "RB", 20, { availability: 0.5 });
     const durableOk = player("durableOk", "WR", 12, { availability: 0.95 });
-    expect(basePolicyPick(roster, [fragileStar, durableOk], SLOTS)?.id).toBe("durableOk");
+    expect(basePolicyPick(roster, [fragileStar, durableOk], SLOTS, 12)?.id).toBe("durableOk");
   });
 });
 
