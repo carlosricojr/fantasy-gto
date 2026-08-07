@@ -108,7 +108,13 @@ describe("the scanner itself", () => {
     // ...but a call's closing paren still is division, not a literal.
     expect(stripComments("const r = f(a) / 2; // gone\nx")).not.toContain("gone");
     // A brace inside a string inside an interpolation does not end the interpolation.
-    expect(stripCommentsAndStrings('const t = `${row["}"]} tail`; Date.now()')).toContain(
+    //
+    // The call has to be *after* the brace and *inside* the same interpolation, or the test
+    // passes either way: ending the interpolation early makes the scanner read the rest of
+    // the expression as template literal text and blank it, so a call before the brace, or
+    // after the closing backtick, survives regardless. A first version of this assertion
+    // put it after the backtick and could not fail.
+    expect(stripCommentsAndStrings('const t = `${a["}"] + Date.now()}`;')).toContain(
       "Date.now(",
     );
   });
