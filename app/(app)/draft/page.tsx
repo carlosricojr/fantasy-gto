@@ -644,7 +644,14 @@ export default function DraftPage() {
   // size — a shape that was never built, or one whose rows have not landed yet — the user
   // met a search box that could never match anything, with nothing to explain it and no
   // control to change the league.
-  if (started && board.length === 0) {
+  //
+  // `!pending`, because `board` is held: an empty *previous* selection would otherwise name
+  // the *new* one here — "no 2026 board has been built for 12-team ppr yet" about a query
+  // that has not come back. Suppressing the same claim on the setup screen without this
+  // moved it rather than removed it, since the Start button that reappears there is sticky
+  // and lands under the thumb. While the answer is in flight the ordinary board renders,
+  // marked as the previous selection's everywhere it shows a number.
+  if (started && board.length === 0 && !pending) {
     return (
       <PageShell title="Draft" subtitle="No board for this league">
         <p className="text-sm text-muted-foreground">

@@ -153,16 +153,20 @@ export function Recommendations({
           </div>
         )}
         {/* The footer is rendered unconditionally by the loaded panel, so it is here
-            unconditionally too. Six short lines in the narrow column, three in the wide one. */}
+            unconditionally too.
+
+            A flat five lines, and deliberately not a per-breakpoint count. Its ~430
+            characters wrap to about four lines in the widest column this panel gets, six in
+            the 30rem column it becomes at `3xl` — which is the *narrowest* it is on a
+            desktop, not the widest — and eight on a phone. A first attempt had that
+            backwards and shortened the placeholder at exactly the width the real footer is
+            tallest. No single count is right everywhere, so this takes the middle and the
+            panel settles by a line or two either way. */}
         <div className="space-y-1.5 border-t p-3" aria-hidden>
-          {Array.from({ length: 6 }, (_, i) => (
+          {Array.from({ length: 5 }, (_, i) => (
             <div
               key={i}
-              className={cn(
-                "h-3 motion-safe:animate-pulse rounded bg-muted",
-                i === 5 && "w-2/3",
-                i > 2 && "3xl:hidden",
-              )}
+              className={cn("h-3 motion-safe:animate-pulse rounded bg-muted", i === 4 && "w-2/3")}
             />
           ))}
         </div>
