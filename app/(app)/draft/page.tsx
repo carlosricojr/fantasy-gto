@@ -37,6 +37,13 @@ import {
 import { draftSeasonFor } from "@/lib/nfl/season";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
+import {
+  basisBadge,
+  basisExplanation,
+  basisForPosition,
+  recommendationCaveat,
+  valueBasis,
+} from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
 import {
   leadingPanel,
@@ -72,6 +79,12 @@ interface BoardPlayer {
   position: string;
   team: string | null;
   blendedPoints: number;
+  /**
+   * `null` where the weekly model has no view — every kicker and defense, and any player
+   * with no prior games. Carried into the interface rather than dropped at the boundary,
+   * because a row that cannot say where its number came from cannot warn about it.
+   */
+  modelPoints: number | null;
   marketPoints: number | null;
   adp: number | null;
   adpStdev: number | null;
@@ -79,6 +92,30 @@ interface BoardPlayer {
   availability: number;
   p10: number;
   p90: number;
+}
+
+/**
+ * The one-word warning that a row's number did not come from the model.
+ *
+ * Rendered beside the player rather than in a caveat elsewhere on the page. A general note
+ * about kickers is true and is also two screens away from the kicker being compared with a
+ * running back, and the number is what needs the qualification.
+ *
+ * `title` carries the sentence for a pointer, and it is also the accessible name, so a
+ * screen reader gets the explanation rather than the two words.
+ */
+function BasisBadge({ basis }: { basis: ReturnType<typeof valueBasis> }) {
+  const badge = basisBadge(basis);
+  if (badge === null) return null;
+  return (
+    <span
+      className="ml-1 shrink-0 rounded border px-1 py-px text-[10px] uppercase tracking-wide text-muted-foreground"
+      title={basisExplanation(basis)}
+      aria-label={basisExplanation(basis)}
+    >
+      {badge}
+    </span>
+  );
 }
 
 export default function DraftPage() {
@@ -219,6 +256,20 @@ export default function DraftPage() {
   );
 
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
+
+  // Where each row's number came from, keyed by player id. Built from the board rather than
+  // derived from the position at each render, so a rookie with no history is labelled for
+  // the reason he actually has — `PlayerRisk` carries the quantiles but not their source.
+  const basisById = useMemo(
+    () =>
+      new Map(
+        ((board ?? []) as BoardPlayer[]).map((row) => [
+          row.playerId,
+          valueBasis(row),
+        ]),
+      ),
+    [board],
+  );
 
   // Ownership comes from `lib/core/draft.ts`, where it is tested against the invariant
   // that every pick in the draft has exactly one owner, for every league shape. It was
@@ -661,6 +712,7 @@ export default function DraftPage() {
                     {player.position}
                     {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
                   </span>
+                  <BasisBadge basis={basisById.get(player.id) ?? basisForPosition(player.position)} />
                 </span>
                 <span className="text-muted-foreground">
                   {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
@@ -789,6 +841,9 @@ export default function DraftPage() {
                   <span className="text-muted-foreground">
                     {player.position}
                     {player.byeWeek === null ? "" : ` · ${player.byeWeek}`}
+                    <BasisBadge
+                      basis={basisById.get(player.id) ?? basisForPosition(player.position)}
+                    />
                   </span>
                 </li>
               ))}
@@ -845,6 +900,7 @@ function Recommendations({
                   {rec.player.position}
                   {rec.player.byeWeek === null ? "" : ` · bye ${rec.player.byeWeek}`}
                 </span>
+                <BasisBadge basis={basisForPosition(rec.player.position)} />
               </p>
               {/*
                 Two uncertainties, named apart, because they answer different questions and
@@ -859,6 +915,19 @@ function Recommendations({
                 {(rec.standardError * 100).toFixed(1)} ·{" "}
                 {(rec.playoffProbability * 100).toFixed(0)}% playoffs
               </p>
+              {/*
+                Spelled out under the row rather than left to the badge, because this row
+                carries a *probability* and the probability itself rests on the assumed
+                spread. A reader comparing a kicker's title odds with a back's is comparing
+                a number built on a fitted outcome distribution with one built on a
+                placeholder, and the badge alone does not say that the number above it is
+                the thing affected.
+              */}
+              {recommendationCaveat(rec.player.position) === null ? null : (
+                <p className="text-xs text-muted-foreground">
+                  {recommendationCaveat(rec.player.position)}
+                </p>
+              )}
               {rec.vsLeader === null ? null : (
                 <p className="text-xs text-muted-foreground">
                   vs leader {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
@@ -958,8 +1027,10 @@ function Caveat({
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
-      defenses carry the market&rsquo;s price alone. Scoring is limited to PPR, half PPR and
-      standard. Opponents&rsquo; unfilled roster spots are completed by a simple
+      defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed
+      placeholder rather than a measured one — every such row is marked, so this sentence is
+      a summary of the labels rather than the only place the limitation appears. Scoring is
+      limited to PPR, half PPR and standard. Opponents&rsquo; unfilled roster spots are completed by a simple
       best-available rule, so early-round odds lean on that assumption more than late ones.
     </p>
   );
