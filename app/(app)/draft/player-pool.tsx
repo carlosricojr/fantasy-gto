@@ -77,14 +77,14 @@ export function PlayerPool({
   /**
    * A request to reveal one player, from a click on the board.
    *
-   * An object with its own sequence number rather than a bare id, and it carries whether
-   * the player is drafted so this component need not consult `players` to act on it. The
-   * previous version keyed the effect on `[focusPlayerId, players]`, and `players` is
-   * rebuilt on every recorded pick — so pressing Undo re-ran it and silently cleared the
-   * search box and position filter a manager was in the middle of using. The sequence
-   * number is what makes clicking the same cell twice work.
+   * A fresh object rather than a bare id, and it carries whether the player is drafted so
+   * this component need not consult `players` to act on it. The previous version keyed the
+   * effect on `[focusPlayerId, players]`, and `players` is rebuilt on every recorded pick
+   * — so pressing Undo re-ran it and silently cleared the search box and position filter a
+   * manager was in the middle of using. Object identity is what makes clicking the same
+   * cell twice ask twice.
    */
-  focus: { playerId: string; drafted: boolean; seq: number } | null;
+  focus: { playerId: string; drafted: boolean } | null;
   /** League size, so a pick is named "3.04" here as it is everywhere else. */
   teams: number;
   /** Opens the working behind a player's number. */
@@ -97,8 +97,14 @@ export function PlayerPool({
   const [visible, setVisible] = useState(PAGE);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
-  /** The last focus request this list has actually scrolled to. */
-  const handledFocus = useRef<number | null>(null);
+  /**
+   * The exact request object this list has already scrolled to.
+   *
+   * Compared by identity. A sequence number was tried and was wrong in two ways: it
+   * restarted at 1 whenever the page cleared the focus, so an earlier request numbered 1
+   * suppressed a later one for ever.
+   */
+  const handledFocus = useRef<object | null>(null);
 
   // Counted over the rows this filter actually selects. Counting availability
   // unconditionally made the tabs read "RB 41" over a list of 168 drafted players, and hid
@@ -160,11 +166,21 @@ export function PlayerPool({
   // and left the reader wherever they were. `rows` changes when the filter applies, and
   // the sequence number stops it re-scrolling on every later keystroke.
   useEffect(() => {
-    if (focus === null || handledFocus.current === focus.seq) return;
+    if (focus === null || handledFocus.current === focus) return;
+    // Not until the reset above has actually committed. Both effects run against the same
+    // commit, so on the first pass this one still sees the *previous* filter — and if the
+    // reader had narrowed the list to the very player being revealed, the row was already
+    // on screen, it scrolled a one-row list, marked the request handled, and then sat out
+    // the re-render that moved the player hundreds of rows down the unfiltered list.
+    const settled =
+      query === "" &&
+      position === null &&
+      filter === (focus.drafted ? "drafted" : "available");
+    if (!settled) return;
     const container = scroller.current;
     const row = container?.querySelector<HTMLElement>('[data-focused="true"]');
     if (container == null || row == null) return;
-    handledFocus.current = focus.seq;
+    handledFocus.current = focus;
     const offset = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
     container.scrollTo({
       top: Math.max(
@@ -175,7 +191,7 @@ export function PlayerPool({
         ? "auto"
         : "smooth",
     });
-  }, [focus, rows, visible]);
+  }, [focus, rows, visible, query, position, filter]);
 
   return (
     <section className="flex min-h-0 flex-col rounded-xl border bg-card">

@@ -112,9 +112,7 @@ export default function DraftPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   /** A request from the board to reveal one player in the pool. See `PlayerPool.focus`. */
-  const [focus, setFocus] = useState<
-    { playerId: string; drafted: boolean; seq: number } | null
-  >(null);
+  const [focus, setFocus] = useState<{ playerId: string; drafted: boolean } | null>(null);
   const [boardOpen, setBoardOpen] = useState(true);
 
   // A draft survives a remount. The error boundary's "Try again" re-renders this segment,
@@ -451,11 +449,12 @@ export default function DraftPage() {
       // A board cell only ever holds a player who has been taken, so `drafted` is settled
       // here rather than looked up in the pool — which is what lets the pool act on this
       // without depending on a list that changes every pick.
-      setFocus((previous) => ({
-        playerId,
-        drafted: true,
-        seq: (previous?.seq ?? 0) + 1,
-      }));
+      //
+      // A fresh object every time, and identity is what marks it as a new request — so
+      // clicking the same cell twice asks twice. A counter was tried and was wrong: it
+      // restarted at 1 whenever `record` or `undo` cleared the focus, so the pool, having
+      // already handled a request numbered 1, silently ignored the next one.
+      setFocus({ playerId, drafted: true });
     },
     [picks],
   );
