@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
+import { useStableQuery } from "@/components/use-stable-query";
 import { ProjectionCard } from "@/components/projection-card";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
@@ -27,7 +28,12 @@ export default function ProjectionsPage() {
 
   const season = useQuery(api.season.current, {});
 
-  const projections = useQuery(
+  // Held across a scoring or position change rather than blanked. A Convex result is keyed
+  // by its arguments, so every one of those buttons sent this back to `undefined` and the
+  // hundred cards below vanished for the length of a round trip before reappearing — the
+  // page losing its whole height and the reader losing their scroll position, on a control
+  // whose only job is to re-sort what is already there.
+  const { data: projections, pending } = useStableQuery(
     api.projections.forWeek,
     season
       ? {
@@ -45,7 +51,7 @@ export default function ProjectionsPage() {
     [projections],
   );
 
-  const players = useQuery(
+  const { data: players } = useStableQuery(
     api.projections.playersByIds,
     playerIds.length > 0 ? { externalIds: playerIds } : "skip",
   );
@@ -119,7 +125,28 @@ export default function ProjectionsPage() {
         </p>
       )}
 
-      {projections === undefined && <p className="text-muted-foreground">Loading…</p>}
+      {projections === undefined ? (
+        // First load only; a later change keeps the cards. The blocks are the height of the
+        // cards that replace them so the first paint settles rather than jumps.
+        <div className="space-y-2" aria-hidden>
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className="h-20 motion-safe:animate-pulse rounded-lg bg-muted" />
+          ))}
+          <p className="sr-only" role="status">
+            Loading projections.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Always present, empty when there is nothing to say — a live region introduced at
+          the moment its message appears is often not announced. It replaces no layout: the
+          cards below stay exactly where they are while the new ruleset loads. */}
+      <p
+        className="mb-3 h-4 text-xs font-medium text-amber-700 dark:text-amber-300"
+        role="status"
+      >
+        {pending ? "Loading the new selection — the cards below are the previous one\u2019s." : ""}
+      </p>
 
       {projections !== undefined && projections.length === 0 && (
         <EmptyState
@@ -128,7 +155,7 @@ export default function ProjectionsPage() {
         />
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2" aria-busy={pending}>
         {(projections ?? []).map((row) => {
           const player = playerById.get(row.playerId);
           return (

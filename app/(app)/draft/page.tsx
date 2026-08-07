@@ -6,11 +6,13 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { PageShell } from "@/components/page-shell";
+import { useStableQuery } from "@/components/use-stable-query";
 import { Button } from "@/components/ui/button";
 import { normalizeLeagueSetup, pickOwnership, seatForTeamIndex } from "@/lib/core/draft";
 import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
+import { cn } from "@/lib/utils";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
 import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
@@ -83,6 +85,15 @@ const SEED = 20260731;
 
 /** Scenarios per recommendation. 600 resolves the ordering; 300 leaves the top few tied. */
 const SCENARIOS = 600;
+
+/**
+ * Candidates the worker is asked to rank.
+ *
+ * A constant rather than a literal at the call site, because the panel's loading skeleton
+ * is sized from it: a placeholder that is not the height of what replaces it is a layout
+ * shift dressed as a courtesy.
+ */
+const CANDIDATES = 10;
 
 interface BoardPlayer {
   playerId: string;
@@ -239,11 +250,16 @@ export default function DraftPage() {
   // stored, and while `setup` clamps it for ownership, pick counts and rosters, the board
   // query read the raw value — so an out-of-range league fetched one board shape and drew
   // the seats of another.
-  const board = useQuery(
+  // `useStableQuery`, not `useQuery`. A Convex result is keyed by its arguments, so
+  // changing the scoring format returns `undefined` — the same value as before anything
+  // has ever loaded — and the first-load branch below unmounted this entire screen,
+  // including the settings dialog the change had just been made in. The previous board
+  // stays on screen instead, marked as belonging to the previous setup.
+  const { data: board, pending: boardPending } = useStableQuery(
     api.draft.board,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
-  const freshness = useQuery(
+  const { data: freshness } = useStableQuery(
     api.draft.boardFreshness,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
@@ -461,7 +477,7 @@ export default function DraftPage() {
     // ran a full season simulation for a draft that was over, and the panel went on
     // advising a pick for a clock nobody is on.
     if (draftComplete) return;
-    recommender.request(draftState, config, SEED, 10);
+    recommender.request(draftState, config, SEED, CANDIDATES);
     // `recommender.request` is stable; depending on the whole object would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, draftState, config, draftComplete]);
@@ -592,10 +608,17 @@ export default function DraftPage() {
     );
   }
 
+  // Reached before anything has ever loaded, and no longer on a settings change: the board
+  // is held across an argument change by `useStableQuery`, so this branch cannot take the
+  // screen away from somebody who is already drafting on it.
+  //
+  // The skeleton is the shape of what replaces it rather than one grey block, because this
+  // is now the only moment the page reflows on its own — a 10rem placeholder followed by a
+  // full board is a layout shift the reader did not ask for and cannot anticipate.
   if (season === null || board === undefined) {
     return (
-      <PageShell title="Draft" subtitle="Loading the board…">
-        <div className="h-40 motion-safe:animate-pulse rounded-lg bg-muted" aria-hidden />
+      <PageShell title="Draft" subtitle="Loading the board…" size={started ? "wide" : "default"}>
+        <FirstLoadSkeleton started={started} />
       </PageShell>
     );
   }
@@ -627,6 +650,19 @@ export default function DraftPage() {
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
         <BoardHealthNotice freshness={freshness ?? null} />
+        {/* The size and scoring buttons on this screen key the board query too, so it used
+            to replace itself with a skeleton on every click. The board is held now, which
+            means the count and build date below belong to the previous selection until the
+            new one lands — the same fixed-height, always-present line the running board
+            uses, for the same reason. */}
+        <p
+          className="mb-3 h-4 text-xs font-medium text-amber-700 dark:text-amber-300"
+          role="status"
+        >
+          {boardPending
+            ? "Loading the new selection — the board described below is the previous one."
+            : ""}
+        </p>
         <DraftSetup
           settings={settings}
           onChange={applySettings}
@@ -679,6 +715,10 @@ export default function DraftPage() {
         canUndo={picks[currentPick - 1] !== undefined}
         onUndo={undo}
         onOpenSettings={() => setSettingsOpen(true)}
+        // Every value below belongs to the setup the board was built for, which is not the
+        // one the controls now show. The page says so rather than redrawing itself: see
+        // `useStableQuery`.
+        reloading={boardPending}
       />
 
       <NeedsStrip
@@ -692,7 +732,7 @@ export default function DraftPage() {
           content column it sized itself to the longest one and scrolled sideways on a
           desktop with room to spare, which is the one thing a board must not do — the
           value of watching it is seeing the whole room at once. */}
-      <section className="mt-4">
+      <section className="mt-4" aria-busy={boardPending}>
         <button
           type="button"
           onClick={() => setBoardOpen((open) => !open)}
@@ -734,11 +774,15 @@ export default function DraftPage() {
           outer grid without a wrapper element to lay out. The div carries no role and no
           styling of its own at that width, so removing its box removes nothing from the
           accessibility tree either. */}
-      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]">
+      <div
+        aria-busy={boardPending}
+        className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]"
+      >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
           <Recommendations
             state={recommender}
             scenarios={SCENARIOS}
+            candidates={CANDIDATES}
             onTheClock={onTheClock && !draftComplete}
             draftComplete={draftComplete}
             onPick={record}
@@ -818,6 +862,44 @@ export default function DraftPage() {
         scoringLabel={scoringLabel}
       />
     </PageShell>
+  );
+}
+
+/**
+ * The page, in grey, before the first board has arrived.
+ *
+ * Shaped like what replaces it. A skeleton that is not the size of its content is a layout
+ * shift with extra steps: the previous one was a single 10rem block, and the board that
+ * landed on top of it was several times taller.
+ *
+ * It follows `started` because the two things that can follow are different shapes — the
+ * setup form for a new draft, the board for a restored one. `started` is read from session
+ * storage in an effect, so a restored draft shows the form shape for the frame before that
+ * effect runs; that is one frame against several hundred milliseconds of query, and the
+ * alternative is blocking paint on a synchronous storage read.
+ */
+function FirstLoadSkeleton({ started }: { started: boolean }) {
+  const bar = "motion-safe:animate-pulse rounded-lg bg-muted";
+  if (!started) {
+    return (
+      <div className="space-y-6" aria-hidden>
+        <div className={cn(bar, "h-64")} />
+        <div className={cn(bar, "h-40")} />
+        <div className={cn(bar, "h-10 w-40")} />
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4" aria-hidden>
+      <div className={cn(bar, "h-14")} />
+      {/* The board's own height, from the same steps `BoardGrid` caps itself at. */}
+      <div className={cn(bar, "h-[13rem] sm:h-[18rem] lg:h-[22rem]")} />
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]">
+        <div className={cn(bar, "h-80")} />
+        <div className={cn(bar, "h-96 3xl:h-80")} />
+        <div className={cn(bar, "h-80 lg:col-start-2 3xl:col-start-3")} />
+      </div>
+    </div>
   );
 }
 

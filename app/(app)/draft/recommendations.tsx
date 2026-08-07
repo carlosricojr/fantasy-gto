@@ -30,6 +30,7 @@ import { positionChipClass, positionLabel } from "./positions";
 export function Recommendations({
   state,
   scenarios,
+  candidates,
   onTheClock,
   draftComplete,
   onPick,
@@ -40,6 +41,8 @@ export function Recommendations({
 }: {
   state: ReturnType<typeof useRecommendations>;
   scenarios: number;
+  /** How many the page asks for, so the loading skeleton is the height of the answer. */
+  candidates: number;
   onTheClock: boolean;
   draftComplete: boolean;
   onPick: (playerId: string) => void;
@@ -90,13 +93,48 @@ export function Recommendations({
   }
 
   if (state.loading || state.recommendations.length === 0) {
+    // Shaped like the panel it stands in for, not three bars. This state is entered every
+    // time the league changes — the answers belong to the previous scoring and are
+    // discarded rather than shown — and a 9rem placeholder where an 45rem panel was is a
+    // page that jumps under the reader at the exact moment they are deciding a pick. The
+    // row count is the one the page asks for, so the two agree by construction.
     return (
       <Panel>
-        <div className="space-y-2 p-4" aria-hidden>
+        <div className="space-y-2 border-b p-4" aria-hidden>
+          <div className="h-3.5 w-24 motion-safe:animate-pulse rounded bg-muted" />
+          <div className="h-6 w-56 max-w-full motion-safe:animate-pulse rounded bg-muted" />
           <div className="h-4 w-32 motion-safe:animate-pulse rounded bg-muted" />
-          <div className="h-12 motion-safe:animate-pulse rounded bg-muted" />
-          <div className="h-8 motion-safe:animate-pulse rounded bg-muted" />
         </div>
+        <div className="border-b p-4" aria-hidden>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:gap-x-6 3xl:grid 3xl:gap-y-3">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="h-7 w-16 motion-safe:animate-pulse rounded bg-muted" />
+                <div className="h-3 w-24 motion-safe:animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+          {onTheClock ? (
+            <div className="mt-3 h-9 motion-safe:animate-pulse rounded-md bg-muted" />
+          ) : null}
+        </div>
+        {onTheClock ? (
+          <div className="divide-y" aria-hidden>
+            {Array.from({ length: candidates - 1 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 p-3">
+                <div className="size-5 shrink-0 motion-safe:animate-pulse rounded bg-muted" />
+                <div className="h-5 w-11 shrink-0 motion-safe:animate-pulse rounded bg-muted" />
+                {/* Three lines, because a ranked row carries three: the name, the odds
+                    with their interval, and the paired comparison against the leader. */}
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-4 w-40 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-56 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-48 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <p className="sr-only" role="status">
           Simulating the rest of the draft.
         </p>
