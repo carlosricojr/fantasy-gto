@@ -396,7 +396,7 @@ describe("a template that starts no kicker", () => {
 
   const league = (id: string): PolicyLeague => ({
     slots: slotsForTemplate(id),
-    weeks: 14,
+    weeks: Array.from({ length: 14 }, (_, i) => i + 1),
   });
 
   const demandOf = (id: string) =>

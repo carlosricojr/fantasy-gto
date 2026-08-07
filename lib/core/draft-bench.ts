@@ -150,9 +150,9 @@ function expectedAboveReplacement(
   players: readonly DepthPlayer[],
   slots: number,
   replacement: number,
-  weeks: number,
+  weeks: readonly number[],
 ): number {
-  if (slots <= 0 || weeks <= 0) return 0;
+  if (slots <= 0 || weeks.length === 0) return 0;
   const ordered = [...players].sort((a, b) => b.value - a.value);
   const byes = new Set<number>();
   for (const player of ordered) {
@@ -160,13 +160,22 @@ function expectedAboveReplacement(
   }
   // A bye week outside the season is not a bye anybody plays through. Counting it would
   // reserve a share of the average for a week that never happens.
-  const inSeason = [...byes].filter((week) => week >= 1 && week <= weeks);
-  const ordinary = weeks - inSeason.length;
+  //
+  // Membership in the week list, not `week <= weeks.length`. Those agreed only while every
+  // season started at week 1 and ran without a gap, which stopped being true the moment the
+  // playoff bracket could sit inside the old regular-season range: a league whose final is
+  // in week 15 plays weeks 1-12 and then 13, 14, 15, so the count is 15 but the *regular*
+  // season is 12 — and a length test against 12 threw away byes in weeks 13 and 14, which
+  // are precisely the rounds that decide the title. A backup whose whole value was covering
+  // the semi-final scored exactly zero here and could miss the shortlist entirely.
+  const played = new Set(weeks);
+  const inSeason = [...byes].filter((week) => played.has(week));
+  const ordinary = weeks.length - inSeason.length;
   let total = expectedInOneWeek(ordered, slots, replacement, null) * ordinary;
   for (const week of inSeason) {
     total += expectedInOneWeek(ordered, slots, replacement, week);
   }
-  return total / weeks;
+  return total / weeks.length;
 }
 
 /**
@@ -186,7 +195,14 @@ export function coverValue(
   candidate: DepthPlayer,
   slots: number,
   replacement: number,
-  weeks: number,
+  /**
+   * The weeks the average is taken over, by number rather than as a count.
+   *
+   * Both a denominator and the set a bye is tested for membership in. Those were one
+   * argument doing two jobs while every season ran `1..n`; the list keeps them honest, and
+   * makes a caller state which weeks it means rather than how many there are.
+   */
+  weeks: readonly number[],
 ): number {
   if (slots <= 0) return 0;
   const withHim = [...rosterAtPosition, candidate];

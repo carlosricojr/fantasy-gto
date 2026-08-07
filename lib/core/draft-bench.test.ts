@@ -11,8 +11,16 @@ import { type DepthPlayer, coverValue } from "./draft-bench";
  * number rather than only the wrong roster.
  */
 
-/** A fourteen-week fantasy regular season, matching the draft screen's `LeagueConfig`. */
-const WEEKS = 14;
+/**
+ * A fourteen-week fantasy regular season, which is what the draft screen hands the depth
+ * model — as week numbers rather than as a count.
+ *
+ * The weeks themselves, because `coverValue` uses this argument for two different jobs: it
+ * is the denominator, and it is the set each bye is tested for membership in. A count only
+ * answers the second while the weeks run `1..n` from one, which is a coincidence the season
+ * layout no longer has any reason to preserve. See `PolicyLeague.weeks`.
+ */
+const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
 
 const p = (
   value: number,
@@ -115,7 +123,7 @@ describe("a bye is an absence the depth model can see", () => {
     // and by what he beats replacement by:
     //
     //   0.95 (candidate available) * 7 (15 - 8) * 0.95 (not already covered) / 14 = 0.45125
-    expect(withBye - withoutBye).toBeCloseTo((0.95 * 7 * 0.95) / WEEKS, 10);
+    expect(withBye - withoutBye).toBeCloseTo((0.95 * 7 * 0.95) / WEEKS.length, 10);
   });
 
   it("is worth nothing extra when the backup shares the starter's bye", () => {
@@ -127,15 +135,29 @@ describe("a bye is an absence the depth model can see", () => {
 
   it("ignores a bye week outside the season", () => {
     // A week nobody plays through is not a week to reserve a share of the average for.
-    expect(coverValue([p(20, 0.95, 17)], p(15, 0.95), 1, 8, WEEKS)).toBeCloseTo(
+    expect(coverValue([p(20, 0.95, 18)], p(15, 0.95), 1, 8, WEEKS)).toBeCloseTo(
       coverValue([p(20, 0.95, null)], p(15, 0.95), 1, 8, WEEKS),
       12,
     );
   });
 
+  it("reads the weeks it is given, not their count", () => {
+    // What the list buys over a number, on a season that is not `1..n`. Week 14 is in this
+    // one and week 13 is not, so a bye in 14 must be priced and a bye in 13 must not —
+    // which a length test against 15 gets backwards for both. The production caller passes
+    // a contiguous regular season today, so nothing currently depends on this; it is here
+    // because the argument used to be a count doing two jobs, and this is the job it did
+    // only by coincidence.
+    const gappy = [...Array.from({ length: 12 }, (_, i) => i + 1), 14, 15];
+    const noBye = coverValue([p(20, 0.95, null)], p(15, 0.95), 1, 8, gappy);
+    expect(coverValue([p(20, 0.95, 14)], p(15, 0.95), 1, 8, gappy)).toBeGreaterThan(noBye);
+    expect(coverValue([p(20, 0.95, 13)], p(15, 0.95), 1, 8, gappy)).toBeCloseTo(noBye, 12);
+  });
+
   it("weighs a bye more heavily in a shorter season", () => {
-    const short = coverValue([p(20, 0.95, 6)], p(15, 0.95, 9), 1, 8, 10);
-    const long = coverValue([p(20, 0.95, 6)], p(15, 0.95, 9), 1, 8, 17);
+    const weeks = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    const short = coverValue([p(20, 0.95, 6)], p(15, 0.95, 9), 1, 8, weeks(10));
+    const long = coverValue([p(20, 0.95, 6)], p(15, 0.95, 9), 1, 8, weeks(17));
     expect(short).toBeGreaterThan(long);
   });
 });
@@ -148,7 +170,7 @@ describe("coverValue boundaries", () => {
   });
 
   it("is nothing over a season with no weeks in it", () => {
-    expect(coverValue([p(20, 0.9)], p(15, 0.9), 1, 5, 0)).toBe(0);
+    expect(coverValue([p(20, 0.9)], p(15, 0.9), 1, 5, [])).toBe(0);
   });
 
   it("is nothing for a player who is not better than replacement", () => {

@@ -5,6 +5,7 @@ import { Lock } from "lucide-react";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
+import { seasonSummary } from "./season-label";
 import { ROSTER_TEMPLATES, rosterTemplateById, slotSummary } from "@/lib/nfl/roster";
 import { SCORING_PRESETS, scoringPresetById } from "@/lib/nfl/scoring/presets";
 import {
@@ -220,7 +221,7 @@ export function LeagueForm({
           getting it wrong means drafting for the wrong season.
         */}
         <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-          {seasonSummary(value.championshipWeek, value.playoffTeams)}
+          {describeChosenSeason(value.championshipWeek, value.playoffTeams)}
         </p>
       </Field>
     </div>
@@ -228,26 +229,19 @@ export function LeagueForm({
 }
 
 /**
- * "Weeks 1–13 · playoffs 14–16", from the same derivation the objective uses.
+ * The chosen season, described by the same derivation the objective is configured from.
  *
  * Falls back to naming the incoherent pair rather than throwing. The controls above only
  * offer combinations `fantasySeasonWeeks` accepts, but this is a rendered string in a
  * component that also renders a restored draft, and a thrown error here would take the
  * whole settings dialog down over a label.
  */
-function seasonSummary(championshipWeek: number, playoffTeams: number): string {
-  let season: ReturnType<typeof fantasySeasonWeeks>;
+function describeChosenSeason(championshipWeek: number, playoffTeams: number): string {
   try {
-    season = fantasySeasonWeeks(championshipWeek, playoffTeams);
+    return seasonSummary(fantasySeasonWeeks(championshipWeek, playoffTeams));
   } catch {
     return `No season runs a ${playoffTeams}-team bracket to week ${championshipWeek}.`;
   }
-  const { weeks, playoffWeeks } = season;
-  const regular = `Weeks 1–${weeks[weeks.length - 1]}`;
-  if (playoffWeeks.length === 0) return `${regular} · no playoffs`;
-  const first = playoffWeeks[0];
-  const last = playoffWeeks[playoffWeeks.length - 1];
-  return `${regular} · playoffs ${first === last ? first : `${first}–${last}`}`;
 }
 
 /**

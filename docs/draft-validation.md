@@ -408,6 +408,22 @@ final decided on the combined score of two weeks cannot be expressed. Leagues th
 should set the championship week to the *last* of the two; the bracket is then right and
 the final is scored over one week instead of two.
 
+**The prefilter prices byes over the regular season only.** `PolicyLeague.weeks` is the
+regular season's weeks, so the depth model that narrows several hundred players to a
+shortlist of ten does not see a bye that lands in a playoff round. The objective does, and
+prices it exactly — but a reserve whose only worth is covering such a bye can be narrowed
+out before the simulation ever values him. This binds on the two configurations where a
+real NFL bye reaches a bracket at all: a final in week 15, and a final in week 16 with a
+six-team field.
+
+Passing the whole season instead was tried and is worse. The bye term is a per-week average
+and `startingGain` is not, so lengthening the season from fourteen weeks to seventeen shrinks
+depth against starter upgrades — and `completeDraft` began spending a late pick on a second
+kicker in a league that starts one, which is the exact failure `coverValue` was written to
+fix and which `draft-policy.test.ts` pins. Weighting playoff weeks by the chance of reaching
+them would be one more tuned constant of the kind simulating to the terminal outcome exists
+to remove. So the approximation is deliberate and recorded here rather than closed.
+
 **Kickers and defenses carry the market's price only.** The model does not project either
 and will not pretend to. They were previously left off the board entirely, which did not
 make the tool cautious — it made it unusable for any league that starts one: the slot could

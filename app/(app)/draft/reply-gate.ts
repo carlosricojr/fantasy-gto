@@ -119,10 +119,20 @@ export function isStale(gate: ReplyGateState, replyId: number): boolean {
 /**
  * The league a request belongs to, as one string.
  *
- * Every field that changes which board is fetched or which lineup is scored. A field left out
- * of this is a field whose change leaves the previous league's answer on screen: scoring
- * decides the board, the roster template decides the slots and therefore the demand, the team
- * count decides both, and the season decides everything.
+ * Every field that changes which board is fetched, which lineup is scored, or which season is
+ * simulated. A field left out of this is a field whose change leaves the previous league's
+ * answer on screen: scoring decides the board, the roster template decides the slots and
+ * therefore the demand, the team count decides both, and the season decides everything.
+ *
+ * The playoff field and the championship week are here for the last of those reasons, and
+ * they were both missing. Neither re-queries the board, so a request does go out immediately
+ * and the old answer is superseded within one computation — which is why this looked like the
+ * ordinary churn of a fast draft and is not. Championship probability is *the* number this
+ * panel reports, and it is the probability of surviving a specific bracket over specific
+ * weeks; an answer computed for a different bracket is not a stale answer to this question,
+ * it is a confident answer to another one. That is the distinction this whole module exists
+ * to draw, and it applies whether or not something happens to supersede it half a second
+ * later.
  *
  * Serialized rather than joined on a separator. Joining is injective only while no component
  * can contain the separator, which is true of the ids this ships today and is not a property
@@ -137,6 +147,8 @@ export function leagueFingerprint(league: {
   templateId: string;
   teams: number;
   rounds: number;
+  playoffTeams: number;
+  championshipWeek: number;
 }): string {
   return JSON.stringify([
     league.season,
@@ -144,5 +156,7 @@ export function leagueFingerprint(league: {
     league.templateId,
     league.teams,
     league.rounds,
+    league.playoffTeams,
+    league.championshipWeek,
   ]);
 }

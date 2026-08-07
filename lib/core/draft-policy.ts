@@ -84,13 +84,31 @@ export interface PolicyLeague {
   /** The starting lineup shape every team fields. */
   slots: readonly RosterSlot[];
   /**
-   * Weeks in the fantasy regular season.
+   * The fantasy regular season's weeks, by number.
    *
    * Read only by the depth model, and only to price a bye: a player idle in one week of
    * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve more
    * often than that.
+   *
+   * **The weeks, not how many.** This was a count, which served the same purpose only while
+   * every season ran `1..n` from week one — `expectedAboveReplacement` used it as the
+   * denominator *and* as the highest week number that exists, and those are different
+   * questions that happened to have the same answer. A season is now laid out from the
+   * championship week, so the coincidence is worth not depending on.
+   *
+   * **Playoff weeks are deliberately excluded, and this is an approximation.** A bye in a
+   * playoff round is real and expensive, and the *objective* prices it exactly by playing
+   * the bracket out — but a team reaches the third round of a six-team bracket about a sixth
+   * of the time, so counting playoff weeks here as certain would overweight them, and
+   * weighting them by a qualification probability would be one more tuned constant of the
+   * kind this design exists to remove. Passing the whole season was tried and measurably
+   * degraded the base policy: at seventeen weeks instead of fourteen the bye term shrinks
+   * against `startingGain`, and `completeDraft` began taking a second kicker over skill
+   * depth — the exact failure `coverValue` was written to fix. So the shortlist may miss a
+   * reserve whose only worth is covering a bye that lands in a playoff round; every
+   * candidate that *does* reach it is then valued with that bye priced correctly.
    */
-  weeks: number;
+  weeks: readonly number[];
 }
 
 export interface ChampionshipRecommendation {
@@ -455,15 +473,14 @@ interface PrefilterContext {
   baseline: LineupSolution;
   startingSlots: ReadonlyMap<string, number>;
   /**
-   * Weeks in the fantasy regular season.
+   * The fantasy regular season's weeks, by number. See `PolicyLeague.weeks`.
    *
-   * Only the depth model reads it, and only to price a bye: a player idle in one week of
-   * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve is
-   * unavailable more often. It is a parameter rather than a constant because it is already
-   * configuration everywhere else — `LeagueConfig.weeks` — and a second, disagreeing copy of
-   * the season length is exactly the sort of thing that stays wrong quietly.
+   * Only the depth model reads it, and only to price a bye. It is a parameter rather than a
+   * constant because it is already configuration everywhere else — `LeagueConfig.weeks` —
+   * and a second, disagreeing copy of the season is exactly the sort of thing that stays
+   * wrong quietly.
    */
-  weeks: number;
+  weeks: readonly number[];
   /**
    * The value a candidate has to beat at each position to reach the starting lineup.
    *
@@ -750,9 +767,17 @@ export function recommendByChampionship(
   // Narrow the field cheaply, then judge what is left properly. The demand this prices
   // against is the whole live league's — every team's unfilled starting slots as they stand
   // right now, which is what decides how deep a position runs before it is free.
-  // The season length the simulation is about to use, so the depth model and the objective
-  // cannot disagree about how often a bye costs a week.
-  const league: PolicyLeague = { slots: config.slots, weeks: config.weeks.length };
+  // The regular season's actual week numbers, from the same config the simulation runs on.
+  //
+  // Not `config.weeks.length`, which is what this used to pass. `expectedAboveReplacement`
+  // reads its season argument twice — as the denominator *and* as the bound a bye must fall
+  // under — and a count only serves the second job while the weeks happen to be `1..n`
+  // starting at one. They are today, but nothing said so, and the two readings had already
+  // diverged in meaning: a length test is a different question from "is this week played".
+  //
+  // Not the playoff weeks either, and that is a deliberate approximation rather than an
+  // oversight — see `PolicyLeague.weeks`.
+  const league: PolicyLeague = { slots: config.slots, weeks: config.weeks };
   const leagueUnfilled = state.teams.flatMap((team) =>
     ownUnfilledSlots(team.roster, config.slots),
   );

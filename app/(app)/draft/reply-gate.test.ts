@@ -25,6 +25,8 @@ const LEAGUE = {
   templateId: "standard",
   teams: 10,
   rounds: 15,
+  playoffTeams: 6,
+  championshipWeek: 17,
 };
 
 describe("out-of-order replies", () => {
@@ -125,7 +127,7 @@ describe("changing the league", () => {
 });
 
 describe("leagueFingerprint", () => {
-  it("changes when anything that changes the board or the lineup changes", () => {
+  it("changes when anything that changes the board, the lineup or the season changes", () => {
     const base = leagueFingerprint(LEAGUE);
     const variants = [
       { ...LEAGUE, season: 2025 },
@@ -133,11 +135,33 @@ describe("leagueFingerprint", () => {
       { ...LEAGUE, templateId: "two_flex" },
       { ...LEAGUE, teams: 12 },
       { ...LEAGUE, rounds: 16 },
+      // Neither of these re-queries the board, so a request goes out at once and the old
+      // answer is superseded a moment later — which is why they were left out and why that
+      // was wrong. A championship probability is the probability of surviving a particular
+      // bracket over particular weeks, so an answer computed for another one is not an old
+      // answer to this question; it is a confident answer to a different question, and it
+      // must leave the screen when the question does.
+      { ...LEAGUE, playoffTeams: 4 },
+      { ...LEAGUE, championshipWeek: 15 },
     ];
     for (const variant of variants) {
       expect(leagueFingerprint(variant)).not.toBe(base);
     }
     expect(new Set(variants.map(leagueFingerprint)).size).toBe(variants.length);
+  });
+
+  it("discards the answer on screen when the season shape changes", () => {
+    // End to end through the gate, not just the string: a reply outstanding when the
+    // championship week changes must be refused, and what is already displayed must go with
+    // it rather than lingering under the new setting.
+    let gate = initialGate(leagueFingerprint(LEAGUE));
+    const outstanding = nextRequest(gate);
+    gate = applied(outstanding.gate, outstanding.id);
+    expect(verdictFor(gate, outstanding.id)).toBe("apply");
+
+    const moved = retarget(gate, leagueFingerprint({ ...LEAGUE, championshipWeek: 15 }));
+    expect(moved.changed).toBe(true);
+    expect(verdictFor(moved.gate, outstanding.id)).toBe("wrong-league");
   });
 
   it("is the same string for the same league", () => {

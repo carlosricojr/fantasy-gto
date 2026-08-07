@@ -44,6 +44,7 @@ import {
   unrankedAdpFor,
 } from "./pool-view";
 import { QueuePanel } from "./queue-panel";
+import { describeSeason } from "./season-label";
 import { leagueFingerprint } from "./reply-gate";
 import { Recommendations } from "./recommendations";
 import { SettingsDialog } from "./settings-dialog";
@@ -466,6 +467,11 @@ export default function DraftPage() {
     templateId,
     teams: setup.teams,
     rounds: setup.rounds,
+    // The season shape, so an answer computed for one bracket cannot sit on screen under
+    // another. These are not passed through `config` because the fingerprint has to be a
+    // primitive tuple; `config` is derived from exactly these two.
+    playoffTeams,
+    championshipWeek,
   });
   useEffect(() => {
     recommender.retargetTo(fingerprint);
@@ -664,6 +670,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            config={config}
           />
         </DraftSetup>
       </PageShell>
@@ -814,6 +821,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            config={config}
           />
         </aside>
       </div>
@@ -932,10 +940,22 @@ function Caveat({
   freshness,
   boardSize,
   teams,
+  config,
 }: {
   freshness: BoardFreshness | null;
   boardSize: number;
   teams: number;
+  /**
+   * The league the odds were actually computed for.
+   *
+   * This paragraph used to state "a 14-week regular season and a three-week bracket" as a
+   * fixed fact, which was true while the board wrote those numbers out and false the
+   * moment the season became a setting — for five of the six combinations the controls
+   * offer. Worse, it sat beside a settings panel and a bye list that both described the
+   * real one, so the screen contradicted itself. It is derived now for the same reason
+   * every other number here is: nothing may be stated that the code did not compute.
+   */
+  config: LeagueConfig;
 }) {
   // Formatted after mount, never during render. `toLocaleString` reads the locale and
   // timezone of whoever runs it, so the server's rendering of this timestamp and the
@@ -965,7 +985,7 @@ function Caveat({
     <p className="text-xs text-muted-foreground">
       {boardSize} players.{" "}
       {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
-      Odds assume a 14-week regular season and a three-week bracket. Player values blend
+      Odds are for {describeSeason(config)}. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
       defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed
