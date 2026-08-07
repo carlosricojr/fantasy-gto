@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
+import { useStableQuery } from "@/components/use-stable-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,7 +42,11 @@ export default function LineupPage() {
   // searching for one rendered "No players match that search" — which reads as "this
   // player does not exist" on the path the README calls the working one. A single week of
   // a single ruleset is a few hundred rows.
-  const projections = useQuery(
+  // Held across a ruleset change. Changing the scoring format keyed a different query, so
+  // this went back to `undefined` and the solved lineup was replaced by a "Recalculating"
+  // box — the answer to the same roster under slightly different rules, thrown away and
+  // rebuilt from nothing on every click.
+  const { data: projections, pending } = useStableQuery(
     api.projections.forWeek,
     season ? { season: season.season, week: season.week, scoringId } : "skip",
   );
@@ -54,7 +59,7 @@ export default function LineupPage() {
   // from the optimizer's input while their roster chip keeps rendering a placeholder, and
   // the page still calls the answer the best arrangement the roster allows. Anything that
   // reintroduces a cap on the board should not also be able to reintroduce that.
-  const selectedProjections = useQuery(
+  const { data: selectedProjections } = useStableQuery(
     api.projections.forPlayers,
     season && selected.length > 0
       ? { playerIds: selected, season: season.season, week: season.week, scoringId }
@@ -66,7 +71,7 @@ export default function LineupPage() {
     for (const row of selectedProjections ?? []) ids.add(row.playerId);
     return [...ids];
   }, [projections, selectedProjections]);
-  const players = useQuery(
+  const { data: players } = useStableQuery(
     api.projections.playersByIds,
     playerIds.length > 0 ? { externalIds: playerIds } : "skip",
   );
@@ -192,9 +197,30 @@ export default function LineupPage() {
         ))}
       </div>
 
+      {/* The lineup itself no longer disappears while a ruleset loads, so this says what is
+          happening in one line instead of replacing the answer with a box. Always in the
+          DOM and empty when idle, for the same live-region reason as the draft's status
+          bar; a fixed height so it cannot move the lineup by appearing. */}
+      <p
+        className="mb-3 h-4 truncate text-xs font-medium text-amber-700 dark:text-amber-300"
+        role="status"
+      >
+        {pending ? (
+          <>
+            {/* Two lengths and a `truncate` backstop, the same treatment the draft's status
+                bar needs for the same reason: at 12px the long sentence runs about 470px,
+                which is wider than a phone's content column, and a fixed-height box with a
+                sentence wrapping inside it does not push the page down — it renders the
+                second line straight over whatever comes next. */}
+            <span className="hidden sm:inline">Loading the new ruleset — the points below are the previous one&rsquo;s.</span>
+            <span className="sm:hidden">Points are the previous ruleset&rsquo;s.</span>
+          </>
+        ) : null}
+      </p>
+
       {roster.length === 0 && selected.length > 0 && projections === undefined ? (
         <div className="rounded-lg border p-8 text-center text-sm text-muted-foreground">
-          Recalculating for the new ruleset&hellip;
+          Loading the projections&hellip;
         </div>
       ) : roster.length === 0 ? (
         <EmptyState

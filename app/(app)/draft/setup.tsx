@@ -25,6 +25,7 @@ export function DraftSetup({
   onChange,
   onStart,
   boardSize,
+  boardPending,
   season,
   leagueSizes,
   scoringConfirmed,
@@ -34,6 +35,8 @@ export function DraftSetup({
   onChange: (patch: Partial<LeagueSettings>) => void;
   onStart: () => void;
   boardSize: number;
+  /** True while `boardSize` is the previous selection's — see the page's `useStableQuery`. */
+  boardPending?: boolean;
   season: number;
   leagueSizes: readonly number[];
   /** False until the scoring format has been chosen rather than merely preselected. */
@@ -83,7 +86,13 @@ export function DraftSetup({
         </ol>
       </section>
 
-      {boardSize === 0 ? (
+      {/* `!boardPending`, because `boardSize` is held across a selection change: switching
+          from a size with no board to one that has never been asked about printed "no 2026
+          board has been built for 12-team ppr yet" about a query that had not come back.
+          A negative existence claim is the last thing to make from data that is about to be
+          replaced — so while it is in flight the screen offers to start, and the started
+          board has its own, correct, "no board for this league" screen with a way back. */}
+      {boardSize === 0 && boardPending !== true ? (
         // Deliberately beside the form rather than replacing it. Unmounting the setup
         // screen took the controls away with it, leaving no way back except a reload — and
         // told an end user to run an internal command.

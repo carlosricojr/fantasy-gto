@@ -14,11 +14,20 @@
  * different slots, different demand — and so is every reply already on screen. Request ids
  * cannot see this, because the ids keep counting up and the newest reply is still the newest.
  *
- * The second is worse than the first and was not handled. Changing scoring re-queries the
- * board, which is `undefined` while it loads, so no new request goes out — and the previous
- * league's recommendations sat on screen, unmarked, for as long as the query took. They were
+ * The second is worse than the first and was not handled. The previous league's
+ * recommendations sat on screen, unmarked, until an answer for the new one arrived. They were
  * not stale in the sense the panel means by stale. They were answers to a question nobody had
  * asked.
+ *
+ * This used to say the window existed because changing scoring re-queried the board, which
+ * was `undefined` while it loaded, so `draftState` was null and no request went out. The
+ * conclusion is still true and the reason no longer is: `useStableQuery` holds the previous
+ * rows, so `draftState` is not null during the reload — it describes the *old* league. What
+ * withholds the request now is an explicit `if (boardPending) return` in `page.tsx`, which
+ * exists precisely because this gate cannot tell a request built from a held board from a
+ * current one. So the window is the same length it always was, and the guard that sets its
+ * length moved from an accident to a line of code. Do not read this paragraph as a reason
+ * the guard is redundant; it is the reason it is not.
  *
  * Extracted from the hook because it is a state machine over three numbers and none of it
  * needs React, and because the version that lived inside the hook could only be tested by
