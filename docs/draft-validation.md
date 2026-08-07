@@ -398,11 +398,12 @@ things followed, and neither announced itself:
   much less than a semi-final, because seeds one and two sit it out — also asserted, and
   also a thing no per-week weighting could express.
 - **A four-team field got a bracket it does not play.** Two rounds were configured as three.
-  The surplus round is never played — `playBracket` stops once the field is down to one — so
-  the cost was the *week*: with fourteen regular weeks and a bracket ending in week 17, week
-  15 was labelled a playoff round that nobody played, and the regular season ran a week
-  shorter than the league's. Deriving the bracket length from the field size makes that pair
-  impossible to write down.
+  `playBracket` consumes the bracket from the front and stops once the field is down to one,
+  so with fourteen regular weeks and a bracket in 15-17 that field played rounds in weeks 15
+  and 16 and never reached 17. Two things were wrong at once: week 15 was spent as a playoff
+  round when it should have been the last week of the regular season, and week 17 — the week
+  the league had named as its final — was not played at all. Deriving the bracket length from
+  the field size makes that pair impossible to write down.
 
 ### What is guaranteed about a season that ends early
 
@@ -435,8 +436,8 @@ unplayed; every week it does play is a real NFL week; it round-trips through ses
 a payload written before the setting existed restores at the default final of week 17, which
 reproduces the old season exactly for a six-team field and deliberately does not for a
 four-team one — the old pair gave that field a three-week bracket it does not play, so
-restoring it unchanged would preserve the defect rather than the league; the sentence on screen names week counts
-*equal* to the ones simulated rather than a golden string; no two shapes share a
+restoring it unchanged would preserve the defect rather than the league; the sentence on
+screen names week counts *equal* to the ones simulated rather than a golden string; no two shapes share a
 recommendation memo key or a reply-gate fingerprint; and the regular season handed to the
 depth model is contiguous from week 1.
 

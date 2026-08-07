@@ -169,9 +169,11 @@ describe("what is stored comes back as the season it was drafted against", () =>
     });
 
     // Four teams: deliberately *not* the old season. The old pair gave a two-round field a
-    // three-week bracket, so week 15 was labelled a playoff round nobody played. Restoring
-    // it as that would be preserving the defect. A draft in progress does shift here, by
-    // one regular-season week, and that shift is the correction.
+    // three-week bracket, and the bracket is consumed from the front — so it ran in weeks 15
+    // and 16, the title was decided in 16, and week 17, the week the league had named as its
+    // final, was never played. Restoring that would preserve the defect rather than the
+    // league. A draft in progress does shift here, by one regular-season week, and the shift
+    // is the correction.
     expect(seasonFor(DEFAULT_CHAMPIONSHIP_WEEK, 4)).toEqual({
       weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       playoffWeeks: [16, 17],

@@ -253,11 +253,12 @@ describe("fantasySeasonWeeks", () => {
   });
 
   it("gives a four-team field two rounds, not three", () => {
-    // What the literals it replaces got wrong. A four-team bracket over three playoff weeks
-    // does not play its surplus round at all — `playBracket` stops once one team is left —
-    // so the cost was the week: under a fourteen-week regular season and a bracket ending
-    // in 17, week 15 was labelled a playoff round that nobody played, and the regular season
-    // ran a week shorter than the league's.
+    // What the literals it replaces got wrong, and it is worth being exact about which week
+    // moved. `playBracket` consumes the bracket from the front and stops once one team is
+    // left, so a four-team field over weeks 15-17 played rounds in 15 and 16 and never
+    // reached 17. Two things were wrong at once: week 15 was spent as a playoff round when
+    // it should have been the last week of the regular season, and week 17 — the week the
+    // league had named as its final — was not played at all.
     expect(fantasySeasonWeeks(17, 4)).toEqual({
       weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       playoffWeeks: [16, 17],
@@ -366,10 +367,11 @@ describe("a season is a partition of its weeks, whatever shape it is", () => {
 
   it("gives the bracket exactly the rounds the field needs", () => {
     // Both directions matter, and they fail differently. Too few and `simulateLeague`
-    // refuses outright. Too many is the quiet one: `playBracket` stops as soon as the field
-    // is down to one, so the surplus round is never played at all — what a four-team field
-    // over three playoff weeks actually cost was the *week*, which belonged to neither half
-    // of the season and simply vanished from it.
+    // refuses outright. Too many is the quiet one: the bracket is consumed from the front
+    // and `playBracket` stops as soon as the field is down to one, so a four-team field over
+    // weeks 15-17 decided its title in week 16 and never reached 17 — the week the league
+    // had named as its final went unplayed, and week 15 was spent as a playoff round instead
+    // of closing the regular season.
     for (const { championshipWeek, playoffTeams } of shapes) {
       const { playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
       expect(playoffWeeks.length).toBe(bracketRoundsRequired(playoffTeams));
@@ -528,9 +530,12 @@ describe("every league the product can express simulates coherently", () => {
   });
 
   it("seats everyone when the field is the whole league", () => {
-    // The boundary `simulateLeague` deliberately allows: `playoffTeams > teamCount` throws,
-    // `playoffTeams === teamCount` does not, and the source says the bye test relies on that
-    // being `>` rather than `>=`. No other test covers the equal case.
+    // The boundary `simulateLeague` deliberately allows: `playoffTeams > teamCount` throws
+    // and `playoffTeams === teamCount` does not, which the source says the first-round-bye
+    // test relies on. That test ("gives the top seeds a first-round bye…") already exercises
+    // the equal case with a six-team field in a six-team league, so this is a second reading
+    // of the same boundary against a season whose bracket sits inside the old regular-season
+    // range — not the only one, which an earlier version of this comment claimed.
     //
     // Note what this does *not* pin, because the assertion looks like it does more than it
     // does. `playoffProbability` counts `seeded.slice(0, min(playoffTeams, teamCount))`,
