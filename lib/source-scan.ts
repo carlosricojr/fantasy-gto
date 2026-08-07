@@ -28,7 +28,30 @@ function startsRegex(source: string, i: number): boolean {
   while (j >= 0 && /\s/.test(source[j])) j -= 1;
   if (j < 0) return true;
   const prev = source[j];
-  if ("(,=:[!&|?{};+-*%~^<>".includes(prev)) return true;
+  // `}`, `<` and `>` are deliberately absent. They are expression-start positions in plain
+  // JavaScript, and in TSX they are the end of `{expr}` and of a tag — so `<A b={c} />`
+  // would read as a regex opening at the `/`, run to the next `/` on the line, and in
+  // `stripCommentsAndStrings` could swallow an opening quote and leave the parser a quote
+  // out of phase for the rest of the file. Losing them costs nothing real: `{} /re/` is not
+  // something anybody writes, and the scan reads `.tsx` under `lib/core` by design.
+  if ("(,=:[!&|?;+-*%~^".includes(prev)) return true;
+  // `if (ok) /re/.test(x)` — a closing paren is division after a call, but a statement
+  // boundary after a control-flow head. Walk back to the matching `(` and look at the word
+  // in front of it; anything else keeps the old answer, which is "this is division".
+  if (prev === ")") {
+    let depth = 0;
+    let k = j;
+    for (; k >= 0; k -= 1) {
+      if (source[k] === ")") depth += 1;
+      else if (source[k] === "(") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    if (k < 0) return false;
+    const head = source.slice(Math.max(0, k - 8), k).match(/[A-Za-z$_][\w$]*\s*$/);
+    return head !== null && ["if", "while", "for", "with"].includes(head[0].trim());
+  }
   // `return /re/`, `typeof /re/`, and friends: a word here is a keyword, not a value.
   const word = source.slice(Math.max(0, j - 10), j + 1).match(/[A-Za-z$_][\w$]*$/);
   return word !== null && ["return", "typeof", "case", "in", "of", "new", "delete", "void", "instanceof"].includes(word[0]);

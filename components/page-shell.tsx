@@ -46,7 +46,12 @@ export function PageShell({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">{title}</h1>
-          {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+          {/* A `div`, not a `p`. The subtitle takes a `ReactNode` so a screen can reserve
+              the line with a skeleton, and `p` may only contain phrasing content — today's
+              skeleton is a `span` and legal, but the type now admits a `div`, and the
+              failure that would produce is a hydration mismatch rather than a lint error.
+              Nothing here depended on the paragraph semantics. */}
+          {subtitle && <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>}
         </div>
         {actions}
       </div>

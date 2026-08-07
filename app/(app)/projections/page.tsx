@@ -76,20 +76,31 @@ export default function ProjectionsPage() {
         title="Projections"
         subtitle={<Skeleton className="h-5 w-64 max-w-full" />}
       >
+        {/* Each chip carries its own label invisibly, so it is the width of the button it
+            stands for and the rows wrap where the real rows wrap. */}
         <div className="mb-4 flex flex-wrap gap-2">
           {SCORING_PRESETS.map((preset) => (
-            <Skeleton key={preset.id} className="h-8 w-24" />
+            <Skeleton key={preset.id} className="h-8 px-3 text-sm">
+              {preset.label}
+            </Skeleton>
           ))}
         </div>
         <div className="mb-6 flex flex-wrap gap-2">
-          {["all", ...FILTERABLE_POSITIONS].map((code) => (
-            <Skeleton key={code} className="h-8 w-14" />
+          {["All", ...FILTERABLE_POSITIONS].map((code) => (
+            <Skeleton key={code} className="h-8 px-3 text-sm">
+              {code}
+            </Skeleton>
           ))}
         </div>
         <ProjectionListSkeleton />
-        <p className="sr-only" role="status">
-          Loading projections.
-        </p>
+        {/* Not `role="status"`. A live region announces a *change*, and this one mounts
+            with its text already inside on the first paint of a cold load — there is no
+            transition for a screen reader to notice, and the branch unmounts wholesale when
+            the season resolves so it never gets one. It stays as ordinary off-screen text,
+            which is read in document order, and the container carries `aria-busy`. The
+            region that does work this way is the one below, which is always in the DOM and
+            empty when idle. */}
+        <p className="sr-only">Loading projections.</p>
       </PageShell>
     );
   }
@@ -158,9 +169,7 @@ export default function ProjectionsPage() {
               so nested, the one element that exists to tell a screen reader user the page
               is loading was the one element guaranteed never to fire. */}
           <ProjectionListSkeleton />
-          <p className="sr-only" role="status">
-            Loading projections.
-          </p>
+          <p className="sr-only">Loading projections.</p>
         </>
       ) : null}
 
@@ -224,7 +233,7 @@ export default function ProjectionsPage() {
  */
 function ProjectionListSkeleton() {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" aria-busy>
       {Array.from({ length: 8 }, (_, i) => (
         <Skeleton key={i} className="h-20 rounded-lg" />
       ))}

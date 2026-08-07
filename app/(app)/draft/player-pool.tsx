@@ -232,9 +232,10 @@ export function PlayerPool({
                 aria-label="Clear search"
                 // Same reason as the queue star: 24px is the floor, not a target. This one
                 // is absolutely positioned inside the field, so the padding costs no layout
-                // and needs no margin back — 36px, which is the height of the input it sits
-                // in and as large as it can be without hanging outside the field.
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full p-2.5 text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                // and needs no margin back. 11px around a 14px icon is 36px, the height of
+                // the input it sits in and as large as it can be without hanging outside
+                // the field — `p-2.5` was the first guess and produced 34.
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full p-[11px] text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               >
                 <X className="size-3.5" />
               </button>
@@ -459,6 +460,10 @@ function PoolRow({
             //
             // Vertical only. A thumb scanning a list misses above and below; widening this
             // far would start taking presses meant for the player's name beside it.
+            //
+            // The focus ring follows the border box, so tabbing to a star now outlines a
+            // 24x44 pill rather than hugging the 16px icon. That is the target being shown
+            // truthfully, and it stays inside the 48px row.
             className="-my-2.5 rounded px-1 py-3.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <Star className={cn("size-4", queued && "fill-brand text-brand")} />

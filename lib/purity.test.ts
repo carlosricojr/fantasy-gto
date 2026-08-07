@@ -101,6 +101,12 @@ describe("the scanner itself", () => {
     // ...and division still is not one.
     expect(stripComments("const half = total / 2; // gone\nDate.now()")).toContain("Date.now(");
     expect(stripComments("const half = total / 2; // gone\nx")).not.toContain("gone");
+    // A literal in statement position after a control-flow head, where the preceding
+    // character is a closing paren and would otherwise read as division.
+    expect(stripComments('if (ok) /[//]/.test(v); Date.now()')).toContain("Date.now(");
+    expect(stripCommentsAndStrings('if (ok) /[//]/.test(v); Date.now()')).toContain("Date.now(");
+    // ...but a call's closing paren still is division, not a literal.
+    expect(stripComments("const r = f(a) / 2; // gone\nx")).not.toContain("gone");
   });
 
   it("does not treat // inside a string as a comment", () => {

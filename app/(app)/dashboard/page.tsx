@@ -123,13 +123,11 @@ export default function DashboardPage() {
         // The list that arrives, at its height. This one is a smaller shift than the other
         // two — a league row is 72px and most people have one or two — but it is the same
         // fix and the same reason.
-        <div className="space-y-2">
+        <div className="space-y-2" aria-busy>
           {Array.from({ length: 2 }, (_, i) => (
             <Skeleton key={i} className="h-[72px] rounded-lg" />
           ))}
-          <p className="sr-only" role="status">
-            Loading your leagues.
-          </p>
+          <p className="sr-only">Loading your leagues.</p>
         </div>
       )}
 

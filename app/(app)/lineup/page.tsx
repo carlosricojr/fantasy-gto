@@ -163,8 +163,9 @@ export default function LineupPage() {
     // a section that had never rendered.
     //
     // The control row is one chip per control — nine roster templates and three scoring
-    // presets — rather than a round number, so the row wraps to the same height as the row
-    // it replaces instead of half of it.
+    // presets — each carrying its own label invisibly, so a chip is the width of the button
+    // it stands for and the row wraps where the real row wraps. One chip per control with a
+    // guessed width was 150px wider in total, which is a wrapped line's worth on a phone.
     return (
       <PageShell title="Lineup optimizer" subtitle={<Skeleton className="h-5 w-64 max-w-full" />}>
         {/* `h-5`, which is `text-sm`'s 1.25rem line box — not `h-4`, which was the
@@ -177,10 +178,16 @@ export default function LineupPage() {
               track that, and reserving two lines everywhere would over-reserve in season. */}
         <div className="mb-4 flex flex-wrap gap-2">
           {ROSTER_TEMPLATES.map((template) => (
-            <Skeleton key={template.id} className="h-8 w-24" />
+            <Skeleton key={template.id} className="h-8 px-3 text-sm">
+              {template.label}
+            </Skeleton>
           ))}
+          {/* The separator the real row carries between the two groups. */}
+          <span className="mx-1 w-px" aria-hidden />
           {SCORING_PRESETS.map((preset) => (
-            <Skeleton key={preset.id} className="h-8 w-20" />
+            <Skeleton key={preset.id} className="h-8 px-3 text-sm">
+              {preset.label}
+            </Skeleton>
           ))}
         </div>
         {/* The always-present status line the resolved page keeps empty, then the empty
@@ -194,16 +201,20 @@ export default function LineupPage() {
             block above this one was rewritten for exactly this reason and this one was left
             aimed at the settled page. */}
         <Skeleton className="mt-8 h-32 rounded-lg" />
-        <p className="sr-only" role="status">
-          Loading the optimizer.
-        </p>
+        {/* Ordinary off-screen text rather than a live region, for the reason recorded on
+            the projections page: a region that mounts with its content has no change to
+            announce. */}
+        <p className="sr-only">Loading the optimizer.</p>
       </PageShell>
     );
   }
 
   if (season === null) {
+    // The same title as the loading branch and the resolved one. It read "Lineup" here and
+    // "Lineup optimizer" everywhere else, so a deployment with no ingest run retitled the
+    // page as it resolved — the same handoff shift the loading skeleton exists to remove.
     return (
-      <PageShell title="Lineup">
+      <PageShell title="Lineup optimizer">
         <EmptyState
           title="No schedule loaded yet"
           body="The optimizer needs projections. Run the ingest job to populate them."

@@ -160,9 +160,31 @@ describe("motion is asked for, not assumed", () => {
     // of its own. If the library ever adds one this becomes redundant rather than wrong,
     // but silently dropping the block would restore the zoom for everybody who asked for
     // less motion, and nothing else in the repo would notice.
+    // One regex over the whole block, not three independent `toMatch` calls that each
+    // succeed anywhere in the file. The selector is asserted too: `.animate-in` reads more
+    // naturally and matches nothing, because the class on `DialogContent` is
+    // `data-[state=open]:animate-in` — the attribute contains the substring, no element
+    // carries the bare class. Three loose assertions all still passed on that.
     const css = readFileSync("app/globals.css", "utf8");
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
-    expect(css).toMatch(/--tw-enter-scale:\s*1/);
-    expect(css).toMatch(/--tw-enter-translate-y:\s*0/);
+    const block =
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\[class\*="animate-in"\],\s*\[class\*="animate-out"\]\s*\{([^}]*)\}/;
+    const match = css.match(block);
+    expect(match, "the reduced-motion block is missing or its selector changed").not.toBeNull();
+    for (const declaration of [
+      "--tw-enter-translate-x: 0",
+      "--tw-enter-translate-y: 0",
+      "--tw-exit-translate-x: 0",
+      "--tw-exit-translate-y: 0",
+      "--tw-enter-scale: 1",
+      "--tw-exit-scale: 1",
+      "--tw-enter-rotate: 0",
+      "--tw-exit-rotate: 0",
+      "--tw-enter-blur: 0",
+      "--tw-exit-blur: 0",
+    ]) {
+      expect(match![1]).toContain(declaration);
+    }
+    // Opacity is deliberately *not* neutralised — the fade is what stays.
+    expect(match![1]).not.toContain("--tw-enter-opacity");
   });
 });
