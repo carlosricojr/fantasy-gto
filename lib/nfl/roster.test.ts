@@ -496,6 +496,13 @@ describe("templateForRoster", () => {
     expect(
       templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 2 }, 15),
     ).toBeNull();
+    // ...but the same kind at zero is absent rather than an extra slot, which is the
+    // documented equivalence and the shape a provider that enumerates every kind it knows
+    // about actually sends. Without this, narrowing the guard from `(count ?? 0) > 0` to a
+    // plain presence check would pass the suite and refuse every such import.
+    expect(templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 0 }, 15)).toBe(
+      STANDARD_TEMPLATE,
+    );
     expect(templateForRoster({}, 15)).toBeNull();
   });
 
