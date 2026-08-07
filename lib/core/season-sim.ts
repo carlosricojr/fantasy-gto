@@ -53,8 +53,15 @@ export interface TeamOutcome {
    * otherwise appear to have out-scored one that did not *in the standings*, which is a
    * statement about seeding and would be false. It also means this figure is blind to a bye
    * that lands in a playoff round: correct for a tiebreak, and the wrong quantity to reach
-   * for if the question is what a roster is worth over the whole season. That question is
-   * `rosterUtility`, whose `expectedPoints` does span every week the league plays.
+   * for if the question is what a roster is worth over every week it plays.
+   *
+   * **Nothing reports that quantity today**, which is worth saying rather than pointing at
+   * the nearest-looking function. `rosterUtility` sums whatever week list it is handed, and
+   * a `LeagueConfig` hands it the regular season alone — the bracket is a separate field,
+   * which is why `sampleTeamWeeklyScores` has to concatenate the two by hand. Passing a
+   * `LeagueConfig` straight to `rosterUtility` therefore returns points over the same weeks
+   * this figure already covers, which is precisely the mistake this paragraph exists to
+   * stop somebody making.
    */
   expectedPoints: number;
 }

@@ -30,9 +30,10 @@ import { describeSeason, seasonSummary } from "./season-label";
  * played in week 15, 16 or 17 — never 18 — so the season the product simulates is a proper
  * *prefix* of the season the data describes, and the tail is football nobody's league scores.
  * That was implicit for as long as the board wrote out one hardcoded season, and it became
- * load-bearing the moment the final became a setting: seven modules now derive something
- * from where a league stops, and a disagreement between any two of them is a wrong number
- * rather than a crash.
+ * load-bearing the moment the final became a setting: the layout, the objective, the depth
+ * model, storage, the on-screen labels, the memo key and the reply gate all now derive
+ * something from where a league stops, and a disagreement between any two of them is a
+ * wrong number rather than a crash.
  *
  * So these are identities and invariants rather than examples. The files beside this one pin
  * what particular leagues look like; this one pins that no reachable league is incoherent —
@@ -54,9 +55,14 @@ const seasonFor = (championshipWeek: number, playoffTeams: number) =>
 describe("the offered set is the whole space, and it is not empty", () => {
   it("is every combination the two controls can produce", () => {
     // A guard on the loops below: a list edited to nothing would make every property here
-    // pass vacuously and read as coverage.
-    expect(SHAPES).toHaveLength(CHAMPIONSHIP_WEEKS.length * PLAYOFF_FIELDS.length);
+    // pass vacuously and read as coverage. Stated against a concrete floor rather than
+    // against `CHAMPIONSHIP_WEEKS.length * PLAYOFF_FIELDS.length`, which `flatMap` makes
+    // true by construction — including when both lists are empty, which is the one case
+    // the guard exists to catch.
     expect(SHAPES.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(SHAPES.map((s) => `${s.championshipWeek}/${s.playoffTeams}`)).size).toBe(
+      SHAPES.length,
+    );
   });
 });
 
@@ -250,11 +256,16 @@ describe("no two seasons can be mistaken for each other by a cache or a gate", (
     expect(new Set(prints).size).toBe(SHAPES.length);
   });
 
-  it("hands the depth model a contiguous regular season, which is what it assumes", () => {
-    // `recommendByChampionship` passes `config.weeks` to `PolicyLeague`, and
-    // `expectedAboveReplacement` uses that list as both a denominator and the set a bye is
-    // tested against. Those two readings agree only while the weeks run `1..n` from one.
-    // They do — and this is where that stops being a coincidence nobody checked.
+  it("hands the depth model a regular season that runs 1..n from week one", () => {
+    // Not a precondition. `expectedAboveReplacement` tests each bye for *membership* in the
+    // week list it is given (`played.has(week)`) and is correct for any list at all — that
+    // was the point of moving it off a count.
+    //
+    // What this pins is the premise of a claim made next to that code: that the count-to-list
+    // change left every number identical, because `played.has(13)` rejects exactly the weeks
+    // `13 <= 12` rejected. That equivalence holds only while the weeks are contiguous from
+    // one. They are, for every season the product can produce — so if that ever stops being
+    // true, this fails rather than the comment quietly becoming false.
     for (const { championshipWeek, playoffTeams } of SHAPES) {
       const { weeks } = seasonFor(championshipWeek, playoffTeams);
       expect(weeks).toEqual(Array.from({ length: weeks.length }, (_, i) => i + 1));

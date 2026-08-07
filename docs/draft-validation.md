@@ -418,9 +418,11 @@ Over a few hundred season shapes, well beyond the six the interface offers
 - the two week lists **partition** weeks 1 to the final — no gap, no overlap, no repeat, in
   order. `sampleTeamWeeklyScores` concatenates them and `playBracket` indexes the result by
   position, so anything else scores the wrong week silently;
-- the bracket is **exactly** `bracketRoundsRequired(playoffTeams)` long, which is both the
-  minimum `simulateLeague` will accept and the maximum that avoids a round played by one
-  team against itself;
+- the bracket is **exactly** `bracketRoundsRequired(playoffTeams)` long. Too few and
+  `simulateLeague` refuses outright. Too many is quieter: `playBracket` stops once the field
+  is down to one, so the surplus round is simply never played — and the week it consumed
+  belongs to neither half of the season, which is what the hand-written pair actually cost a
+  four-team league;
 - moving the final one week later slides every playoff round by one and adds exactly one
   regular-season week — the bracket **moves rigidly**, it does not resize;
 - a larger field that needs another round takes that week from the regular season, and one
@@ -433,8 +435,14 @@ a payload written before the setting existed restores as weeks 1-14 with a brack
 which is what it was already being simulated as; the sentence on screen names week counts
 *equal* to the ones simulated rather than a golden string; no two shapes share a
 recommendation memo key or a reply-gate fingerprint; and the regular season handed to the
-depth model is contiguous from week 1, which is the precondition `expectedAboveReplacement`
-rests on.
+depth model is contiguous from week 1.
+
+That last one is not a precondition — `expectedAboveReplacement` tests each bye for
+*membership* in the week list and works for any list at all. It is the premise of a claim
+made in `draft-bench.ts`: that changing that argument from a count to a list left every
+number identical, because `played.has(13)` rejects exactly the weeks `13 <= 12` rejected.
+That equivalence holds only while the weeks run `1..n` from one. They do, and now something
+fails if they ever stop, rather than the comment quietly becoming false.
 
 And the conservation laws, for every shape: exactly one champion is crowned, exactly
 `playoffTeams` berths are filled, no team's title rate exceeds its berth rate, and total wins

@@ -364,9 +364,11 @@ describe("a season is a partition of its weeks, whatever shape it is", () => {
   });
 
   it("gives the bracket exactly the rounds the field needs", () => {
-    // Both directions matter. Too few and `simulateLeague` refuses; too many and the extra
-    // round pairs the survivor with himself and re-elects him, which is what a four-team
-    // field over three playoff weeks used to do.
+    // Both directions matter, and they fail differently. Too few and `simulateLeague`
+    // refuses outright. Too many is the quiet one: `playBracket` stops as soon as the field
+    // is down to one, so the surplus round is never played at all — what a four-team field
+    // over three playoff weeks actually cost was the *week*, which belonged to neither half
+    // of the season and simply vanished from it.
     for (const { championshipWeek, playoffTeams } of shapes) {
       const { playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
       expect(playoffWeeks.length).toBe(bracketRoundsRequired(playoffTeams));
