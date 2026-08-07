@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { describeLeagueCap, limit, planCapabilities } from "@/lib/billing/entitlements";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * League management.
@@ -118,7 +119,17 @@ export default function DashboardPage() {
         </p>
       )}
 
-      {!leaguesKnown && <p className="text-muted-foreground">Loading…</p>}
+      {!leaguesKnown && (
+        // The list that arrives, at its height. This one is a smaller shift than the other
+        // two — a league row is 72px and most people have one or two — but it is the same
+        // fix and the same reason.
+        <div className="space-y-2" aria-busy>
+          {Array.from({ length: 2 }, (_, i) => (
+            <Skeleton key={i} className="h-[72px] rounded-lg" />
+          ))}
+          <p className="sr-only">Loading your leagues.</p>
+        </div>
+      )}
 
       {leaguesKnown && leagues.length === 0 && (
         <EmptyState

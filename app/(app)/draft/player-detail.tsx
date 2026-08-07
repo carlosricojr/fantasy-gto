@@ -57,7 +57,7 @@ export function PlayerDetail({
 }) {
   return (
     <Dialog open={player !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-md">
         {player === null ? null : (
           <>
             <DialogHeader>

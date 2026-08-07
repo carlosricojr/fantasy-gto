@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
 import { useStableQuery } from "@/components/use-stable-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectionCard } from "@/components/projection-card";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
@@ -65,7 +66,43 @@ export default function ProjectionsPage() {
   }, [players]);
 
   if (season === undefined) {
-    return <PageShell title="Projections">Loading…</PageShell>;
+    // Shaped like the page it becomes rather than the word "Loading…", which is 60px of
+    // text where a hundred cards and two rows of controls arrive — the whole page shifting
+    // under the reader once, on every cold load.
+    return (
+      // The same title and a reserved subtitle line, because the resolved page has one and
+      // `PageShell` only emits the paragraph when it is given something to put in it.
+      <PageShell
+        title="Projections"
+        subtitle={<Skeleton className="h-5 w-64 max-w-full" />}
+      >
+        {/* Each chip carries its own label invisibly, so it is the width of the button it
+            stands for and the rows wrap where the real rows wrap. */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          {SCORING_PRESETS.map((preset) => (
+            <Skeleton key={preset.id} className="h-8 px-3 text-sm">
+              {preset.label}
+            </Skeleton>
+          ))}
+        </div>
+        <div className="mb-6 flex flex-wrap gap-2">
+          {["All", ...FILTERABLE_POSITIONS].map((code) => (
+            <Skeleton key={code} className="h-8 px-3 text-sm">
+              {code}
+            </Skeleton>
+          ))}
+        </div>
+        <ProjectionListSkeleton />
+        {/* Not `role="status"`. A live region announces a *change*, and this one mounts
+            with its text already inside on the first paint of a cold load — there is no
+            transition for a screen reader to notice, and the branch unmounts wholesale when
+            the season resolves so it never gets one. It stays as ordinary off-screen text,
+            which is read in document order, and the container carries `aria-busy`. The
+            region that does work this way is the one below, which is always in the DOM and
+            empty when idle. */}
+        <p className="sr-only">Loading projections.</p>
+      </PageShell>
+    );
   }
 
   if (season === null) {
@@ -126,21 +163,13 @@ export default function ProjectionsPage() {
       )}
 
       {projections === undefined ? (
-        // First load only; a later change keeps the cards. The blocks are the height of the
-        // cards that replace them so the first paint settles rather than jumps.
         <>
           {/* The announcement is a *sibling* of the blocks, not a child. `aria-hidden`
               removes its whole subtree from the accessibility tree, live region included —
               so nested, the one element that exists to tell a screen reader user the page
               is loading was the one element guaranteed never to fire. */}
-          <div className="space-y-2" aria-hidden>
-            {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="h-20 motion-safe:animate-pulse rounded-lg bg-muted" />
-            ))}
-          </div>
-          <p className="sr-only" role="status">
-            Loading projections.
-          </p>
+          <ProjectionListSkeleton />
+          <p className="sr-only">Loading projections.</p>
         </>
       ) : null}
 
@@ -192,5 +221,22 @@ export default function ProjectionsPage() {
         })}
       </div>
     </PageShell>
+  );
+}
+
+/**
+ * The card list, at the height it will be.
+ *
+ * Shared by the two loading paths this page has — before the season resolves, and before
+ * the first week of projections does — so they cannot drift into different heights and
+ * produce a shift between themselves.
+ */
+function ProjectionListSkeleton() {
+  return (
+    <div className="space-y-2" aria-busy>
+      {Array.from({ length: 8 }, (_, i) => (
+        <Skeleton key={i} className="h-20 rounded-lg" />
+      ))}
+    </div>
   );
 }

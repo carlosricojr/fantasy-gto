@@ -230,7 +230,12 @@ export function PlayerPool({
                   searchRef.current?.focus();
                 }}
                 aria-label="Clear search"
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                // Same reason as the queue star: 24px is the floor, not a target. This one
+                // is absolutely positioned inside the field, so the padding costs no layout
+                // and needs no margin back. 11px around a 14px icon is 36px, the height of
+                // the input it sits in and as large as it can be without hanging outside
+                // the field — `p-2.5` was the first guess and produced 34.
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full p-[11px] text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               >
                 <X className="size-3.5" />
               </button>
@@ -301,7 +306,7 @@ export function PlayerPool({
             // From `3xl` they are side by side in separate columns, nothing follows the
             // list in its own column, and the phone's viewport-relative height is right
             // again: the extra rows are free.
-            className="relative max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem] 3xl:max-h-[70dvh]"
+            className="relative max-h-[70svh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem] 3xl:max-h-[70svh]"
           >
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-card">
@@ -441,7 +446,25 @@ function PoolRow({
             onClick={() => onToggleQueue(player.id)}
             aria-pressed={queued}
             aria-label={queued ? `Remove ${player.name} from your queue` : `Queue ${player.name}`}
-            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            // 24x24 of icon and padding was the WCAG 2.5.8 floor exactly, with nothing to
+            // spare, on the control a manager taps most under a clock. The button itself is
+            // 44px tall now — padding out, margin back in, so its *outer* height is the 24px
+            // the row was laid out for and nothing moves.
+            //
+            // Padding rather than an `::after` overlay, which was the first attempt: the
+            // pseudo-element gets a real 32x44 box, but it could not be shown to receive a
+            // press. `elementFromPoint` reports originating elements for element boxes and
+            // is not specified to report one for a pseudo-element box, so the trick is
+            // unfalsifiable from a test — and a touch target that cannot be measured is one
+            // nobody will notice losing. This one measures.
+            //
+            // Vertical only. A thumb scanning a list misses above and below; widening this
+            // far would start taking presses meant for the player's name beside it.
+            //
+            // The focus ring follows the border box, so tabbing to a star now outlines a
+            // 24x44 pill rather than hugging the 16px icon. That is the target being shown
+            // truthfully, and it stays inside the 48px row.
+            className="-my-2.5 rounded px-1 py-3.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <Star className={cn("size-4", queued && "fill-brand text-brand")} />
           </button>

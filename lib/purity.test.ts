@@ -1,6 +1,8 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+
+import { sourceFiles, stripComments, stripCommentsAndStrings } from "./source-scan";
 
 /**
  * Enforces the dependency rule.
@@ -49,170 +51,8 @@ const FORBIDDEN_IMPORTS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /from\s*["']\.\.?\/.*\/sources\//, reason: "imports the adapter layer" },
 ];
 
-function sourceFilesIn(directory: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        walk(full);
-        continue;
-      }
-      // `.tsx` is included so a component added under the domain cannot slip past.
-      const isSource = entry.endsWith(".ts") || entry.endsWith(".tsx");
-      const isTest = entry.endsWith(".test.ts") || entry.endsWith(".test.tsx");
-      if (isSource && !isTest) out.push(full);
-    }
-  };
-  walk(directory);
-  return out;
-}
-
-/**
- * Removes comments, leaving string literals intact.
- *
- * Used for import checks, which have to see the module specifier. Skipping over strings
- * rather than deleting them is what stops the `//` inside `"https://…"` being read as a
- * comment — the bug that silently erased real code from the first version of this scan.
- */
-export function stripComments(source: string): string {
-  let out = "";
-  let i = 0;
-
-  while (i < source.length) {
-    const char = source[i];
-    const next = source[i + 1];
-
-    if (char === "/" && next === "*") {
-      const end = source.indexOf("*/", i + 2);
-      i = end === -1 ? source.length : end + 2;
-      out += " ";
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") i += 1;
-      out += " ";
-      continue;
-    }
-    if (char === '"' || char === "'" || char === "`") {
-      const quote = char;
-      out += char;
-      i += 1;
-      while (i < source.length) {
-        if (source[i] === "\\") {
-          out += source.slice(i, i + 2);
-          i += 2;
-          continue;
-        }
-        out += source[i];
-        if (source[i] === quote) {
-          i += 1;
-          break;
-        }
-        i += 1;
-      }
-      continue;
-    }
-
-    out += char;
-    i += 1;
-  }
-
-  return out;
-}
-
-/**
- * Removes comments and string *contents*, but keeps template interpolations.
- *
- * Used for call checks. Blanking a template literal whole would hide `${Date.now()}`, so
- * the `${…}` regions are retained as executable code while the literal text around them is
- * dropped. Quotes are preserved as empty literals so the surrounding syntax still parses.
- */
-export function stripCommentsAndStrings(source: string): string {
-  let out = "";
-  let i = 0;
-
-  while (i < source.length) {
-    const char = source[i];
-    const next = source[i + 1];
-
-    if (char === "/" && next === "*") {
-      const end = source.indexOf("*/", i + 2);
-      i = end === -1 ? source.length : end + 2;
-      out += " ";
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") i += 1;
-      out += " ";
-      continue;
-    }
-
-    if (char === '"' || char === "'") {
-      const quote = char;
-      i += 1;
-      while (i < source.length) {
-        if (source[i] === "\\") {
-          i += 2;
-          continue;
-        }
-        if (source[i] === quote) {
-          i += 1;
-          break;
-        }
-        i += 1;
-      }
-      out += `${quote}${quote}`;
-      continue;
-    }
-
-    if (char === "`") {
-      i += 1;
-      out += "``";
-      let depth = 0;
-      while (i < source.length) {
-        if (source[i] === "\\") {
-          i += 2;
-          continue;
-        }
-        if (depth === 0 && source[i] === "`") {
-          i += 1;
-          break;
-        }
-        if (depth === 0 && source[i] === "$" && source[i + 1] === "{") {
-          depth = 1;
-          i += 2;
-          out += " ";
-          continue;
-        }
-        if (depth > 0) {
-          // Inside an interpolation: keep the expression, tracking nesting so a `}` in a
-          // nested object literal does not end it early.
-          if (source[i] === "{") depth += 1;
-          if (source[i] === "}") {
-            depth -= 1;
-            if (depth === 0) {
-              i += 1;
-              out += " ";
-              continue;
-            }
-          }
-          out += source[i];
-        }
-        i += 1;
-      }
-      continue;
-    }
-
-    out += char;
-    i += 1;
-  }
-
-  return out;
-}
-
 describe("domain purity", () => {
-  const files = PURE_DIRECTORIES.flatMap((dir) => sourceFilesIn(join(__dirname, dir)));
+  const files = PURE_DIRECTORIES.flatMap((dir) => sourceFiles(join(__dirname, dir)));
 
   it("finds the domain source files", () => {
     expect(files.length).toBeGreaterThan(10);
@@ -235,7 +75,7 @@ describe("domain purity", () => {
   it("does not apply the rule to the adapter layer, whose job is I/O", () => {
     // Also proves the scanner is not silently blanking everything: if it were, this would
     // report no fetch and the whole guard would be vacuous.
-    const adapters = sourceFilesIn(join(__dirname, "sources"));
+    const adapters = sourceFiles(join(__dirname, "sources"));
     expect(adapters.length).toBeGreaterThan(0);
     expect(
       adapters.some((file) =>
@@ -253,6 +93,30 @@ describe("the scanner itself", () => {
   it("blanks line and block comments", () => {
     expect(stripCommentsAndStrings("a // fetch(x)\nb")).not.toContain("fetch(");
     expect(stripCommentsAndStrings("a /* fetch(x) */ b")).not.toContain("fetch(");
+    // A regular expression is not a comment, however many slashes are inside it. Without
+    // this the rest of the line vanished — and the call this scan exists to find with it.
+    expect(stripCommentsAndStrings("const slash = /[//]/; Date.now()")).toContain("Date.now(");
+    expect(stripComments("const slash = /[//]/; Date.now()")).toContain("Date.now(");
+    expect(stripComments("const re = /a\\/b/; Date.now()")).toContain("Date.now(");
+    // ...and division still is not one.
+    expect(stripComments("const half = total / 2; // gone\nDate.now()")).toContain("Date.now(");
+    expect(stripComments("const half = total / 2; // gone\nx")).not.toContain("gone");
+    // A literal in statement position after a control-flow head, where the preceding
+    // character is a closing paren and would otherwise read as division.
+    expect(stripComments('if (ok) /[//]/.test(v); Date.now()')).toContain("Date.now(");
+    expect(stripCommentsAndStrings('if (ok) /[//]/.test(v); Date.now()')).toContain("Date.now(");
+    // ...but a call's closing paren still is division, not a literal.
+    expect(stripComments("const r = f(a) / 2; // gone\nx")).not.toContain("gone");
+    // A brace inside a string inside an interpolation does not end the interpolation.
+    //
+    // The call has to be *after* the brace and *inside* the same interpolation, or the test
+    // passes either way: ending the interpolation early makes the scanner read the rest of
+    // the expression as template literal text and blank it, so a call before the brace, or
+    // after the closing backtick, survives regardless. A first version of this assertion
+    // put it after the backtick and could not fail.
+    expect(stripCommentsAndStrings('const t = `${a["}"] + Date.now()}`;')).toContain(
+      "Date.now(",
+    );
   });
 
   it("does not treat // inside a string as a comment", () => {
@@ -289,7 +153,7 @@ describe("the scanner itself", () => {
 
   it("collects .tsx as well as .ts", () => {
     // A component added under the domain must not slip past the scan.
-    const files = sourceFilesIn(join(__dirname, "core"));
+    const files = sourceFiles(join(__dirname, "core"));
     expect(files.every((f) => f.endsWith(".ts") || f.endsWith(".tsx"))).toBe(true);
     expect(files.some((f) => f.endsWith(".test.ts"))).toBe(false);
   });

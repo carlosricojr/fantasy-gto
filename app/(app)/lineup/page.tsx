@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
 import { useStableQuery } from "@/components/use-stable-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -155,11 +156,65 @@ export default function LineupPage() {
     [pool],
   );
 
-  if (season === undefined) return <PageShell title="Lineup">Loading…</PageShell>;
+  if (season === undefined) {
+    // The shape of what actually arrives on a cold load, which is not the solved lineup:
+    // `selected` starts empty and is not persisted, so the resolved page shows the empty
+    // state and the picker under it. A skeleton shaped like the *solved* section stood for
+    // a section that had never rendered.
+    //
+    // The control row is one chip per control — nine roster templates and three scoring
+    // presets — each carrying its own label invisibly, so a chip is the width of the button
+    // it stands for and the row wraps where the real row wraps. One chip per control with a
+    // guessed width was 150px wider in total, which is a wrapped line's worth on a phone.
+    return (
+      <PageShell title="Lineup optimizer" subtitle={<Skeleton className="h-5 w-64 max-w-full" />}>
+        {/* `h-5`, which is `text-sm`'s 1.25rem line box — not `h-4`, which was the
+              first guess and four pixels short of the paragraph it stands in for.
+
+              One line, and it can only reserve one. `describeSeasonState` returns a
+              sentence whose length depends on where the season is — 76 characters in the
+              offseason, a dozen in week 3 — so on a narrow phone the real subtitle
+              sometimes wraps to two and this still gives up a line. A fixed reserve cannot
+              track that, and reserving two lines everywhere would over-reserve in season. */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          {ROSTER_TEMPLATES.map((template) => (
+            <Skeleton key={template.id} className="h-8 px-3 text-sm">
+              {template.label}
+            </Skeleton>
+          ))}
+          {/* The separator the real row carries between the two groups. */}
+          <span className="mx-1 w-px" aria-hidden />
+          {SCORING_PRESETS.map((preset) => (
+            <Skeleton key={preset.id} className="h-8 px-3 text-sm">
+              {preset.label}
+            </Skeleton>
+          ))}
+        </div>
+        {/* The always-present status line the resolved page keeps empty, then the empty
+            state, then the picker. */}
+        <div className="mb-3 h-4" />
+        <Skeleton className="h-[9.5rem] rounded-lg" />
+        {/* `mt-8` and 8rem, matching the picker as it renders at the moment the season
+            resolves — not as it settles. `projections` is still `"skip"`-ed at that instant,
+            so the section is its heading row, the search input, "Loading players…" and an
+            empty bordered list: about 126px, not the 256px a filled picker occupies. The
+            block above this one was rewritten for exactly this reason and this one was left
+            aimed at the settled page. */}
+        <Skeleton className="mt-8 h-32 rounded-lg" />
+        {/* Ordinary off-screen text rather than a live region, for the reason recorded on
+            the projections page: a region that mounts with its content has no change to
+            announce. */}
+        <p className="sr-only">Loading the optimizer.</p>
+      </PageShell>
+    );
+  }
 
   if (season === null) {
+    // The same title as the loading branch and the resolved one. It read "Lineup" here and
+    // "Lineup optimizer" everywhere else, so a deployment with no ingest run retitled the
+    // page as it resolved — the same handoff shift the loading skeleton exists to remove.
     return (
-      <PageShell title="Lineup">
+      <PageShell title="Lineup optimizer">
         <EmptyState
           title="No schedule loaded yet"
           body="The optimizer needs projections. Run the ingest job to populate them."
@@ -326,7 +381,7 @@ export default function LineupPage() {
                   {player.position}
                 </span>
                 <span className="min-w-0 flex-1 truncate">
-                  {player.name ?? <span className="inline-block h-3 w-28 animate-pulse rounded bg-muted align-middle" />}
+                  {player.name ?? <Skeleton className="inline-block h-3 w-28 align-middle" />}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {player.team} vs {player.opponent}

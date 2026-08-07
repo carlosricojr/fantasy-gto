@@ -285,7 +285,9 @@ export function Recommendations({
           className="flex w-full items-center justify-center gap-1 p-2.5 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           {expanded ? "Hide the other candidates" : `Show the next ${rest.length} candidates`}
-          <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown
+            className={cn("size-3.5 motion-safe:transition-transform", expanded && "rotate-180")}
+          />
         </button>
       )}
 

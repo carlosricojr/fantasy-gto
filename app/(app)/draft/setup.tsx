@@ -103,7 +103,10 @@ export function DraftSetup({
           {leagueSizes.join(", ")}-team leagues.
         </p>
       ) : (
-        <div className="sticky bottom-20 z-10 sm:static">
+        <div className="sticky bottom-[calc(var(--app-tabbar-h)+0.75rem)] z-10 sm:static">
+          {/* Clear of the bottom tab bar by the bar's own measured height plus a gap, not
+              by a spacing step that happened to look right. `--app-tabbar-h` sits beside
+              `--app-header-h` in `globals.css`, from the same browser measurement. */}
           {/* Named rather than left to a disabled control with no explanation — a button
               that does nothing and says nothing is the worst of the three states. */}
           <Button
