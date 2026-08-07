@@ -6,10 +6,11 @@ import {
   unfilledSlots,
 } from "./draft-replacement";
 import type { PlayerRisk } from "./roster-utility";
+import { type PairedOutcomeComparison, pairedOutcomeComparison } from "./stats";
 import {
   type LeagueConfig,
   type TeamOutcome,
-  championshipProbability,
+  championshipScenarios,
   sampleTeamWeeklyScores,
 } from "./season-sim";
 
@@ -101,23 +102,45 @@ export interface ChampionshipRecommendation {
   playoffProbability: number;
   expectedPoints: number;
   /**
-   * Standard error on the championship estimate.
+   * Standard error on this candidate's *own* championship probability.
    *
-   * Reported because it is frequently larger than the gap between the top few candidates.
-   * A title is roughly a one-in-twelve event, so distinguishing 16.7% from 15.8% needs
-   * far more scenarios than a draft clock allows — and presenting an ordering as though
-   * it were resolved when it is not would be exactly the kind of false precision this
-   * project exists to avoid. Callers should treat candidates within a couple of standard
-   * errors as tied and fall back on the tiebreaks below.
+   * `sqrt(p(1-p)/n)`, the uncertainty in the absolute number — what "16.7%" is worth on its
+   * own. Reported because it is frequently larger than the gap between the top few
+   * candidates. A title is roughly a one-in-twelve event, so distinguishing 16.7% from
+   * 15.8% needs far more scenarios than a draft clock allows.
+   *
+   * **This is not the uncertainty on a comparison.** Two candidates are simulated over the
+   * same seasons, so the difference between them is a paired quantity with its own standard
+   * error; adding two marginal ones is not it, under any circumstances. See `vsLeader`.
    */
   standardError: number;
   /**
+   * How this candidate compares with the empirical leader, over the same scenarios.
+   *
+   * `null` for the leader himself — a candidate compared with himself has a difference of
+   * exactly zero in every scenario, and reporting an interval of `[0, 0]` around it would
+   * dress a tautology as a measurement.
+   *
+   * **Descriptive, not inferential.** The leader is chosen as the maximum of the same sample
+   * these intervals are computed from, so every one of them is conditioned on a selection
+   * that used the data. That biases the comparisons against the leader in a direction no
+   * correction here removes: no multiple-comparison adjustment is applied and no comparison
+   * was predeclared. Read them as a description of what happened in these scenarios, not as
+   * a test of what would happen in new ones.
+   */
+  vsLeader: PairedOutcomeComparison | null;
+  /**
    * True when this candidate's title odds are inside sampling noise of the leader's.
    *
-   * Without it the ordering reads as broken: a candidate showing 12.3% can rank above one
-   * showing 14.7% because the two are tied and the smoother playoff signal decided
-   * between them. Saying so is the honest presentation; silently sorting by a hidden key
-   * is not.
+   * Decided by the *paired* interval — whether zero difference is inside it — because that
+   * is the uncertainty on the comparison being made. It used to be decided by the sum of the
+   * two marginal standard errors, which is not the standard error of a difference between
+   * anything.
+   *
+   * Without the flag the ordering reads as broken: a candidate showing 12.3% can rank above
+   * one showing 14.7% because the two are tied and the smoother playoff signal decided
+   * between them. Saying so is the honest presentation; silently sorting by a hidden key is
+   * not.
    */
   tiedWithLeader: boolean;
 }
@@ -796,7 +819,9 @@ export function recommendByChampionship(
     return { scores, replacementId: replacement?.id ?? null };
   };
 
-  const evaluate = (forced: PlayerRisk | null): TeamOutcome => {
+  const evaluate = (
+    forced: PlayerRisk | null,
+  ): { outcome: TeamOutcome; titleByScenario: boolean[] } => {
     const { scores, replacementId } = opponentScoresFor(forced);
     // The replacement has to leave our pool as well. Both selections run `basePolicyPick`
     // over the same `poolForUs`, so they routinely land on the same player — which put him
@@ -820,14 +845,33 @@ export function recommendByChampionship(
       opponentRosters.flatMap((roster) => ownUnfilledSlots(roster, config.slots)),
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
-    return championshipProbability(mine, scores, config);
+    // Scenario by scenario, not only the rate. Every candidate is evaluated over the same
+    // seasons, so which of them a candidate wins is the informative quantity and it is only
+    // visible before the sum.
+    return championshipScenarios(mine, scores, config);
   };
 
   const baseline = evaluate(null);
 
-  const ranked = shortlist
-    .map((player) => {
-      const outcome = evaluate(player);
+  const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
+
+  // The leader is the empirical maximum over these same scenarios. That is a choice made
+  // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather
+  // than inferential — see `ChampionshipRecommendation.vsLeader`. Ties on probability go to
+  // the lower player id, so the leader does not depend on shortlist order.
+  //
+  // On the *rounded* probability, which is the one `orderRecommendations` re-derives the
+  // leader from. Comparing raw here and rounded there lets two candidates 5e-5 apart pick
+  // different leaders, and the entry carrying `vsLeader: null` would then not be the entry
+  // the ordering treats as the leader.
+  const leader = evaluated.reduce((best, entry) => {
+    const a = round4(entry.outcome.championshipProbability);
+    const b = round4(best.outcome.championshipProbability);
+    return a > b || (a === b && entry.player.id < best.player.id) ? entry : best;
+  });
+
+  const ranked = evaluated
+    .map(({ player, outcome, titleByScenario }) => {
       const p = outcome.championshipProbability;
       return {
         player,
@@ -836,10 +880,16 @@ export function recommendByChampionship(
         // `round4(p)`, which can exceed `p` by 5e-5 — and the test asserting that relation
         // holds today only because the fixture never produces a zero baseline.
         championshipProbability: round4(p),
-        deltaVsBaseline: round4(p - baseline.championshipProbability),
+        deltaVsBaseline: round4(p - baseline.outcome.championshipProbability),
         playoffProbability: outcome.playoffProbability,
         expectedPoints: outcome.expectedPoints,
         standardError: round4(Math.sqrt((p * (1 - p)) / config.scenarios)),
+        // `null` rather than a self-comparison. A candidate against himself disagrees in no
+        // scenario, so the interval would be [0, 0] — a tautology wearing a measurement.
+        vsLeader:
+          player.id === leader.player.id
+            ? null
+            : pairedOutcomeComparison(titleByScenario, leader.titleByScenario),
       };
     });
 
@@ -881,16 +931,34 @@ export function orderRecommendations(
   // candidate first while the 16% one placed third. Establishing the leader first makes
   // the comparison well-defined.
   //
-  // Which of several equal-probability entries `reduce` settles on does not matter: only
-  // `championshipProbability` and `standardError` are read from it, and the latter is
-  // `sqrt(p(1-p)/n)` rounded — a function of the former. Equal probability, equal error.
+  // Which of several equal-probability entries `reduce` settles on does not matter to the
+  // ordering, but it does decide which entry carries `vsLeader: null`, so it is broken on
+  // the player id rather than on argument order.
   const best = ordered.reduce((a, b) =>
-    b.championshipProbability > a.championshipProbability ? b : a,
+    b.championshipProbability > a.championshipProbability ||
+    (b.championshipProbability === a.championshipProbability && b.player.id < a.player.id)
+      ? b
+      : a,
   );
   for (const entry of ordered) {
+    // The paired interval where there is one, because that is the uncertainty on the
+    // comparison actually being made. Zero inside it means these scenarios do not separate
+    // the two candidates.
+    //
+    // The fallback covers two cases. The leader has no paired comparison because comparing
+    // him with himself is a tautology, and he is tied with himself by definition. And
+    // `orderRecommendations` is exported and reachable with hand-built numbers that carry no
+    // paired vector at all. The rule there is the old one — the sum of two marginal standard
+    // errors — which is *not* the standard error of a difference between anything. It is a
+    // deliberately conservative stand-in that marks more candidates tied rather than fewer,
+    // which is the safe direction for a flag whose whole purpose is to stop an unresolved
+    // ordering from reading as decided.
     entry.tiedWithLeader =
-      best.championshipProbability - entry.championshipProbability <=
-      best.standardError + entry.standardError;
+      entry.vsLeader === null
+        ? entry.player.id === best.player.id ||
+          best.championshipProbability - entry.championshipProbability <=
+            best.standardError + entry.standardError
+        : entry.vsLeader.interval[0] <= 0 && entry.vsLeader.interval[1] >= 0;
   }
 
   // Everything statistically level with the leader is ordered by playoff probability,

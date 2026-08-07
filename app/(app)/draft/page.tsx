@@ -808,14 +808,29 @@ function Recommendations({
                   {rec.player.byeWeek === null ? "" : ` · bye ${rec.player.byeWeek}`}
                 </span>
               </p>
+              {/*
+                Two uncertainties, named apart, because they answer different questions and
+                are not interchangeable. The first is how well this candidate's *own* title
+                probability is pinned down. The second is how well these scenarios separate
+                him from the leader — a paired quantity, since every candidate is simulated
+                over the same seasons, and emphatically not the sum of two marginal errors.
+                Reporting one number invited reading it as both.
+              */}
               <p className="text-xs text-muted-foreground">
                 {(rec.championshipProbability * 100).toFixed(1)}% title ±
                 {(rec.standardError * 100).toFixed(1)} ·{" "}
                 {(rec.playoffProbability * 100).toFixed(0)}% playoffs
-                {rec.tiedWithLeader && rec.player.id !== leader.player.id
-                  ? " · tied with the leader"
-                  : ""}
               </p>
+              {rec.vsLeader === null ? null : (
+                <p className="text-xs text-muted-foreground">
+                  vs leader {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
+                  {(rec.vsLeader.meanDifference * 100).toFixed(1)} pts of title odds,{" "}
+                  {rec.vsLeader.confidenceLevel}% range{" "}
+                  {(rec.vsLeader.interval[0] * 100).toFixed(1)} to{" "}
+                  {(rec.vsLeader.interval[1] * 100).toFixed(1)}
+                  {rec.tiedWithLeader ? " — not separated" : ""}
+                </p>
+              )}
             </div>
             {/*
               The button only records *your* pick, and only when the pick belongs to you.
