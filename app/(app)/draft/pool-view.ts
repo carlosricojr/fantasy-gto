@@ -11,7 +11,7 @@
  * hold: which rows are shown, in what order, and which starting slots are still empty.
  */
 
-import { type RosterSlot, solveLineup } from "@/lib/core/optimizer";
+import { type LineupSolution, type RosterSlot, solveLineup } from "@/lib/core/optimizer";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { UNRANKED_ADP_PADDING } from "@/lib/core/draft";
 import { matchName } from "@/lib/nfl/draft/match";
@@ -148,15 +148,20 @@ export function positionCounts(players: readonly PoolPlayer[]): Record<string, n
 }
 
 /**
- * The slot assignment for a roster.
+ * The best legal lineup a draft roster can field.
  *
- * One definition, run once per caller. The two questions below ask the same thing of the
- * same solver, and when each carried its own copy of this mapping they were free to drift
- * — one crediting a player at a different value than the other, and the "fills a starting
- * slot" marker disagreeing with the list of empty slots beside it. The duplicated *solve*
- * is deliberate and cheap: a roster is at most a few dozen players against ten slots.
+ * One definition of how a `PlayerRisk` becomes something the solver accepts, exported so
+ * the roster panel uses it too. Three call sites had their own copy of this mapping —
+ * which slots are empty, which positions fill a need, and what the panel displays — and
+ * they were free to drift: one crediting a player at a different value than another would
+ * make the "fills a starting slot" marker disagree with the list of empty slots printed
+ * beside it. The repeated *solve* is deliberate and cheap; a roster is a few dozen players
+ * against ten slots.
  */
-function assignRoster(slots: readonly RosterSlot[], roster: readonly PlayerRisk[]) {
+export function solveRoster(
+  slots: readonly RosterSlot[],
+  roster: readonly PlayerRisk[],
+): LineupSolution {
   return solveLineup(
     slots,
     roster.map((player) => ({
@@ -168,7 +173,11 @@ function assignRoster(slots: readonly RosterSlot[], roster: readonly PlayerRisk[
       projectedPoints: player.weeklyMean,
       availability: "active" as const,
     })),
-  ).assignments;
+  );
+}
+
+function assignRoster(slots: readonly RosterSlot[], roster: readonly PlayerRisk[]) {
+  return solveRoster(slots, roster).assignments;
 }
 
 /**

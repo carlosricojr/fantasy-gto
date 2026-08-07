@@ -214,7 +214,11 @@ function Round({
               />
             )}
             {onTheClock && playerId === undefined ? (
-              <span className="mt-1 block font-medium text-brand">On the clock</span>
+              // Hidden from assistive technology: the sr-only sentence above already ends
+              // "on the clock", and without this a screen reader hears it twice.
+              <span className="mt-1 block font-medium text-brand" aria-hidden>
+                On the clock
+              </span>
             ) : null}
           </div>
         );

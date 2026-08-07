@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 
-import { type RosterSlot, solveLineup } from "@/lib/core/optimizer";
+import type { RosterSlot } from "@/lib/core/optimizer";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { cn } from "@/lib/utils";
 import { pickLabel } from "./board-view";
-import { byeGaps } from "./pool-view";
+import { byeGaps, solveRoster } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
 
 /**
@@ -36,22 +36,12 @@ export function MyTeam({
 }) {
   const byId = useMemo(() => new Map(roster.map((player) => [player.id, player])), [roster]);
 
-  const solution = useMemo(
-    () =>
-      solveLineup(
-        slots,
-        roster.map((player) => ({
-          id: player.id,
-          name: player.name,
-          position: player.position,
-          // Points in a week he plays, which is what `weeklyMean` is. The starters' total
-          // below is therefore "a week they all play", and it says so.
-          projectedPoints: player.weeklyMean,
-          availability: "active" as const,
-        })),
-      ),
-    [slots, roster],
-  );
+  // The shared mapping, not a third copy of it. What this panel displays and what
+  // `byeGaps` computes have to come from the same solve of the same inputs, or the empty
+  // slots listed here and the byes blamed below them can disagree. Points are per week
+  // played, which is what `weeklyMean` is — so the starters' total is "a week they all
+  // play", and the footer says exactly that.
+  const solution = useMemo(() => solveRoster(slots, roster), [slots, roster]);
 
   const bench = solution.benchedIds
     .map((id) => byId.get(id))

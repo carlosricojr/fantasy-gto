@@ -97,6 +97,8 @@ export function PlayerPool({
   const [visible, setVisible] = useState(PAGE);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  /** The last focus request this list has actually scrolled to. */
+  const handledFocus = useRef<number | null>(null);
 
   // Counted over the rows this filter actually selects. Counting availability
   // unconditionally made the tabs read "RB 41" over a list of 168 drafted players, and hid
@@ -149,13 +151,20 @@ export function PlayerPool({
   //
   // `scrollIntoView` moves every scrollable ancestor, which on a phone takes the search
   // box and the record controls off the screen with it — the same reason `board-grid.tsx`
-  // does its own arithmetic. Runs after `shown` has grown to contain the row, which is
-  // what `visible` in the deps is for.
+  // does its own arithmetic.
+  //
+  // It retries rather than firing once. Two renders separate a board click from the row
+  // being on screen: the effect above switches the filter, and only the render after that
+  // contains the row. Keyed on `[focus, visible]` alone the effect ran on the first of
+  // those, found nothing, and never ran again — so a click on the board changed the filter
+  // and left the reader wherever they were. `rows` changes when the filter applies, and
+  // the sequence number stops it re-scrolling on every later keystroke.
   useEffect(() => {
-    if (focus === null) return;
+    if (focus === null || handledFocus.current === focus.seq) return;
     const container = scroller.current;
     const row = container?.querySelector<HTMLElement>('[data-focused="true"]');
     if (container == null || row == null) return;
+    handledFocus.current = focus.seq;
     const offset = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
     container.scrollTo({
       top: Math.max(
@@ -166,7 +175,7 @@ export function PlayerPool({
         ? "auto"
         : "smooth",
     });
-  }, [focus, visible]);
+  }, [focus, rows, visible]);
 
   return (
     <section className="flex min-h-0 flex-col rounded-xl border bg-card">
