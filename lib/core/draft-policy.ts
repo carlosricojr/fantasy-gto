@@ -1,4 +1,5 @@
-import { type RosterSlot, solveLineup } from "./optimizer";
+import { type LineupSolution, type RosterSlot, solveLineup } from "./optimizer";
+import { coverValue } from "./draft-bench";
 import {
   type ReplacementLevel,
   replacementLevels,
@@ -71,6 +72,26 @@ export interface DraftPolicyState {
   rosterSize: number;
 }
 
+/**
+ * What the policy needs to know about the league beyond who is on the board.
+ *
+ * One object rather than two parameters because the two are never independently meaningful,
+ * and because a season length that disagrees with `LeagueConfig.weeks` is exactly the sort of
+ * second copy that stays wrong quietly.
+ */
+export interface PolicyLeague {
+  /** The starting lineup shape every team fields. */
+  slots: readonly RosterSlot[];
+  /**
+   * Weeks in the fantasy regular season.
+   *
+   * Read only by the depth model, and only to price a bye: a player idle in one week of
+   * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve more
+   * often than that.
+   */
+  weeks: number;
+}
+
 export interface ChampionshipRecommendation {
   player: PlayerRisk;
   /** Championship probability if this player is taken and the draft finishes normally. */
@@ -111,7 +132,7 @@ export interface ChampionshipRecommendation {
 export const CHAMPIONSHIP_CANDIDATES = 10;
 
 /**
- * The players a base-policy pick can possibly be: the best available at each position.
+ * The players a base-policy pick can possibly be.
  *
  * This replaced a window over the top forty by raw projection, which was not the cost
  * optimization it was documented as. The window is sorted by `weeklyMean * availability` —
@@ -121,42 +142,61 @@ export const CHAMPIONSHIP_CANDIDATES = 10;
  * remaining picks on bench backs and started the season with the quarterback slot empty.
  * That is the baseline every improvement in this module is quoted against.
  *
- * Restricting to the best at each position is lossless rather than a wider guess.
- * `toCompetitor` values a player at `weeklyMean * availability` and nothing else, so two
- * players at one position differ to the lineup solver in that number alone: the better of
- * them is eligible for every slot the worse one is and worth at least as much in it, so
- * the solved total cannot fall by preferring him. Replacement level is one number per
- * position, so subtracting it subtracts the same amount from both, and the depth tiebreak
- * is the remainder scaled — every term agrees rather than competing. The best at a position
- * therefore dominates every other player at it, and no player this drops could have won.
+ * **Two per position, not one, and the second one is load-bearing.**
  *
- * That is an argument, and arguments about dominance are exactly the kind that quietly stop
- * being true. `narrowing the field cannot change the base policy's answer` in the tests
- * checks it by running both paths: `basePolicyPick` over the narrowed field against
- * `scoreCandidates` over the whole board, at every roster state of a twelve-pick draft and
- * again at the exhausted-position and no-demand boundaries. The version of that test this
- * replaced passed a pre-narrowed board *into* `basePolicyPick` and so compared nothing.
+ * The narrowing is lossless because value is monotone in `weeklyMean * availability`
+ * *within a regime*. A player who reaches the starting lineup is priced by what he adds to
+ * it, and the better of two such players adds at least as much: he is eligible for every
+ * slot the worse one is and worth at least as much in it. A player who does not reach it is
+ * priced as a reserve, and the better of two such players is worth at least as much there
+ * too — he beats replacement by more, and fewer of the roster's own players stand ahead of
+ * him, so he is needed at least as often.
  *
- * It is also cheaper than what it replaced — one lineup solve per position instead of
- * forty — and it no longer answers differently depending on how long the board is. The old
- * form evaluated the board in its own order when it was short and in projection order when
- * it was long, so which of two exactly tied players won changed with the board's length.
+ * The two regimes do not compare. A candidate who scrapes into the lineup for a tenth of a
+ * point outranks nobody: a slightly worse candidate at the same position, who misses the
+ * lineup and is therefore priced as cover for the starter ahead of him, can be worth more.
+ * That is not a defect in the pricing — cover for a fragile starter really can be worth more
+ * than a tenth of a point a week — but it does mean the single best player at a position no
+ * longer dominates every other. Keeping the best of each regime restores it: the argmax over
+ * the whole board is the argmax over these, because every dropped player is beaten by the
+ * one kept in his own regime.
+ *
+ * Which regime a candidate falls in is decided without solving anything. Adding one player
+ * to an optimally assigned lineup improves it exactly when he beats the weakest player
+ * currently seated in a slot he is eligible for — no chain can do better, because everyone
+ * already seated is already optimally placed. `startThreshold` is that number per position.
+ *
+ * `narrowing the field cannot change the base policy's answer` in the tests runs both paths
+ * against each other rather than trusting the argument: `basePolicyPick` over the narrowed
+ * field against `scoreCandidates` over the whole board, at every roster state of a
+ * twelve-pick draft and again at the exhausted-position and no-demand boundaries. The
+ * version of that test this replaced passed a pre-narrowed board *into* `basePolicyPick`
+ * and so compared nothing.
  */
-function contendersFor(available: readonly PlayerRisk[]): PlayerRisk[] {
-  const best = new Map<string, PlayerRisk>();
+function contendersFor(
+  available: readonly PlayerRisk[],
+  startThreshold: ReadonlyMap<string, number>,
+): PlayerRisk[] {
+  const bestStarter = new Map<string, PlayerRisk>();
+  const bestReserve = new Map<string, PlayerRisk>();
   for (const candidate of available) {
-    const held = best.get(candidate.position);
+    // A position with no threshold has no slot anybody could take, so every candidate at it
+    // is a reserve. `Infinity` says that without a special case.
+    const threshold = startThreshold.get(candidate.position) ?? Infinity;
+    const bucket =
+      marketValue(candidate) > threshold ? bestStarter : bestReserve;
+    const held = bucket.get(candidate.position);
     // Strictly greater, so the first of several tied bests at a position is the one kept —
     // which is what evaluating the whole board in order would also have done.
-    if (
-      held === undefined ||
-      candidate.weeklyMean * candidate.availability >
-        held.weeklyMean * held.availability
-    ) {
-      best.set(candidate.position, candidate);
+    if (held === undefined || marketValue(candidate) > marketValue(held)) {
+      bucket.set(candidate.position, candidate);
     }
   }
-  return available.filter((candidate) => best.get(candidate.position) === candidate);
+  return available.filter(
+    (candidate) =>
+      bestStarter.get(candidate.position) === candidate ||
+      bestReserve.get(candidate.position) === candidate,
+  );
 }
 
 /** The quantity both the lineup solver and the replacement model rank a player by. */
@@ -205,7 +245,7 @@ function replacementBench(
     ).length;
     for (let i = 0; i < copies; i += 1) {
       out.push({
-        id: `__replacement__${position}__${i}`,
+        id: `${REPLACEMENT_PREFIX}${position}${REPLACEMENT_SEPARATOR}${i}`,
         name: `replacement ${position}`,
         position,
         projectedPoints: level.value,
@@ -214,6 +254,24 @@ function replacementBench(
     }
   }
   return out;
+}
+
+/**
+ * Ids for the replacement-level stand-ins, and the position read back out of one.
+ *
+ * The separator has to be a sequence no position code contains, because the position is
+ * recovered by splitting on it — and a stand-in whose position could not be read back would
+ * be credited to the empty string and silently vanish from the slot counts that decide what
+ * a reserve is worth. `null` for anything that is not a stand-in, which is every real player.
+ */
+const REPLACEMENT_PREFIX = "__replacement__";
+const REPLACEMENT_SEPARATOR = "__#";
+
+function replacementPositionOf(competitorId: string): string | null {
+  if (!competitorId.startsWith(REPLACEMENT_PREFIX)) return null;
+  const body = competitorId.slice(REPLACEMENT_PREFIX.length);
+  const at = body.lastIndexOf(REPLACEMENT_SEPARATOR);
+  return at === -1 ? null : body.slice(0, at);
 }
 
 /**
@@ -233,40 +291,94 @@ function replacementBench(
  * full replacement bench the second tight end is worth what he beats in the FLEX, which is
  * the honest number.
  *
- * The depth term keeps bench candidates from being discarded before the objective — the
- * simulation — has a chance to price them. Two things about it:
- *
- *  - **It is value over replacement, not raw projection.** Ranking bench candidates by
- *    `weeklyMean * availability` ranks them by position: quarterbacks score the most raw
- *    points, so a completed roster filled its whole bench with them. Value over replacement
- *    asks the question a bench slot actually poses — how much better than free is he.
- *  - **The scale is a one-sided bound, not a tuned value.** It has to be positive, or every
- *    bench player scores identically and the shortlist collapses to board order; and small
- *    enough that depth cannot outrank a real lineup gain, which 1e-2 is not. Anything below
- *    1e-3 behaves identically, because shrinking it scales every bench value by the same
- *    factor. Both bounds are pinned by tests; the exact value between them is not a
- *    behavior.
- *
- * What bench value *should* be — diminishing in the reserves already held, and aware of bye
- * and injury cover — is #39, and this is deliberately not it. This is the smallest term that
- * stops the filter throwing depth away, expressed in the same units as everything around it.
+ * **A player who does not reach the lineup is priced as a reserve, not discounted as one.**
+ * The two halves are in the same unit — points per week — so they can be compared directly
+ * rather than through a scale factor. What stood here was
+ * `weeklyMean * availability * 1e-3`, a raw projection shrunk small enough not to outrank a
+ * starter, and it had two defects that a scale factor cannot fix. It ranked reserves by
+ * position, because quarterbacks lead on raw points, and it did not diminish, so the roster
+ * kept taking more of whichever position led it. A completed fifteen-round standard roster
+ * came back holding seven quarterbacks. See `draft-bench.ts` for what replaced it.
  */
 function prefilterValue(
   roster: readonly PlayerRisk[],
   candidate: PlayerRisk,
-  slots: readonly RosterSlot[],
-  replacement: ReadonlyMap<string, ReplacementLevel>,
-  bench: ReturnType<typeof replacementBench>,
-  baseline: number,
+  context: PrefilterContext,
 ): number {
+  const { slots, replacement, bench, baseline, startingSlots } = context;
   const replacementValue = replacement.get(candidate.position)?.value ?? 0;
   const after = solveLineup(slots, [
     ...roster.map(toCompetitor),
     toCompetitor(candidate),
     ...bench,
   ]).totalPoints;
-  const overReplacement = Math.max(marketValue(candidate) - replacementValue, 0);
-  return after - baseline + overReplacement * 1e-3;
+  const startingGain = after - baseline.totalPoints;
+  const cover = coverValue(
+    roster
+      .filter((held) => held.position === candidate.position)
+      .map((held) => ({
+        value: marketValue(held),
+        availability: held.availability,
+        byeWeek: held.byeWeek,
+      })),
+    {
+      value: marketValue(candidate),
+      availability: candidate.availability,
+      byeWeek: candidate.byeWeek,
+    },
+    startingSlots.get(candidate.position) ?? 0,
+    replacementValue,
+    context.weeks,
+  );
+  // Added rather than chosen between. `coverValue` returns only the part of a player's worth
+  // that exists because players miss weeks, and `startingGain` is the part the all-available
+  // lineup already shows, so the two do not overlap — and a candidate who improves the
+  // lineup keeps his depth value instead of forfeiting it. Branching between them ordered a
+  // 14.8 back above a 15.0 one at the same position, because the worse of the two was
+  // credited with cover the better one also provided.
+  return startingGain + cover;
+}
+
+/**
+ * How many starting slots each position actually occupies, as the lineup currently solves.
+ *
+ * Counting the slot kinds a position is eligible for overstates it whenever a flexible slot
+ * is contested: a FLEX held by a receiver is not a slot a back can walk into when one of his
+ * own starters is hurt. The baseline solve already contains the answer, because it fills
+ * every slot from the roster plus a replacement-level board — so the positions it seats are
+ * the ones that win those slots at the margin.
+ *
+ * A slot nothing could reach — not even the replacement board, because the position is
+ * exhausted — counts for every position eligible for it. Leaving it out would say a position
+ * whose board has run dry has nowhere to play, which is the opposite of true.
+ *
+ * A position seated nowhere gets nothing, and a reserve behind zero slots is worth nothing.
+ * That is what keeps a kicker in a league that starts no kicker from acquiring value out of
+ * scarcity.
+ */
+function startingSlotsByPosition(
+  roster: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  baseline: LineupSolution,
+): Map<string, number> {
+  const bySlotId = new Map(slots.map((slot) => [slot.id, slot]));
+  const positionById = new Map(roster.map((player) => [player.id, player.position]));
+  const seated = new Map<string, number>();
+  const credit = (position: string) =>
+    seated.set(position, (seated.get(position) ?? 0) + 1);
+
+  for (const assignment of baseline.assignments) {
+    const competitorId = assignment.competitorId;
+    if (competitorId === null) {
+      for (const position of bySlotId.get(assignment.slotId)?.eligiblePositions ?? []) {
+        credit(position);
+      }
+      continue;
+    }
+    const replacementPosition = replacementPositionOf(competitorId);
+    credit(replacementPosition ?? positionById.get(competitorId) ?? "");
+  }
+  return seated;
 }
 
 /**
@@ -290,28 +402,97 @@ function replacementFor(
   );
 }
 
+/**
+ * Everything a prefilter score needs that does not depend on which candidate is scored.
+ *
+ * Solved once per pick rather than once per player on a board of several hundred, and
+ * shared with `contendersFor` so the narrowing and the scoring cannot disagree about which
+ * regime a candidate is in.
+ */
+interface PrefilterContext {
+  slots: readonly RosterSlot[];
+  replacement: ReadonlyMap<string, ReplacementLevel>;
+  bench: ReturnType<typeof replacementBench>;
+  baseline: LineupSolution;
+  startingSlots: ReadonlyMap<string, number>;
+  /**
+   * Weeks in the fantasy regular season.
+   *
+   * Only the depth model reads it, and only to price a bye: a player idle in one week of
+   * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve is
+   * unavailable more often. It is a parameter rather than a constant because it is already
+   * configuration everywhere else — `LeagueConfig.weeks` — and a second, disagreeing copy of
+   * the season length is exactly the sort of thing that stays wrong quietly.
+   */
+  weeks: number;
+  /**
+   * The value a candidate has to beat at each position to reach the starting lineup.
+   *
+   * The weakest player seated in a slot he is eligible for, or 0 where such a slot is
+   * empty. Adding one player to an optimal assignment improves it exactly when he clears
+   * this: every incumbent is already optimally placed, so no chain of displacements can
+   * find value that beating the weakest one does not.
+   */
+  startThreshold: ReadonlyMap<string, number>;
+}
+
+function prefilterContext(
+  roster: readonly PlayerRisk[],
+  league: PolicyLeague,
+  replacement: ReadonlyMap<string, ReplacementLevel>,
+): PrefilterContext {
+  const { slots, weeks } = league;
+  const bench = replacementBench(slots, replacement);
+  const baseline = solveLineup(slots, [...roster.map(toCompetitor), ...bench]);
+  const startThreshold = new Map<string, number>();
+  for (const assignment of baseline.assignments) {
+    const slot = slots.find((entry) => entry.id === assignment.slotId);
+    if (slot === undefined) continue;
+    // An empty slot is free to walk into, so the bar is zero rather than the slot's
+    // (absent) occupant. Without this a position whose board is exhausted would report an
+    // infinite bar and every candidate at it would be classed a reserve.
+    const seated =
+      assignment.competitorId === null ? 0 : assignment.projectedPoints;
+    for (const position of slot.eligiblePositions) {
+      const held = startThreshold.get(position);
+      if (held === undefined || seated < held) startThreshold.set(position, seated);
+    }
+  }
+  return {
+    slots,
+    replacement,
+    bench,
+    baseline,
+    startingSlots: startingSlotsByPosition(roster, slots, baseline),
+    weeks,
+    startThreshold,
+  };
+}
+
 function scoreAgainst(
   roster: readonly PlayerRisk[],
   candidates: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
-  replacement: ReadonlyMap<string, ReplacementLevel>,
+  context: PrefilterContext,
 ): Array<{ player: PlayerRisk; value: number }> {
-  // The replacement bench and the lineup it produces do not depend on the candidate, so
-  // they are solved once rather than once per player on a board of several hundred.
-  const bench = replacementBench(slots, replacement);
-  const baseline = solveLineup(slots, [
-    ...roster.map(toCompetitor),
-    ...bench,
-  ]).totalPoints;
   return candidates
     .map((player) => ({
       player,
-      value: prefilterValue(roster, player, slots, replacement, bench, baseline),
+      value: prefilterValue(roster, player, context),
     }))
     // Total, so the answer does not depend on the order the board arrived in. Ties were
     // previously resolved by `Array.prototype.sort` stability over board order, which is
     // deterministic only for as long as nothing upstream reorders the board.
-    .sort((a, b) => b.value - a.value || (a.player.id < b.player.id ? -1 : 1));
+    //
+    // Raw value before id, so that when every useful starting and reserve path really is
+    // exhausted — every candidate worth exactly nothing over replacement — the fallback is
+    // the best player left rather than the alphabetically first one. It cannot outrank
+    // anything, because it is only consulted where the values are equal.
+    .sort(
+      (a, b) =>
+        b.value - a.value ||
+        marketValue(b.player) - marketValue(a.player) ||
+        (a.player.id < b.player.id ? -1 : 1),
+    );
 }
 
 /**
@@ -325,15 +506,11 @@ function scoreAgainst(
 export function scoreCandidates(
   roster: readonly PlayerRisk[],
   available: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   leagueUnfilledSlots: readonly RosterSlot[],
 ): Array<{ player: PlayerRisk; value: number }> {
-  return scoreAgainst(
-    roster,
-    available,
-    slots,
-    replacementFor(available, leagueUnfilledSlots),
-  );
+  const replacement = replacementFor(available, leagueUnfilledSlots);
+  return scoreAgainst(roster, available, prefilterContext(roster, league, replacement));
 }
 
 /**
@@ -351,17 +528,18 @@ export function scoreCandidates(
 export function basePolicyPick(
   roster: readonly PlayerRisk[],
   available: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   leagueUnfilledSlots: readonly RosterSlot[],
 ): PlayerRisk | null {
   // Only one player per position can win a base-policy pick, so the rest are not
   // evaluated. Without this the completion solves a lineup for every one of several hundred
   // players at each of a hundred-odd remaining picks, for every candidate — which was the
   // whole cost of a recommendation.
-  const contenders = contendersFor(available);
-  if (contenders.length === 0) return null;
   const replacement = replacementFor(available, leagueUnfilledSlots);
-  return scoreAgainst(roster, contenders, slots, replacement)[0].player;
+  const context = prefilterContext(roster, league, replacement);
+  const contenders = contendersFor(available, context.startThreshold);
+  if (contenders.length === 0) return null;
+  return scoreAgainst(roster, contenders, context)[0].player;
 }
 
 /**
@@ -393,7 +571,7 @@ export function completeOwnRoster(
   roster: readonly PlayerRisk[],
   ownRemainingPicks: number,
   pool: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   forcedFirstPick: PlayerRisk | null,
   rosterSize: number | undefined,
   opponentUnfilledSlots: readonly RosterSlot[],
@@ -431,9 +609,9 @@ export function completeOwnRoster(
     // with a longer roster than anyone it plays — which lifts every candidate's title odds
     // together and reads as a better board rather than as a bug.
     if (rosterSize !== undefined && out.length >= rosterSize) break;
-    const pick = basePolicyPick(out, available, slots, [
+    const pick = basePolicyPick(out, available, league, [
       ...opponentUnfilledSlots,
-      ...ownUnfilledSlots(out, slots),
+      ...ownUnfilledSlots(out, league.slots),
     ]);
     if (pick === null) break;
     out.push(pick);
@@ -455,9 +633,10 @@ function ownUnfilledSlots(
 
 export function completeDraft(
   state: DraftPolicyState,
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   forcedFirstPick: PlayerRisk | null,
 ): PlayerRisk[][] {
+  const { slots } = league;
   const rosters = state.teams.map((t) => [...t.roster]);
   const taken = new Set(rosters.flat().map((p) => p.id));
   // Same three checks as `completeOwnRoster`, for the same reason: this branch bypasses
@@ -488,7 +667,7 @@ export function completeDraft(
   for (const { team } of order) {
     if (rosters[team].length >= state.rosterSize) continue;
     if (pool.length === 0) break;
-    const pick = basePolicyPick(rosters[team], pool, slots, unfilledByTeam.flat());
+    const pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
     if (pick === null) break;
     rosters[team].push(pick);
     unfilledByTeam[team] = ownUnfilledSlots(rosters[team], slots);
@@ -532,22 +711,20 @@ export function recommendByChampionship(
   // Narrow the field cheaply, then judge what is left properly. The demand this prices
   // against is the whole live league's — every team's unfilled starting slots as they stand
   // right now, which is what decides how deep a position runs before it is free.
+  // The season length the simulation is about to use, so the depth model and the objective
+  // cannot disagree about how often a bye costs a week.
+  const league: PolicyLeague = { slots: config.slots, weeks: config.weeks.length };
   const leagueUnfilled = state.teams.flatMap((team) =>
     ownUnfilledSlots(team.roster, config.slots),
   );
-  const shortlist = scoreCandidates(
-    me.roster,
-    state.available,
-    config.slots,
-    leagueUnfilled,
-  )
+  const shortlist = scoreCandidates(me.roster, state.available, league, leagueUnfilled)
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
 
   // Opponents are completed once. Their behavior changes by at most one player depending
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
   // eleven rosters per candidate would dominate the cost.
-  const baselineRosters = completeDraft(state, config.slots, null);
+  const baselineRosters = completeDraft(state, league, null);
   const opponentRosters = baselineRosters.filter(
     (_, index) => index !== state.myTeamIndex,
   );
@@ -602,7 +779,7 @@ export function recommendByChampionship(
     const replacement = basePolicyPick(
       without,
       poolForUs,
-      config.slots,
+      league,
       ownUnfilledSlots(without, config.slots),
     );
     const scores = [...baselineOpponentScores];
@@ -632,7 +809,7 @@ export function recommendByChampionship(
       replacementId === null
         ? poolForUs
         : poolForUs.filter((p) => p.id !== replacementId),
-      config.slots,
+      league,
       forced,
       state.rosterSize,
       // The opponents are complete by this point, so whatever they still cannot start is a

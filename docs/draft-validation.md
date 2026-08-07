@@ -122,7 +122,7 @@ handicapping the baseline.**
 
   What remains is an approximation, and a smaller one. The completion is greedy: our own
   remaining picks and every opponent's are filled by `basePolicyPick`, best available by
-  marginal starting value, rather than by anything that looks ahead. Opponents who draft
+  value over replacement, rather than by anything that looks ahead. Opponents who draft
   differently from that produce a different board than the one each candidate was scored
   against. That is a reason the *magnitudes* are soft; it is not a reason to distrust the
   late rounds specifically, which is what this section used to say.
@@ -264,14 +264,29 @@ outcomes.
 
 ### Cost
 
-Measured on the real 2026 board, 12 teams, 15 rounds, a full roster of starters plus bench:
+Measured on the real published 2026 board (614 rows), 12 teams, 15 rounds, a full roster of
+starters plus bench, 10 candidates. **These figures are machine-dependent and the machine is
+not recorded with them**, which makes them a comparison between two revisions rather than a
+budget. Turning them into a budget — environment, board size, percentiles, worst case — is
+#58 and is not done.
 
-| Scenarios | Candidates | Time |
+| Scenarios | Before #38/#39 | After |
 | --- | --- | --- |
-| 150 | 10 | 0.56s |
-| 300 | 10 | 0.97s |
-| 600 | 10 | 1.9s |
-| 1000 | 10 | 3.1s |
+| 150 | 0.62s | 0.94s |
+| 300 | 1.16s | 1.46s |
+| 600 | 2.29s | 3.10s |
+| 1000 | 3.78s | 4.85s |
+
+Both columns measured on the same machine in the same session, so the ratio is meaningful
+where the absolute numbers are not. The rise is around 30%, and it buys two things the
+previous revision did not have: replacement demand solved from the rosters that exist rather
+than from the template, and a depth model that diminishes. The base policy also evaluates
+two candidates per position rather than one, because value is monotone within a regime and
+not across the two — see `contendersFor`.
+
+An earlier version of this table read 0.56 / 0.97 / 1.9 / 3.1 seconds. Those were measured
+on different hardware and are not comparable to either column above; they are replaced rather
+than kept, because a table that mixes machines is not a measurement of anything.
 
 At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
 resolves. 600 is the sensible default given a draft clock of a minute or more.
@@ -410,12 +425,51 @@ inequality on a roster where every player started every week, so no truncation w
 and it passed on the noise the CRN fix removed; another claimed to separate a superflex
 league from a standard one but was satisfied by the slot *id* differing.
 
+### What the base policy is
+
+The completion that every candidate is scored through, and therefore the thing that decides
+what a recommendation is worth. It is best-available, and what "best" means is two terms in
+the same unit — points per week — added together.
+
+- **What he adds to the starting lineup**, against a roster that can otherwise sign anybody
+  replacement-level at any position. Solved by the lineup matcher, so FLEX and SUPERFLEX
+  eligibility is handled by the code that already knows the rules.
+- **What he adds in the weeks somebody is missing** (`lib/core/draft-bench.ts`). A position
+  occupies some number of starting slots; a player is needed in the weeks fewer than that
+  many of the players above him are available. Availabilities are per player, so a fragile
+  starter raises his own backup's value, and byes are counted per week, so a backup sharing
+  his starter's bye is worth less than one who does not.
+
+Replacement level is solved rather than assumed (`lib/core/draft-replacement.ts`). Demand is
+the starting slots the league has not filled *from the rosters it holds* — eleven of twelve
+teams with a quarterback leaves one slot of demand, not twelve — and which positions fill
+the flexible slots is a maximum-weight assignment against the board's own value curves, not
+an equal share to each eligible position.
+
+**Why this is written down at all:** the term it replaced was
+`weeklyMean * availability * 1e-3`, a raw projection scaled small, and it ranked reserves by
+position. A fifteen-round completion in a one-quarterback league came back holding seven
+quarterbacks. The same call now returns two, and a SUPERFLEX league returns three.
+
 ### Still unmodeled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own
-receiver score together), waiver-wire replacement level (depth you could stream is worth
-less than depth you must draft), and opponents who adapt their draft strategy rather than
+receiver score together), correlated absence (injuries cluster, which the season simulation
+models and the base policy does not), cross-position cover in the depth model (a back covers
+a FLEX a receiver vacates), and opponents who adapt their draft strategy rather than
 following the base policy.
+
+**Waiver-wire replacement level** is the one with a visible consequence. Depth you could
+stream is worth less than depth you must draft, and the gap is not the same at every
+position: a twelve-team league rosters twelve kickers and around sixty backs, so the best
+undrafted kicker is nearly as good as the best drafted one while the best undrafted back is
+nowhere near. Without that term the depth model overstates reserves at shallow, streamable
+positions. Measured on a synthetic twelve-team fixture: after fifteen rounds the best
+remaining kicker prices at 0.109 points a week against 0.022 for the best remaining skill
+reserve, so a sixteenth pick would go on a backup kicker. Fifteen rounds is what the target
+league drafts, and inside fifteen the completion takes exactly one kicker and one defense —
+but the ordering is wrong past that point and the reason is this missing term, not a
+tie-break.
 
 ## The part that is provable
 
