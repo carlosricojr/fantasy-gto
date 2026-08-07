@@ -3,15 +3,26 @@ import { describe, expect, it } from "vitest";
 import { solveLineup } from "../core/optimizer";
 import {
   DEFAULT_TEMPLATE,
+  NO_DST_TEMPLATE,
+  NO_K_DST_TEMPLATE,
+  NO_K_TEMPLATE,
   ROSTER_TEMPLATES,
+  SHALLOW_BENCH_TEMPLATE,
   SLOT_ELIGIBILITY,
   STANDARD_TEMPLATE,
   SUPERFLEX_TEMPLATE,
   THREE_WR_TEMPLATE,
+  TWO_FLEX_TEMPLATE,
+  TWO_QB_TEMPLATE,
   buildSlots,
   rosterTemplateById,
+  slotSummary,
   slotsForTemplate,
+  templateForRoster,
 } from "./roster";
+import { leagueUnfilledSlots, solveDemand } from "../core/draft-replacement";
+import { scoreCandidates, type PolicyLeague } from "../core/draft-policy";
+import type { PlayerRisk } from "../core/roster-utility";
 
 /**
  * Roster shapes.
@@ -137,13 +148,20 @@ describe("the shipped templates", () => {
   });
 
   it("differ from each other in the way their names claim", () => {
-    // Three templates that all built the same slots would be three names for one game.
-    const shapes = ROSTER_TEMPLATES.map((t) =>
-      buildSlots(t.counts)
-        .map((s) => s.id)
-        .join(","),
+    // Templates that all built the same league would be several names for one game. The
+    // league is the slots *and* the roster size: `standard` and `shallow_bench` field the
+    // same nine starters over fifteen rounds and thirteen, which is a four-man bench against
+    // a six-man one and a materially different draft.
+    const leagues = ROSTER_TEMPLATES.map(
+      (t) =>
+        `${buildSlots(t.counts)
+          .map((s) => s.id)
+          .join(",")}|${t.rounds}`,
     );
-    expect(new Set(shapes).size).toBe(ROSTER_TEMPLATES.length);
+    expect(new Set(leagues).size).toBe(ROSTER_TEMPLATES.length);
+    expect(new Set(ROSTER_TEMPLATES.map((t) => t.id)).size).toBe(
+      ROSTER_TEMPLATES.length,
+    );
   });
 
   it("gives superflex a slot a second quarterback can start in, and standard none", () => {
@@ -210,5 +228,287 @@ describe("rosterTemplateById", () => {
     for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
       expect(rosterTemplateById(key)).toBe(DEFAULT_TEMPLATE);
     }
+  });
+});
+
+/**
+ * Every shipped preset, asserted rather than described.
+ *
+ * The mock this epic is built against is ten teams, fifteen rounds, standard scoring and
+ * **two** flex slots, which no template carried. A preset that cannot be selected exactly is
+ * a preset that gets approximated, and the whole point of the value model is that a league's
+ * shape decides what it drafts.
+ */
+describe("every shipped preset", () => {
+  const EXPECTED: ReadonlyArray<
+    readonly [string, Readonly<Record<string, number>>, number, number]
+  > = [
+    // id, counts, starting slots, rounds
+    ["standard", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 }, 9, 15],
+    ["two_flex", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 2, K: 1, DST: 1 }, 10, 15],
+    ["three_wr", { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 1, K: 1, DST: 1 }, 10, 15],
+    [
+      "superflex",
+      { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, SUPERFLEX: 1, K: 1, DST: 1 },
+      10,
+      16,
+    ],
+    ["two_qb", { QB: 2, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 }, 10, 16],
+    ["no_k", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1 }, 8, 15],
+    ["no_dst", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1 }, 8, 15],
+    ["no_k_dst", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 }, 7, 14],
+    ["shallow_bench", { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 }, 9, 13],
+  ];
+
+  it("has exactly these ids, counts, slot totals and rounds", () => {
+    expect(ROSTER_TEMPLATES.map((t) => t.id)).toEqual(EXPECTED.map(([id]) => id));
+    for (const [id, counts, slots, rounds] of EXPECTED) {
+      const template = rosterTemplateById(id);
+      expect(template.counts).toEqual(counts);
+      expect(template.rounds).toBe(rounds);
+      expect(slotsForTemplate(id)).toHaveLength(slots);
+      // Rounds must leave room for the starters. A template that drafts fewer players than
+      // it fields would field a lineup with a permanent hole.
+      expect(rounds).toBeGreaterThanOrEqual(slots);
+    }
+  });
+
+  it("gives every slot an eligibility set the table actually defines", () => {
+    // Not "non-empty" — a set that came from `SLOT_ELIGIBILITY`. A template naming a kind
+    // the table has no entry for would build a slot with nothing eligible for it, which
+    // `solveLineup` fills with nobody and the simulation scores as a permanent hole.
+    const known = Object.values(SLOT_ELIGIBILITY).map((set) => set.join(","));
+    for (const template of ROSTER_TEMPLATES) {
+      const slots = buildSlots(template.counts);
+      // Every count asked for produced a slot, so no kind was silently dropped.
+      const asked = Object.values(template.counts).reduce((a, b) => a + b, 0);
+      expect(slots).toHaveLength(asked);
+      for (const slot of slots) {
+        expect(slot.eligiblePositions.length).toBeGreaterThan(0);
+        expect(known).toContain(slot.eligiblePositions.join(","));
+      }
+      // Ids are the serialized contract and must be unique inside a template.
+      const ids = slots.map((s) => s.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  it("summarizes its slots from the counts rather than from the prose", () => {
+    expect(slotSummary("two_flex")).toBe(
+      "QB 1 · RB 2 · WR 2 · TE 1 · FLEX 2 · K 1 · D/ST 1",
+    );
+    expect(slotSummary("no_k_dst")).toBe("QB 1 · RB 2 · WR 2 · TE 1 · FLEX 1");
+    // A shape the app cannot field never appears in the summary.
+    expect(slotSummary("no_k")).not.toContain("K 1");
+    expect(slotSummary("no_dst")).not.toContain("D/ST");
+  });
+});
+
+describe("the two-FLEX preset", () => {
+  const flexOf = (id: string) =>
+    slotsForTemplate(id).filter((s) => s.label === "FLEX");
+
+  it("has two of them, and standard has one", () => {
+    expect(flexOf("two_flex")).toHaveLength(2);
+    expect(flexOf("standard")).toHaveLength(1);
+    expect(flexOf("two_flex").map((s) => s.id)).toEqual(["flex1", "flex2"]);
+    expect(flexOf("standard").map((s) => s.id)).toEqual(["flex"]);
+  });
+
+  it("is filled by the optimizer without anything knowing which preset it is", () => {
+    // Four backs and nothing else at the flex-eligible positions. Two take the RB slots and
+    // the other two take both FLEX slots — which no code special-cases, because the solver
+    // reads eligibility rather than a template id.
+    const backs = [17, 15, 13, 11].map((points, i) => ({
+      id: `rb${i}`,
+      name: `rb${i}`,
+      position: "RB",
+      projectedPoints: points,
+      availability: "active" as const,
+    }));
+    const solution = solveLineup(slotsForTemplate("two_flex"), backs);
+    const started = solution.assignments
+      .filter((a) => a.competitorId !== null)
+      .map((a) => a.slotId);
+    expect(started).toContain("flex1");
+    expect(started).toContain("flex2");
+    expect(solution.benchedIds).toEqual([]);
+
+    // The same four against one FLEX leaves the worst on the bench.
+    expect(solveLineup(slotsForTemplate("standard"), backs).benchedIds).toEqual(["rb3"]);
+  });
+
+  it("changes the league's remaining starter demand", () => {
+    // #38's demand solver reads the slots, so a second flex is twelve more flexible slots
+    // across a twelve-team league — and they go where the value curves send them rather than
+    // a third each to RB, WR and TE.
+    const board = [
+      ...Array.from({ length: 60 }, (_, i) => ({ position: "RB", value: 20 - i * 0.5 })),
+      ...Array.from({ length: 60 }, (_, i) => ({ position: "WR", value: 20 - i * 0.5 })),
+      ...Array.from({ length: 40 }, (_, i) => ({ position: "TE", value: 14 - i })),
+      ...Array.from({ length: 40 }, (_, i) => ({ position: "QB", value: 20 - i * 0.2 })),
+      ...Array.from({ length: 30 }, (_, i) => ({ position: "K", value: 8 - i * 0.05 })),
+      ...Array.from({ length: 30 }, (_, i) => ({ position: "DST", value: 8.5 - i * 0.06 })),
+    ];
+    const demandFor = (id: string) =>
+      solveDemand(
+        leagueUnfilledSlots(
+          Array.from({ length: 12 }, () => []),
+          slotsForTemplate(id),
+        ),
+        board,
+      );
+    const one = demandFor("standard");
+    const two = demandFor("two_flex");
+    expect(one.get("RB")).toBe(30);
+    expect(one.get("WR")).toBe(30);
+    expect(one.get("TE")).toBe(12);
+    expect(two.get("RB")).toBe(36);
+    expect(two.get("WR")).toBe(36);
+    expect(two.get("TE")).toBe(12);
+  });
+});
+
+describe("a template that starts no kicker", () => {
+  const player = (
+    id: string,
+    position: string,
+    weeklyMean: number,
+  ): PlayerRisk => ({
+    id,
+    name: id,
+    position,
+    weeklyMean,
+    p10: 0.269,
+    p90: 1.901,
+    byeWeek: 6,
+    availability: 0.95,
+  });
+
+  const board = (): PlayerRisk[] => [
+    ...Array.from({ length: 30 }, (_, i) => player(`rb${i}`, "RB", 17 - i * 0.3)),
+    ...Array.from({ length: 30 }, (_, i) => player(`wr${i}`, "WR", 16 - i * 0.25)),
+    ...Array.from({ length: 20 }, (_, i) => player(`te${i}`, "TE", 13 - i * 0.3)),
+    ...Array.from({ length: 20 }, (_, i) => player(`qb${i}`, "QB", 20 - i * 0.35)),
+    ...Array.from({ length: 12 }, (_, i) => player(`k${i}`, "K", 8 - i * 0.05)),
+    ...Array.from({ length: 12 }, (_, i) => player(`dst${i}`, "DST", 8.5 - i * 0.06)),
+  ];
+
+  const league = (id: string): PolicyLeague => ({
+    slots: slotsForTemplate(id),
+    weeks: 14,
+  });
+
+  const demandOf = (id: string) =>
+    leagueUnfilledSlots(
+      Array.from({ length: 12 }, () => []),
+      slotsForTemplate(id),
+    );
+
+  it("prices every kicker at exactly nothing", () => {
+    // Not "small" — nothing. A position with no starting slot has no demand, so replacement
+    // is the best player at it and there is no slot for a reserve to cover. The generic
+    // depth term that used to leave a positive score behind is gone; this is the assertion
+    // that says so, and it is the one that fails if it comes back.
+    const scored = scoreCandidates([], board(), league("no_k"), demandOf("no_k"));
+    for (const entry of scored.filter((e) => e.player.position === "K")) {
+      expect(entry.value).toBe(0);
+    }
+    // And the same board under the standard template does value a kicker, so the zero is a
+    // property of the template rather than of the kickers.
+    const withK = scoreCandidates([], board(), league("standard"), demandOf("standard"));
+    expect(withK.find((e) => e.player.position === "K")!.value).toBeGreaterThan(0);
+  });
+
+  it("does the same for a defense, and for both at once", () => {
+    const noDst = scoreCandidates([], board(), league("no_dst"), demandOf("no_dst"));
+    for (const entry of noDst.filter((e) => e.player.position === "DST")) {
+      expect(entry.value).toBe(0);
+    }
+    const neither = scoreCandidates(
+      [],
+      board(),
+      league("no_k_dst"),
+      demandOf("no_k_dst"),
+    );
+    for (const entry of neither.filter((e) => ["K", "DST"].includes(e.player.position))) {
+      expect(entry.value).toBe(0);
+    }
+  });
+
+  it("never puts one on the shortlist while anything else is worth more than nothing", () => {
+    const scored = scoreCandidates([], board(), league("no_k_dst"), demandOf("no_k_dst"));
+    const positive = scored.filter((e) => e.value > 0);
+    expect(positive.length).toBeGreaterThan(20);
+    for (const entry of scored.slice(0, positive.length)) {
+      expect(["K", "DST"]).not.toContain(entry.player.position);
+    }
+  });
+});
+
+describe("templateForRoster", () => {
+  it("finds each shipped preset from its own counts and rounds", () => {
+    for (const template of ROSTER_TEMPLATES) {
+      expect(templateForRoster(template.counts, template.rounds)).toBe(template);
+    }
+  });
+
+  it("treats an absent slot kind and a zero count as the same thing", () => {
+    // A provider that lists every kind with a zero must match the same template as one that
+    // omits the kinds it does not use.
+    expect(
+      templateForRoster(
+        { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 0, DST: 0, SUPERFLEX: 0 },
+        14,
+      ),
+    ).toBe(NO_K_DST_TEMPLATE);
+  });
+
+  it("separates the two presets that share a slot shape", () => {
+    expect(templateForRoster(STANDARD_TEMPLATE.counts, 15)).toBe(STANDARD_TEMPLATE);
+    expect(templateForRoster(STANDARD_TEMPLATE.counts, 13)).toBe(SHALLOW_BENCH_TEMPLATE);
+    // And a roster size neither carries is not either of them.
+    expect(templateForRoster(STANDARD_TEMPLATE.counts, 20)).toBeNull();
+  });
+
+  it("keeps 2QB and SUPERFLEX apart", () => {
+    // A league that must start two quarterbacks is not a league that may. Matching one to
+    // the other would draft a back for a slot only a quarterback can fill.
+    expect(templateForRoster(TWO_QB_TEMPLATE.counts, 16)).toBe(TWO_QB_TEMPLATE);
+    expect(templateForRoster(SUPERFLEX_TEMPLATE.counts, 16)).toBe(SUPERFLEX_TEMPLATE);
+    expect(TWO_QB_TEMPLATE.counts).not.toEqual(SUPERFLEX_TEMPLATE.counts);
+  });
+
+  it("reports a miss rather than the nearest preset", () => {
+    // Three receivers *and* two flexes. Nothing shipped carries it, and answering
+    // `three_wr` or `two_flex` would draft against a lineup the user never fields.
+    expect(
+      templateForRoster(
+        { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 2, K: 1, DST: 1 },
+        15,
+      ),
+    ).toBeNull();
+    // An extra slot kind nobody ships.
+    expect(
+      templateForRoster({ ...STANDARD_TEMPLATE.counts, WR_TE: 1 }, 15),
+    ).toBeNull();
+    // A slot kind this build has no eligibility for at all.
+    expect(
+      templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 2 }, 15),
+    ).toBeNull();
+    // ...but the same kind at zero is absent rather than an extra slot, which is the
+    // documented equivalence and the shape a provider that enumerates every kind it knows
+    // about actually sends. Without this, narrowing the guard from `(count ?? 0) > 0` to a
+    // plain presence check would pass the suite and refuse every such import.
+    expect(templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 0 }, 15)).toBe(
+      STANDARD_TEMPLATE,
+    );
+    expect(templateForRoster({}, 15)).toBeNull();
+  });
+
+  it("matches the templates the no-specialist leagues describe", () => {
+    expect(templateForRoster(NO_K_TEMPLATE.counts, 15)).toBe(NO_K_TEMPLATE);
+    expect(templateForRoster(NO_DST_TEMPLATE.counts, 15)).toBe(NO_DST_TEMPLATE);
+    expect(templateForRoster(TWO_FLEX_TEMPLATE.counts, 15)).toBe(TWO_FLEX_TEMPLATE);
   });
 });

@@ -35,6 +35,7 @@ function player(overrides: Partial<PoolPlayer> & { id: string }): PoolPlayer {
     adp: 10,
     adpStdev: 8,
     availability: 0.9,
+    basis: "blend",
     overallRank: 1,
     draftedAt: null,
     draftedBy: null,

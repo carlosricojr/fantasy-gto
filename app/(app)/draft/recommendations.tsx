@@ -6,7 +6,9 @@ import { ChevronDown, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChampionshipRecommendation } from "@/lib/core/draft-policy";
 import { survivalProbability } from "@/lib/core/draft";
+import { recommendationCaveat, type ValueBasis } from "@/lib/nfl/draft/provenance";
 import { cn } from "@/lib/utils";
+import { BasisBadge } from "./basis-badge";
 import type { useRecommendations } from "./use-recommendations";
 import { positionChipClass, positionLabel } from "./positions";
 
@@ -34,6 +36,7 @@ export function Recommendations({
   waitPick,
   waitPickLabel,
   unrankedAdp,
+  basisFor,
 }: {
   state: ReturnType<typeof useRecommendations>;
   scenarios: number;
@@ -44,6 +47,8 @@ export function Recommendations({
   waitPick: number | null;
   waitPickLabel: string | null;
   unrankedAdp: number;
+  /** Where a candidate's number came from, resolved against the board. */
+  basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -125,6 +130,7 @@ export function Recommendations({
               {positionLabel(leader.player.position)}
             </span>
             {leader.player.byeWeek === null ? "no bye listed" : `bye ${leader.player.byeWeek}`}
+            <BasisBadge basis={basisFor(leader.player)} />
           </p>
         </div>
         {state.stale ? (
@@ -183,6 +189,7 @@ export function Recommendations({
               waitPick={waitPick}
               waitPickLabel={waitPickLabel}
               unrankedAdp={unrankedAdp}
+              basisFor={basisFor}
             />
           ))}
         </ul>
@@ -223,6 +230,7 @@ function Row({
   waitPick,
   waitPickLabel,
   unrankedAdp,
+  basisFor,
 }: {
   rec: ChampionshipRecommendation;
   rank: number;
@@ -231,6 +239,7 @@ function Row({
   waitPick: number | null;
   waitPickLabel: string | null;
   unrankedAdp: number;
+  basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
   // The wait question, per candidate. A tied second choice who is 90% likely to last until
   // your next pick and a tied second choice who is 10% likely are not the same decision,
@@ -256,13 +265,35 @@ function Row({
         {positionLabel(rec.player.position)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{rec.player.name}</span>
+        <span className="flex min-w-0 items-center text-sm font-medium">
+          <span className="truncate">{rec.player.name}</span>
+          <BasisBadge basis={basisFor(rec.player)} />
+        </span>
         <span className="block truncate text-xs text-muted-foreground tabular-nums">
           {(rec.championshipProbability * 100).toFixed(1)}% ±
           {(rec.standardError * 100).toFixed(1)}
           {rec.tiedWithLeader ? " · tied with the leader" : ""}
           {survival === null ? "" : ` · ${(survival * 100).toFixed(0)}% lasts to ${waitPickLabel}`}
         </span>
+        {/* The paired comparison against the leader, which is the only interval on this
+            panel that is the uncertainty of the *comparison* rather than of one number on
+            its own. Descriptive, not inferential — the leader was chosen as the maximum of
+            the same sample, and `draft-policy.ts` says so at length. */}
+        {rec.vsLeader === null ? null : (
+          <span className="block truncate text-xs text-muted-foreground tabular-nums">
+            vs leader {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
+            {(rec.vsLeader.meanDifference * 100).toFixed(1)} pts,{" "}
+            {rec.vsLeader.confidenceLevel}% range{" "}
+            {(rec.vsLeader.interval[0] * 100).toFixed(1)} to{" "}
+            {(rec.vsLeader.interval[1] * 100).toFixed(1)}
+          </span>
+        )}
+        {/* The badge alone does not say that the number *above* it is the thing affected. */}
+        {recommendationCaveat(rec.player.position) === null ? null : (
+          <span className="block text-xs text-muted-foreground">
+            {recommendationCaveat(rec.player.position)}
+          </span>
+        )}
       </span>
       {onTheClock ? (
         <Button

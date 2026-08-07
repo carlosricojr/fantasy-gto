@@ -1,9 +1,16 @@
-import { type RosterSlot, solveLineup } from "./optimizer";
+import { type LineupSolution, type RosterSlot, solveLineup } from "./optimizer";
+import { coverValue } from "./draft-bench";
+import {
+  type ReplacementLevel,
+  replacementLevels,
+  unfilledSlots,
+} from "./draft-replacement";
 import type { PlayerRisk } from "./roster-utility";
+import { type PairedOutcomeComparison, pairedOutcomeComparison } from "./stats";
 import {
   type LeagueConfig,
   type TeamOutcome,
-  championshipProbability,
+  championshipScenarios,
   sampleTeamWeeklyScores,
 } from "./season-sim";
 
@@ -66,6 +73,26 @@ export interface DraftPolicyState {
   rosterSize: number;
 }
 
+/**
+ * What the policy needs to know about the league beyond who is on the board.
+ *
+ * One object rather than two parameters because the two are never independently meaningful,
+ * and because a season length that disagrees with `LeagueConfig.weeks` is exactly the sort of
+ * second copy that stays wrong quietly.
+ */
+export interface PolicyLeague {
+  /** The starting lineup shape every team fields. */
+  slots: readonly RosterSlot[];
+  /**
+   * Weeks in the fantasy regular season.
+   *
+   * Read only by the depth model, and only to price a bye: a player idle in one week of
+   * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve more
+   * often than that.
+   */
+  weeks: number;
+}
+
 export interface ChampionshipRecommendation {
   player: PlayerRisk;
   /** Championship probability if this player is taken and the draft finishes normally. */
@@ -75,23 +102,45 @@ export interface ChampionshipRecommendation {
   playoffProbability: number;
   expectedPoints: number;
   /**
-   * Standard error on the championship estimate.
+   * Standard error on this candidate's *own* championship probability.
    *
-   * Reported because it is frequently larger than the gap between the top few candidates.
-   * A title is roughly a one-in-twelve event, so distinguishing 16.7% from 15.8% needs
-   * far more scenarios than a draft clock allows — and presenting an ordering as though
-   * it were resolved when it is not would be exactly the kind of false precision this
-   * project exists to avoid. Callers should treat candidates within a couple of standard
-   * errors as tied and fall back on the tiebreaks below.
+   * `sqrt(p(1-p)/n)`, the uncertainty in the absolute number — what "16.7%" is worth on its
+   * own. Reported because it is frequently larger than the gap between the top few
+   * candidates. A title is roughly a one-in-twelve event, so distinguishing 16.7% from
+   * 15.8% needs far more scenarios than a draft clock allows.
+   *
+   * **This is not the uncertainty on a comparison.** Two candidates are simulated over the
+   * same seasons, so the difference between them is a paired quantity with its own standard
+   * error; adding two marginal ones is not it, under any circumstances. See `vsLeader`.
    */
   standardError: number;
   /**
+   * How this candidate compares with the empirical leader, over the same scenarios.
+   *
+   * `null` for the leader himself — a candidate compared with himself has a difference of
+   * exactly zero in every scenario, and reporting an interval of `[0, 0]` around it would
+   * dress a tautology as a measurement.
+   *
+   * **Descriptive, not inferential.** The leader is chosen as the maximum of the same sample
+   * these intervals are computed from, so every one of them is conditioned on a selection
+   * that used the data. That biases the comparisons against the leader in a direction no
+   * correction here removes: no multiple-comparison adjustment is applied and no comparison
+   * was predeclared. Read them as a description of what happened in these scenarios, not as
+   * a test of what would happen in new ones.
+   */
+  vsLeader: PairedOutcomeComparison | null;
+  /**
    * True when this candidate's title odds are inside sampling noise of the leader's.
    *
-   * Without it the ordering reads as broken: a candidate showing 12.3% can rank above one
-   * showing 14.7% because the two are tied and the smoother playoff signal decided
-   * between them. Saying so is the honest presentation; silently sorting by a hidden key
-   * is not.
+   * Decided by the *paired* interval — whether zero difference is inside it — because that
+   * is the uncertainty on the comparison being made. It used to be decided by the sum of the
+   * two marginal standard errors, which is not the standard error of a difference between
+   * anything.
+   *
+   * Without the flag the ordering reads as broken: a candidate showing 12.3% can rank above
+   * one showing 14.7% because the two are tied and the smoother playoff signal decided
+   * between them. Saying so is the honest presentation; silently sorting by a hidden key is
+   * not.
    */
   tiedWithLeader: boolean;
 }
@@ -106,7 +155,7 @@ export interface ChampionshipRecommendation {
 export const CHAMPIONSHIP_CANDIDATES = 10;
 
 /**
- * The players a base-policy pick can possibly be: the best available at each position.
+ * The players a base-policy pick can possibly be.
  *
  * This replaced a window over the top forty by raw projection, which was not the cost
  * optimization it was documented as. The window is sorted by `weeklyMean * availability` —
@@ -116,123 +165,404 @@ export const CHAMPIONSHIP_CANDIDATES = 10;
  * remaining picks on bench backs and started the season with the quarterback slot empty.
  * That is the baseline every improvement in this module is quoted against.
  *
- * Restricting to the best at each position is lossless rather than a wider guess.
- * `toCompetitor` values a player at `weeklyMean * availability` and nothing else, so two
- * players at one position differ to the lineup solver in that number alone: the better of
- * them is eligible for every slot the worse one is and worth at least as much in it, so
- * the solved total cannot fall by preferring him. The depth tiebreak is the same quantity
- * scaled, so it agrees rather than competing. The best at a position therefore dominates
- * every other player at it, and no player this drops could have won.
+ * **Two per position, not one, and the second one is load-bearing.**
  *
- * It is also cheaper than what it replaced — one lineup solve per position instead of
- * forty — and it no longer answers differently depending on how long the board is. The old
- * form evaluated the board in its own order when it was short and in projection order when
- * it was long, so which of two exactly tied players won changed with the board's length.
+ * The narrowing is lossless because value is monotone in `weeklyMean * availability`
+ * *within a regime*. A player who reaches the starting lineup is priced by what he adds to
+ * it, and the better of two such players adds at least as much: he is eligible for every
+ * slot the worse one is and worth at least as much in it. A player who does not reach it is
+ * priced as a reserve, and the better of two such players is worth at least as much there
+ * too — he beats replacement by more, and fewer of the roster's own players stand ahead of
+ * him, so he is needed at least as often.
+ *
+ * The two regimes do not compare. A candidate who scrapes into the lineup for a tenth of a
+ * point outranks nobody: a slightly worse candidate at the same position, who misses the
+ * lineup and is therefore priced as cover for the starter ahead of him, can be worth more.
+ * That is not a defect in the pricing — cover for a fragile starter really can be worth more
+ * than a tenth of a point a week — but it does mean the single best player at a position no
+ * longer dominates every other. Keeping the best of each regime restores it: the argmax over
+ * the whole board is the argmax over these, because every dropped player is beaten by the
+ * one kept in his own regime.
+ *
+ * Which regime a candidate falls in is decided without solving anything. Adding one player
+ * to an optimally assigned lineup improves it exactly when he beats the weakest player
+ * currently seated in a slot he is eligible for — no chain can do better, because everyone
+ * already seated is already optimally placed. `startThreshold` is that number per position.
+ *
+ * `narrowing the field cannot change the base policy's answer` in the tests runs both paths
+ * against each other rather than trusting the argument: `basePolicyPick` over the narrowed
+ * field against `scoreCandidates` over the whole board, at every roster state of a
+ * twelve-pick draft and again at the exhausted-position and no-demand boundaries. The
+ * version of that test this replaced passed a pre-narrowed board *into* `basePolicyPick`
+ * and so compared nothing.
  */
-function contendersFor(available: readonly PlayerRisk[]): PlayerRisk[] {
-  const best = new Map<string, PlayerRisk>();
+function contendersFor(
+  available: readonly PlayerRisk[],
+  startThreshold: ReadonlyMap<string, number>,
+): PlayerRisk[] {
+  const bestStarter = new Map<string, PlayerRisk>();
+  const bestReserve = new Map<string, PlayerRisk>();
   for (const candidate of available) {
-    const held = best.get(candidate.position);
+    // A position with no threshold has no slot anybody could take, so every candidate at it
+    // is a reserve. `Infinity` says that without a special case.
+    const threshold = startThreshold.get(candidate.position) ?? Infinity;
+    const bucket =
+      marketValue(candidate) > threshold ? bestStarter : bestReserve;
+    const held = bucket.get(candidate.position);
     // Strictly greater, so the first of several tied bests at a position is the one kept —
     // which is what evaluating the whole board in order would also have done.
-    if (
-      held === undefined ||
-      candidate.weeklyMean * candidate.availability >
-        held.weeklyMean * held.availability
-    ) {
-      best.set(candidate.position, candidate);
+    if (held === undefined || marketValue(candidate) > marketValue(held)) {
+      bucket.set(candidate.position, candidate);
     }
   }
-  return available.filter((candidate) => best.get(candidate.position) === candidate);
+  return available.filter(
+    (candidate) =>
+      bestStarter.get(candidate.position) === candidate ||
+      bestReserve.get(candidate.position) === candidate,
+  );
 }
 
-/**
- * Marginal starting-lineup value, used only to narrow the field.
- *
- * Deliberately cheap and deliberately not the objective. It ranks by what a player adds to
- * the best legal lineup right now, which is a good enough filter to find the handful of
- * picks worth simulating properly.
- */
+/** The quantity both the lineup solver and the replacement model rank a player by. */
+function marketValue(p: PlayerRisk): number {
+  return p.weeklyMean * p.availability;
+}
+
+/** A `PlayerRisk` as the lineup solver sees him: a position and one number. */
 function toCompetitor(p: PlayerRisk) {
   return {
     id: p.id,
     name: p.name,
     position: p.position,
-    projectedPoints: p.weeklyMean * p.availability,
+    projectedPoints: marketValue(p),
     availability: "active" as const,
   };
 }
 
 /**
- * `baseline` is the roster's own lineup value, which does not depend on the candidate.
- * Solving it once per pick rather than once per contender halves the rollout.
+ * The replacement-level board, as competitors the lineup solver can assign.
  *
- * It was optional, defaulting to solving the same expression here. Both call sites always
- * passed it, and both passed `solveLineup(slots, roster.map(toCompetitor)).totalPoints` —
- * the fallback, character for character. So the default could never produce a different
- * number and there was nothing to test; it is now required, which is what the callers were
- * already doing.
+ * One stand-in per slot that could accept the position, because a lineup can want more than
+ * one of them: a roster with an empty FLEX and two empty back slots can fill all three from
+ * replacement, and offering a single copy would understate what is freely available by two
+ * whole slots.
+ *
+ * A position whose demand outruns the board contributes nothing. There is no replacement to
+ * offer — that is what `exhausted` means — and the empty slot it leaves is exactly the point:
+ * the last player at a position the league cannot satisfy is worth his whole contribution.
+ *
+ * They all carry the same value, which is an approximation and a deliberate one. Taking one
+ * replacement-level player leaves the next one very slightly worse, and modelling that would
+ * make replacement a curve rather than a level. A level is what "value over replacement"
+ * means everywhere else, and the difference is far below the noise the objective is measured
+ * against.
+ */
+function replacementBench(
+  slots: readonly RosterSlot[],
+  replacement: ReadonlyMap<string, ReplacementLevel>,
+) {
+  const out = [];
+  for (const [position, level] of replacement) {
+    if (level.exhausted) continue;
+    const copies = slots.filter((slot) =>
+      slot.eligiblePositions.includes(position),
+    ).length;
+    for (let i = 0; i < copies; i += 1) {
+      out.push({
+        id: `${REPLACEMENT_PREFIX}${position}${REPLACEMENT_SEPARATOR}${i}`,
+        name: `replacement ${position}`,
+        position,
+        projectedPoints: level.value,
+        availability: "active" as const,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Ids for the replacement-level stand-ins, and the position read back out of one.
+ *
+ * The separator has to be a sequence no position code contains, because the position is
+ * recovered by splitting on it — and a stand-in whose position could not be read back would
+ * be credited to the empty string and silently vanish from the slot counts that decide what
+ * a reserve is worth. `null` for anything that is not a stand-in, which is every real player.
+ */
+const REPLACEMENT_PREFIX = "__replacement__";
+const REPLACEMENT_SEPARATOR = "__#";
+
+function replacementPositionOf(competitorId: string): string | null {
+  if (!competitorId.startsWith(REPLACEMENT_PREFIX)) return null;
+  const body = competitorId.slice(REPLACEMENT_PREFIX.length);
+  const at = body.lastIndexOf(REPLACEMENT_SEPARATOR);
+  return at === -1 ? null : body.slice(0, at);
+}
+
+/**
+ * How much this player adds to a roster that can otherwise sign anybody replacement-level.
+ *
+ * The subtraction goes through the lineup solver rather than through the projections,
+ * because whether a player displaces anyone is an assignment question: a third back is worth
+ * a FLEX slot on one roster and nothing on another, and only the matching knows which.
+ *
+ * **The alternative is the whole replacement-level board, not one player at one position.**
+ * Offering a stand-in only at the candidate's own position asks "what if I filled this slot
+ * with another of him", which is the wrong question for any slot more than one position can
+ * fill — and it is catastrophically wrong when a position is exhausted. A league whose tight
+ * ends run out exactly at its demand prices the first tight end against nothing, correctly;
+ * but it then priced the *second* one against nothing too, though he can only reach a FLEX
+ * that a replacement-level back would have filled. The board hoarded the position. Against a
+ * full replacement bench the second tight end is worth what he beats in the FLEX, which is
+ * the honest number.
+ *
+ * **A player who does not reach the lineup is priced as a reserve, not discounted as one.**
+ * The two halves are in the same unit — points per week — so they can be compared directly
+ * rather than through a scale factor. What stood here was
+ * `weeklyMean * availability * 1e-3`, a raw projection shrunk small enough not to outrank a
+ * starter, and it had two defects that a scale factor cannot fix. It ranked reserves by
+ * position, because quarterbacks lead on raw points, and it did not diminish, so the roster
+ * kept taking more of whichever position led it. A completed fifteen-round standard roster
+ * came back holding seven quarterbacks. See `draft-bench.ts` for what replaced it.
  */
 function prefilterValue(
   roster: readonly PlayerRisk[],
   candidate: PlayerRisk,
-  slots: readonly RosterSlot[],
-  baseline: number,
+  context: PrefilterContext,
 ): number {
-  const before = baseline;
-  const after = solveLineup(
-    slots,
-    [...roster, candidate].map(toCompetitor),
-  ).totalPoints;
-  // A player who does not crack the lineup still has worth as depth; the tiny tiebreak
-  // keeps the filter from discarding every bench candidate before the objective is
-  // consulted, which is where depth is actually priced.
-  //
-  // The constant is a one-sided bound, not a tuned value. It has to be positive — at zero
-  // every bench player scores the same and the shortlist becomes board order — and small
-  // enough that depth cannot outrank a real lineup gain, which 1e-2 is not: a second
-  // quarterback projected at 20 then beats a player who improves the starting lineup.
-  // Anything below 1e-3 behaves identically, because shrinking it scales every bench value
-  // by the same factor and only ever favors the player who improves the lineup. Both
-  // bounds are pinned; the exact value between them is not a behavior.
-  //
-  // `after - before` and `after + before` give the same ordering, so no test can tell them
-  // apart: `before` is the same number for every candidate compared in one call, and both
-  // callers use this only to rank. The subtraction is still the right expression — it is
-  // what makes the value "what this player adds" rather than "twice the lineup plus what
-  // this player adds" — but it is not a behavior, and it is recorded here so nobody
-  // spends a second afternoon trying to pin it.
-  return after - before + candidate.weeklyMean * candidate.availability * 1e-3;
+  const { slots, replacement, bench, baseline, startingSlots } = context;
+  const replacementValue = replacement.get(candidate.position)?.value ?? 0;
+  const after = solveLineup(slots, [
+    ...roster.map(toCompetitor),
+    toCompetitor(candidate),
+    ...bench,
+  ]).totalPoints;
+  const startingGain = after - baseline.totalPoints;
+  const cover = coverValue(
+    roster
+      .filter((held) => held.position === candidate.position)
+      .map((held) => ({
+        value: marketValue(held),
+        availability: held.availability,
+        byeWeek: held.byeWeek,
+      })),
+    {
+      value: marketValue(candidate),
+      availability: candidate.availability,
+      byeWeek: candidate.byeWeek,
+    },
+    startingSlots.get(candidate.position) ?? 0,
+    replacementValue,
+    context.weeks,
+  );
+  // Added rather than chosen between. `coverValue` returns only the part of a player's worth
+  // that exists because players miss weeks, and `startingGain` is the part the all-available
+  // lineup already shows, so the two do not overlap — and a candidate who improves the
+  // lineup keeps his depth value instead of forfeiting it. Branching between them ordered a
+  // 14.8 back above a 15.0 one at the same position, because the worse of the two was
+  // credited with cover the better one also provided.
+  return startingGain + cover;
 }
 
 /**
- * The base policy: take the best available by marginal starting value.
+ * How many starting slots each position actually occupies, as the lineup currently solves.
+ *
+ * Counting the slot kinds a position is eligible for overstates it whenever a flexible slot
+ * is contested: a FLEX held by a receiver is not a slot a back can walk into when one of his
+ * own starters is hurt. The baseline solve already contains the answer, because it fills
+ * every slot from the roster plus a replacement-level board — so the positions it seats are
+ * the ones that win those slots at the margin.
+ *
+ * A slot nothing could reach — not even the replacement board, because the position is
+ * exhausted — counts for every position eligible for it. Leaving it out would say a position
+ * whose board has run dry has nowhere to play, which is the opposite of true.
+ *
+ * A position seated nowhere gets nothing, and a reserve behind zero slots is worth nothing.
+ * That is what keeps a kicker in a league that starts no kicker from acquiring value out of
+ * scarcity.
+ */
+function startingSlotsByPosition(
+  roster: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+  baseline: LineupSolution,
+): Map<string, number> {
+  const bySlotId = new Map(slots.map((slot) => [slot.id, slot]));
+  const positionById = new Map(roster.map((player) => [player.id, player.position]));
+  const seated = new Map<string, number>();
+  const credit = (position: string) =>
+    seated.set(position, (seated.get(position) ?? 0) + 1);
+
+  for (const assignment of baseline.assignments) {
+    const competitorId = assignment.competitorId;
+    if (competitorId === null) {
+      for (const position of bySlotId.get(assignment.slotId)?.eligiblePositions ?? []) {
+        credit(position);
+      }
+      continue;
+    }
+    const replacementPosition = replacementPositionOf(competitorId);
+    credit(replacementPosition ?? positionById.get(competitorId) ?? "");
+  }
+  return seated;
+}
+
+/**
+ * Replacement level per position, read off the board that is actually still available.
+ *
+ * The board, not the shortlist. Computing it from a narrowed field would define replacement
+ * as "the best player at the position", because a field holding one player per position has
+ * nobody behind him — which prices every candidate at his whole projection again and undoes
+ * the entire correction.
+ */
+function replacementFor(
+  available: readonly PlayerRisk[],
+  leagueUnfilledSlots: readonly RosterSlot[],
+): ReadonlyMap<string, ReplacementLevel> {
+  return replacementLevels(
+    leagueUnfilledSlots,
+    available.map((player) => ({
+      position: player.position,
+      value: marketValue(player),
+    })),
+  );
+}
+
+/**
+ * Everything a prefilter score needs that does not depend on which candidate is scored.
+ *
+ * Solved once per pick rather than once per player on a board of several hundred, and
+ * shared with `contendersFor` so the narrowing and the scoring cannot disagree about which
+ * regime a candidate is in.
+ */
+interface PrefilterContext {
+  slots: readonly RosterSlot[];
+  replacement: ReadonlyMap<string, ReplacementLevel>;
+  bench: ReturnType<typeof replacementBench>;
+  baseline: LineupSolution;
+  startingSlots: ReadonlyMap<string, number>;
+  /**
+   * Weeks in the fantasy regular season.
+   *
+   * Only the depth model reads it, and only to price a bye: a player idle in one week of
+   * fourteen is unavailable a fourteenth of the time, and one idle in one week of twelve is
+   * unavailable more often. It is a parameter rather than a constant because it is already
+   * configuration everywhere else — `LeagueConfig.weeks` — and a second, disagreeing copy of
+   * the season length is exactly the sort of thing that stays wrong quietly.
+   */
+  weeks: number;
+  /**
+   * The value a candidate has to beat at each position to reach the starting lineup.
+   *
+   * The weakest player seated in a slot he is eligible for, or 0 where such a slot is
+   * empty. Adding one player to an optimal assignment improves it exactly when he clears
+   * this: every incumbent is already optimally placed, so no chain of displacements can
+   * find value that beating the weakest one does not.
+   */
+  startThreshold: ReadonlyMap<string, number>;
+}
+
+function prefilterContext(
+  roster: readonly PlayerRisk[],
+  league: PolicyLeague,
+  replacement: ReadonlyMap<string, ReplacementLevel>,
+): PrefilterContext {
+  const { slots, weeks } = league;
+  const bench = replacementBench(slots, replacement);
+  const baseline = solveLineup(slots, [...roster.map(toCompetitor), ...bench]);
+  const startThreshold = new Map<string, number>();
+  for (const assignment of baseline.assignments) {
+    const slot = slots.find((entry) => entry.id === assignment.slotId);
+    if (slot === undefined) continue;
+    // An empty slot is free to walk into, so the bar is zero rather than the slot's
+    // (absent) occupant. Without this a position whose board is exhausted would report an
+    // infinite bar and every candidate at it would be classed a reserve.
+    const seated =
+      assignment.competitorId === null ? 0 : assignment.projectedPoints;
+    for (const position of slot.eligiblePositions) {
+      const held = startThreshold.get(position);
+      if (held === undefined || seated < held) startThreshold.set(position, seated);
+    }
+  }
+  return {
+    slots,
+    replacement,
+    bench,
+    baseline,
+    startingSlots: startingSlotsByPosition(roster, slots, baseline),
+    weeks,
+    startThreshold,
+  };
+}
+
+function scoreAgainst(
+  roster: readonly PlayerRisk[],
+  candidates: readonly PlayerRisk[],
+  context: PrefilterContext,
+): Array<{ player: PlayerRisk; value: number }> {
+  return candidates
+    .map((player) => ({
+      player,
+      value: prefilterValue(roster, player, context),
+    }))
+    // Total, so the answer does not depend on the order the board arrived in. Ties were
+    // previously resolved by `Array.prototype.sort` stability over board order, which is
+    // deterministic only for as long as nothing upstream reorders the board.
+    //
+    // Raw value before id, so that when every useful starting and reserve path really is
+    // exhausted — every candidate worth exactly nothing over replacement — the fallback is
+    // the best player left rather than the alphabetically first one. It cannot outrank
+    // anything, because it is only consulted where the values are equal.
+    .sort(
+      (a, b) =>
+        b.value - a.value ||
+        marketValue(b.player) - marketValue(a.player) ||
+        (a.player.id < b.player.id ? -1 : 1),
+    );
+}
+
+/**
+ * Every available player scored by the prefilter, best first.
+ *
+ * One definition, used by the shortlist and by the base policy, so "the base policy takes
+ * the best available" and "the shortlist is the best available" cannot drift apart — and so
+ * that the claim `contendersFor` makes, that narrowing the field cannot change the answer,
+ * is a comparison a test can actually run.
+ */
+export function scoreCandidates(
+  roster: readonly PlayerRisk[],
+  available: readonly PlayerRisk[],
+  league: PolicyLeague,
+  leagueUnfilledSlots: readonly RosterSlot[],
+): Array<{ player: PlayerRisk; value: number }> {
+  const replacement = replacementFor(available, leagueUnfilledSlots);
+  return scoreAgainst(roster, available, prefilterContext(roster, league, replacement));
+}
+
+/**
+ * The base policy: take the best available by value over replacement.
  *
  * Explicit because the improvement guarantee is relative to it. A vague or hidden base
  * policy would make "no worse than the base policy" an empty statement.
+ *
+ * `leagueUnfilledSlots` is what the whole league still has to fill, which is what decides
+ * how deep a position has to run before it is free. It is a parameter rather than something
+ * derived from `slots` and a team count because it changes as the draft is played: eleven
+ * of twelve teams holding a quarterback leaves one QB slot of demand, not twelve, and
+ * pricing the next quarterback against twelve keeps quoting a scarcity already spent.
  */
 export function basePolicyPick(
   roster: readonly PlayerRisk[],
   available: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
+  leagueUnfilledSlots: readonly RosterSlot[],
 ): PlayerRisk | null {
   // Only one player per position can win a base-policy pick, so the rest are not
   // evaluated. Without this the completion solves a lineup for every one of several hundred
   // players at each of a hundred-odd remaining picks, for every candidate — which was the
   // whole cost of a recommendation.
-  const contenders = contendersFor(available);
-
-  const baseline = solveLineup(slots, roster.map(toCompetitor)).totalPoints;
-  let best: PlayerRisk | null = null;
-  let bestValue = -Infinity;
-  for (const candidate of contenders) {
-    const value = prefilterValue(roster, candidate, slots, baseline);
-    if (value > bestValue) {
-      bestValue = value;
-      best = candidate;
-    }
-  }
-  return best;
+  const replacement = replacementFor(available, leagueUnfilledSlots);
+  const context = prefilterContext(roster, league, replacement);
+  const contenders = contendersFor(available, context.startThreshold);
+  if (contenders.length === 0) return null;
+  return scoreAgainst(roster, contenders, context)[0].player;
 }
 
 /**
@@ -253,14 +583,21 @@ export function basePolicyPick(
  * The approximation this shares with the cached opponent scores: if we take a player an
  * opponent would have taken, that opponent's alternative is not recomputed. One player out
  * of a board of hundreds cannot move a season simulation.
+ *
+ * `opponentUnfilledSlots` is what the *rest* of the league still has to start, and it is
+ * fixed for the length of this completion because the opponents are not moving while we
+ * fill our own roster. Our own share of the demand is recomputed after every pick, because
+ * it is precisely what our picks change — taking a back closes a back's slot, and the
+ * quarterback we have not taken keeps its own.
  */
 export function completeOwnRoster(
   roster: readonly PlayerRisk[],
   ownRemainingPicks: number,
   pool: readonly PlayerRisk[],
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   forcedFirstPick: PlayerRisk | null,
-  rosterSize?: number,
+  rosterSize: number | undefined,
+  opponentUnfilledSlots: readonly RosterSlot[],
 ): PlayerRisk[] {
   const out = [...roster];
   const taken = new Set(out.map((p) => p.id));
@@ -295,7 +632,10 @@ export function completeOwnRoster(
     // with a longer roster than anyone it plays — which lifts every candidate's title odds
     // together and reads as a better board rather than as a bug.
     if (rosterSize !== undefined && out.length >= rosterSize) break;
-    const pick = basePolicyPick(out, available, slots);
+    const pick = basePolicyPick(out, available, league, [
+      ...opponentUnfilledSlots,
+      ...ownUnfilledSlots(out, league.slots),
+    ]);
     if (pick === null) break;
     out.push(pick);
     available = available.filter((p) => p.id !== pick.id);
@@ -303,11 +643,23 @@ export function completeOwnRoster(
   return out;
 }
 
+/** Our own contribution to the league's remaining demand, at the roster we hold now. */
+function ownUnfilledSlots(
+  roster: readonly PlayerRisk[],
+  slots: readonly RosterSlot[],
+): RosterSlot[] {
+  return unfilledSlots(
+    roster.map((player) => ({ position: player.position, value: marketValue(player) })),
+    slots,
+  );
+}
+
 export function completeDraft(
   state: DraftPolicyState,
-  slots: readonly RosterSlot[],
+  league: PolicyLeague,
   forcedFirstPick: PlayerRisk | null,
 ): PlayerRisk[][] {
+  const { slots } = league;
   const rosters = state.teams.map((t) => [...t.roster]);
   const taken = new Set(rosters.flat().map((p) => p.id));
   // Same three checks as `completeOwnRoster`, for the same reason: this branch bypasses
@@ -331,12 +683,17 @@ export function completeDraft(
   order.sort((a, b) => a.pick - b.pick);
 
   let pool = state.available.filter((p) => !taken.has(p.id));
+  // Per-team remaining starter demand, kept up to date as the draft is played rather than
+  // recomputed from scratch for the whole league at every one of a hundred-odd picks. Only
+  // the team that just picked can have changed.
+  const unfilledByTeam = rosters.map((roster) => ownUnfilledSlots(roster, slots));
   for (const { team } of order) {
     if (rosters[team].length >= state.rosterSize) continue;
     if (pool.length === 0) break;
-    const pick = basePolicyPick(rosters[team], pool, slots);
+    const pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
     if (pick === null) break;
     rosters[team].push(pick);
+    unfilledByTeam[team] = ownUnfilledSlots(rosters[team], slots);
     pool = pool.filter((p) => p.id !== pick.id);
   }
   return rosters;
@@ -374,26 +731,23 @@ export function recommendByChampionship(
   const me = state.teams[state.myTeamIndex];
   if (state.available.length === 0) return [];
 
-  // Narrow the field cheaply, then judge what is left properly.
-  // The roster's own lineup value does not depend on the candidate, so it is solved once
-  // rather than once per player on a board of several hundred.
-  const rosterBaseline = solveLineup(
-    config.slots,
-    me.roster.map(toCompetitor),
-  ).totalPoints;
-  const shortlist = [...state.available]
-    .map((player) => ({
-      player,
-      filter: prefilterValue(me.roster, player, config.slots, rosterBaseline),
-    }))
-    .sort((a, b) => b.filter - a.filter)
+  // Narrow the field cheaply, then judge what is left properly. The demand this prices
+  // against is the whole live league's — every team's unfilled starting slots as they stand
+  // right now, which is what decides how deep a position runs before it is free.
+  // The season length the simulation is about to use, so the depth model and the objective
+  // cannot disagree about how often a bye costs a week.
+  const league: PolicyLeague = { slots: config.slots, weeks: config.weeks.length };
+  const leagueUnfilled = state.teams.flatMap((team) =>
+    ownUnfilledSlots(team.roster, config.slots),
+  );
+  const shortlist = scoreCandidates(me.roster, state.available, league, leagueUnfilled)
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
 
   // Opponents are completed once. Their behavior changes by at most one player depending
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
   // eleven rosters per candidate would dominate the cost.
-  const baselineRosters = completeDraft(state, config.slots, null);
+  const baselineRosters = completeDraft(state, league, null);
   const opponentRosters = baselineRosters.filter(
     (_, index) => index !== state.myTeamIndex,
   );
@@ -442,7 +796,15 @@ export function recommendByChampionship(
     // `forced` is on an opponent roster in this branch, so `claimedByOthers` already kept
     // it out of `poolForUs` and no further filtering is needed here.
     const without = opponentRosters[owner].filter((p) => p.id !== forced.id);
-    const replacement = basePolicyPick(without, poolForUs, config.slots);
+    // That opponent's own remaining demand, not the league's. Every other team in the
+    // baseline is already complete, and this one is short exactly the player we took, so
+    // the slot he was filling is the demand the substitute is chosen against.
+    const replacement = basePolicyPick(
+      without,
+      poolForUs,
+      league,
+      ownUnfilledSlots(without, config.slots),
+    );
     const scores = [...baselineOpponentScores];
     scores[owner] = sampleTeamWeeklyScores(
       replacement === null ? without : [...without, replacement],
@@ -457,7 +819,9 @@ export function recommendByChampionship(
     return { scores, replacementId: replacement?.id ?? null };
   };
 
-  const evaluate = (forced: PlayerRisk | null): TeamOutcome => {
+  const evaluate = (
+    forced: PlayerRisk | null,
+  ): { outcome: TeamOutcome; titleByScenario: boolean[] } => {
     const { scores, replacementId } = opponentScoresFor(forced);
     // The replacement has to leave our pool as well. Both selections run `basePolicyPick`
     // over the same `poolForUs`, so they routinely land on the same player — which put him
@@ -470,19 +834,44 @@ export function recommendByChampionship(
       replacementId === null
         ? poolForUs
         : poolForUs.filter((p) => p.id !== replacementId),
-      config.slots,
+      league,
       forced,
       state.rosterSize,
+      // The opponents are complete by this point, so whatever they still cannot start is a
+      // hole they will carry into the season rather than demand they can spend. Their
+      // remaining slots stay in the total because a slot nobody can fill is still a slot
+      // nobody filled — dropping them would price the last rounds against a league that has
+      // stopped drafting.
+      opponentRosters.flatMap((roster) => ownUnfilledSlots(roster, config.slots)),
     );
     const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
-    return championshipProbability(mine, scores, config);
+    // Scenario by scenario, not only the rate. Every candidate is evaluated over the same
+    // seasons, so which of them a candidate wins is the informative quantity and it is only
+    // visible before the sum.
+    return championshipScenarios(mine, scores, config);
   };
 
   const baseline = evaluate(null);
 
-  const ranked = shortlist
-    .map((player) => {
-      const outcome = evaluate(player);
+  const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
+
+  // The leader is the empirical maximum over these same scenarios. That is a choice made
+  // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather
+  // than inferential — see `ChampionshipRecommendation.vsLeader`. Ties on probability go to
+  // the lower player id, so the leader does not depend on shortlist order.
+  //
+  // On the *rounded* probability, which is the one `orderRecommendations` re-derives the
+  // leader from. Comparing raw here and rounded there lets two candidates 5e-5 apart pick
+  // different leaders, and the entry carrying `vsLeader: null` would then not be the entry
+  // the ordering treats as the leader.
+  const leader = evaluated.reduce((best, entry) => {
+    const a = round4(entry.outcome.championshipProbability);
+    const b = round4(best.outcome.championshipProbability);
+    return a > b || (a === b && entry.player.id < best.player.id) ? entry : best;
+  });
+
+  const ranked = evaluated
+    .map(({ player, outcome, titleByScenario }) => {
       const p = outcome.championshipProbability;
       return {
         player,
@@ -491,10 +880,16 @@ export function recommendByChampionship(
         // `round4(p)`, which can exceed `p` by 5e-5 — and the test asserting that relation
         // holds today only because the fixture never produces a zero baseline.
         championshipProbability: round4(p),
-        deltaVsBaseline: round4(p - baseline.championshipProbability),
+        deltaVsBaseline: round4(p - baseline.outcome.championshipProbability),
         playoffProbability: outcome.playoffProbability,
         expectedPoints: outcome.expectedPoints,
         standardError: round4(Math.sqrt((p * (1 - p)) / config.scenarios)),
+        // `null` rather than a self-comparison. A candidate against himself disagrees in no
+        // scenario, so the interval would be [0, 0] — a tautology wearing a measurement.
+        vsLeader:
+          player.id === leader.player.id
+            ? null
+            : pairedOutcomeComparison(titleByScenario, leader.titleByScenario),
       };
     });
 
@@ -536,16 +931,34 @@ export function orderRecommendations(
   // candidate first while the 16% one placed third. Establishing the leader first makes
   // the comparison well-defined.
   //
-  // Which of several equal-probability entries `reduce` settles on does not matter: only
-  // `championshipProbability` and `standardError` are read from it, and the latter is
-  // `sqrt(p(1-p)/n)` rounded — a function of the former. Equal probability, equal error.
+  // Which of several equal-probability entries `reduce` settles on does not matter to the
+  // ordering, but it does decide which entry carries `vsLeader: null`, so it is broken on
+  // the player id rather than on argument order.
   const best = ordered.reduce((a, b) =>
-    b.championshipProbability > a.championshipProbability ? b : a,
+    b.championshipProbability > a.championshipProbability ||
+    (b.championshipProbability === a.championshipProbability && b.player.id < a.player.id)
+      ? b
+      : a,
   );
   for (const entry of ordered) {
+    // The paired interval where there is one, because that is the uncertainty on the
+    // comparison actually being made. Zero inside it means these scenarios do not separate
+    // the two candidates.
+    //
+    // The fallback covers two cases. The leader has no paired comparison because comparing
+    // him with himself is a tautology, and he is tied with himself by definition. And
+    // `orderRecommendations` is exported and reachable with hand-built numbers that carry no
+    // paired vector at all. The rule there is the old one — the sum of two marginal standard
+    // errors — which is *not* the standard error of a difference between anything. It is a
+    // deliberately conservative stand-in that marks more candidates tied rather than fewer,
+    // which is the safe direction for a flag whose whole purpose is to stop an unresolved
+    // ordering from reading as decided.
     entry.tiedWithLeader =
-      best.championshipProbability - entry.championshipProbability <=
-      best.standardError + entry.standardError;
+      entry.vsLeader === null
+        ? entry.player.id === best.player.id ||
+          best.championshipProbability - entry.championshipProbability <=
+            best.standardError + entry.standardError
+        : entry.vsLeader.interval[0] <= 0 && entry.vsLeader.interval[1] >= 0;
   }
 
   // Everything statistically level with the leader is ordered by playoff probability,

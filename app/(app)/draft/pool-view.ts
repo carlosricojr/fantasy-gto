@@ -15,6 +15,7 @@ import { type LineupSolution, type RosterSlot, solveLineup } from "@/lib/core/op
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { UNRANKED_ADP_PADDING } from "@/lib/core/draft";
 import { matchName } from "@/lib/nfl/draft/match";
+import type { ValueBasis } from "@/lib/nfl/draft/provenance";
 
 /** A player as the pool presents them, board facts and draft state together. */
 export interface PoolPlayer {
@@ -33,6 +34,14 @@ export interface PoolPlayer {
   adpStdev: number | null;
   /** Modelled share of weeks fit, shrunk toward the league rate. */
   availability: number;
+  /**
+   * Where this row's number came from — a blend, or one side of it alone.
+   *
+   * Carried per row rather than derived from the position, because the two reasons a row
+   * can be market-only are different things to tell a manager: the model does not cover
+   * kickers at all, and it has no opinion yet about a rookie who has never played.
+   */
+  basis: ValueBasis;
   /** 1-based position on the board, by blended value. Stable while the draft runs. */
   overallRank: number;
   /** Overall pick number they went at, or `null` if still available. */

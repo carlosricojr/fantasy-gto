@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
+import { boardJobKind } from "./draft";
 import { type ActionCtx, internalAction } from "./_generated/server";
 
 import type { Contribution } from "../lib/core/domain";
@@ -16,6 +17,11 @@ import {
   projectPlayer,
 } from "../lib/nfl/model/project";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "../lib/nfl/scoring/presets";
+import {
+  adpSourceFor,
+  distinctAdpSources,
+  scalePick,
+} from "../lib/nfl/draft/league-size";
 import { ruledOutForWeek } from "../lib/nfl/injuries";
 import { scoreOffense } from "../lib/nfl/scoring/score";
 import {
@@ -38,7 +44,8 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
-import { draftSeasonFor, weeksBetween } from "../lib/nfl/season";
+import { weeksBetween } from "../lib/nfl/season";
+import { planDraftRefresh } from "../lib/nfl/draft/refresh-plan";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
 
@@ -113,7 +120,6 @@ function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): numb
  * transferable. These are the sizes that cover almost every real league; an unusual one
  * has to be built by hand.
  */
-const DRAFT_BOARD_LEAGUE_SIZES = [8, 10, 12, 14] as const;
 
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
@@ -791,7 +797,7 @@ export async function runBuildDraftBoard(
   adpProvider: AdpProvider,
 ): Promise<{ players: number; withMarketPrice: number; unpriced: number }> {
   const jobId = await ctx.runMutation(internal.jobs.start, {
-    kind: `draft:${season}-${scoringId}-${teams}`,
+    kind: boardJobKind(season, scoringId, teams),
     detail: `Building ${season} draft board (${scoringId}, ${teams}-team)`,
   });
 
@@ -808,8 +814,28 @@ export async function runBuildDraftBoard(
       priorSeasons.push(result.data);
     }
 
-    const adpResult = await adpProvider.forSeason(season, scoringId, teams);
-    if (!adpResult.ok) throw new Error(adpResult.reason);
+    // The size the market publishes for, which is `teams` itself for four of the eleven and
+    // the nearest published one for the rest. Requesting a size the provider has no board
+    // for answers HTTP 400 with `{"status":"Error"}`, which `AdpProvider` reports as a
+    // failure — so before this the seven derived sizes could not build a board at all.
+    const adpSource = adpSourceFor(teams);
+    // The rescale applies to *pick numbers* and not to prices, and the difference is the
+    // whole reason it is applied at the write rather than at the fetch.
+    //
+    // `adp` and `adpStdev` are read by the survival model, which compares them against this
+    // league's overall pick numbers — so they have to be in this league's picks. A player's
+    // *value* does not change with league size: the market curve maps "how early is he
+    // taken", in the source league's own units, onto "how good is he", and it is fitted on
+    // the same units. Rescaling the input to that curve would price a player in a sixteen-
+    // team league as worse than the same player in a fourteen-team one, which is not a
+    // thing the market is saying.
+    const sourceResult = await adpProvider.forSeason(
+      season,
+      scoringId,
+      adpSource.sourceTeams,
+    );
+    if (!sourceResult.ok) throw new Error(sourceResult.reason);
+    const adpResult = sourceResult;
 
     const scoring = SCORING_PRESETS.find((preset) => preset.id === scoringId);
     if (!scoring) throw new Error(`Unknown scoring ruleset "${scoringId}".`);
@@ -872,7 +898,14 @@ export async function runBuildDraftBoard(
       [2, priorSeasons[0]],
     ] as const) {
       const candidateSeason = season - offset;
-      const candidateAdp = await adpProvider.forSeason(candidateSeason, scoringId, teams);
+      // The same published size, unscaled. The curve maps a source-league pick number onto
+      // that season's actual points, and both sides of that fit have to be in the same
+      // units — rescaling one of them would fit a curve to a league nobody played in.
+      const candidateAdp = await adpProvider.forSeason(
+        candidateSeason,
+        scoringId,
+        adpSource.sourceTeams,
+      );
       if (!candidateAdp.ok) {
         curveAttempts.push(`${candidateSeason}: no ADP board`);
         continue;
@@ -1019,8 +1052,8 @@ export async function runBuildDraftBoard(
         modelPoints,
         marketPoints,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
-        adp: market?.adp ?? null,
-        adpStdev: market?.stdev ?? null,
+        adp: scalePick(market?.adp ?? null, adpSource),
+        adpStdev: scalePick(market?.stdev ?? null, adpSource),
         byeWeek: market?.bye ?? null,
         availability: shrunkAvailability(
           priorGames.get(entry.playerId) ?? 0,
@@ -1051,8 +1084,8 @@ export async function runBuildDraftBoard(
         modelPoints: null,
         marketPoints,
         blendedPoints: blendedSeasonValue(null, marketPoints),
-        adp: entry.adp,
-        adpStdev: entry.stdev,
+        adp: scalePick(entry.adp, adpSource),
+        adpStdev: scalePick(entry.stdev, adpSource),
         byeWeek: entry.bye,
         // No games-played history exists for a defense; a team plays every week it is not
         // on bye, so availability is the bye alone.
@@ -1098,6 +1131,7 @@ export async function runBuildDraftBoard(
       scoringId,
       teams,
       computedAt,
+      adpSourceTeams: adpSource.sourceTeams,
     });
     // Drained rather than called once. `pruneBoard` deletes a bounded page and says
     // whether more remain, because the stale set includes every failed rebuild's rows and
@@ -1141,7 +1175,14 @@ export async function runBuildDraftBoard(
  */
 export const refreshDraftBoards = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ rebuilt: number; failed: string[] }> => {
+  handler: async (
+    ctx,
+  ): Promise<{
+    rebuilt: number;
+    failed: string[];
+    attempted?: number;
+    skipped?: string;
+  }> => {
     const season = await ctx.runQuery(api.season.current, {});
     // The same season the draft page reads, from the same function, because these two
     // disagreed: this one built only when the displayed season was complete, so through the
@@ -1150,8 +1191,18 @@ export const refreshDraftBoards = internalAction({
     // Once the season is under way the board is stale by definition and nobody is drafting
     // from it, so that case is still a no-op rather than an expensive daily rebuild of
     // something nobody reads.
-    const target = draftSeasonFor(season);
-    if (target === null || season?.phase === "regular") return { rebuilt: 0, failed: [] };
+    // The decision is a pure function, tested across every season phase. It was three lines
+    // here, which is where its two clauses had already disagreed once — the refresh built
+    // only when the displayed season was complete, so through the whole preseason, the one
+    // window in which anybody drafts, it rebuilt nothing at all, twice a day, silently.
+    const plan = planDraftRefresh(season ?? null);
+    if (plan.kind === "skip") {
+      // The reason, not a bare zero. An action that returns `{rebuilt: 0}` for "the season
+      // is under way" and for "the schedule was never ingested" has logs that cannot tell
+      // working from broken.
+      return { rebuilt: 0, failed: [], skipped: plan.reason };
+    }
+    const target = plan.season;
 
     // One provider for the whole run. `seasonRoster` and `playerWeeks` fetch and parse on
     // every call, so a fresh provider per shape re-downloaded three multi-megabyte CSVs
@@ -1161,8 +1212,20 @@ export const refreshDraftBoards = internalAction({
 
     let rebuilt = 0;
     const failed: string[] = [];
-    for (const scoringId of SCORING_PRESETS.map((preset) => preset.id)) {
-      for (const teams of DRAFT_BOARD_LEAGUE_SIZES) {
+    for (const scoringId of [...new Set(plan.shapes.map((s) => s.scoringId))]) {
+      // The distinct published boards this scoring format's sizes need, warmed before the
+      // per-size loop. `AdpProvider` caches, so this is not what bounds the request count —
+      // that is the cache — but it makes the bound *visible*: four requests for eleven
+      // boards, named in one line rather than implied by eleven cache hits. A failure here is
+      // deliberately not fatal; the per-size build reports it with the shape it belongs to.
+      for (const sourceTeams of distinctAdpSources(
+        plan.shapes.filter((shape) => shape.scoringId === scoringId).map((s) => s.teams),
+      )) {
+        await adpProvider.forSeason(target, scoringId, sourceTeams);
+      }
+      for (const { teams } of plan.shapes.filter(
+        (shape) => shape.scoringId === scoringId,
+      )) {
         try {
           await runBuildDraftBoard(
             ctx,
@@ -1173,13 +1236,15 @@ export const refreshDraftBoards = internalAction({
           rebuilt += 1;
         } catch (error) {
           // One shape failing must not stop the rest: a market board can be missing for an
-          // unusual league size while the common ones are fine.
+          // unusual league size while the common ones are fine. Each failure is already
+          // recorded against its own shape's job row by `runBuildDraftBoard`, which is what
+          // lets the interface warn about *that* board rather than about the run.
           failed.push(
             `${scoringId}/${teams}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
       }
     }
-    return { rebuilt, failed };
+    return { rebuilt, failed, attempted: plan.shapes.length };
   },
 });

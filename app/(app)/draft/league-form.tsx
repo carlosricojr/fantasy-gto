@@ -3,8 +3,9 @@
 import { Lock } from "lucide-react";
 
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
-import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { cn } from "@/lib/utils";
+import { ROSTER_TEMPLATES, rosterTemplateById, slotSummary } from "@/lib/nfl/roster";
+import { SCORING_PRESETS, scoringPresetById } from "@/lib/nfl/scoring/presets";
 import { LEAGUE_SIZES, MAX_ROUNDS, PLAYOFF_FIELDS } from "./persistence";
 
 /**
@@ -39,11 +40,14 @@ export function LeagueForm({
   inProgress = false,
   /** Rounds already drafted; the round count cannot drop below it without orphaning picks. */
   minRounds = 1,
+  /** Whether the scoring format has been chosen rather than merely preselected. */
+  scoringConfirmed = true,
 }: {
   value: LeagueSettings;
   onChange: (patch: Partial<LeagueSettings>) => void;
   inProgress?: boolean;
   minRounds?: number;
+  scoringConfirmed?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -102,6 +106,12 @@ export function LeagueForm({
         />
       </Field>
 
+      {/*
+        Asked for rather than assumed. The board is built per format — the market half of
+        every value is average draft position, which is published separately for each — so a
+        league that plays standard and drafts off the PPR board is reading prices for a game
+        it is not playing.
+      */}
       <Field label="Scoring">
         <SegmentedControl
           label="Scoring"
@@ -112,21 +122,51 @@ export function LeagueForm({
             label: preset.label,
           }))}
         />
+        <p
+          id="scoring-confirmation-hint"
+          className={cn(
+            "mt-2 text-xs",
+            scoringConfirmed ? "text-muted-foreground" : "text-amber-700 dark:text-amber-400",
+          )}
+        >
+          {scoringConfirmed
+            ? `${scoringPresetById(value.scoringId).label} · ${
+                scoringPresetById(value.scoringId).offense.receptionPoints
+              } point${
+                scoringPresetById(value.scoringId).offense.receptionPoints === 1 ? "" : "s"
+              } per reception.`
+            : "Confirm your league's scoring — the whole board is built for it. Tap one, even if it is already highlighted."}
+        </p>
       </Field>
 
-      <Field
-        label="Roster"
-        hint={ROSTER_TEMPLATES.find((template) => template.id === value.templateId)?.description}
-      >
+      <Field label="Roster" hint={rosterTemplateById(value.templateId).description}>
         <SegmentedControl
           label="Roster shape"
           value={value.templateId}
-          onChange={(templateId) => onChange({ templateId })}
+          // The roster size comes with the shape, because the two are not independent: nine
+          // starters over fifteen rounds is a six-man bench and over thirteen a four-man
+          // one, and the depth model prices those differently. Applied rather than enforced
+          // — the Rounds control still overrides it, which is what a league drafting sixteen
+          // with a standard lineup needs. Never below what has already been drafted.
+          onChange={(templateId) =>
+            onChange({
+              templateId,
+              rounds: Math.max(rosterTemplateById(templateId).rounds, minRounds),
+            })
+          }
           options={ROSTER_TEMPLATES.map((template) => ({
             value: template.id,
             label: template.label,
           }))}
         />
+        {/*
+          The slots themselves, derived from the counts rather than from the label.
+          "Standard" and "2 FLEX" are four characters apart on a phone and field different
+          lineups; a user who cannot see the difference cannot check it.
+        */}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Starts {slotSummary(value.templateId)} · {value.rounds} rounds
+        </p>
       </Field>
 
       <Field label="Playoff teams" hint="How many make the bracket, which is what the odds are odds of">
@@ -165,7 +205,11 @@ const ROUND_CHOICES = [10, 12, 13, 14, 15, 16, 18, 20, MAX_ROUNDS].filter(
  * the one value that could not be chosen.
  */
 function roundChoicesIncluding(current: number, minRounds: number): number[] {
-  return [...new Set([...ROUND_CHOICES, current, minRounds])].sort((a, b) => a - b);
+  // `minRounds` only when it is a *raised* floor. It defaults to 1 before a draft starts,
+  // and unioning that put a one-round draft in the list of offered lengths — a number no
+  // league plays, arriving from a guard that exists for the opposite reason.
+  const floor = minRounds > ROUND_CHOICES[0] ? [minRounds] : [];
+  return [...new Set([...ROUND_CHOICES, current, ...floor])].sort((a, b) => a - b);
 }
 
 function Field({

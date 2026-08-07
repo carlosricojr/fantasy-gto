@@ -4,7 +4,9 @@ import { useMemo } from "react";
 
 import type { RosterSlot } from "@/lib/core/optimizer";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
+import type { ValueBasis } from "@/lib/nfl/draft/provenance";
 import { cn } from "@/lib/utils";
+import { BasisBadge } from "./basis-badge";
 import { pickLabel } from "./board-view";
 import { byeGaps, solveRoster } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
@@ -26,6 +28,7 @@ export function MyTeam({
   roster,
   pickByPlayerId,
   teams,
+  basisFor,
 }: {
   slots: readonly RosterSlot[];
   roster: readonly PlayerRisk[];
@@ -33,6 +36,8 @@ export function MyTeam({
   pickByPlayerId: ReadonlyMap<string, number>;
   /** League size, so a pick is named "3.04" here as it is everywhere else. */
   teams: number;
+  /** Where each player's number came from, so a market-only starter is marked here too. */
+  basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
   const byId = useMemo(() => new Map(roster.map((player) => [player.id, player])), [roster]);
 
@@ -74,6 +79,7 @@ export function MyTeam({
                   player={player}
                   pick={pickByPlayerId.get(player.id)}
                   teams={teams}
+                  basisFor={basisFor}
                 />
               )}
             </li>
@@ -96,6 +102,7 @@ export function MyTeam({
                   player={player}
                   pick={pickByPlayerId.get(player.id)}
                   teams={teams}
+                  basisFor={basisFor}
                 />
               </li>
             ))}
@@ -120,10 +127,12 @@ function PlayerLine({
   player,
   pick,
   teams,
+  basisFor,
 }: {
   player: PlayerRisk;
   pick: number | undefined;
   teams: number;
+  basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
   return (
     <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -136,7 +145,10 @@ function PlayerLine({
         {positionLabel(player.position)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{player.name}</span>
+        <span className="flex min-w-0 items-center text-sm">
+          <span className="truncate">{player.name}</span>
+          <BasisBadge basis={basisFor(player)} />
+        </span>
         <span className="block truncate text-xs text-muted-foreground tabular-nums">
           {player.byeWeek === null ? "no bye listed" : `bye ${player.byeWeek}`}
           {pick === undefined ? "" : ` · pick ${pickLabel(pick, teams)}`}

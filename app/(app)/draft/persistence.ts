@@ -18,6 +18,7 @@
  * seeding from it would make the server and client render different markup.
  */
 
+import { SUPPORTED_LEAGUE_SIZES } from "@/lib/nfl/draft/league-size";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 
@@ -25,13 +26,18 @@ import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 export const DRAFT_STORAGE_KEY = "fantasy-gto:draft:v1";
 
 /**
- * League sizes a board is built for. ADP is published per league size, so a board is not
- * transferable. Mirrors `DRAFT_BOARD_LEAGUE_SIZES` in `convex/ingest.ts`.
+ * League sizes a board is built for.
  *
- * These live here rather than in the page because this is the module that has to decide
- * whether a stored draft is one the product can actually serve.
+ * One list, in `lib/nfl/draft/league-size.ts`, which is also what `DRAFT_BOARD_LEAGUE_SIZES`
+ * in `convex/ingest.ts` is. They were two literals that had to be kept in step by hand, and
+ * the direction they would drift in is the bad one: a size the page offers and the cron does
+ * not build is a league whose board is permanently empty.
+ *
+ * ADP is published per league size, so a board is not transferable between them — seven of
+ * the eleven are derived from a neighbour by rescaling every pick number, and the board
+ * carries which.
  */
-export const LEAGUE_SIZES = [8, 10, 12, 14] as const;
+export const LEAGUE_SIZES = SUPPORTED_LEAGUE_SIZES;
 
 export const PLAYOFF_FIELDS = [4, 6] as const;
 
@@ -50,6 +56,22 @@ export interface PersistedDraft {
   slot: number;
   scoringId: string;
   templateId: string;
+  /**
+   * Whether the user actively confirmed the scoring format, rather than accepting whatever
+   * was preselected.
+   *
+   * The setup screen shows PPR selected on arrival, which is the most common format and a
+   * reasonable default for a control — and a terrible default for a *decision*. A standard-
+   * scoring league that clicked straight past it drafts against a board built for a format
+   * it does not play, and every value on it is wrong in a way that reads as merely
+   * surprising rather than as an error.
+   *
+   * Stored, so the confirmation survives a reload instead of being asked for again halfway
+   * through a draft. Optional on the way in and defaulted to `false`: a payload written
+   * before this field existed carries a choice nobody confirmed, and treating it as
+   * confirmed would be inventing the very acknowledgement this exists to require.
+   */
+  scoringConfirmed: boolean;
   playoffTeams: number;
   started: boolean;
   /** Overall pick number to player id. */
@@ -113,6 +135,11 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (playoffTeams >= teams) return null;
 
   const { scoringId, templateId, started } = row;
+  // Absent means "not confirmed", which is the safe reading of a payload written before the
+  // field existed. Anything else present but not a boolean is malformed and refused with the
+  // rest of the payload rather than coerced.
+  const scoringConfirmed = row.scoringConfirmed ?? false;
+  if (typeof scoringConfirmed !== "boolean") return null;
   // Both tested here for the message they give a reader, not because either is load-bearing
   // on its own: a non-string of either kind fails the `some(...)` membership check below,
   // since no preset id equals a number.
@@ -132,6 +159,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     slot,
     scoringId,
     templateId,
+    scoringConfirmed,
     playoffTeams,
     started,
     picks,

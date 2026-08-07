@@ -130,10 +130,34 @@ export function bracketRoundsRequired(playoffTeams: number): number {
   return playoffTeams <= 1 ? 0 : Math.ceil(Math.log2(playoffTeams));
 }
 
+/**
+ * A simulation with the per-scenario result kept, not only the rates it aggregates to.
+ *
+ * `simulateLeague` throws the scenario dimension away, which is right for reporting a
+ * probability and wrong for *comparing* two of them. Two candidate picks are evaluated over
+ * the same seasons, so the informative quantity is how often they disagree — and that is
+ * only visible before the sum. See `pairedOutcomeComparison` in `stats.ts`.
+ */
+export interface LeagueSimulation {
+  outcomes: TeamOutcome[];
+  /**
+   * Which team won the title in each scenario, by index, or `-1` where the bracket could
+   * not produce one. The array is `config.scenarios` long.
+   */
+  championByScenario: readonly number[];
+}
+
 export function simulateLeague(
   teamScores: ReadonlyArray<ReadonlyArray<readonly number[]>>,
   config: LeagueConfig,
 ): TeamOutcome[] {
+  return simulateLeagueScenarios(teamScores, config).outcomes;
+}
+
+export function simulateLeagueScenarios(
+  teamScores: ReadonlyArray<ReadonlyArray<readonly number[]>>,
+  config: LeagueConfig,
+): LeagueSimulation {
   const teamCount = teamScores.length;
   const regularWeeks = config.weeks.length;
 
@@ -213,6 +237,7 @@ export function simulateLeague(
   }
   const schedule = roundRobinSchedule(teamCount, regularWeeks);
 
+  const championByScenario = new Array<number>(config.scenarios).fill(-1);
   const titles = new Array<number>(teamCount).fill(0);
   const berths = new Array<number>(teamCount).fill(0);
   const winTotals = new Array<number>(teamCount).fill(0);
@@ -264,17 +289,21 @@ export function simulateLeague(
     for (const t of qualified) berths[t] += 1;
 
     const champion = playBracket(qualified, teamScores, s, config, regularWeeks);
+    championByScenario[s] = champion ?? -1;
     if (champion !== null) titles[champion] += 1;
   }
 
   const n = config.scenarios;
-  return teamScores.map((_, t) => ({
-    teamId: String(t),
-    championshipProbability: titles[t] / n,
-    playoffProbability: berths[t] / n,
-    expectedWins: winTotals[t] / n,
-    expectedPoints: round2(pointTotals[t] / n),
-  }));
+  return {
+    outcomes: teamScores.map((_, t) => ({
+      teamId: String(t),
+      championshipProbability: titles[t] / n,
+      playoffProbability: berths[t] / n,
+      expectedWins: winTotals[t] / n,
+      expectedPoints: round2(pointTotals[t] / n),
+    })),
+    championByScenario,
+  };
 }
 
 /**
@@ -346,7 +375,27 @@ export function championshipProbability(
   opponentScores: ReadonlyArray<ReadonlyArray<readonly number[]>>,
   config: LeagueConfig,
 ): TeamOutcome {
-  return simulateLeague([myScores, ...opponentScores], config)[0];
+  return championshipScenarios(myScores, opponentScores, config).outcome;
+}
+
+/**
+ * The same, with the scenario-by-scenario answer kept.
+ *
+ * `titleByScenario[s]` is whether *we* won in scenario `s`. Two candidates evaluated with
+ * the same seed share those scenarios exactly, which is what makes the difference between
+ * their vectors a paired measurement rather than two independent ones.
+ */
+export function championshipScenarios(
+  myScores: ReadonlyArray<readonly number[]>,
+  opponentScores: ReadonlyArray<ReadonlyArray<readonly number[]>>,
+  config: LeagueConfig,
+): { outcome: TeamOutcome; titleByScenario: boolean[] } {
+  const simulation = simulateLeagueScenarios([myScores, ...opponentScores], config);
+  return {
+    outcome: simulation.outcomes[0],
+    // Index 0 is us, which `championshipProbability` already relies on and documents.
+    titleByScenario: simulation.championByScenario.map((team) => team === 0),
+  };
 }
 
 function round2(value: number): number {

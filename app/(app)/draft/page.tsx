@@ -13,7 +13,9 @@ import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
+import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
 
 import { BoardGrid } from "./board-grid";
@@ -40,6 +42,7 @@ import {
   unrankedAdpFor,
 } from "./pool-view";
 import { QueuePanel } from "./queue-panel";
+import { leagueFingerprint } from "./reply-gate";
 import { Recommendations } from "./recommendations";
 import { SettingsDialog } from "./settings-dialog";
 import { DraftSetup } from "./setup";
@@ -96,12 +99,36 @@ interface BoardPlayer {
   p90: number;
 }
 
+/**
+ * What `boardFreshness` returns.
+ *
+ * More than a timestamp, because a board whose last rebuild *failed* looks perfectly
+ * healthy in one: the failed run leaves the previous board intact, which is correct and is
+ * exactly why the failure is invisible.
+ */
+interface BoardFreshness {
+  computedAt: number | null;
+  adpSourceTeams: number | null;
+  lastAttemptAt: number | null;
+  lastAttemptStatus: "running" | "succeeded" | "failed" | null;
+}
+
 export default function DraftPage() {
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
   const [slot, setSlot] = useState(1);
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
+  /**
+   * Whether the user *chose* a scoring format rather than accepting the preselected one.
+   *
+   * PPR arrives selected because a control has to show something and it is the commonest
+   * format. That is a reasonable default for a control and a bad one for a decision: a
+   * standard-scoring league that taps past it drafts against a board built for rules it
+   * does not play, and every value on that board is wrong in a way that reads as surprising
+   * rather than as an error. The draft cannot start until the format has been touched.
+   */
+  const [scoringConfirmed, setScoringConfirmed] = useState(false);
   const [started, setStarted] = useState(false);
   const [playoffTeams, setPlayoffTeams] = useState<number>(6);
 
@@ -128,6 +155,7 @@ export default function DraftPage() {
       setRounds(stored.rounds);
       setSlot(stored.slot);
       setScoringId(stored.scoringId);
+      setScoringConfirmed(stored.scoringConfirmed);
       setTemplateId(stored.templateId);
       setPlayoffTeams(stored.playoffTeams);
       setStarted(stored.started);
@@ -146,6 +174,7 @@ export default function DraftPage() {
       rounds,
       slot,
       scoringId,
+      scoringConfirmed,
       templateId,
       playoffTeams,
       started,
@@ -158,7 +187,19 @@ export default function DraftPage() {
       // A full or disabled store is not worth taking the board down for. The draft still
       // works; it just will not survive a remount.
     }
-  }, [restored, teams, rounds, slot, scoringId, templateId, playoffTeams, started, picks, queue]);
+  }, [
+    restored,
+    teams,
+    rounds,
+    slot,
+    scoringId,
+    scoringConfirmed,
+    templateId,
+    playoffTeams,
+    started,
+    picks,
+    queue,
+  ]);
 
   // The season being drafted is the one after the last completed one, resolved from the
   // schedule rather than hardcoded — a literal year silently serves last season's board
@@ -315,6 +356,10 @@ export default function DraftPage() {
           adp: row.adp,
           adpStdev: row.adpStdev,
           availability: row.availability,
+          // Where this row's number came from, decided by the board's own columns rather
+          // than guessed from the position at render time — a rookie with no prior games is
+          // market-only for a different reason than a kicker is, and the row says which.
+          basis: valueBasis(row),
           // The board arrives sorted by blended value, so position in it *is* the rank.
           overallRank: index + 1,
           draftedAt: taken?.pick ?? null,
@@ -327,6 +372,19 @@ export default function DraftPage() {
   const poolById = useMemo(
     () => new Map(poolPlayers.map((player) => [player.id, player])),
     [poolPlayers],
+  );
+
+  /**
+   * The basis for a player the recommendation panel holds.
+   *
+   * A `PlayerRisk` carries the quantiles but not their source, so the board is consulted
+   * first and the position is only the fallback — which is what distinguishes a rookie with
+   * no history from a kicker the model does not cover.
+   */
+  const basisFor = useCallback(
+    (player: { id: string; position: string }) =>
+      poolById.get(player.id)?.basis ?? basisForPosition(player.position),
+    [poolById],
   );
 
   const draftState = useMemo<DraftPolicyState | null>(() => {
@@ -374,6 +432,23 @@ export default function DraftPage() {
     }),
     [starters, playoffTeams],
   );
+
+  // Before anything is requested, and whether or not anything can be. Changing the scoring
+  // format re-queries the board, so `draftState` is null while it reloads and no request
+  // goes out — which is exactly the window in which the previous format's recommendations
+  // used to sit on screen unmarked.
+  const fingerprint = leagueFingerprint({
+    season,
+    scoringId,
+    templateId,
+    teams: setup.teams,
+    rounds: setup.rounds,
+  });
+  useEffect(() => {
+    recommender.retargetTo(fingerprint);
+    // `recommender.retargetTo` is stable; depending on the whole object would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fingerprint]);
 
   // Recompute whenever the board changes, including while opponents are picking — the
   // answer for a future position is worth having before the turn arrives.
@@ -484,7 +559,12 @@ export default function DraftPage() {
     if (patch.rounds !== undefined) setRounds(patch.rounds);
     if (patch.slot !== undefined) setSlot(patch.slot);
     if (patch.playoffTeams !== undefined) setPlayoffTeams(patch.playoffTeams);
-    if (patch.scoringId !== undefined) setScoringId(patch.scoringId);
+    if (patch.scoringId !== undefined) {
+      setScoringId(patch.scoringId);
+      // Touching the control *is* the confirmation. The format decides the whole board, so
+      // it is asked for rather than assumed — see `scoringConfirmed`.
+      setScoringConfirmed(true);
+    }
     if (patch.templateId !== undefined) setTemplateId(patch.templateId);
   }
 
@@ -492,6 +572,9 @@ export default function DraftPage() {
     setPicks({});
     setQueue([]);
     setStarted(false);
+    // The format has to be confirmed again for the next draft. Carrying the acknowledgement
+    // across a reset would let a manager set a league up once and never be asked again.
+    setScoringConfirmed(false);
     setFocus(null);
     setDetailId(null);
   }
@@ -542,6 +625,7 @@ export default function DraftPage() {
         title="Draft"
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
+        <BoardHealthNotice freshness={freshness ?? null} />
         <DraftSetup
           settings={settings}
           onChange={applySettings}
@@ -549,8 +633,13 @@ export default function DraftPage() {
           boardSize={board.length}
           season={season}
           leagueSizes={LEAGUE_SIZES}
+          scoringConfirmed={scoringConfirmed}
         >
-          <Caveat freshness={freshness ?? null} boardSize={board.length} />
+          <Caveat
+            freshness={freshness ?? null}
+            boardSize={board.length}
+            teams={setup.teams}
+          />
         </DraftSetup>
       </PageShell>
     );
@@ -573,6 +662,8 @@ export default function DraftPage() {
       <p className="sr-only" role="status" aria-live="polite">
         {turn.summary}
       </p>
+
+      <BoardHealthNotice freshness={freshness ?? null} />
 
       <StatusBar
         turn={turn}
@@ -637,6 +728,7 @@ export default function DraftPage() {
             waitPick={waitPick}
             waitPickLabel={waitPickLabel}
             unrankedAdp={unrankedAdp}
+            basisFor={basisFor}
           />
 
           <PlayerPool
@@ -663,6 +755,7 @@ export default function DraftPage() {
             roster={myRoster}
             pickByPlayerId={rosterPicks}
             teams={setup.teams}
+            basisFor={basisFor}
           />
           <QueuePanel
             queue={queue}
@@ -672,7 +765,11 @@ export default function DraftPage() {
             onRemove={toggleQueue}
             onSwap={swapInQueue}
           />
-          <Caveat freshness={freshness ?? null} boardSize={board.length} />
+          <Caveat
+            freshness={freshness ?? null}
+            boardSize={board.length}
+            teams={setup.teams}
+          />
         </aside>
       </div>
 
@@ -750,12 +847,50 @@ function NeedsStrip({
   );
 }
 
+/**
+ * How healthy the board is, in one prominent line above everything else.
+ *
+ * Separate from the small print below, and deliberately: a board whose last rebuild
+ * *failed* looks entirely healthy in a timestamp — it is only hours old, because the failed
+ * run left the previous one intact, which is the correct behaviour and exactly why the
+ * failure is invisible. Somebody about to draft off it has to be told before they start,
+ * not in a paragraph at the bottom of a sidebar.
+ */
+function BoardHealthNotice({ freshness }: { freshness: BoardFreshness | null }) {
+  // `Date.now()` at mount rather than during render, for the same hydration reason the
+  // formatted timestamp below has: a server render and a client render happen at different
+  // instants and would disagree about how many hours old a board is.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), [freshness]);
+  if (now === null) return null;
+
+  const health = boardHealth({
+    now,
+    publishedAt: freshness?.computedAt ?? null,
+    lastAttemptAt: freshness?.lastAttemptAt ?? null,
+    lastAttemptFailed: freshness?.lastAttemptStatus === "failed",
+    refreshing: freshness?.lastAttemptStatus === "running",
+  });
+  if (health === "fresh") return null;
+
+  return (
+    <p
+      className="mb-4 rounded-lg border border-dashed p-3 text-sm"
+      role={health === "refreshing" ? "status" : "alert"}
+    >
+      {describeBoardHealth(health, { now, publishedAt: freshness?.computedAt ?? null })}
+    </p>
+  );
+}
+
 function Caveat({
   freshness,
   boardSize,
+  teams,
 }: {
-  freshness: { computedAt: number } | null;
+  freshness: BoardFreshness | null;
   boardSize: number;
+  teams: number;
 }) {
   // Formatted after mount, never during render. `toLocaleString` reads the locale and
   // timezone of whoever runs it, so the server's rendering of this timestamp and the
@@ -766,20 +901,40 @@ function Caveat({
   const [builtAt, setBuiltAt] = useState<string | null>(null);
   useEffect(() => {
     setBuiltAt(
-      freshness === null ? null : new Date(freshness.computedAt).toLocaleString(),
+      freshness?.computedAt == null
+        ? null
+        : new Date(freshness.computedAt).toLocaleString(),
     );
   }, [freshness]);
+
+  // Four states rather than a boolean, because "we do not know" is not "it is fine". A run
+  // written before derived boards existed carries no source, and reading that as `direct`
+  // would present an approximation as a published board — which is the one thing this whole
+  // provenance chain exists to prevent.
+  const provenance =
+    freshness?.computedAt == null
+      ? "No board has been built for this league size yet."
+      : freshness.adpSourceTeams === null
+        ? "This board predates source tracking, so where its market prices came from is not recorded."
+        : freshness.adpSourceTeams === teams
+          ? `Market prices published for ${teams}-team leagues.`
+          : `No market board is published for ${teams}-team leagues, so prices are derived ` +
+            `from the ${freshness.adpSourceTeams}-team board by rescaling every pick number ` +
+            `by ${(teams / freshness.adpSourceTeams).toFixed(3)}. Read them as an approximation.`;
 
   return (
     <p className="text-xs text-muted-foreground">
       {boardSize} players.{" "}
-      {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`}{" "}
+      {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
-      defenses carry the market&rsquo;s price alone. Scoring is limited to PPR, half PPR and
-      standard. Opponents&rsquo; unfilled roster spots are completed by a simple
-      best-available rule, so early-round odds lean on that assumption more than late ones.
+      defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed
+      placeholder rather than a measured one — every such row is marked, so this sentence is
+      a summary of the labels rather than the only place the limitation appears. Scoring is
+      limited to PPR, half PPR and standard. Opponents&rsquo; unfilled roster spots are
+      completed by a simple best-available rule, so early-round odds lean on that assumption
+      more than late ones.
     </p>
   );
 }

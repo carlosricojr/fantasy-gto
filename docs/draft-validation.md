@@ -122,7 +122,7 @@ handicapping the baseline.**
 
   What remains is an approximation, and a smaller one. The completion is greedy: our own
   remaining picks and every opponent's are filled by `basePolicyPick`, best available by
-  marginal starting value, rather than by anything that looks ahead. Opponents who draft
+  value over replacement, rather than by anything that looks ahead. Opponents who draft
   differently from that produce a different board than the one each candidate was scored
   against. That is a reason the *magnitudes* are soft; it is not a reason to distrust the
   late rounds specifically, which is what this section used to say.
@@ -202,15 +202,40 @@ Two findings from that simulation that a points-based valuation cannot produce:
   how much better any policy could do; it is **not implemented**, so the size of the gap is
   currently unknown.
 
-### The estimate is noisy, and says so
+### The estimate is noisy, and says so — in two different ways
 
 A title is roughly a one-in-twelve event, so at the few hundred scenarios a draft clock
 allows, the top candidates are frequently within sampling noise of each other — 16.7%
-against 15.8% is not a real difference at n=300. Every recommendation carries its standard
-error and a `tiedWithLeader` flag, and tied candidates are ordered by playoff probability,
-which resolves at these sample sizes because it is roughly a coin flip rather than a rare
-event. Presenting an unresolved ordering as decided would be exactly the false precision
-this project exists to avoid.
+against 15.8% is not a real difference at n=300. Presenting an unresolved ordering as
+decided would be exactly the false precision this project exists to avoid.
+
+**Two uncertainties are reported, and they are not interchangeable.**
+
+- **`standardError`** is `sqrt(p(1-p)/n)` on the candidate's own title probability. It says
+  what "16.7%" is worth on its own.
+- **`vsLeader`** is the uncertainty on the *comparison*. Every candidate is simulated over
+  the same seasons — one seed, and each player drawing from a stream keyed on his own id —
+  so the informative quantity is the scenario-by-scenario difference, not the difference of
+  two separately estimated rates. `pairedOutcomeComparison` in `lib/core/stats.ts` summarizes
+  it: how many scenarios each candidate won and the other did not, the mean difference, and a
+  Student's-t interval on that mean.
+
+  Adding two marginal standard errors is not the standard error of their difference under
+  any circumstances, and that is what the tie flag used to do.
+
+  It is **not** claimed that the paired error is always smaller. Positively correlated
+  outcomes make it smaller — the usual case here, since two rosters differing by one player
+  mostly win and lose the same seasons — but negatively correlated ones make it larger, and a
+  sample can land either way. `stats.test.ts` contains a fixture where it is larger.
+
+`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and tied
+candidates are ordered by playoff probability, which resolves at these sample sizes because
+it is roughly a coin flip rather than a rare event.
+
+**The leader is selected from the same sample the intervals are computed on, so they are
+descriptive rather than inferential.** No multiple-comparison correction is applied and no
+comparison was predeclared. They describe what happened in these scenarios; they are not a
+test of what would happen in new ones, and the type says so where it is defined.
 
 ### Rookies
 
@@ -262,34 +287,88 @@ measured improvement over ADP that survives out-of-sample. Draft capital is alre
 so college production has to beat the crowd's reading of it, not merely correlate with
 outcomes.
 
-### Cost
+### Cost, and the budget derived from it
 
-Measured on the real 2026 board, 12 teams, 15 rounds, a full roster of starters plus bench:
+`pnpm draft-latency` prints the distribution with the environment it was measured in. A
+displayed elapsed time is not a budget: it says how long one call took on one machine, tells
+nobody what the tail looks like, and cannot fail.
 
-| Scenarios | Candidates | Time |
-| --- | --- | --- |
-| 150 | 10 | 0.56s |
-| 300 | 10 | 0.97s |
-| 600 | 10 | 1.9s |
-| 1000 | 10 | 3.1s |
+```text
+node v24.18.0, darwin arm64, Apple M4 Max x14, 36.0 GiB
+board 614 players (DST 15, K 15, QB 81, RB 147, TE 124, WR 232)
+12 teams, 15 rounds, seat 9, standard (9 starters), 10 candidates, seed 20260101
+percentiles by nearest rank
+```
+
+| Scenarios | cold p50 | cold p95 | warm p95 | spec prepare p95 | spec hit p95 | spec miss p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 150 | 632 ms | 665 ms | 1 ms | 2514 ms | 0 ms | 631 ms |
+| 300 | 1202 ms | 1235 ms | 0 ms | 4809 ms | 0 ms | 1203 ms |
+| 600 | 2350 ms | 2429 ms | 0 ms | 9523 ms | 0 ms | 2355 ms |
+| 1000 | 3816 ms | 3949 ms | 0 ms | 15355 ms | 0 ms | 3916 ms |
+
+Twelve samples per row except `prepare`, which is three — each of those solves four positions
+from scratch. Every row prints its own `n`.
+
+**The budget is the worst cold p95: 3949 ms at 1000 scenarios, against a two-minute pick
+clock. That is 3.29% of the clock — a margin of 30×.** At the shipped default of 600 it is
+2429 ms, or 2.02%. Read off the measurement rather than chosen before it, which is why the
+row it comes from is in the table.
+
+#### What the speculative rows say about whether to wire it
+
+Preparing four futures costs **4.9× a cold computation**, which is what it should cost: it is
+four of them. A wrong guess therefore does 19.3 seconds of work at 1000 scenarios where not
+speculating does 3.9.
+
+That is not the same as 19.3 seconds of waiting, and the distinction is the whole decision.
+The preparation runs while an opponent is on the clock, so a *hit* takes the user's wait from
+2.4 seconds to nothing and a *miss* leaves it exactly where it was — the fallback measures the
+same as cold. From the user's side speculation is strictly better.
+
+What it costs is the client's CPU, five times over, on a phone, and what it risks is
+contention: preparation that has not finished when the turn arrives queues the fallback behind
+itself, turning a 2.4-second wait into a longer one. That risk is not measured here and it is
+the thing a production implementation would have to bound — by budget, by cancellation, or by
+preparing fewer futures.
+
+The board is synthetic and deterministic, sized and shaped like the real published one. A
+benchmark that depended on a live provider would measure the provider, and one that depended
+on a cached download would not run at all on a machine that has never fetched it.
+
+An earlier version of this table read 0.56 / 0.97 / 1.9 / 3.1 seconds with no environment
+recorded. Those were measured on different hardware and are not comparable to anything here.
 
 At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
 resolves. 600 is the sensible default given a draft clock of a minute or more.
 
-Two optimizations got this from 7.8s. The rollout was completing all twelve teams for every
-candidate while only ever reading our own — the other eleven come from the baseline, which
-is computed once. And the base policy was re-solving the roster's own lineup for every one
-of forty contenders at every remaining pick, when that value does not depend on the
-contender.
+Two optimizations got the cold path from 7.8s. The rollout was completing all twelve teams
+for every candidate while only ever reading our own — the other eleven come from the
+baseline, which is computed once. And the base policy was re-solving the roster's own lineup
+for every one of forty contenders at every remaining pick, when that value does not depend on
+the contender.
 
-**Done.** It runs off the main thread in a Web Worker
+#### What is wired, and what is not
+
+**Wired.** The recommendation runs off the main thread in a Web Worker
 (`app/(app)/draft/recommend.worker.ts`), so a second of synchronous work cannot freeze the
-interface, and the board requests a recommendation speculatively while opponents are on the
-clock. Which player will still be available is not known in advance, so the speculation
-covers several plausible futures and takes a precomputed answer only when the board that
-arrives matches one of them exactly — `lib/core/draft-speculation.ts`. Repeated states are
-served from an LRU memo keyed on the full league configuration
-(`lib/core/draft-memo.ts`).
+interface. It recomputes for the current board on every change, including while opponents are
+on the clock, so the answer for a position is usually already there when the turn arrives.
+Repeated states are served from an LRU memo keyed on the full league configuration
+(`lib/core/draft-memo.ts`) — the `warm` row above. Replies are gated on request id and on a
+league fingerprint (`app/(app)/draft/reply-gate.ts`), so neither an older board's answer nor
+a previous scoring format's can replace a newer one.
+
+**Not wired.** `lib/core/draft-speculation.ts` — precomputing answers for the *futures* a
+board might reach while an opponent is picking, and serving one only on an exact signature
+match — has no production caller. The `speculative hit` and `speculative miss` rows above are
+measurements of the primitives, not of the product.
+
+This section previously said otherwise: that "the board requests a recommendation
+speculatively while opponents are on the clock" and "takes a precomputed answer only when the
+board that arrives matches one of them exactly". The first half described the ordinary
+recompute and the second described code nothing calls. Wiring it is #58, and the numbers
+above are the reason it is not urgent: a 30× margin on the path that *is* wired.
 
 ### League rules
 
@@ -410,12 +489,51 @@ inequality on a roster where every player started every week, so no truncation w
 and it passed on the noise the CRN fix removed; another claimed to separate a superflex
 league from a standard one but was satisfied by the slot *id* differing.
 
+### What the base policy is
+
+The completion that every candidate is scored through, and therefore the thing that decides
+what a recommendation is worth. It is best-available, and what "best" means is two terms in
+the same unit — points per week — added together.
+
+- **What he adds to the starting lineup**, against a roster that can otherwise sign anybody
+  replacement-level at any position. Solved by the lineup matcher, so FLEX and SUPERFLEX
+  eligibility is handled by the code that already knows the rules.
+- **What he adds in the weeks somebody is missing** (`lib/core/draft-bench.ts`). A position
+  occupies some number of starting slots; a player is needed in the weeks fewer than that
+  many of the players above him are available. Availabilities are per player, so a fragile
+  starter raises his own backup's value, and byes are counted per week, so a backup sharing
+  his starter's bye is worth less than one who does not.
+
+Replacement level is solved rather than assumed (`lib/core/draft-replacement.ts`). Demand is
+the starting slots the league has not filled *from the rosters it holds* — eleven of twelve
+teams with a quarterback leaves one slot of demand, not twelve — and which positions fill
+the flexible slots is a maximum-weight assignment against the board's own value curves, not
+an equal share to each eligible position.
+
+**Why this is written down at all:** the term it replaced was
+`weeklyMean * availability * 1e-3`, a raw projection scaled small, and it ranked reserves by
+position. A fifteen-round completion in a one-quarterback league came back holding seven
+quarterbacks. The same call now returns two, and a SUPERFLEX league returns three.
+
 ### Still unmodeled
 
 Stated so their absence is visible: correlation between players (a quarterback and his own
-receiver score together), waiver-wire replacement level (depth you could stream is worth
-less than depth you must draft), and opponents who adapt their draft strategy rather than
+receiver score together), correlated absence (injuries cluster, which the season simulation
+models and the base policy does not), cross-position cover in the depth model (a back covers
+a FLEX a receiver vacates), and opponents who adapt their draft strategy rather than
 following the base policy.
+
+**Waiver-wire replacement level** is the one with a visible consequence. Depth you could
+stream is worth less than depth you must draft, and the gap is not the same at every
+position: a twelve-team league rosters twelve kickers and around sixty backs, so the best
+undrafted kicker is nearly as good as the best drafted one while the best undrafted back is
+nowhere near. Without that term the depth model overstates reserves at shallow, streamable
+positions. Measured on a synthetic twelve-team fixture: after fifteen rounds the best
+remaining kicker prices at 0.109 points a week against 0.022 for the best remaining skill
+reserve, so a sixteenth pick would go on a backup kicker. Fifteen rounds is what the target
+league drafts, and inside fifteen the completion takes exactly one kicker and one defense —
+but the ordering is wrong past that point and the reason is this missing term, not a
+tie-break.
 
 ## The part that is provable
 

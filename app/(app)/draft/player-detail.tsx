@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { survivalProbability } from "@/lib/core/draft";
 import { cn } from "@/lib/utils";
+import { basisExplanation } from "@/lib/nfl/draft/provenance";
 import { pickLabel } from "./board-view";
 import type { PoolPlayer } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
@@ -96,14 +97,12 @@ export function PlayerDetail({
                 />
                 <Estimate term="Blend" detail="What the ranking uses." value={player.seasonPoints} emphasis />
               </dl>
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className="mt-3 text-xs text-muted-foreground">{basisExplanation(player.basis)}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
                 Measured out of sample, the market ranks players better than our model does
                 and the blend does not beat the market. It is kept because it wins on total
                 points among each method&rsquo;s top 24 and one evaluation season cannot
                 settle the disagreement. No ranking edge over the market is claimed.
-                {player.modelPoints === null
-                  ? " This position is priced from the market alone — the model projects skill positions only."
-                  : ""}
               </p>
             </section>
 

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { survivalProbability } from "@/lib/core/draft";
 import { cn } from "@/lib/utils";
+import { BasisBadge } from "./basis-badge";
 import { pickLabel } from "./board-view";
 import {
   POOL_SORTS,
@@ -450,6 +451,8 @@ function PoolRow({
               {needed && !drafted ? (
                 <span className="ml-1 text-brand">· fills a starting slot</span>
               ) : null}
+              {/* Beside the number it qualifies, not two screens above it. */}
+              <BasisBadge basis={player.basis} />
             </span>
           </span>
         </div>

@@ -233,6 +233,20 @@ export default defineSchema({
     teams: v.number(),
     /** `computedAt` of the last run that finished writing every batch. */
     publishedAt: v.number(),
+    /**
+     * The league size the market prices were published for.
+     *
+     * Equal to `teams` for the four sizes the provider answers for, and the nearest of those
+     * for the other seven — whose pick numbers are rescaled by `teams / adpSourceTeams` to
+     * express the same *round* in this league. See `lib/nfl/draft/league-size.ts`.
+     *
+     * Optional, because rows written before derived boards existed carry no such field and a
+     * board is not worth discarding over provenance it predates. A reader treats an absent
+     * value as "unknown provenance" rather than as "direct" — the two are different claims,
+     * and defaulting to the reassuring one is how a derived board would come to be presented
+     * as a published one.
+     */
+    adpSourceTeams: v.optional(v.number()),
   }).index("by_board", ["sport", "season", "scoringId", "teams"]),
   /**
    * Model output. The product's primary read.

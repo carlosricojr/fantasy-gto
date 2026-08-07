@@ -85,7 +85,48 @@ export class AdpProvider {
    * eight-team league than a fourteen-team one, because a round is a different number of
    * picks. Passing the wrong one silently shifts every survival probability.
    */
+  /**
+   * One answer per board, for the lifetime of the provider.
+   *
+   * The board-refresh action builds every combination of three scoring formats and eleven
+   * league sizes, and each build asks for the target season plus two prior ones — ninety-nine
+   * requests for thirty-six distinct answers, to somebody else's server, inside one action.
+   * Seven of the eleven sizes share a board with a neighbour, which makes the duplication
+   * worse rather than better.
+   *
+   * `NflverseProvider` already caches for the same reason and this mirrors it, including the
+   * two things that are easy to get wrong: the in-flight promise is shared, so two concurrent
+   * callers make one request rather than two; and **only successes are cached**, because a
+   * failure is usually transient and one provider serves a whole run — caching it would turn
+   * a single bad fetch into every later call for that board failing for the lifetime of the
+   * action.
+   */
+  private readonly cache = new Map<string, ProviderResult<AdpEntry[]>>();
+  private readonly inFlight = new Map<string, Promise<ProviderResult<AdpEntry[]>>>();
+
   async forSeason(
+    season: number,
+    scoringId: string,
+    teams: number,
+  ): Promise<ProviderResult<AdpEntry[]>> {
+    // Serialized rather than joined, so no combination of a scoring id containing a
+    // separator could make two different boards share one entry.
+    const key = JSON.stringify([season, scoringId, teams]);
+    const cached = this.cache.get(key);
+    if (cached !== undefined) return cached;
+    let pending = this.inFlight.get(key);
+    if (pending === undefined) {
+      pending = this.fetchSeason(season, scoringId, teams).finally(() => {
+        this.inFlight.delete(key);
+      });
+      this.inFlight.set(key, pending);
+    }
+    const result = await pending;
+    if (result.ok) this.cache.set(key, result);
+    return result;
+  }
+
+  private async fetchSeason(
     season: number,
     scoringId: string,
     teams: number,

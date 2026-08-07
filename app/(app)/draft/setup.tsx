@@ -27,6 +27,7 @@ export function DraftSetup({
   boardSize,
   season,
   leagueSizes,
+  scoringConfirmed,
   children,
 }: {
   settings: LeagueSettings;
@@ -35,6 +36,8 @@ export function DraftSetup({
   boardSize: number;
   season: number;
   leagueSizes: readonly number[];
+  /** False until the scoring format has been chosen rather than merely preselected. */
+  scoringConfirmed: boolean;
   /** The board provenance note, rendered underneath. */
   children?: React.ReactNode;
 }) {
@@ -46,7 +49,11 @@ export function DraftSetup({
   return (
     <div className="space-y-6">
       <section className="rounded-xl border bg-card p-5 sm:p-6">
-        <LeagueForm value={settings} onChange={onChange} />
+        <LeagueForm
+          value={settings}
+          onChange={onChange}
+          scoringConfirmed={scoringConfirmed}
+        />
       </section>
 
       <section className="rounded-xl border bg-card p-5 sm:p-6">
@@ -88,7 +95,15 @@ export function DraftSetup({
         </p>
       ) : (
         <div className="sticky bottom-20 z-10 sm:static">
-          <Button size="lg" className="w-full sm:w-auto" onClick={onStart}>
+          {/* Named rather than left to a disabled control with no explanation — a button
+              that does nothing and says nothing is the worst of the three states. */}
+          <Button
+            size="lg"
+            className="w-full sm:w-auto"
+            disabled={!scoringConfirmed}
+            aria-describedby="scoring-confirmation-hint"
+            onClick={onStart}
+          >
             Start draft
             <ArrowRight />
           </Button>
