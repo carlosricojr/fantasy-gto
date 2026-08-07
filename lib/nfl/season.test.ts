@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { Contest } from "../core/domain";
 
 import {
+  NFL_REGULAR_SEASON_WEEKS,
   completedPeriods,
   describePeriod,
   describeSeasonState,
-  isFantasyWeek,
+  isNflRegularSeasonWeek,
   latestCompletedSeason,
   resolveSeasonState,
   weeksBetween,
@@ -164,7 +165,7 @@ describe("completedPeriods", () => {
   });
 });
 
-describe("isFantasyWeek", () => {
+describe("isNflRegularSeasonWeek", () => {
   it.each([
     [1, true],
     [18, true],
@@ -172,7 +173,16 @@ describe("isFantasyWeek", () => {
     [19, false],
     [1.5, false],
   ])("classifies week %s as %s", (week, expected) => {
-    expect(isFantasyWeek(week)).toBe(expected);
+    expect(isNflRegularSeasonWeek(week)).toBe(expected);
+  });
+
+  it("answers a question about the NFL calendar, not about anyone's league", () => {
+    // Week 18 is the case the old name got wrong. It is an NFL week, and it is a fantasy
+    // week in no league this product offers — the final is played in 15, 16 or 17. A
+    // predicate called `isFantasyWeek` that returns true here would have been reached for
+    // to gate exactly the question it answers incorrectly.
+    expect(isNflRegularSeasonWeek(NFL_REGULAR_SEASON_WEEKS)).toBe(true);
+    expect(NFL_REGULAR_SEASON_WEEKS).toBe(18);
   });
 });
 

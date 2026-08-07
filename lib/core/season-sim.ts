@@ -41,7 +41,21 @@ export interface TeamOutcome {
   teamId: string;
   championshipProbability: number;
   playoffProbability: number;
+  /** Regular-season wins. A tie counts a half to each side, so these are not whole. */
   expectedWins: number;
+  /**
+   * Points scored in the **regular season only**, which is what it is for: the near-universal
+   * tiebreak on seeding, applied after wins.
+   *
+   * Not the season total, and the difference is not pedantic now that the two halves are
+   * configurable. Playoff weeks are played and scored — they decide the bracket — but their
+   * points are deliberately not accumulated here, because a team that goes deep would
+   * otherwise appear to have out-scored one that did not *in the standings*, which is a
+   * statement about seeding and would be false. It also means this figure is blind to a bye
+   * that lands in a playoff round: correct for a tiebreak, and the wrong quantity to reach
+   * for if the question is what a roster is worth over the whole season. That question is
+   * `rosterUtility`, whose `expectedPoints` does span every week the league plays.
+   */
   expectedPoints: number;
 }
 

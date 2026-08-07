@@ -304,6 +304,321 @@ describe("fantasySeasonWeeks", () => {
   });
 });
 
+/**
+ * The laws a season obeys, over every shape rather than the handful drawn out above.
+ *
+ * The examples above pin what specific leagues look like, which catches a wrong answer and
+ * not a wrong *rule*. These assert the identities the rest of the module is entitled to
+ * assume: that the two week lists partition the season exactly, that the bracket is as long
+ * as the field requires and no longer, and that moving the final moves the whole bracket
+ * rigidly rather than resizing it.
+ *
+ * The space is walked exhaustively rather than sampled. It is small — a few hundred pairs —
+ * and an exhaustive walk cannot be lucky, which a seeded sample can.
+ */
+describe("a season is a partition of its weeks, whatever shape it is", () => {
+  /** Every pair `fantasySeasonWeeks` accepts, well beyond the three the product offers. */
+  const shapes: Array<{ championshipWeek: number; playoffTeams: number }> = [];
+  for (let championshipWeek = 2; championshipWeek <= 20; championshipWeek += 1) {
+    for (let playoffTeams = 1; playoffTeams <= 12; playoffTeams += 1) {
+      if (championshipWeek > bracketRoundsRequired(playoffTeams)) {
+        shapes.push({ championshipWeek, playoffTeams });
+      }
+    }
+  }
+
+  it("walks a space worth calling a space", () => {
+    // A guard on the loops above. If a bound is edited to something degenerate, every
+    // property below passes vacuously and reads as coverage.
+    expect(shapes.length).toBeGreaterThan(200);
+  });
+
+  it("covers weeks 1 to the final exactly once, in order, across both halves", () => {
+    // The identity `sampleTeamWeeklyScores` and `playBracket` both depend on. The scores
+    // array is `[...weeks, ...playoffWeeks]` and the bracket indexes into it by *position*
+    // (`regularWeeks + round`), so a gap, an overlap, a repeat or a wrong order would score
+    // some other week and never say so.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { weeks, playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
+      const played = [...weeks, ...playoffWeeks];
+      expect(played).toEqual(Array.from({ length: championshipWeek }, (_, i) => i + 1));
+      expect(new Set(played).size).toBe(played.length);
+    }
+  });
+
+  it("plays a regular season, and ends on the championship week", () => {
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { weeks, playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
+      // A season with no regular season seeds its bracket from nothing, so every team
+      // enters on an identical record and the tiebreak hash alone decides the seeding.
+      expect(weeks.length).toBeGreaterThan(0);
+      // The final is played in the week the caller named — the one property the whole
+      // parameterization is *for*. Without it "championship week" names nothing.
+      const last = playoffWeeks.length === 0 ? weeks : playoffWeeks;
+      expect(last[last.length - 1]).toBe(championshipWeek);
+      // And the two halves meet with no seam.
+      if (playoffWeeks.length > 0) {
+        expect(playoffWeeks[0]).toBe(weeks[weeks.length - 1] + 1);
+      }
+    }
+  });
+
+  it("gives the bracket exactly the rounds the field needs", () => {
+    // Both directions matter. Too few and `simulateLeague` refuses; too many and the extra
+    // round pairs the survivor with himself and re-elects him, which is what a four-team
+    // field over three playoff weeks used to do.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
+      expect(playoffWeeks.length).toBe(bracketRoundsRequired(playoffTeams));
+    }
+  });
+
+  it("moves the bracket rigidly when the final moves, without resizing it", () => {
+    // The identity behind "end your league a week early". A later final must not buy a
+    // longer bracket or a differently shaped one — it buys exactly one more regular-season
+    // week, and every playoff round slides by exactly one.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      if (championshipWeek + 1 > 20) continue;
+      const before = fantasySeasonWeeks(championshipWeek, playoffTeams);
+      const after = fantasySeasonWeeks(championshipWeek + 1, playoffTeams);
+      expect(after.playoffWeeks).toEqual(before.playoffWeeks.map((week) => week + 1));
+      expect(after.weeks).toEqual([...before.weeks, before.weeks.length + 1]);
+    }
+  });
+
+  it("trades a regular-season week for a playoff round when the field grows", () => {
+    // The other knob, and the reason the two cannot be set independently. A bigger field
+    // needing another round takes that week from the regular season; a bigger field that
+    // fits in the same number of rounds changes nothing at all.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const smaller = fantasySeasonWeeks(championshipWeek, playoffTeams);
+      if (championshipWeek <= bracketRoundsRequired(playoffTeams + 1)) continue;
+      const larger = fantasySeasonWeeks(championshipWeek, playoffTeams + 1);
+      const extraRounds = larger.playoffWeeks.length - smaller.playoffWeeks.length;
+      expect(extraRounds).toBeGreaterThanOrEqual(0);
+      expect(smaller.weeks.length - larger.weeks.length).toBe(extraRounds);
+    }
+  });
+});
+
+/**
+ * What has to add up, for every season the product can be configured into.
+ *
+ * A season that ends early is not a special case to the simulation — it is a different pair
+ * of week lists — and that is precisely why it could go wrong quietly. These are the
+ * conservation laws: the quantities that must total the same thing however the weeks are
+ * split, so a shape that silently drops a week, plays a bracket round twice, or crowns
+ * nobody shows up as arithmetic that does not balance rather than as odds that look
+ * plausible.
+ */
+describe("every league the product can express simulates coherently", () => {
+  const TEAMS = 12;
+  const SCENARIOS = 200;
+
+  /** The championship weeks the interface offers, against both playoff fields. */
+  const shapes = [15, 16, 17].flatMap((championshipWeek) =>
+    [4, 6].map((playoffTeams) => ({ championshipWeek, playoffTeams })),
+  );
+
+  /**
+   * Sampled and simulated once per shape, then shared.
+   *
+   * Every property below reads the same twelve rosters played out over the same season, so
+   * recomputing them per assertion would be the same Monte Carlo run four times over — and
+   * this suite already sits close enough to its timeout that the config file explains why
+   * the timeout was raised. Memoized lazily rather than built in the describe body, because
+   * work done during collection runs outside the per-test timeout that is supposed to bound
+   * it.
+   */
+  const cache = new Map<
+    string,
+    { config: LeagueConfig; teams: number[][][]; outcomes: ReturnType<typeof simulateLeague> }
+  >();
+
+  function leagueOf(championshipWeek: number, playoffTeams: number) {
+    const key = `${championshipWeek}/${playoffTeams}`;
+    const held = cache.get(key);
+    if (held !== undefined) return held;
+    const config: LeagueConfig = {
+      slots: SLOTS,
+      ...fantasySeasonWeeks(championshipWeek, playoffTeams),
+      playoffTeams,
+      scenarios: SCENARIOS,
+      meanAbsenceWeeks: 3,
+    };
+    const teams = Array.from({ length: TEAMS }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`t${i}`, 12 + i * 0.3), config, 900 + i),
+    );
+    const built = { config, teams, outcomes: simulateLeague(teams, config) };
+    cache.set(key, built);
+    return built;
+  }
+
+  it("samples exactly the weeks the season plays, for every shape", () => {
+    // The length `simulateLeague` checks before it will run. A sampler and a simulation
+    // that disagree by one week is the failure that guard exists for, and it can only be
+    // introduced by a season shape neither of them was written against.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { teams, outcomes } = leagueOf(championshipWeek, playoffTeams);
+      for (const scenarios of teams) {
+        expect(scenarios).toHaveLength(SCENARIOS);
+        for (const weekly of scenarios) expect(weekly).toHaveLength(championshipWeek);
+      }
+      // And no shape is refused by the very function it was built for. Reaching this line
+      // is the proof: `leagueOf` simulates while it builds, so a shape `simulateLeague`
+      // rejects throws out of the helper rather than reaching any assertion. Re-running it
+      // inside `expect(...).not.toThrow()` would only pay for the same Monte Carlo twice.
+      expect(outcomes).toHaveLength(TEAMS);
+    }
+  });
+
+  it("crowns exactly one champion and seats exactly the playoff field", () => {
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { outcomes } = leagueOf(championshipWeek, playoffTeams);
+
+      // Somebody wins every season. A bracket too short for its field returns the highest
+      // remaining seed without playing the deciding game, and a bracket that cannot finish
+      // returns nobody — both of which show up here as a total below one.
+      const titles = outcomes.reduce((sum, o) => sum + o.championshipProbability, 0);
+      expect(titles).toBeCloseTo(1, 10);
+
+      // And exactly `playoffTeams` teams qualify in every scenario, so the berths average
+      // to the field size however the weeks are divided.
+      const berths = outcomes.reduce((sum, o) => sum + o.playoffProbability, 0);
+      expect(berths).toBeCloseTo(playoffTeams, 10);
+    }
+  });
+
+  it("never gives a team a title it could not have qualified for", () => {
+    // An ordering that is true by the rules of the game rather than by measurement: the
+    // champion comes out of the qualifiers, so no team's title rate can exceed its berth
+    // rate. Seeding read from the wrong weeks would break this without breaking anything
+    // that merely sums to one.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      for (const outcome of leagueOf(championshipWeek, playoffTeams).outcomes) {
+        expect(outcome.championshipProbability).toBeGreaterThanOrEqual(0);
+        expect(outcome.championshipProbability).toBeLessThanOrEqual(
+          outcome.playoffProbability,
+        );
+        expect(outcome.playoffProbability).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("awards exactly one win per game played, across the regular season it actually plays", () => {
+    // The identity that catches a miscounted regular season in either direction. Every
+    // matchup distributes exactly one win — a tie splits it in half rather than creating or
+    // destroying one — so the league's total is the number of games its own schedule holds.
+    // A season that lost a week to the bracket, or played one twice, lands here.
+    for (const { championshipWeek, playoffTeams } of shapes) {
+      const { config, outcomes } = leagueOf(championshipWeek, playoffTeams);
+      const games = roundRobinSchedule(TEAMS, config.weeks.length).reduce(
+        (sum, week) => sum + week.length,
+        0,
+      );
+      const wins = outcomes.reduce((sum, o) => sum + o.expectedWins, 0);
+      expect(wins).toBeCloseTo(games, 10);
+      // Stated separately so a change to `roundRobinSchedule` cannot make both sides move
+      // together and keep the test green.
+      expect(games).toBe((config.weeks.length * TEAMS) / 2);
+    }
+  });
+
+  it("seats everyone when the field is the whole league", () => {
+    // The boundary `simulateLeague` deliberately allows. Worth pinning against a season
+    // whose bracket sits inside the old regular-season range, because that is where a
+    // first-round bye is computed from a field size the weeks no longer match.
+    const config: LeagueConfig = {
+      slots: SLOTS,
+      ...fantasySeasonWeeks(15, TEAMS),
+      playoffTeams: TEAMS,
+      scenarios: SCENARIOS,
+      meanAbsenceWeeks: 3,
+    };
+    const teams = Array.from({ length: TEAMS }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`all${i}`, 12), config, 700 + i),
+    );
+    for (const outcome of simulateLeague(teams, config)) {
+      expect(outcome.playoffProbability).toBe(1);
+    }
+  });
+});
+
+/**
+ * The weeks after the final are inert — exactly, not approximately.
+ *
+ * A fantasy season is a proper prefix of the NFL one: the final is played in week 15, 16 or
+ * 17 and the rest is football nobody's league scores. So a bye that lands past the final has
+ * to be worth *nothing*, and "nothing" here is provable rather than measurable — each
+ * player's random stream is keyed on his own id and `simulateAvailability` consumes it
+ * identically whatever his bye is, so an out-of-season bye cannot even perturb the draw. If
+ * these ever come apart, a week nobody plays is being priced.
+ */
+describe("a bye after the final costs nothing at all", () => {
+  const config: LeagueConfig = {
+    slots: SLOTS,
+    ...fantasySeasonWeeks(15, 6),
+    playoffTeams: 6,
+    scenarios: 300,
+    meanAbsenceWeeks: 3,
+  };
+
+  const withBye = (byeWeek: number | null) => [
+    player("star", "RB", 18, { byeWeek }),
+    player("mid", "RB", 11),
+    player("wr", "WR", 11),
+  ];
+
+  it("draws identical scores for a bye past the championship week", () => {
+    // Week 16, 17 and 18 are real NFL weeks that this league does not play. Bit-identical,
+    // asserted with `toEqual` on the whole sample rather than on a probability, because a
+    // probability could agree by luck and a full scenario table cannot.
+    const baseline = sampleTeamWeeklyScores(withBye(null), config, 11);
+    for (const byeWeek of [16, 17, 18]) {
+      expect(byeWeek).toBeGreaterThan(config.playoffWeeks[config.playoffWeeks.length - 1]);
+      expect(sampleTeamWeeklyScores(withBye(byeWeek), config, 11)).toEqual(baseline);
+    }
+  });
+
+  it("draws different scores for a bye the league does play", () => {
+    // The complement, so the test above cannot pass by the bye being ignored everywhere.
+    // Every week of this season, including the three bracket rounds, must register.
+    const baseline = sampleTeamWeeklyScores(withBye(null), config, 11);
+    for (const byeWeek of [...config.weeks, ...config.playoffWeeks]) {
+      expect(sampleTeamWeeklyScores(withBye(byeWeek), config, 11)).not.toEqual(baseline);
+    }
+  });
+
+  it("cannot make a roster score more in the standings by losing a week", () => {
+    // Direction, which the inequality makes provable: the best legal lineup from a subset
+    // of the players cannot beat the best from all of them, so a bye in a week that counts
+    // towards this figure can only lower it.
+    //
+    // Which weeks count is the point. `TeamOutcome.expectedPoints` is the *seeding*
+    // tiebreak, so it accumulates the regular season and not the bracket — a bye in a
+    // playoff round leaves it untouched while changing who wins the title. Asserting all
+    // three cases together is what stops that being read as the bye going unpriced.
+    const opponents = Array.from({ length: 11 }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`o${i}`, 12), config, 400 + i),
+    );
+    const points = (byeWeek: number | null) =>
+      championshipProbability(
+        sampleTeamWeeklyScores(withBye(byeWeek), config, 11),
+        opponents,
+        config,
+      ).expectedPoints;
+
+    const noBye = points(null);
+    // Outside the season entirely: identical, to the last bit.
+    expect(points(16)).toBe(noBye);
+    // A regular-season week: strictly fewer points in the standings.
+    for (const byeWeek of config.weeks) expect(points(byeWeek)).toBeLessThan(noBye);
+    // A playoff round: the standings are already settled, so this figure does not move —
+    // and the week is emphatically still played, which the sampled-score test above pins.
+    for (const byeWeek of config.playoffWeeks) expect(points(byeWeek)).toBe(noBye);
+  });
+});
+
 describe("when the final is played changes what a bye is worth", () => {
   // Why the season's weeks are configuration and not constants, as a measurement rather
   // than an argument. Everything is held fixed but the week the star is idle — and because

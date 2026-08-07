@@ -127,8 +127,21 @@ export function completedPeriods(contests: readonly Contest[]): Period[] {
   return periods.sort((a, b) => a.season - b.season || a.index - b.index);
 }
 
-/** True when a week falls inside the fantasy regular season. */
-export function isFantasyWeek(week: number): boolean {
+/**
+ * True when a week is one the NFL plays in its regular season.
+ *
+ * **Not "is this a fantasy week", which is what this was called.** The two are different
+ * questions and the old name answered the wrong one: week 18 is an NFL week and is a
+ * fantasy week in no league this product offers, because a fantasy season is a *proper
+ * prefix* of the NFL one — the final is played in week 15, 16 or 17 and everything after it
+ * is football nobody's league scores. A predicate named for the fantasy season and returning
+ * `true` for week 18 is a trap for the next caller who reaches for it to gate exactly that.
+ *
+ * Which weeks a given league plays is a property of that league, not of the calendar, and
+ * comes from `fantasySeasonWeeks(championshipWeek, playoffTeams)` — the concatenation of its
+ * `weeks` and `playoffWeeks`. This function is the outer bound both of those sit inside.
+ */
+export function isNflRegularSeasonWeek(week: number): boolean {
   return Number.isInteger(week) && week >= 1 && week <= NFL_REGULAR_SEASON_WEEKS;
 }
 
