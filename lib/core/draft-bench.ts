@@ -161,13 +161,18 @@ function expectedAboveReplacement(
   // A bye week outside the season is not a bye anybody plays through. Counting it would
   // reserve a share of the average for a week that never happens.
   //
-  // Membership in the week list, not `week <= weeks.length`. Those agreed only while every
-  // season started at week 1 and ran without a gap, which stopped being true the moment the
-  // playoff bracket could sit inside the old regular-season range: a league whose final is
-  // in week 15 plays weeks 1-12 and then 13, 14, 15, so the count is 15 but the *regular*
-  // season is 12 — and a length test against 12 threw away byes in weeks 13 and 14, which
-  // are precisely the rounds that decide the title. A backup whose whole value was covering
-  // the semi-final scored exactly zero here and could miss the shortlist entirely.
+  // Membership in the week list, not `week <= weeks.length`. This argument answers two
+  // questions — how many weeks the average is over, and which weeks exist — and a count
+  // answers the second only because every season handed to it happens to run `1..n` from
+  // week one. That is still true of the only production caller, so **this is not a bug
+  // fix and nothing about the numbers changed**: `played.has(13)` rejects exactly the
+  // weeks `13 <= 12` rejected. It is the coincidence being removed, so the next season
+  // layout cannot quietly turn a length comparison into a wrong answer about which weeks
+  // are played.
+  //
+  // What is *not* fixed, and is deliberate: byes in playoff rounds are still invisible
+  // here, because the caller passes the regular season. See `PolicyLeague.weeks` for why,
+  // and `docs/draft-validation.md` for what it costs.
   const played = new Set(weeks);
   const inSeason = [...byes].filter((week) => played.has(week));
   const ordinary = weeks.length - inSeason.length;

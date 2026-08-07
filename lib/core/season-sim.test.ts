@@ -356,15 +356,19 @@ describe("when the final is played changes what a bye is worth", () => {
 
   it("costs less in a round the top seeds sit out", () => {
     // A six-team field gives seeds one and two a first-round bye, so week 14 of a league
-    // ending in week 16 is only played by the teams that finished third to sixth. The
-    // cost is therefore real but far smaller than a semi-final's — a distinction the
-    // simulation gets for free by playing the bracket, and that no per-week weighting
-    // could express.
+    // ending in week 16 is only played by the teams that finished third to sixth. The cost
+    // is therefore real but far smaller than that of a round every qualifier plays — a
+    // distinction the simulation gets for free by playing the bracket, and that no per-week
+    // weighting could express.
     const cfg = league(16, 6);
-    expect(cfg.playoffWeeks[0]).toBe(14);
+    // Named rather than assumed, because which round each week *is* carries the whole
+    // claim: 14 is the quarter-final, 15 the semi-final, 16 the final.
+    expect(cfg.playoffWeeks).toEqual([14, 15, 16]);
     const firstRoundBye = titleOdds(cfg, 14);
-    const finalBye = titleOdds(cfg, 16);
-    expect(finalBye).toBeLessThan(firstRoundBye * 0.7);
+    // Both must-play rounds, not just the final. The documented claim is about the
+    // semi-final, so the semi-final is the one that has to be measured.
+    expect(titleOdds(cfg, 15)).toBeLessThan(firstRoundBye * 0.7);
+    expect(titleOdds(cfg, 16)).toBeLessThan(firstRoundBye * 0.7);
     expect(firstRoundBye).toBeGreaterThan(titleOdds(cfg, 7) * 0.8);
   });
 });
