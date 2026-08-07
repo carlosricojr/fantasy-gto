@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
 
@@ -47,8 +48,9 @@ export const board = query({
     // batch, so a run that failed partway leaves its rows interleaved with the previous
     // board's — and served together they are part this week's prices and part last week's,
     // with nothing to say so.
-    const published = await publishedRun(ctx, season, scoringId, teams);
-    if (published === null) return [];
+    const run = await publishedRun(ctx, season, scoringId, teams);
+    if (run === null) return [];
+    const published = run.publishedAt;
 
     const rows = await ctx.db
       .query("draftBoard")
@@ -97,8 +99,15 @@ export const boardFreshness = query({
     // as a whole. This used to take `.first()` from the board itself — index order, which
     // has nothing to do with write time — so mid-rebuild it could call a mostly stale
     // board fresh or a mostly new one stale.
-    const published = await publishedRun(ctx, season, scoringId, teams);
-    return published === null ? null : { computedAt: published };
+    const run = await publishedRun(ctx, season, scoringId, teams);
+    if (run === null) return null;
+    return {
+      computedAt: run.publishedAt,
+      // `null` where the run predates the field, which reads as "unknown provenance" rather
+      // than as "published directly". They are different claims, and defaulting to the
+      // reassuring one is how a derived board would come to be presented as a real one.
+      adpSourceTeams: run.adpSourceTeams ?? null,
+    };
   },
 });
 
@@ -108,7 +117,7 @@ async function publishedRun(
   season: number,
   scoringId: string,
   teams: number,
-): Promise<number | null> {
+): Promise<Doc<"draftBoardRuns"> | null> {
   // The greatest `publishedAt`, not the first row. One row per shape is the invariant —
   // `publishBoard` patches rather than inserting when one exists, and Convex mutations are
   // serializable, so two concurrent publishes cannot both find none — but `by_board` is not
@@ -129,7 +138,12 @@ async function publishedRun(
     )
     .collect();
   if (runs.length === 0) return null;
-  return Math.max(...runs.map((run) => run.publishedAt));
+  // The whole row rather than only its timestamp, because callers now need the provenance
+  // alongside it and reading them from two separate maxima could pair one run's timestamp
+  // with another's source.
+  return runs.reduce((newest, run) =>
+    run.publishedAt > newest.publishedAt ? run : newest,
+  );
 }
 
 /**
@@ -144,8 +158,10 @@ export const publishBoard = internalMutation({
     scoringId: v.string(),
     teams: v.number(),
     computedAt: v.number(),
+    /** The league size the market prices were published for. */
+    adpSourceTeams: v.number(),
   },
-  handler: async (ctx, { season, scoringId, teams, computedAt }) => {
+  handler: async (ctx, { season, scoringId, teams, computedAt, adpSourceTeams }) => {
     const rows = await ctx.db
       .query("draftBoardRuns")
       .withIndex("by_board", (q) =>
@@ -176,7 +192,14 @@ export const publishBoard = internalMutation({
     // board, so a late-finishing stale run would take the current one with it.
     if (existing) {
       if (computedAt > existing.publishedAt) {
-        await ctx.db.patch(existing._id, { publishedAt: computedAt });
+        // Both together. The provenance describes the run being published, so patching the
+        // timestamp without it would leave a new board wearing the previous run's source —
+        // and the one case where that changes is the one where it matters, a size whose
+        // published board appeared or disappeared between rebuilds.
+        await ctx.db.patch(existing._id, {
+          publishedAt: computedAt,
+          adpSourceTeams,
+        });
       }
       return;
     }
@@ -186,6 +209,7 @@ export const publishBoard = internalMutation({
       scoringId,
       teams,
       publishedAt: computedAt,
+      adpSourceTeams,
     });
   },
 });

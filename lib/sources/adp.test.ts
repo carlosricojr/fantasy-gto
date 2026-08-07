@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  SUPPORTED_LEAGUE_SIZES,
+  adpSourceFor,
+} from "../nfl/draft/league-size";
+
 import { AdpProvider, adpFormatFor, adpUrl, parseAdp } from "./adp";
 
 /**
@@ -280,5 +285,101 @@ describe("the board's own boundaries", () => {
     expect(bye(1)).toBe(1);
     expect(bye(0)).toBeNull();
     expect(bye(-1)).toBeNull();
+  });
+});
+
+/**
+ * Not asking the provider for the same board twice.
+ *
+ * The board-refresh action builds three scoring formats across eleven league sizes, each
+ * from the target season plus two prior ones. Without a cache that is ninety-nine requests
+ * to somebody else's server for thirty-six distinct answers, inside one action — the kind of
+ * thing that gets an application blocked rather than the kind that costs money.
+ */
+describe("AdpProvider caches", () => {
+  const board = JSON.stringify({
+    status: "Success",
+    players: [
+      {
+        name: "Jahmyr Gibbs",
+        position: "RB",
+        team: "DET",
+        adp: 1.4,
+        stdev: 0.6,
+        bye: 6,
+      },
+    ],
+  });
+
+  function counting() {
+    const urls: string[] = [];
+    const provider = new AdpProvider(async (url: string) => {
+      urls.push(url);
+      return board;
+    });
+    return { provider, urls };
+  }
+
+  it("asks once per season, scoring and league size", async () => {
+    const { provider, urls } = counting();
+    for (let i = 0; i < 4; i += 1) {
+      const result = await provider.forSeason(2026, "ppr", 12);
+      expect(result.ok).toBe(true);
+    }
+    expect(urls).toHaveLength(1);
+  });
+
+  it("keeps different boards apart", async () => {
+    const { provider, urls } = counting();
+    await provider.forSeason(2026, "ppr", 12);
+    await provider.forSeason(2026, "ppr", 10);
+    await provider.forSeason(2026, "standard", 12);
+    await provider.forSeason(2025, "ppr", 12);
+    expect(new Set(urls).size).toBe(4);
+    expect(urls).toHaveLength(4);
+  });
+
+  it("makes one request for two concurrent callers", async () => {
+    // The in-flight share, not the result cache. Two builds starting together would
+    // otherwise both miss and both fetch.
+    const { provider, urls } = counting();
+    const [a, b] = await Promise.all([
+      provider.forSeason(2026, "ppr", 12),
+      provider.forSeason(2026, "ppr", 12),
+    ]);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(urls).toHaveLength(1);
+  });
+
+  it("does not cache a failure", async () => {
+    // One provider serves a whole refresh run. Caching a transient network blip would make
+    // every later call for that board fail for the lifetime of the action.
+    let attempts = 0;
+    const provider = new AdpProvider(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("network");
+      return board;
+    });
+    expect((await provider.forSeason(2026, "ppr", 12)).ok).toBe(false);
+    expect((await provider.forSeason(2026, "ppr", 12)).ok).toBe(true);
+    expect(attempts).toBe(2);
+  });
+
+  it("bounds the whole refresh matrix to one request per distinct board", async () => {
+    // The measurement the issue asks for. Eleven sizes collapse onto four published boards,
+    // three scoring formats, three seasons each: 4 x 3 x 3 = 36 requests, against the 99 an
+    // uncached provider would make.
+    const { provider, urls } = counting();
+    for (const scoringId of ["ppr", "half_ppr", "standard"]) {
+      for (const teams of SUPPORTED_LEAGUE_SIZES) {
+        const source = adpSourceFor(teams).sourceTeams;
+        for (const season of [2026, 2025, 2024]) {
+          await provider.forSeason(season, scoringId, source);
+        }
+      }
+    }
+    expect(urls).toHaveLength(36);
+    expect(new Set(urls).size).toBe(36);
   });
 });

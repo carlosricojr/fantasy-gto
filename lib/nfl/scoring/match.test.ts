@@ -57,7 +57,9 @@ describe("matchScoringPreset finds an exact preset", () => {
 
 describe("matchScoringPreset refuses to guess", () => {
   it("reports what is missing rather than assuming a default", () => {
-    const { receptionPoints: _drop, passingTd: _drop2, ...rest } = of(PPR);
+    const rest: Record<string, number> = { ...of(PPR) };
+    delete rest.receptionPoints;
+    delete rest.passingTd;
     const match = matchScoringPreset(rest);
     expect(match.kind).toBe("incomplete");
     if (match.kind === "incomplete") {

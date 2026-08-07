@@ -735,7 +735,11 @@ export default function DraftPage() {
           )}
         </section>
 
-        <Caveat freshness={freshness ?? null} boardSize={board.length} />
+        <Caveat
+          freshness={freshness ?? null}
+          boardSize={board.length}
+          teams={setup.teams}
+        />
       </PageShell>
     );
   }
@@ -929,7 +933,11 @@ export default function DraftPage() {
             </ul>
           )}
           <ByeSummary roster={myRoster} />
-          <Caveat freshness={freshness ?? null} boardSize={board.length} />
+          <Caveat
+          freshness={freshness ?? null}
+          boardSize={board.length}
+          teams={setup.teams}
+        />
         </aside>
       </div>
     </PageShell>
@@ -1082,9 +1090,11 @@ function ByeSummary({ roster }: { roster: readonly PlayerRisk[] }) {
 function Caveat({
   freshness,
   boardSize,
+  teams,
 }: {
-  freshness: { computedAt: number } | null;
+  freshness: { computedAt: number; adpSourceTeams: number | null } | null;
   boardSize: number;
+  teams: number;
 }) {
   // Formatted after mount, never during render. `toLocaleString` reads the locale and
   // timezone of whoever runs it, so the server's rendering of this timestamp and the
@@ -1099,10 +1109,25 @@ function Caveat({
     );
   }, [freshness]);
 
+  // Four states rather than a boolean, because "we do not know" is not "it is fine". A run
+  // written before derived boards existed carries no source, and reading that as `direct`
+  // would present an approximation as a published board — which is the one thing this whole
+  // provenance chain exists to prevent.
+  const provenance =
+    freshness === null
+      ? "No board has been built for this league size yet."
+      : freshness.adpSourceTeams === null
+        ? "This board predates source tracking, so where its market prices came from is not recorded."
+        : freshness.adpSourceTeams === teams
+          ? `Market prices published for ${teams}-team leagues.`
+          : `No market board is published for ${teams}-team leagues, so prices are derived ` +
+            `from the ${freshness.adpSourceTeams}-team board by rescaling every pick number ` +
+            `by ${(teams / freshness.adpSourceTeams).toFixed(3)}. Read them as an approximation.`;
+
   return (
     <p className="mt-6 text-xs text-muted-foreground">
       {boardSize} players.{" "}
-      {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`}{" "}
+      {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and

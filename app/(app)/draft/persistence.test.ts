@@ -85,7 +85,8 @@ describe("parsePersistedDraft", () => {
   it("reads a payload with no scoring confirmation as unconfirmed", () => {
     // A draft stored before the confirmation existed carries a format nobody confirmed.
     // Treating it as confirmed would invent the acknowledgement the field exists to require.
-    const { scoringConfirmed: _drop, ...older } = VALID;
+    const older: Record<string, unknown> = { ...VALID };
+    delete older.scoringConfirmed;
     expect(parsePersistedDraft(JSON.stringify(older))?.scoringConfirmed).toBe(false);
   });
 
@@ -170,10 +171,23 @@ describe("parsePersistedDraft", () => {
   });
 
   it("refuses a league size no board is built for", () => {
-    // ADP is published per league size, so a board is not transferable. An 11-team draft
-    // has no board behind it and the setup screen never offers one.
-    for (const teams of [7, 11, 13, 32]) {
+    // Six through sixteen are built — seven of them from a neighbour's board by rescaling
+    // every pick number, which the board itself records. Outside that range there is no
+    // board at all and the setup screen never offers one.
+    for (const teams of [1, 4, 5, 17, 20, 32]) {
       expect(parsePersistedDraft(stored({ teams }))).toBeNull();
+    }
+  });
+
+  it("accepts the sizes with no published market board of their own", () => {
+    // The seven this used to refuse. They are ordinary leagues; what was missing was a
+    // published board, not a reason to decline the league.
+    for (const teams of [6, 7, 9, 11, 13, 15, 16]) {
+      // Playoff field 4, because a six-team league cannot send six teams to the playoffs
+      // and the parser refuses a field as large as the league.
+      expect(
+        parsePersistedDraft(stored({ teams, slot: 4, playoffTeams: 4 }))?.teams,
+      ).toBe(teams);
     }
   });
 
