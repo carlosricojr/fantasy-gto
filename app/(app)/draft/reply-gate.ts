@@ -14,11 +14,20 @@
  * different slots, different demand — and so is every reply already on screen. Request ids
  * cannot see this, because the ids keep counting up and the newest reply is still the newest.
  *
- * The second is worse than the first and was not handled. Changing scoring re-queries the
- * board, which is `undefined` while it loads, so no new request goes out — and the previous
- * league's recommendations sat on screen, unmarked, for as long as the query took. They were
+ * The second is worse than the first and was not handled. The previous league's
+ * recommendations sat on screen, unmarked, until an answer for the new one arrived. They were
  * not stale in the sense the panel means by stale. They were answers to a question nobody had
  * asked.
+ *
+ * This used to say the window existed because changing scoring re-queried the board, which
+ * was `undefined` while it loaded, so `draftState` was null and no request went out. The
+ * conclusion is still true and the reason no longer is: `useStableQuery` holds the previous
+ * rows, so `draftState` is not null during the reload — it describes the *old* league. What
+ * withholds the request now is an explicit `if (boardPending) return` in `page.tsx`, which
+ * exists precisely because this gate cannot tell a request built from a held board from a
+ * current one. So the window is the same length it always was, and the guard that sets its
+ * length moved from an accident to a line of code. Do not read this paragraph as a reason
+ * the guard is redundant; it is the reason it is not.
  *
  * Extracted from the hook because it is a state machine over three numbers and none of it
  * needs React, and because the version that lived inside the hook could only be tested by
@@ -119,10 +128,20 @@ export function isStale(gate: ReplyGateState, replyId: number): boolean {
 /**
  * The league a request belongs to, as one string.
  *
- * Every field that changes which board is fetched or which lineup is scored. A field left out
- * of this is a field whose change leaves the previous league's answer on screen: scoring
- * decides the board, the roster template decides the slots and therefore the demand, the team
- * count decides both, and the season decides everything.
+ * Every field that changes which board is fetched, which lineup is scored, or which season is
+ * simulated. A field left out of this is a field whose change leaves the previous league's
+ * answer on screen: scoring decides the board, the roster template decides the slots and
+ * therefore the demand, the team count decides both, and the season decides everything.
+ *
+ * The playoff field and the championship week are here for the last of those reasons, and
+ * they were both missing. Neither re-queries the board, so a request does go out immediately
+ * and the old answer is superseded within one computation — which is why this looked like the
+ * ordinary churn of a fast draft and is not. Championship probability is *the* number this
+ * panel reports, and it is the probability of surviving a specific bracket over specific
+ * weeks; an answer computed for a different bracket is not a stale answer to this question,
+ * it is a confident answer to another one. That is the distinction this whole module exists
+ * to draw, and it applies whether or not something happens to supersede it half a second
+ * later.
  *
  * Serialized rather than joined on a separator. Joining is injective only while no component
  * can contain the separator, which is true of the ids this ships today and is not a property
@@ -137,6 +156,8 @@ export function leagueFingerprint(league: {
   templateId: string;
   teams: number;
   rounds: number;
+  playoffTeams: number;
+  championshipWeek: number;
 }): string {
   return JSON.stringify([
     league.season,
@@ -144,5 +165,7 @@ export function leagueFingerprint(league: {
     league.templateId,
     league.teams,
     league.rounds,
+    league.playoffTeams,
+    league.championshipWeek,
   ]);
 }

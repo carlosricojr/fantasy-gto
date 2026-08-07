@@ -32,15 +32,16 @@ import type { LeagueConfig } from "./season-sim";
 const SLOTS = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 });
 const TEAMS = 8;
 const ROUNDS = 10;
-const WEEKS = 14;
+const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
 
 /**
- * Slots and season length together, which is what the policy takes.
+ * Slots and the regular-season week list together, which is what the policy takes.
  *
- * The season length is there only so the depth model can price a bye. It is a parameter
- * rather than a constant because `LeagueConfig.weeks` already is one, and a second copy of
- * the season length that could disagree with it is the sort of thing that stays wrong
- * quietly.
+ * The week list is there only so the depth model can price a bye. It is a parameter rather
+ * than a constant because `LeagueConfig.weeks` already is one, and a second copy of the
+ * season that could disagree with it is the sort of thing that stays wrong quietly. A
+ * fourteen-week list is one league's, not the product's: which weeks a league plays now
+ * follows from its championship week.
  */
 const LEAGUE: PolicyLeague = { slots: SLOTS, weeks: WEEKS };
 const leagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({

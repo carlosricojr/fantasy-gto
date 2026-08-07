@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CHAMPIONSHIP_WEEKS,
+  DEFAULT_CHAMPIONSHIP_WEEK,
   MAX_ROUNDS,
   type PersistedDraft,
   nextPick,
@@ -28,6 +30,7 @@ const VALID: PersistedDraft = {
   templateId: "standard",
   scoringConfirmed: true,
   playoffTeams: 6,
+  championshipWeek: 17,
   started: true,
   picks: { 1: "player-a", 2: "player-b" },
   queue: ["player-c", "player-d"],
@@ -81,6 +84,7 @@ describe("parsePersistedDraft", () => {
       templateId: "two_flex",
       scoringConfirmed: true,
       playoffTeams: 6,
+      championshipWeek: 17,
       started: true,
       queue: [],
       picks: { 1: "player-a" },
@@ -259,6 +263,35 @@ describe("parsePersistedDraft", () => {
     // for the day someone adds a smaller league or a larger field, and this comment is
     // here so nobody reads the line above as covering it.
     expect(parsePersistedDraft(stored({ teams: 8, playoffTeams: 8 }))).toBeNull();
+  });
+
+  it("restores a draft written before the championship week was a setting", () => {
+    // The migration this default exists for. A payload without the field was already being
+    // simulated as a week-17 final — that pair of literals was the only season the board
+    // could describe — so restoring it as anything else would move a draft in progress
+    // into a league it was not drafted for. Unlike the queue, the value is not a note to
+    // self; unlike `scoringConfirmed`, defaulting it invents nothing.
+    const legacy: Record<string, unknown> = { ...VALID };
+    delete legacy.championshipWeek;
+    const restored = parsePersistedDraft(JSON.stringify(legacy));
+    expect(restored?.championshipWeek).toBe(DEFAULT_CHAMPIONSHIP_WEEK);
+    expect(restored?.picks).toEqual(VALID.picks);
+  });
+
+  it("restores every championship week the product offers, and refuses the rest", () => {
+    for (const championshipWeek of CHAMPIONSHIP_WEEKS) {
+      expect(parsePersistedDraft(stored({ championshipWeek }))?.championshipWeek).toBe(
+        championshipWeek,
+      );
+    }
+    // Nothing downstream repairs a stored value: the control offers only these three, so a
+    // stored 13 has no button that could correct it and would reach `fantasySeasonWeeks`
+    // as is. Week 18 is refused deliberately rather than incidentally — it is a real NFL
+    // week that `isFantasyWeek` admits, and it is the one no league should be advised to
+    // play a final in.
+    for (const championshipWeek of [0, 12, 13, 14, 18, 19, 16.5, "16", null]) {
+      expect(parsePersistedDraft(stored({ championshipWeek }))).toBeNull();
+    }
   });
 
   it("refuses an unknown scoring preset or roster template", () => {

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { normalizeLeagueSetup, pickOwnership, seatForTeamIndex } from "@/lib/core/draft";
 import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
-import type { LeagueConfig } from "@/lib/core/season-sim";
+import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
@@ -26,6 +26,7 @@ import { describeTurn, nextPickFor, pickLabel, picksUntilTurn } from "./board-vi
 import type { LeagueSettings } from "./league-form";
 import { MyTeam } from "./my-team";
 import {
+  DEFAULT_CHAMPIONSHIP_WEEK,
   DRAFT_STORAGE_KEY,
   LEAGUE_SIZES,
   MAX_ROUNDS,
@@ -45,6 +46,7 @@ import {
   unrankedAdpFor,
 } from "./pool-view";
 import { QueuePanel } from "./queue-panel";
+import { describeSeason } from "./season-label";
 import { leagueFingerprint } from "./reply-gate";
 import { Recommendations } from "./recommendations";
 import { SettingsDialog } from "./settings-dialog";
@@ -143,6 +145,19 @@ export default function DraftPage() {
   const [scoringConfirmed, setScoringConfirmed] = useState(false);
   const [started, setStarted] = useState(false);
   const [playoffTeams, setPlayoffTeams] = useState<number>(6);
+  /**
+   * The week this league plays its final.
+   *
+   * With `playoffTeams` it decides every week the season is simulated over — see
+   * `fantasySeasonWeeks`. It was a pair of literals here (weeks 1-14, playoffs 15-17) for
+   * every league, which is one real setting out of the several leagues use, and the way it
+   * was wrong was invisible: a league whose final is in week 15 plays its semi-final in
+   * week 14, and the byes that land there were being priced as ordinary regular-season
+   * weeks rather than as a round that decides the title.
+   */
+  const [championshipWeek, setChampionshipWeek] = useState<number>(
+    DEFAULT_CHAMPIONSHIP_WEEK,
+  );
 
   /** Overall pick number to the team index that made it. Index 0 is always the user. */
   const [picks, setPicks] = useState<Record<number, string>>({});
@@ -170,6 +185,7 @@ export default function DraftPage() {
       setScoringConfirmed(stored.scoringConfirmed);
       setTemplateId(stored.templateId);
       setPlayoffTeams(stored.playoffTeams);
+      setChampionshipWeek(stored.championshipWeek);
       setStarted(stored.started);
       setPicks(stored.picks);
       setQueue(stored.queue);
@@ -189,6 +205,7 @@ export default function DraftPage() {
       scoringConfirmed,
       templateId,
       playoffTeams,
+      championshipWeek,
       started,
       picks,
       queue,
@@ -208,6 +225,7 @@ export default function DraftPage() {
     scoringConfirmed,
     templateId,
     playoffTeams,
+    championshipWeek,
     started,
     picks,
     queue,
@@ -447,28 +465,44 @@ export default function DraftPage() {
     };
   }, [pool, picks, pickOwners, byId, setup, currentPick]);
 
+  // Derived from the league's own final rather than written out. The literals this
+  // replaces — weeks 1-14 with a three-week bracket — describe one real setting and were
+  // applied to every league: a four-team field got a third playoff round it does not play
+  // (a final between one team and itself), and week 15 belonged to neither half of its
+  // season. A league ending in week 15 got its semi-final priced as an ordinary week 14,
+  // where a dozen NFL teams are on bye.
   const config = useMemo<LeagueConfig>(
     () => ({
       slots: starters,
-      weeks: Array.from({ length: 14 }, (_, i) => i + 1),
-      playoffWeeks: [15, 16, 17],
+      ...fantasySeasonWeeks(championshipWeek, playoffTeams),
       playoffTeams,
       scenarios: SCENARIOS,
       meanAbsenceWeeks: 3,
     }),
-    [starters, playoffTeams],
+    [starters, playoffTeams, championshipWeek],
   );
 
   // Before anything is requested, and whether or not anything can be. Changing the scoring
-  // format re-queries the board, so `draftState` is null while it reloads and no request
-  // goes out — which is exactly the window in which the previous format's recommendations
-  // used to sit on screen unmarked.
+  // format re-queries the board, and no request goes out until the new one lands — which is
+  // exactly the window in which the previous format's recommendations used to sit on screen
+  // unmarked.
+  //
+  // This used to say `draftState` is null while the board reloads. It is not, and has not
+  // been since the page started holding the previous board to keep itself mounted: the
+  // state is non-null and describes the *previous* league. The `boardPending` guard below
+  // is what withholds the request now, and the difference matters to anyone deciding
+  // whether that guard is load-bearing. It is.
   const fingerprint = leagueFingerprint({
     season,
     scoringId,
     templateId,
     teams: setup.teams,
     rounds: setup.rounds,
+    // The season shape, so an answer computed for one bracket cannot sit on screen under
+    // another. These are not passed through `config` because the fingerprint has to be a
+    // primitive tuple; `config` is derived from exactly these two.
+    playoffTeams,
+    championshipWeek,
   });
   useEffect(() => {
     recommender.retargetTo(fingerprint);
@@ -587,6 +621,7 @@ export default function DraftPage() {
     rounds,
     slot,
     playoffTeams,
+    championshipWeek,
     scoringId,
     templateId,
   };
@@ -596,6 +631,7 @@ export default function DraftPage() {
     if (patch.rounds !== undefined) setRounds(patch.rounds);
     if (patch.slot !== undefined) setSlot(patch.slot);
     if (patch.playoffTeams !== undefined) setPlayoffTeams(patch.playoffTeams);
+    if (patch.championshipWeek !== undefined) setChampionshipWeek(patch.championshipWeek);
     if (patch.scoringId !== undefined) {
       setScoringId(patch.scoringId);
       // Touching the control *is* the confirmation. The format decides the whole board, so
@@ -712,6 +748,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            config={config}
             pending={describesHeldBoard}
           />
         </DraftSetup>
@@ -853,6 +890,10 @@ export default function DraftPage() {
             roster={myRoster}
             pickByPlayerId={rosterPicks}
             teams={setup.teams}
+            // From `config`, not a second derivation of the same setting. The panel names
+            // which byes fall in a playoff round and the simulation prices them; the two
+            // disagreeing would be a screen contradicting the numbers beside it.
+            playoffWeeks={config.playoffWeeks}
             basisFor={basisFor}
           />
           <QueuePanel
@@ -867,6 +908,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            config={config}
             pending={describesHeldBoard}
           />
         </aside>
@@ -1041,11 +1083,23 @@ function Caveat({
   freshness,
   boardSize,
   teams,
+  config,
   pending,
 }: {
   freshness: BoardFreshness | null;
   boardSize: number;
   teams: number;
+  /**
+   * The league the odds were actually computed for.
+   *
+   * This paragraph used to state "a 14-week regular season and a three-week bracket" as a
+   * fixed fact, which was true while the board wrote those numbers out and false the
+   * moment the season became a setting — for five of the six combinations the controls
+   * offer. Worse, it sat beside a settings panel and a bye list that both described the
+   * real one, so the screen contradicted itself. It is derived now for the same reason
+   * every other number here is: nothing may be stated that the code did not compute.
+   */
+  config: LeagueConfig;
   /** True while `boardSize` and `freshness` belong to a selection `teams` has left. */
   pending: boolean;
 }) {
@@ -1084,7 +1138,7 @@ function Caveat({
     <p className="text-xs text-muted-foreground">
       {boardSize} players.{" "}
       {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
-      Odds assume a 14-week regular season and a three-week bracket. Player values blend
+      Odds are for {describeSeason(config)}. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
       defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed

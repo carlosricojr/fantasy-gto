@@ -285,6 +285,32 @@ describe("byeGaps", () => {
     expect(gaps.find((gap) => gap.week === 5)?.slots).not.toContain("TE");
   });
 
+  it("marks the gaps that land in the league's own playoff weeks", () => {
+    // Week 14 is an ordinary week for a league whose final is in week 17 and the
+    // semi-final for one whose final is in week 15, and a manager reading a list of week
+    // numbers cannot tell which league they are in. The same gap therefore has to be
+    // labelled differently for the two, from the league's real bracket rather than a
+    // literal.
+    // The only tight end, idle in week 14 — an NFL bye week, and the last one there is.
+    const roster = fullRoster().map((player) =>
+      player.id === "te" ? { ...player, byeWeek: 14 } : player,
+    );
+    const early = byeGaps(slots, roster, [13, 14, 15]);
+    expect(early.find((gap) => gap.week === 14)?.slots).toEqual(["TE"]);
+    expect(early.find((gap) => gap.week === 14)?.inPlayoffs).toBe(true);
+    expect(early.find((gap) => gap.week === 1)?.inPlayoffs).toBe(false);
+
+    const late = byeGaps(slots, roster, [15, 16, 17]);
+    expect(late.find((gap) => gap.week === 14)?.inPlayoffs).toBe(false);
+  });
+
+  it("claims no playoff week when it has not been told the league's bracket", () => {
+    // The default is "none", not a literal 15-17. A caller that does not know the
+    // calendar must not have one invented for it: three assumed weeks would label a
+    // regular-season bye as a lost semi-final, which is worse than saying nothing.
+    for (const gap of byeGaps(slots, fullRoster())) expect(gap.inPlayoffs).toBe(false);
+  });
+
   it("is empty for a roster with no byes known", () => {
     expect(byeGaps(slots, [risk("a", "RB", null)])).toEqual([]);
     expect(byeGaps(slots, [])).toEqual([]);

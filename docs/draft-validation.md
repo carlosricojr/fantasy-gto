@@ -373,9 +373,56 @@ above are the reason it is not urgent: a 30× margin on the path that *is* wired
 ### League rules
 
 **Handled.** Roster shape is arbitrary — any combination of slot kinds and counts, including
-superflex — and the simulation uses it directly for every team. League size, playoff field,
-bracket length and season length are all configuration. Kickers and defenses are on the
-board and draftable.
+superflex — and the simulation uses it directly for every team. League size, playoff field
+and the week the final is played are all set on the setup screen, and the season's weeks
+follow from the last two: `fantasySeasonWeeks` places the bracket immediately before the
+championship week and gives the regular season everything ahead of it. Kickers and defenses
+are on the board and draftable.
+
+This section previously read "League size, playoff field, bracket length and season length
+are all configuration", which was true of `LeagueConfig` and false of the product. The
+interface offered no control for either and the board wrote out two literals — a fourteen-
+week regular season and a three-week bracket in weeks 15 to 17 — for every league. Two
+things followed, and neither announced itself:
+
+- **A league that ends early was advised about a season it does not play.** Byes run
+  through week 14, so under a week-17 final no bye can reach a playoff round at all. Move
+  the final to week 15 and week 14 becomes the semi-final, which no surviving team sits out.
+  On a synthetic twelve-team league — same roster, same seed, the star's bye week the only
+  thing changed, and the streams keyed per player so the two runs draw identical numbers —
+  a bye in a round you have to play takes **at least 30%** off the owner's championship
+  probability, where the same bye in the regular season takes under 20%. Those two bounds
+  are what `season-sim.test.ts` asserts and therefore all this document claims: the point
+  estimates behind them are properties of one synthetic roster and are not published, and
+  the relation is what survives changing it. The first round of a six-team bracket costs
+  much less than a semi-final, because seeds one and two sit it out — also asserted, and
+  also a thing no per-week weighting could express.
+- **A four-team field got a bracket it does not play.** Two rounds were configured as
+  three, so the final round paired the survivor with itself and re-elected it, and the week
+  that padding consumed belonged to neither half of the season: fourteen regular weeks and
+  a bracket ending in week 17 simply lost week 15. Deriving the bracket length from the
+  field size makes that pair impossible to write down.
+
+**Not handled: a two-week championship.** `playBracket` plays one round per week, so a
+final decided on the combined score of two weeks cannot be expressed. Leagues that do this
+should set the championship week to the *last* of the two; the bracket is then right and
+the final is scored over one week instead of two.
+
+**The prefilter prices byes over the regular season only.** `PolicyLeague.weeks` is the
+regular season's weeks, so the depth model that narrows several hundred players to a
+shortlist of ten does not see a bye that lands in a playoff round. The objective does, and
+prices it exactly — but a reserve whose only worth is covering such a bye can be narrowed
+out before the simulation ever values him. This binds on the two configurations where a
+real NFL bye reaches a bracket at all: a final in week 15, and a final in week 16 with a
+six-team field.
+
+Passing the whole season instead was tried and is worse. The bye term is a per-week average
+and `startingGain` is not, so lengthening the season from fourteen weeks to seventeen shrinks
+depth against starter upgrades — and `completeDraft` began spending a late pick on a second
+kicker in a league that starts one, which is the exact failure `coverValue` was written to
+fix and which `draft-policy.test.ts` pins. Weighting playoff weeks by the chance of reaching
+them would be one more tuned constant of the kind simulating to the terminal outcome exists
+to remove. So the approximation is deliberate and recorded here rather than closed.
 
 **Kickers and defenses carry the market's price only.** The model does not project either
 and will not pretend to. They were previously left off the board entirely, which did not

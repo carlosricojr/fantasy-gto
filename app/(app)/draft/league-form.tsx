@@ -3,10 +3,17 @@
 import { Lock } from "lucide-react";
 
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
+import { seasonSummary } from "./season-label";
 import { ROSTER_TEMPLATES, rosterTemplateById, slotSummary } from "@/lib/nfl/roster";
 import { SCORING_PRESETS, scoringPresetById } from "@/lib/nfl/scoring/presets";
-import { LEAGUE_SIZES, MAX_ROUNDS, PLAYOFF_FIELDS } from "./persistence";
+import {
+  CHAMPIONSHIP_WEEKS,
+  LEAGUE_SIZES,
+  MAX_ROUNDS,
+  PLAYOFF_FIELDS,
+} from "./persistence";
 
 /**
  * The league's shape, in one control set used before the draft and during it.
@@ -29,6 +36,8 @@ export interface LeagueSettings {
   rounds: number;
   slot: number;
   playoffTeams: number;
+  /** The week the final is played. With the field size, it fixes every week of the season. */
+  championshipWeek: number;
   scoringId: string;
   templateId: string;
 }
@@ -180,8 +189,59 @@ export function LeagueForm({
           }))}
         />
       </Field>
+
+      {/*
+        Asked for, because leagues genuinely differ and the difference is not cosmetic. A
+        final in week 15 puts the semi-final in week 14, where a dozen NFL teams are idle;
+        a final in week 17 puts the whole bracket after the last bye. The simulation prices
+        a bye by the week it lands in, so a league playing the earlier final and being
+        advised on the later one is being advised about a different season.
+
+        Not locked mid-draft. It changes what the recommendations are computed against, not
+        whose picks are whose, so a manager who set it wrong can fix it without starting
+        over — unlike league size and draft slot above.
+      */}
+      <Field
+        label="Championship week"
+        hint="The last week you play. Leagues often end early to keep the final out of the NFL weeks where teams rest starters."
+      >
+        <SegmentedControl
+          label="Championship week"
+          value={value.championshipWeek}
+          onChange={(championshipWeek) => onChange({ championshipWeek })}
+          options={CHAMPIONSHIP_WEEKS.map((week) => ({
+            value: week,
+            label: `Week ${week}`,
+          }))}
+        />
+        {/*
+          The weeks themselves, derived by the same function the simulation is configured
+          from. Two controls decide four numbers between them, and "6 teams, week 16" is
+          not something a reader can expand in their head — nor should they have to, when
+          getting it wrong means drafting for the wrong season.
+        */}
+        <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+          {describeChosenSeason(value.championshipWeek, value.playoffTeams)}
+        </p>
+      </Field>
     </div>
   );
+}
+
+/**
+ * The chosen season, described by the same derivation the objective is configured from.
+ *
+ * Falls back to naming the incoherent pair rather than throwing. The controls above only
+ * offer combinations `fantasySeasonWeeks` accepts, but this is a rendered string in a
+ * component that also renders a restored draft, and a thrown error here would take the
+ * whole settings dialog down over a label.
+ */
+function describeChosenSeason(championshipWeek: number, playoffTeams: number): string {
+  try {
+    return seasonSummary(fantasySeasonWeeks(championshipWeek, playoffTeams));
+  } catch {
+    return `No season runs a ${playoffTeams}-team bracket to week ${championshipWeek}.`;
+  }
 }
 
 /**

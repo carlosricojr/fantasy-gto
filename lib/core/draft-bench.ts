@@ -150,9 +150,9 @@ function expectedAboveReplacement(
   players: readonly DepthPlayer[],
   slots: number,
   replacement: number,
-  weeks: number,
+  weeks: readonly number[],
 ): number {
-  if (slots <= 0 || weeks <= 0) return 0;
+  if (slots <= 0 || weeks.length === 0) return 0;
   const ordered = [...players].sort((a, b) => b.value - a.value);
   const byes = new Set<number>();
   for (const player of ordered) {
@@ -160,13 +160,27 @@ function expectedAboveReplacement(
   }
   // A bye week outside the season is not a bye anybody plays through. Counting it would
   // reserve a share of the average for a week that never happens.
-  const inSeason = [...byes].filter((week) => week >= 1 && week <= weeks);
-  const ordinary = weeks - inSeason.length;
+  //
+  // Membership in the week list, not `week <= weeks.length`. This argument answers two
+  // questions — how many weeks the average is over, and which weeks exist — and a count
+  // answers the second only because every season handed to it happens to run `1..n` from
+  // week one. That is still true of the only production caller, so **this is not a bug
+  // fix and nothing about the numbers changed**: `played.has(13)` rejects exactly the
+  // weeks `13 <= 12` rejected. It is the coincidence being removed, so the next season
+  // layout cannot quietly turn a length comparison into a wrong answer about which weeks
+  // are played.
+  //
+  // What is *not* fixed, and is deliberate: byes in playoff rounds are still invisible
+  // here, because the caller passes the regular season. See `PolicyLeague.weeks` for why,
+  // and `docs/draft-validation.md` for what it costs.
+  const played = new Set(weeks);
+  const inSeason = [...byes].filter((week) => played.has(week));
+  const ordinary = weeks.length - inSeason.length;
   let total = expectedInOneWeek(ordered, slots, replacement, null) * ordinary;
   for (const week of inSeason) {
     total += expectedInOneWeek(ordered, slots, replacement, week);
   }
-  return total / weeks;
+  return total / weeks.length;
 }
 
 /**
@@ -186,7 +200,14 @@ export function coverValue(
   candidate: DepthPlayer,
   slots: number,
   replacement: number,
-  weeks: number,
+  /**
+   * The weeks the average is taken over, by number rather than as a count.
+   *
+   * Both a denominator and the set a bye is tested for membership in. Those were one
+   * argument doing two jobs while every season ran `1..n`; the list keeps them honest, and
+   * makes a caller state which weeks it means rather than how many there are.
+   */
+  weeks: readonly number[],
 ): number {
   if (slots <= 0) return 0;
   const withHim = [...rosterAtPosition, candidate];

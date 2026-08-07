@@ -6,6 +6,7 @@ import {
   type LeagueConfig,
   bracketRoundsRequired,
   championshipProbability,
+  fantasySeasonWeeks,
   roundRobinSchedule,
   sampleTeamWeeklyScores,
   simulateLeague,
@@ -225,6 +226,156 @@ describe("championship probability is not expected points", () => {
     expect(inWeak.championshipProbability).toBeGreaterThan(
       inStrong.championshipProbability * 3,
     );
+  });
+});
+
+describe("fantasySeasonWeeks", () => {
+  it("lays out the season every mainstream platform defaults to", () => {
+    expect(fantasySeasonWeeks(17, 6)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      playoffWeeks: [15, 16, 17],
+    });
+  });
+
+  it("moves the whole bracket when a league ends early", () => {
+    // The setting this exists for. A six-team field ending in week 16 opens its bracket in
+    // week 14 — an NFL week with byes in it — and one ending in week 15 opens in 13, which
+    // puts its *semi*-final on week 14 instead. Both are weeks the old literals treated as
+    // ordinary regular-season football.
+    expect(fantasySeasonWeeks(16, 6)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      playoffWeeks: [14, 15, 16],
+    });
+    expect(fantasySeasonWeeks(15, 6)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      playoffWeeks: [13, 14, 15],
+    });
+  });
+
+  it("gives a four-team field two rounds, not three", () => {
+    // What the literals it replaces got wrong. A four-team bracket over three playoff
+    // weeks plays a final round with one team in it, and the week that padding consumed
+    // belonged to neither half of the season: a fourteen-week regular season and a
+    // three-week bracket ending in 17 simply lost week 15.
+    expect(fantasySeasonWeeks(17, 4)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      playoffWeeks: [16, 17],
+    });
+    expect(fantasySeasonWeeks(16, 4)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      playoffWeeks: [15, 16],
+    });
+  });
+
+  it("covers every week up to the final exactly once", () => {
+    // The property the simulation depends on and no individual expectation above states:
+    // `sampleTeamWeeklyScores` concatenates the two lists and the bracket indexes into the
+    // result by position, so a gap or an overlap would silently score the wrong week.
+    for (const championshipWeek of [15, 16, 17]) {
+      for (const playoffTeams of [1, 2, 4, 6, 8]) {
+        const { weeks, playoffWeeks } = fantasySeasonWeeks(championshipWeek, playoffTeams);
+        expect([...weeks, ...playoffWeeks]).toEqual(
+          Array.from({ length: championshipWeek }, (_, i) => i + 1),
+        );
+        // And enough rounds to actually crown someone, which `simulateLeague` refuses
+        // without.
+        expect(playoffWeeks.length).toBe(bracketRoundsRequired(playoffTeams));
+        expect(weeks.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("runs the whole season as a regular season when there is no bracket to play", () => {
+    expect(fantasySeasonWeeks(17, 1)).toEqual({
+      weeks: Array.from({ length: 17 }, (_, i) => i + 1),
+      playoffWeeks: [],
+    });
+  });
+
+  it("refuses a season it cannot lay out rather than returning a broken one", () => {
+    expect(() => fantasySeasonWeeks(16.5, 6)).toThrow(/whole, positive week/);
+    expect(() => fantasySeasonWeeks(0, 6)).toThrow(/whole, positive week/);
+    expect(() => fantasySeasonWeeks(17, 0)).toThrow(/positive integer/);
+    expect(() => fantasySeasonWeeks(17, 2.5)).toThrow(/positive integer/);
+    // Three rounds ending in week 3 would leave no regular season at all, so every team
+    // would enter the bracket on an identical record and the tiebreak hash alone would
+    // decide the seeding.
+    expect(() => fantasySeasonWeeks(3, 6)).toThrow(/still playing a regular season/);
+  });
+});
+
+describe("when the final is played changes what a bye is worth", () => {
+  // Why the season's weeks are configuration and not constants, as a measurement rather
+  // than an argument. Everything is held fixed but the week the star is idle — and because
+  // each player's random stream is keyed on his own id, the two runs draw *identical*
+  // numbers and differ only in which week is masked out. The comparison is paired by
+  // construction, so a gap this size is not sampling noise.
+  function titleOdds(cfg: LeagueConfig, byeWeek: number | null): number {
+    const mine = [
+      player("me-rb1", "RB", 18, { byeWeek }),
+      player("me-rb2", "RB", 11),
+      player("me-wr1", "WR", 11),
+    ];
+    const opponents = Array.from({ length: 11 }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`opp${i}`, 12), cfg, 500 + i),
+    );
+    return championshipProbability(
+      sampleTeamWeeklyScores(mine, cfg, 7),
+      opponents,
+      cfg,
+    ).championshipProbability;
+  }
+
+  const league = (championshipWeek: number, playoffTeams: number): LeagueConfig => ({
+    slots: SLOTS,
+    ...fantasySeasonWeeks(championshipWeek, playoffTeams),
+    playoffTeams,
+    scenarios: 1500,
+    meanAbsenceWeeks: 3,
+  });
+
+  it("roughly halves a title when the bye lands in a round you have to play", () => {
+    // A four-team league whose final is in week 15 plays its semi-final in week 14 — a
+    // real NFL bye week, in a round every qualifier plays. The identical roster in a
+    // league ending in week 17 never meets that: its bracket starts after the last bye.
+    //
+    // So this is not a rounding difference between two configurations. It is the same
+    // player being worth about half as much to one league as to the other, and no amount
+    // of care about the projection can recover it, because the projection is the same.
+    const cfg = league(15, 4);
+    expect(cfg.playoffWeeks).toContain(14);
+    const regularSeasonBye = titleOdds(cfg, 7);
+    const playoffBye = titleOdds(cfg, 14);
+    expect(playoffBye).toBeLessThan(regularSeasonBye * 0.7);
+    // And an ordinary bye is a real but modest cost against no bye at all, which is what
+    // makes the number above a statement about the *week* rather than about byes.
+    const noBye = titleOdds(cfg, null);
+    expect(regularSeasonBye).toBeLessThan(noBye);
+    expect(regularSeasonBye).toBeGreaterThan(noBye * 0.8);
+  });
+
+  it("costs less in a round the top seeds sit out", () => {
+    // A six-team field gives seeds one and two a first-round bye, so week 14 of a league
+    // ending in week 16 is only played by the teams that finished third to sixth. The cost
+    // is therefore real but far smaller than a semi-final's: a top seed is guaranteed not
+    // to play week 14, and no seed is guaranteed to skip a later round. That is a
+    // distinction the simulation gets for free by playing the bracket, and one no per-week
+    // weighting could express.
+    //
+    // "A round every qualifier plays" would be wrong here and is worth not writing: in a
+    // six-team, three-round bracket no round is played by all six. It fits the four-team
+    // case in the test above and was carried across to this one, which is exactly the kind
+    // of nearly-right sentence a reader would take at face value.
+    const cfg = league(16, 6);
+    // Named rather than assumed, because which round each week *is* carries the whole
+    // claim: 14 is the quarter-final, 15 the semi-final, 16 the final.
+    expect(cfg.playoffWeeks).toEqual([14, 15, 16]);
+    const firstRoundBye = titleOdds(cfg, 14);
+    // Both must-play rounds, not just the final. The documented claim is about the
+    // semi-final, so the semi-final is the one that has to be measured.
+    expect(titleOdds(cfg, 15)).toBeLessThan(firstRoundBye * 0.7);
+    expect(titleOdds(cfg, 16)).toBeLessThan(firstRoundBye * 0.7);
+    expect(firstRoundBye).toBeGreaterThan(titleOdds(cfg, 7) * 0.8);
   });
 });
 

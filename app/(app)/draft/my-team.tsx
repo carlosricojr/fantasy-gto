@@ -28,6 +28,7 @@ export function MyTeam({
   roster,
   pickByPlayerId,
   teams,
+  playoffWeeks,
   basisFor,
 }: {
   slots: readonly RosterSlot[];
@@ -36,6 +37,13 @@ export function MyTeam({
   pickByPlayerId: ReadonlyMap<string, number>;
   /** League size, so a pick is named "3.04" here as it is everywhere else. */
   teams: number;
+  /**
+   * The league's playoff rounds, from the same config the simulation is run with.
+   *
+   * Passed down rather than assumed, because it is the league's setting and not a constant:
+   * a final in week 15 puts the semi-final in week 14, where a dozen NFL teams are idle.
+   */
+  playoffWeeks: readonly number[];
   /** Where each player's number came from, so a market-only starter is marked here too. */
   basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
@@ -118,7 +126,7 @@ export function MyTeam({
         </footer>
       )}
 
-      <ByeGaps slots={slots} roster={roster} />
+      <ByeGaps slots={slots} roster={roster} playoffWeeks={playoffWeeks} />
     </section>
   );
 }
@@ -169,11 +177,16 @@ function PlayerLine({
 function ByeGaps({
   slots,
   roster,
+  playoffWeeks,
 }: {
   slots: readonly RosterSlot[];
   roster: readonly PlayerRisk[];
+  playoffWeeks: readonly number[];
 }) {
-  const gaps = useMemo(() => byeGaps(slots, roster), [slots, roster]);
+  const gaps = useMemo(
+    () => byeGaps(slots, roster, playoffWeeks),
+    [slots, roster, playoffWeeks],
+  );
   if (gaps.length === 0) return null;
 
   return (
@@ -183,6 +196,17 @@ function ByeGaps({
         {gaps.map((gap) => (
           <li key={gap.week} className="tabular-nums">
             Week {gap.week}: no {gap.slots.join(", ")}
+            {/*
+              Named rather than coloured. A gap in a playoff round is a different kind of
+              problem from one in week 7, and which weeks those are is the league's own
+              setting — so the label states it instead of expecting the reader to hold
+              their championship week in their head while reading a list of numbers.
+            */}
+            {gap.inPlayoffs ? (
+              <span className="ml-1 font-medium text-amber-700 dark:text-amber-400">
+                — a playoff week
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>
