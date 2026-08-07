@@ -107,6 +107,10 @@ describe("the scanner itself", () => {
     expect(stripCommentsAndStrings('if (ok) /[//]/.test(v); Date.now()')).toContain("Date.now(");
     // ...but a call's closing paren still is division, not a literal.
     expect(stripComments("const r = f(a) / 2; // gone\nx")).not.toContain("gone");
+    // A brace inside a string inside an interpolation does not end the interpolation.
+    expect(stripCommentsAndStrings('const t = `${row["}"]} tail`; Date.now()')).toContain(
+      "Date.now(",
+    );
   });
 
   it("does not treat // inside a string as a comment", () => {

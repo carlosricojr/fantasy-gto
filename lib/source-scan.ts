@@ -225,7 +225,28 @@ export function stripCommentsAndStrings(source: string): string {
         }
         if (depth > 0) {
           // Inside an interpolation: keep the expression, tracking nesting so a `}` in a
-          // nested object literal does not end it early.
+          // nested object literal does not end it early — and stepping over string
+          // literals, so a brace *inside* a string does not either. `${row["}"]}` ended the
+          // interpolation at the quoted brace and left the rest of the template being read
+          // as executable code, which is the direction that hides calls rather than
+          // inventing them.
+          if (source[i] === '"' || source[i] === "'") {
+            const quote = source[i];
+            out += source[i];
+            i += 1;
+            while (i < source.length && source[i] !== quote) {
+              if (source[i] === "\\") {
+                out += source.slice(i, i + 2);
+                i += 2;
+                continue;
+              }
+              out += source[i];
+              i += 1;
+            }
+            out += source[i] ?? "";
+            i += 1;
+            continue;
+          }
           if (source[i] === "{") depth += 1;
           if (source[i] === "}") {
             depth -= 1;
