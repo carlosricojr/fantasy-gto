@@ -202,15 +202,40 @@ Two findings from that simulation that a points-based valuation cannot produce:
   how much better any policy could do; it is **not implemented**, so the size of the gap is
   currently unknown.
 
-### The estimate is noisy, and says so
+### The estimate is noisy, and says so — in two different ways
 
 A title is roughly a one-in-twelve event, so at the few hundred scenarios a draft clock
 allows, the top candidates are frequently within sampling noise of each other — 16.7%
-against 15.8% is not a real difference at n=300. Every recommendation carries its standard
-error and a `tiedWithLeader` flag, and tied candidates are ordered by playoff probability,
-which resolves at these sample sizes because it is roughly a coin flip rather than a rare
-event. Presenting an unresolved ordering as decided would be exactly the false precision
-this project exists to avoid.
+against 15.8% is not a real difference at n=300. Presenting an unresolved ordering as
+decided would be exactly the false precision this project exists to avoid.
+
+**Two uncertainties are reported, and they are not interchangeable.**
+
+- **`standardError`** is `sqrt(p(1-p)/n)` on the candidate's own title probability. It says
+  what "16.7%" is worth on its own.
+- **`vsLeader`** is the uncertainty on the *comparison*. Every candidate is simulated over
+  the same seasons — one seed, and each player drawing from a stream keyed on his own id —
+  so the informative quantity is the scenario-by-scenario difference, not the difference of
+  two separately estimated rates. `pairedOutcomeComparison` in `lib/core/stats.ts` summarizes
+  it: how many scenarios each candidate won and the other did not, the mean difference, and a
+  Student's-t interval on that mean.
+
+  Adding two marginal standard errors is not the standard error of their difference under
+  any circumstances, and that is what the tie flag used to do.
+
+  It is **not** claimed that the paired error is always smaller. Positively correlated
+  outcomes make it smaller — the usual case here, since two rosters differing by one player
+  mostly win and lose the same seasons — but negatively correlated ones make it larger, and a
+  sample can land either way. `stats.test.ts` contains a fixture where it is larger.
+
+`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and tied
+candidates are ordered by playoff probability, which resolves at these sample sizes because
+it is roughly a coin flip rather than a rare event.
+
+**The leader is selected from the same sample the intervals are computed on, so they are
+descriptive rather than inferential.** No multiple-comparison correction is applied and no
+comparison was predeclared. They describe what happened in these scenarios; they are not a
+test of what would happen in new ones, and the type says so where it is defined.
 
 ### Rookies
 

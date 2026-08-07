@@ -595,6 +595,7 @@ somebody wrote down that the command was run.
 | --- | --- | --- |
 | #38 — roster-state-aware draft replacement demand | `pnpm backtest` | Every figure in this document reproduced unchanged. `lib/nfl/model/published-metrics.json` untouched, working tree otherwise clean. Holdout not evaluated: the run printed `HOLDOUT 2025 NOT EVALUATED.` |
 | #39 — diminishing bench marginal value in the base policy | `pnpm backtest` | Unchanged again, on the same terms. Spot-checked against the printed output: tuning delta MAE `+0.5243 (+8.33%)`, clustered SE `0.0299`, pairwise 65.46% against 63.94%, lineup regret 17.607 against 19.749. |
+| #40 — paired candidate-difference uncertainty | `pnpm backtest` | Unchanged. This one alters what a recommendation *reports* and how the tie band is decided, not what the base policy picks — but the tie band decides the ordering of tied candidates, so it is a policy change and gets the same treatment. |
 
 That result is expected rather than surprising, and the reason is worth stating: the draft
 policy consumes the weekly model's output and does not participate in producing it, so

@@ -539,3 +539,126 @@ export function studentTQuantile(p: number, df: number): number {
   }
   return (low + high) / 2;
 }
+
+/**
+ * A comparison of two binary outcomes measured on the same trials.
+ *
+ * **This is not `pairedComparison`, deliberately.** That function exists for a different
+ * measurement and carries its semantics in its shape: observations are clustered by player,
+ * the edge is expressed as a percentage of a baseline error, a zero baseline is an error
+ * rather than a datum, and fewer than two clusters is refused. None of that describes a
+ * draft recommendation. Scenario-level title outcomes have no cluster, no meaningful
+ * baseline *level* to divide by — a candidate whose title probability is zero is an ordinary
+ * result, not a corrupt one — and the difference is a three-valued quantity rather than a
+ * continuous one. Reusing it would have meant either changing its guards for a caller they
+ * were not written for, or dividing by something that is allowed to be zero.
+ *
+ * The pairing is what makes this worth having. Two candidate picks are evaluated over the
+ * *same* simulated seasons — `recommendByChampionship` passes one seed to every candidate
+ * and each player draws from a stream keyed on his own id — so scenario 47 is the same
+ * fourteen weeks of football in both. Comparing two marginal probabilities as though they
+ * came from independent samples throws that away, and adding their standard errors is not
+ * the standard error of their difference under any circumstances.
+ *
+ * What it is *not*: the paired standard error is not guaranteed to be smaller than the
+ * marginal one. Positively correlated outcomes make it smaller, which is the usual case
+ * here — two rosters differing by one player mostly win and lose the same seasons — but
+ * negatively correlated outcomes make it larger, and a sample can land either way. A test
+ * asserting "paired is always tighter" would be asserting something false.
+ */
+export interface PairedOutcomeComparison {
+  /** Trials compared. Both vectors must be this long. */
+  n: number;
+  /** Trials the candidate won and the baseline did not. */
+  candidateOnly: number;
+  /** Trials the baseline won and the candidate did not. */
+  baselineOnly: number;
+  /** Trials where the two agreed, whether both won or both lost. */
+  agreed: number;
+  /**
+   * Mean of `candidate - baseline` over the trials, in [-1, 1].
+   *
+   * Equal to the difference of the two marginal rates — the pairing changes the *variance*,
+   * not the point estimate. Stated because a reader who finds the two agreeing might
+   * otherwise conclude the pairing did nothing.
+   */
+  meanDifference: number;
+  /**
+   * Standard error of that mean, from the paired differences themselves.
+   *
+   * Zero when every trial gave the same difference: two candidates that win exactly the same
+   * seasons, or one that wins exactly the seasons the other loses. There is no sampling
+   * variation left in either case and reporting some would be a fiction.
+   */
+  standardError: number;
+  /** Two-sided interval on `meanDifference` at `confidenceLevel`, from Student's t. */
+  interval: readonly [number, number];
+  /** The level `interval` is built at, as a percentage. */
+  confidenceLevel: number;
+}
+
+/**
+ * Summarizes `candidate - baseline` over trials both were measured on.
+ *
+ * `true` is a win. The difference per trial is +1, 0 or -1, and everything reported is a
+ * property of that vector rather than of the two rates separately.
+ *
+ * Refuses fewer than two trials. A standard error is an estimate of variation between
+ * trials, and one trial contains no information about it — returning zero would read as
+ * certainty, which is the opposite of what one observation means.
+ */
+export function pairedOutcomeComparison(
+  candidate: readonly boolean[],
+  baseline: readonly boolean[],
+): PairedOutcomeComparison {
+  if (candidate.length !== baseline.length) {
+    throw new Error(
+      `pairedOutcomeComparison: ${candidate.length} candidate outcomes against ` +
+        `${baseline.length} baseline outcomes. They must be the same trials.`,
+    );
+  }
+  const n = candidate.length;
+  if (n < 2) {
+    throw new Error(
+      `pairedOutcomeComparison: needs at least 2 trials to estimate a standard error, ` +
+        `got ${n}.`,
+    );
+  }
+
+  let candidateOnly = 0;
+  let baselineOnly = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (candidate[i] === baseline[i]) continue;
+    if (candidate[i]) candidateOnly += 1;
+    else baselineOnly += 1;
+  }
+  const agreed = n - candidateOnly - baselineOnly;
+  const meanDifference = (candidateOnly - baselineOnly) / n;
+
+  // Sample variance of a vector whose entries are +1, -1 and 0:
+  //   Σ(dᵢ − d̄)² = Σdᵢ² − n·d̄² = (candidateOnly + baselineOnly) − n·d̄²
+  // because dᵢ² is 1 exactly on the disagreements. Written this way rather than as a loop so
+  // the three counts are visibly the whole content of the estimate.
+  //
+  // Clamped at zero: the subtraction is exact in principle and the two terms can differ by a
+  // few parts in 10^16 in floating point when every trial disagrees the same way, which
+  // would put a variance a hair below zero and make the square root NaN.
+  const sumOfSquares = Math.max(
+    candidateOnly + baselineOnly - n * meanDifference * meanDifference,
+    0,
+  );
+  const standardError = Math.sqrt(sumOfSquares / (n - 1) / n);
+
+  const critical = studentTQuantile((1 + CONFIDENCE_LEVEL / 100) / 2, n - 1);
+  const halfWidth = critical * standardError;
+  return {
+    n,
+    candidateOnly,
+    baselineOnly,
+    agreed,
+    meanDifference,
+    standardError,
+    interval: [meanDifference - halfWidth, meanDifference + halfWidth],
+    confidenceLevel: CONFIDENCE_LEVEL,
+  };
+}

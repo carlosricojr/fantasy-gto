@@ -350,11 +350,32 @@ describe("recommendByChampionship", () => {
       }
     }
 
-    // And the flag itself is honest: tied means within the combined standard errors.
+    // And the flag itself is honest: tied means the paired interval on the difference with
+    // the leader contains zero — these scenarios do not separate the two. It used to mean
+    // "within the sum of the two marginal standard errors", which is not the standard error
+    // of a difference between anything; see #40.
+    const marked = recs.find((r) => r.vsLeader === null)!;
+    expect(marked.tiedWithLeader).toBe(true);
+    expect(marked.championshipProbability).toBe(best);
     for (const r of recs) {
-      const within =
-        best - r.championshipProbability <= leader.standardError + r.standardError;
-      expect(r.tiedWithLeader).toBe(within);
+      if (r.vsLeader === null) continue;
+      const separatesZero = r.vsLeader.interval[0] > 0 || r.vsLeader.interval[1] < 0;
+      expect(r.tiedWithLeader).toBe(!separatesZero);
+      // Both vectors cover every scenario, and the three counts partition them.
+      expect(r.vsLeader.n).toBe(CONFIG.scenarios);
+      expect(r.vsLeader.candidateOnly + r.vsLeader.baselineOnly + r.vsLeader.agreed).toBe(
+        CONFIG.scenarios,
+      );
+      // The point estimate is the difference of the two rates. Pairing changes the variance,
+      // not the mean, and a reader who found otherwise would be right to distrust it.
+      //
+      // To three places rather than four: both probabilities are reported rounded to four,
+      // so their difference carries up to 1e-4 of rounding that `meanDifference` — computed
+      // from the raw scenario counts — does not.
+      expect(r.vsLeader.meanDifference).toBeCloseTo(
+        r.championshipProbability - marked.championshipProbability,
+        3,
+      );
     }
   });
 
@@ -1734,6 +1755,10 @@ describe("orderRecommendations", () => {
     playoffProbability,
     expectedPoints,
     standardError,
+    // These fixtures are hand-written numbers with no paired vector behind them, which is
+    // the case `orderRecommendations` documents a fallback for: it marks a tie from the sum
+    // of the two marginal standard errors, deliberately over-marking rather than under.
+    vsLeader: null,
     tiedWithLeader: false,
   });
 
@@ -2029,6 +2054,7 @@ const RECOMMENDATION: Omit<ChampionshipRecommendation, "player"> = {
   playoffProbability: 0.5,
   expectedPoints: 100,
   standardError: 0.001,
+  vsLeader: null,
   tiedWithLeader: false,
 };
 

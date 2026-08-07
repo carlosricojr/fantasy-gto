@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import { normalCdf } from "./draft";
 import { createRng, standardNormal } from "./rng";
 import {
+  CONFIDENCE_LEVEL,
   POWER_MULTIPLIER,
   type PairedError,
   Z_POWER_80,
   Z_TWO_SIDED_95,
   bootstrapPairedComparison,
   pairedComparison,
+  pairedOutcomeComparison,
   quantile,
   regularizedIncompleteBeta,
   studentTCdf,
@@ -547,5 +549,147 @@ describe("quantile", () => {
 
   it("returns NaN on an empty sample rather than a number", () => {
     expect(quantile([], 0.5)).toBeNaN();
+  });
+});
+
+/**
+ * Paired binary outcomes.
+ *
+ * Every fixture here is small enough to compute by hand and the arithmetic is written out,
+ * because the whole point of the function is that it is *not* the sum of two marginal
+ * standard errors and a reader has to be able to check that for themselves.
+ */
+describe("pairedOutcomeComparison", () => {
+  /** `sqrt(((a + b) - n * mean^2) / (n - 1) / n)`, the sample SE of the paired differences. */
+  const seOf = (candidateOnly: number, baselineOnly: number, n: number): number => {
+    const mean = (candidateOnly - baselineOnly) / n;
+    return Math.sqrt((candidateOnly + baselineOnly - n * mean * mean) / (n - 1) / n);
+  };
+
+  it("is zero mean and zero error when the two win exactly the same scenarios", () => {
+    // Perfectly concordant. Every difference is 0, so there is nothing to be uncertain about.
+    const wins = [true, false, true, true, false, false];
+    const result = pairedOutcomeComparison(wins, wins);
+    expect(result.n).toBe(6);
+    expect(result.candidateOnly).toBe(0);
+    expect(result.baselineOnly).toBe(0);
+    expect(result.agreed).toBe(6);
+    expect(result.meanDifference).toBe(0);
+    expect(result.standardError).toBe(0);
+    expect(result.interval).toEqual([0, 0]);
+  });
+
+  it("is zero error when the two disagree in every scenario the same way", () => {
+    // Perfectly discordant, one-sided: the candidate wins exactly the four the baseline
+    // loses. Every difference is +1, so the mean is 1 and the variance is 0.
+    const candidate = [true, true, true, true];
+    const baseline = [false, false, false, false];
+    const result = pairedOutcomeComparison(candidate, baseline);
+    expect(result.candidateOnly).toBe(4);
+    expect(result.baselineOnly).toBe(0);
+    expect(result.meanDifference).toBe(1);
+    expect(result.standardError).toBe(0);
+    expect(result.interval).toEqual([1, 1]);
+  });
+
+  it("is zero mean and nonzero error when the two disagree in both directions equally", () => {
+    // Perfectly discordant, two-sided. Differences are +1, -1, +1, -1: mean 0, and a real
+    // spread around it.
+    //
+    //   a = 2, b = 2, n = 4, mean = 0
+    //   SE = sqrt((4 - 0) / 3 / 4) = sqrt(1/3) = 0.5773502691896258
+    const result = pairedOutcomeComparison(
+      [true, false, true, false],
+      [false, true, false, true],
+    );
+    expect(result.meanDifference).toBe(0);
+    expect(result.standardError).toBeCloseTo(Math.sqrt(1 / 3), 12);
+    expect(result.standardError).toBeCloseTo(seOf(2, 2, 4), 12);
+    expect(result.interval[0]).toBeLessThan(0);
+    expect(result.interval[1]).toBeGreaterThan(0);
+  });
+
+  it("is the arithmetic on a mixed fixture", () => {
+    //   candidate  T T T F F F T F
+    //   baseline   T F F F T F F F
+    //   difference 0 +1 +1 0 -1 0 +1 0
+    //   a = 3, b = 1, agreed = 4, n = 8
+    //   mean = 2/8 = 0.25
+    //   SE   = sqrt((4 - 8*0.0625) / 7 / 8) = sqrt(3.5 / 56) = 0.25
+    const result = pairedOutcomeComparison(
+      [true, true, true, false, false, false, true, false],
+      [true, false, false, false, true, false, false, false],
+    );
+    expect(result.candidateOnly).toBe(3);
+    expect(result.baselineOnly).toBe(1);
+    expect(result.agreed).toBe(4);
+    expect(result.meanDifference).toBe(0.25);
+    expect(result.standardError).toBeCloseTo(0.25, 12);
+    expect(result.standardError).toBeCloseTo(seOf(3, 1, 8), 12);
+  });
+
+  it("negates the mean and preserves the error when the two sides are swapped", () => {
+    const candidate = [true, true, false, false, true, false];
+    const baseline = [false, true, true, false, false, false];
+    const forward = pairedOutcomeComparison(candidate, baseline);
+    const reversed = pairedOutcomeComparison(baseline, candidate);
+    expect(reversed.meanDifference).toBeCloseTo(-forward.meanDifference, 12);
+    expect(reversed.standardError).toBeCloseTo(forward.standardError, 12);
+    expect(reversed.candidateOnly).toBe(forward.baselineOnly);
+    expect(reversed.baselineOnly).toBe(forward.candidateOnly);
+    expect(reversed.agreed).toBe(forward.agreed);
+    expect(reversed.interval[0]).toBeCloseTo(-forward.interval[1], 12);
+    expect(reversed.interval[1]).toBeCloseTo(-forward.interval[0], 12);
+  });
+
+  it("is not always tighter than treating the two samples as independent", () => {
+    // The invariant a reader might reach for, and it is false. Positively correlated
+    // outcomes make the paired error smaller — the usual case, and the reason pairing is
+    // worth anything — but negatively correlated ones make it larger, and a sample can land
+    // either way. Asserting "paired is always smaller" would be asserting something untrue.
+    const n = 4;
+    const marginalSum = (a: readonly boolean[]): number => {
+      const p = a.filter(Boolean).length / n;
+      return Math.sqrt((p * (1 - p)) / n);
+    };
+    // Discordant: candidate and baseline both win half the scenarios, never the same half.
+    const discordant = pairedOutcomeComparison(
+      [true, true, false, false],
+      [false, false, true, true],
+    );
+    const independentSum =
+      marginalSum([true, true, false, false]) + marginalSum([false, false, true, true]);
+    expect(discordant.standardError).toBeGreaterThan(independentSum);
+
+    // Concordant: the same rates, the same scenarios. Zero against the same sum.
+    const concordant = pairedOutcomeComparison(
+      [true, true, false, false],
+      [true, true, false, false],
+    );
+    expect(concordant.standardError).toBeLessThan(independentSum);
+  });
+
+  it("refuses vectors of different lengths", () => {
+    expect(() => pairedOutcomeComparison([true, false], [true])).toThrow(
+      /same trials/,
+    );
+  });
+
+  it("refuses fewer than two trials", () => {
+    // One observation carries no information about variation between observations, and a
+    // standard error of zero would read as certainty.
+    expect(() => pairedOutcomeComparison([true], [false])).toThrow(/at least 2 trials/);
+    expect(() => pairedOutcomeComparison([], [])).toThrow(/at least 2 trials/);
+  });
+
+  it("carries the confidence level it built the interval at", () => {
+    const result = pairedOutcomeComparison([true, false, true], [false, false, true]);
+    expect(result.confidenceLevel).toBe(CONFIDENCE_LEVEL);
+    // Student's t at 2 degrees of freedom, two-sided 95%.
+    const critical = studentTQuantile(0.975, 2);
+    expect(result.interval[0]).toBeCloseTo(
+      result.meanDifference - critical * result.standardError,
+      12,
+    );
   });
 });
