@@ -8,6 +8,7 @@ import {
   recordPick,
   undoPick,
 } from "./persistence";
+import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 
 /**
  * Restoring a draft.
@@ -36,6 +37,47 @@ const stored = (overrides: Record<string, unknown> = {}): string =>
 describe("parsePersistedDraft", () => {
   it("round-trips a draft it wrote", () => {
     expect(parsePersistedDraft(stored())).toEqual(VALID);
+  });
+
+  it("round-trips the exact configuration this epic is built against", () => {
+    // Ten teams, fifteen rounds, standard scoring, two FLEX — the league the recommendations
+    // were tested against, and the one no roster template could represent before #41. A
+    // preset that cannot be *restored* is a preset a user loses on a page refresh, halfway
+    // through the draft it was chosen for.
+    const mock: PersistedDraft = {
+      teams: 10,
+      rounds: 15,
+      slot: 9,
+      scoringId: "standard",
+      templateId: "two_flex",
+      playoffTeams: 6,
+      started: true,
+      picks: { 1: "player-a" },
+    };
+    expect(parsePersistedDraft(JSON.stringify(mock))).toEqual(mock);
+  });
+
+  it("round-trips every shipped roster template at its own round count", () => {
+    // Each preset carries the roster size it is drafted at, and both halves have to survive
+    // a reload: a two-FLEX league restored at thirteen rounds is a different league.
+    for (const template of ROSTER_TEMPLATES) {
+      const payload: PersistedDraft = {
+        ...VALID,
+        templateId: template.id,
+        rounds: template.rounds,
+      };
+      expect(parsePersistedDraft(JSON.stringify(payload))).toEqual(payload);
+    }
+  });
+
+  it("carries no template whose own round count this refuses", () => {
+    // A preset the setup screen applies and the parser then rejects would be a draft that
+    // cannot be reloaded, discovered only on a refresh. `normalizeLeagueSetup` clamps rather
+    // than refusing, so the mismatch would be silent in the other direction too.
+    for (const template of ROSTER_TEMPLATES) {
+      expect(template.rounds).toBeLessThanOrEqual(MAX_ROUNDS);
+      expect(template.rounds).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it("restores an unstarted draft, which is not the same as no draft", () => {

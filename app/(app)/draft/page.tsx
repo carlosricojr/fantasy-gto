@@ -28,7 +28,12 @@ import {
 import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import type { LeagueConfig } from "@/lib/core/season-sim";
-import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
+import {
+  ROSTER_TEMPLATES,
+  rosterTemplateById,
+  slotSummary,
+  slotsForTemplate,
+} from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
@@ -551,13 +556,33 @@ export default function DraftPage() {
                     size="sm"
                     variant={template.id === templateId ? "default" : "outline"}
                     aria-pressed={template.id === templateId}
-                    onClick={() => setTemplateId(template.id)}
+                    // The roster size comes with the shape, because the two are not
+                    // independent: nine starters over fifteen rounds is a six-man bench and
+                    // over thirteen a four-man one, and the depth model prices those
+                    // differently. Applied rather than enforced — the Rounds control above
+                    // still overrides it, which is what a league that drafts sixteen with a
+                    // standard lineup needs.
+                    onClick={() => {
+                      setTemplateId(template.id);
+                      setRounds(template.rounds);
+                    }}
                   >
                     {template.label}
                   </Button>
                 ))}
               </div>
             </Field>
+            {/*
+              The slots themselves, derived from the counts rather than from the label.
+              "Standard" and "2 FLEX" are four characters apart on a phone and field
+              different lineups; a user who cannot see the difference cannot check it, and
+              the whole epic exists because a real league's shape could not be represented
+              exactly.
+            */}
+            <p className="mt-2 text-sm text-muted-foreground">
+              Starts {slotSummary(templateId)} · {starters.length} starters,{" "}
+              {Math.max(setup.rounds - starters.length, 0)} bench
+            </p>
           </div>
 
           <p className="mt-4 text-sm text-muted-foreground">
@@ -682,6 +707,19 @@ export default function DraftPage() {
       <p className="sr-only" role="status" aria-live="polite">
         {turnSummary}
       </p>
+
+      {/*
+        The league's shape, kept in front of the reader for the whole draft rather than only
+        on the setup screen it was chosen on. A draft is an hour of picks made against a
+        lineup nobody is looking at, and a board built for the wrong shape gives advice that
+        is wrong in a way that reads as merely surprising.
+      */}
+      {started ? (
+        <p className="mb-4 text-sm text-muted-foreground">
+          {setup.teams} teams · {setup.rounds} rounds · seat {setup.slot} ·{" "}
+          {rosterTemplateById(templateId).label} ({slotSummary(templateId)})
+        </p>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="flex flex-col gap-6">
