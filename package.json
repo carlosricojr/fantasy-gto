@@ -20,7 +20,8 @@
     "backtest": "tsx scripts/backtest.ts",
     "verify-sources": "tsx scripts/verify-sources.ts",
     "draft-backtest": "tsx scripts/draft-backtest.ts",
-    "mutate": "tsx scripts/mutate.ts"
+    "mutate": "tsx scripts/mutate.ts",
+    "draft-latency": "tsx scripts/draft-latency.ts"
   },
   "dependencies": {
     "@clerk/backend": "^2.33.6",

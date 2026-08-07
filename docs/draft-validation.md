@@ -287,49 +287,88 @@ measured improvement over ADP that survives out-of-sample. Draft capital is alre
 so college production has to beat the crowd's reading of it, not merely correlate with
 outcomes.
 
-### Cost
+### Cost, and the budget derived from it
 
-Measured on the real published 2026 board (614 rows), 12 teams, 15 rounds, a full roster of
-starters plus bench, 10 candidates. **These figures are machine-dependent and the machine is
-not recorded with them**, which makes them a comparison between two revisions rather than a
-budget. Turning them into a budget — environment, board size, percentiles, worst case — is
-#58 and is not done.
+`pnpm draft-latency` prints the distribution with the environment it was measured in. A
+displayed elapsed time is not a budget: it says how long one call took on one machine, tells
+nobody what the tail looks like, and cannot fail.
 
-| Scenarios | Before #38/#39 | After |
-| --- | --- | --- |
-| 150 | 0.62s | 0.94s |
-| 300 | 1.16s | 1.46s |
-| 600 | 2.29s | 3.10s |
-| 1000 | 3.78s | 4.85s |
+```text
+node v24.18.0, darwin arm64, Apple M4 Max x14, 36.0 GiB
+board 614 players (DST 15, K 15, QB 81, RB 147, TE 124, WR 232)
+12 teams, 15 rounds, seat 9, standard (9 starters), 10 candidates, seed 20260101
+percentiles by nearest rank
+```
 
-Both columns measured on the same machine in the same session, so the ratio is meaningful
-where the absolute numbers are not. The rise is around 30%, and it buys two things the
-previous revision did not have: replacement demand solved from the rosters that exist rather
-than from the template, and a depth model that diminishes. The base policy also evaluates
-two candidates per position rather than one, because value is monotone within a regime and
-not across the two — see `contendersFor`.
+| Scenarios | cold p50 | cold p95 | warm p95 | spec prepare p95 | spec hit p95 | spec miss p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 150 | 632 ms | 665 ms | 1 ms | 2514 ms | 0 ms | 631 ms |
+| 300 | 1202 ms | 1235 ms | 0 ms | 4809 ms | 0 ms | 1203 ms |
+| 600 | 2350 ms | 2429 ms | 0 ms | 9523 ms | 0 ms | 2355 ms |
+| 1000 | 3816 ms | 3949 ms | 0 ms | 15355 ms | 0 ms | 3916 ms |
 
-An earlier version of this table read 0.56 / 0.97 / 1.9 / 3.1 seconds. Those were measured
-on different hardware and are not comparable to either column above; they are replaced rather
-than kept, because a table that mixes machines is not a measurement of anything.
+Twelve samples per row except `prepare`, which is three — each of those solves four positions
+from scratch. Every row prints its own `n`.
+
+**The budget is the worst cold p95: 3949 ms at 1000 scenarios, against a two-minute pick
+clock. That is 3.29% of the clock — a margin of 30×.** At the shipped default of 600 it is
+2429 ms, or 2.02%. Read off the measurement rather than chosen before it, which is why the
+row it comes from is in the table.
+
+#### What the speculative rows say about whether to wire it
+
+Preparing four futures costs **4.9× a cold computation**, which is what it should cost: it is
+four of them. A wrong guess therefore does 19.3 seconds of work at 1000 scenarios where not
+speculating does 3.9.
+
+That is not the same as 19.3 seconds of waiting, and the distinction is the whole decision.
+The preparation runs while an opponent is on the clock, so a *hit* takes the user's wait from
+2.4 seconds to nothing and a *miss* leaves it exactly where it was — the fallback measures the
+same as cold. From the user's side speculation is strictly better.
+
+What it costs is the client's CPU, five times over, on a phone, and what it risks is
+contention: preparation that has not finished when the turn arrives queues the fallback behind
+itself, turning a 2.4-second wait into a longer one. That risk is not measured here and it is
+the thing a production implementation would have to bound — by budget, by cancellation, or by
+preparing fewer futures.
+
+The board is synthetic and deterministic, sized and shaped like the real published one. A
+benchmark that depended on a live provider would measure the provider, and one that depended
+on a cached download would not run at all on a machine that has never fetched it.
+
+An earlier version of this table read 0.56 / 0.97 / 1.9 / 3.1 seconds with no environment
+recorded. Those were measured on different hardware and are not comparable to anything here.
 
 At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
 resolves. 600 is the sensible default given a draft clock of a minute or more.
 
-Two optimizations got this from 7.8s. The rollout was completing all twelve teams for every
-candidate while only ever reading our own — the other eleven come from the baseline, which
-is computed once. And the base policy was re-solving the roster's own lineup for every one
-of forty contenders at every remaining pick, when that value does not depend on the
-contender.
+Two optimizations got the cold path from 7.8s. The rollout was completing all twelve teams
+for every candidate while only ever reading our own — the other eleven come from the
+baseline, which is computed once. And the base policy was re-solving the roster's own lineup
+for every one of forty contenders at every remaining pick, when that value does not depend on
+the contender.
 
-**Done.** It runs off the main thread in a Web Worker
+#### What is wired, and what is not
+
+**Wired.** The recommendation runs off the main thread in a Web Worker
 (`app/(app)/draft/recommend.worker.ts`), so a second of synchronous work cannot freeze the
-interface, and the board requests a recommendation speculatively while opponents are on the
-clock. Which player will still be available is not known in advance, so the speculation
-covers several plausible futures and takes a precomputed answer only when the board that
-arrives matches one of them exactly — `lib/core/draft-speculation.ts`. Repeated states are
-served from an LRU memo keyed on the full league configuration
-(`lib/core/draft-memo.ts`).
+interface. It recomputes for the current board on every change, including while opponents are
+on the clock, so the answer for a position is usually already there when the turn arrives.
+Repeated states are served from an LRU memo keyed on the full league configuration
+(`lib/core/draft-memo.ts`) — the `warm` row above. Replies are gated on request id and on a
+league fingerprint (`app/(app)/draft/reply-gate.ts`), so neither an older board's answer nor
+a previous scoring format's can replace a newer one.
+
+**Not wired.** `lib/core/draft-speculation.ts` — precomputing answers for the *futures* a
+board might reach while an opponent is picking, and serving one only on an exact signature
+match — has no production caller. The `speculative hit` and `speculative miss` rows above are
+measurements of the primitives, not of the product.
+
+This section previously said otherwise: that "the board requests a recommendation
+speculatively while opponents are on the clock" and "takes a precomputed answer only when the
+board that arrives matches one of them exactly". The first half described the ordinary
+recompute and the second described code nothing calls. Wiring it is #58, and the numbers
+above are the reason it is not urgent: a 30× margin on the path that *is* wired.
 
 ### League rules
 
