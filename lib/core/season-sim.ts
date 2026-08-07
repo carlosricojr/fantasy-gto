@@ -41,7 +41,28 @@ export interface TeamOutcome {
   teamId: string;
   championshipProbability: number;
   playoffProbability: number;
+  /** Regular-season wins. A tie counts a half to each side, so these are not whole. */
   expectedWins: number;
+  /**
+   * Points scored in the **regular season only**, which is what it is for: the near-universal
+   * tiebreak on seeding, applied after wins.
+   *
+   * Not the season total, and the difference is not pedantic now that the two halves are
+   * configurable. Playoff weeks are played and scored — they decide the bracket — but their
+   * points are deliberately not accumulated here, because a team that goes deep would
+   * otherwise appear to have out-scored one that did not *in the standings*, which is a
+   * statement about seeding and would be false. It also means this figure is blind to a bye
+   * that lands in a playoff round: correct for a tiebreak, and the wrong quantity to reach
+   * for if the question is what a roster is worth over every week it plays.
+   *
+   * **Nothing reports that quantity today**, which is worth saying rather than pointing at
+   * the nearest-looking function. `rosterUtility` sums whatever week list it is handed, and
+   * a `LeagueConfig` hands it the regular season alone — the bracket is a separate field,
+   * which is why `sampleTeamWeeklyScores` has to concatenate the two by hand. Passing a
+   * `LeagueConfig` straight to `rosterUtility` therefore returns points over the same weeks
+   * this figure already covers, which is precisely the mistake this paragraph exists to
+   * stop somebody making.
+   */
   expectedPoints: number;
 }
 
@@ -150,8 +171,12 @@ export function bracketRoundsRequired(playoffTeams: number): number {
  * The bracket length is derived rather than configured for the same reason. A four-team
  * field is two rounds and a six-team field is three; asking for both the field and the
  * number of playoff weeks invites a pair that disagree, and the pair that disagreed here
- * was a four-team field over three playoff weeks — a final round played by one team
- * against itself, and a regular-season week that belonged to neither half of the season.
+ * was a four-team field over three playoff weeks. That pair was wrong twice over, and the
+ * bracket being consumed from the front is what makes it so: over weeks 15-17 such a field
+ * played rounds in 15 and 16, decided the title in 16, and never reached 17 — `playBracket`
+ * stops once one team is left. So week 15 was spent as a playoff round when it should have
+ * closed the regular season, and week 17, the week the league had named as its final, went
+ * unplayed.
  *
  * A one-team "bracket" needs no rounds, so the season is regular weeks alone and
  * `championshipWeek` is the last of them. That is degenerate but coherent, and it falls

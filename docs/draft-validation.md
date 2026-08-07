@@ -397,11 +397,76 @@ things followed, and neither announced itself:
   the relation is what survives changing it. The first round of a six-team bracket costs
   much less than a semi-final, because seeds one and two sit it out — also asserted, and
   also a thing no per-week weighting could express.
-- **A four-team field got a bracket it does not play.** Two rounds were configured as
-  three, so the final round paired the survivor with itself and re-elected it, and the week
-  that padding consumed belonged to neither half of the season: fourteen regular weeks and
-  a bracket ending in week 17 simply lost week 15. Deriving the bracket length from the
-  field size makes that pair impossible to write down.
+- **A four-team field got a bracket it does not play.** Two rounds were configured as three.
+  `playBracket` consumes the bracket from the front and stops once the field is down to one,
+  so with fourteen regular weeks and a bracket in 15-17 that field played rounds in weeks 15
+  and 16 and never reached 17. Two things were wrong at once: week 15 was spent as a playoff
+  round when it should have been the last week of the regular season, and week 17 — the week
+  the league had named as its final — was not played at all. Deriving the bracket length from
+  the field size makes that pair impossible to write down.
+
+### What is guaranteed about a season that ends early
+
+A fantasy season is a **proper prefix** of the NFL one. Finals are played in week 15, 16 or
+17 and never 18, so there is always a tail of real NFL weeks the league does not score. That
+was implicit while the board wrote out one hardcoded season and became load-bearing the
+moment the final became a setting, because several modules now derive something from where a
+league stops and a disagreement between any two of them is a wrong number rather than a
+crash. It is therefore asserted as invariants rather than as examples.
+
+Over a few hundred season shapes, well beyond the six the interface offers
+(`season-sim.test.ts`):
+
+- the two week lists **partition** weeks 1 to the final — no gap, no overlap, no repeat, in
+  order. `sampleTeamWeeklyScores` concatenates them and `playBracket` indexes the result by
+  position, so anything else scores the wrong week silently;
+- the bracket is **exactly** `bracketRoundsRequired(playoffTeams)` long. Too few and
+  `simulateLeague` refuses outright. Too many is quieter: the bracket is consumed from the
+  front and `playBracket` stops once the field is down to one, so the last week the pair
+  named is never reached — which is how a hand-written four-team bracket over weeks 15-17
+  decided its title in week 16, left week 17 unplayed, and spent week 15 on a playoff round
+  that should have closed the regular season;
+- moving the final one week later slides every playoff round by one and adds exactly one
+  regular-season week — the bracket **moves rigidly**, it does not resize;
+- a larger field that needs another round takes that week from the regular season, and one
+  that fits in the same number of rounds changes nothing.
+
+Over every league the two controls can actually produce (`season-invariants.test.ts`), end
+to end: it ends before the NFL season does and leaves week `championshipWeek + 1` onward
+unplayed; every week it does play is a real NFL week; it round-trips through session storage;
+a payload written before the setting existed restores at the default final of week 17, which
+reproduces the old season exactly for a six-team field and deliberately does not for a
+four-team one — the old pair gave that field a three-week bracket it does not play, so
+restoring it unchanged would preserve the defect rather than the league; the sentence on
+screen names week counts *equal* to the ones simulated rather than a golden string; no two
+shapes share a recommendation memo key or a reply-gate fingerprint; and the regular season
+handed to the depth model is contiguous from week 1.
+
+That last one is not a precondition — `expectedAboveReplacement` tests each bye for
+*membership* in the week list and works for any list at all. It is the premise of a claim
+made in `draft-bench.ts`: that changing that argument from a count to a list left every
+number identical, because `played.has(13)` rejects exactly the weeks `13 <= 12` rejected.
+That equivalence holds only while the weeks run `1..n` from one. They do, and now something
+fails if they ever stop, rather than the comment quietly becoming false.
+
+And the conservation laws, for every shape: exactly one champion is crowned, exactly
+`playoffTeams` berths are filled, no team's title rate exceeds its berth rate, and total wins
+equal the games the league's own schedule holds. A season that quietly dropped a week, played
+a round twice, or crowned nobody fails arithmetic rather than returning plausible odds.
+
+Two consequences worth stating because they are easy to misread:
+
+- **A bye after the final costs exactly nothing** — not approximately nothing. Each player's
+  random stream is keyed on his own id and `simulateAvailability` consumes it identically
+  whatever his bye is, so an out-of-season bye cannot perturb the draw at all. The test
+  compares whole scenario tables rather than a probability, because a probability could agree
+  by luck.
+- **`TeamOutcome.expectedPoints` is regular-season points**, the seeding tiebreak, not the
+  season total. So a bye in a playoff round leaves it untouched while changing who wins the
+  title. That is correct for what it is for and the wrong quantity to reach for if the
+  question is what a roster is worth over every week it plays. Nothing reports that today:
+  `rosterUtility` sums whatever week list it is handed, and a `LeagueConfig` hands it the
+  regular season alone, so reaching for it returns the same weeks all over again.
 
 **Not handled: a two-week championship.** `playBracket` plays one round per week, so a
 final decided on the combined score of two weeks cannot be expressed. Leagues that do this

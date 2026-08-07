@@ -467,9 +467,11 @@ export default function DraftPage() {
 
   // Derived from the league's own final rather than written out. The literals this
   // replaces — weeks 1-14 with a three-week bracket — describe one real setting and were
-  // applied to every league: a four-team field got a third playoff round it does not play
-  // (a final between one team and itself), and week 15 belonged to neither half of its
-  // season. A league ending in week 15 got its semi-final priced as an ordinary week 14,
+  // applied to every league: a four-team field got a third playoff round, and because the
+  // bracket is consumed from the front it played weeks 15 and 16 and never reached 17 — so
+  // week 15 was spent as a playoff round instead of closing the regular season, and the week
+  // the league called its final went unplayed. A league ending in week 15 got its semi-final
+  // priced as an ordinary week 14,
   // where a dozen NFL teams are on bye.
   const config = useMemo<LeagueConfig>(
     () => ({

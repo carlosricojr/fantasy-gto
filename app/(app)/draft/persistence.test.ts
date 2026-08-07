@@ -287,8 +287,8 @@ describe("parsePersistedDraft", () => {
     // Nothing downstream repairs a stored value: the control offers only these three, so a
     // stored 13 has no button that could correct it and would reach `fantasySeasonWeeks`
     // as is. Week 18 is refused deliberately rather than incidentally — it is a real NFL
-    // week that `isFantasyWeek` admits, and it is the one no league should be advised to
-    // play a final in.
+    // week that `isNflRegularSeasonWeek` admits, and it is the one no league should be
+    // advised to play a final in.
     for (const championshipWeek of [0, 12, 13, 14, 18, 19, 16.5, "16", null]) {
       expect(parsePersistedDraft(stored({ championshipWeek }))).toBeNull();
     }
