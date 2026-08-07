@@ -5,6 +5,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChampionshipRecommendation, DraftPolicyState } from "@/lib/core/draft-policy";
 import type { LeagueConfig } from "@/lib/core/season-sim";
 import type { RecommendRequest, RecommendResponse } from "./recommend.worker";
+import {
+  type ReplyGateState,
+  applied,
+  initialGate,
+  isStale,
+  nextRequest,
+  retarget,
+  verdictFor,
+} from "./reply-gate";
 
 /**
  * Recommendations from the worker, with the staleness made visible.
@@ -20,6 +29,14 @@ import type { RecommendRequest, RecommendResponse } from "./recommend.worker";
  * And while a request is outstanding the previous answer stays on screen, marked stale
  * rather than blanked. A draft board that empties every time somebody picks is unusable,
  * but so is one that presents an old answer as current.
+ *
+ * A *third* case is not staleness at all and needed its own rule. When the league itself
+ * changes — scoring, roster shape, size — every outstanding reply and everything already on
+ * screen belongs to a different game. Request ids cannot see that, because they keep counting
+ * up and the newest reply is still the newest; and the board query returns to `undefined`
+ * while it reloads, so no new request goes out to displace the old answer. The previous
+ * league's recommendations sat there unmarked for as long as the query took. `reply-gate.ts`
+ * decides all three, and is pure so it can be tested without driving a component.
  */
 
 export interface RecommendationState {
@@ -49,6 +66,8 @@ export function useRecommendations(): RecommendationState & {
     seed: number,
     candidateLimit?: number,
   ) => void;
+  /** Discards everything belonging to a league that is no longer selected. */
+  retargetTo: (fingerprint: string) => void;
   /**
    * Why recommendations are unavailable, or `null` when they are not.
    *
@@ -63,9 +82,7 @@ export function useRecommendations(): RecommendationState & {
   unavailable: string | null;
 } {
   const workerRef = useRef<Worker | null>(null);
-  const nextId = useRef(0);
-  const latestSent = useRef(-1);
-  const latestApplied = useRef(-1);
+  const gate = useRef<ReplyGateState>(initialGate(""));
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [state, setState] = useState<RecommendationState>(IDLE);
 
@@ -95,10 +112,10 @@ export function useRecommendations(): RecommendationState & {
 
     worker.addEventListener("message", (event: MessageEvent<RecommendResponse>) => {
       const reply = event.data;
-      // Out-of-order replies are discarded rather than rendered. A slow answer for an
-      // older board must never overwrite a newer one.
-      if (reply.id < latestApplied.current) return;
-      latestApplied.current = reply.id;
+      // Out-of-order replies are discarded rather than rendered, and so are replies for a
+      // league the user has since changed away from.
+      if (verdictFor(gate.current, reply.id) !== "apply") return;
+      gate.current = applied(gate.current, reply.id);
 
       // A superseded reply carries no answer, because the worker skipped a request a newer
       // one had already replaced. Applying it would blank the panel for the gap until that
@@ -108,7 +125,7 @@ export function useRecommendations(): RecommendationState & {
 
       setState({
         recommendations: reply.error === undefined ? reply.recommendations : [],
-        stale: reply.id < latestSent.current,
+        stale: isStale(gate.current, reply.id),
         loading: false,
         error: reply.error ?? null,
         lastElapsedMs: reply.elapsedMs,
@@ -150,9 +167,9 @@ export function useRecommendations(): RecommendationState & {
       const worker = workerRef.current;
       if (worker === null) return;
 
-      const id = nextId.current;
-      nextId.current += 1;
-      latestSent.current = id;
+      const taken = nextRequest(gate.current);
+      gate.current = taken.gate;
+      const id = taken.id;
 
       setState((previous) => ({
         ...previous,
@@ -174,5 +191,20 @@ export function useRecommendations(): RecommendationState & {
     [],
   );
 
-  return { ...state, request, unavailable };
+  /**
+   * Points the hook at a different league, clearing anything belonging to the previous one.
+   *
+   * Called on every render with the current league's fingerprint; a no-op when it has not
+   * changed, so it does not blank the panel each time the component re-renders. It has to
+   * run whether or not a request follows — the case it exists for is the one where the board
+   * is still loading and no request *can* follow.
+   */
+  const retargetTo = useCallback((fingerprint: string) => {
+    const moved = retarget(gate.current, fingerprint);
+    if (!moved.changed) return;
+    gate.current = moved.gate;
+    setState(IDLE);
+  }, []);
+
+  return { ...state, request, retargetTo, unavailable };
 }

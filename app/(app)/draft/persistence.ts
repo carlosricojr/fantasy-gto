@@ -50,6 +50,22 @@ export interface PersistedDraft {
   slot: number;
   scoringId: string;
   templateId: string;
+  /**
+   * Whether the user actively confirmed the scoring format, rather than accepting whatever
+   * was preselected.
+   *
+   * The setup screen shows PPR selected on arrival, which is the most common format and a
+   * reasonable default for a control — and a terrible default for a *decision*. A standard-
+   * scoring league that clicked straight past it drafts against a board built for a format
+   * it does not play, and every value on it is wrong in a way that reads as merely
+   * surprising rather than as an error.
+   *
+   * Stored, so the confirmation survives a reload instead of being asked for again halfway
+   * through a draft. Optional on the way in and defaulted to `false`: a payload written
+   * before this field existed carries a choice nobody confirmed, and treating it as
+   * confirmed would be inventing the very acknowledgement this exists to require.
+   */
+  scoringConfirmed: boolean;
   playoffTeams: number;
   started: boolean;
   /** Overall pick number to player id. */
@@ -101,6 +117,11 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (playoffTeams >= teams) return null;
 
   const { scoringId, templateId, started } = row;
+  // Absent means "not confirmed", which is the safe reading of a payload written before the
+  // field existed. Anything else present but not a boolean is malformed and refused with the
+  // rest of the payload rather than coerced.
+  const scoringConfirmed = row.scoringConfirmed ?? false;
+  if (typeof scoringConfirmed !== "boolean") return null;
   // Both tested here for the message they give a reader, not because either is load-bearing
   // on its own: a non-string of either kind fails the `some(...)` membership check below,
   // since no preset id equals a number.
@@ -114,7 +135,17 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   const picks = parsePicks(row.picks, teams * rounds);
   if (picks === null) return null;
 
-  return { teams, rounds, slot, scoringId, templateId, playoffTeams, started, picks };
+  return {
+    teams,
+    rounds,
+    slot,
+    scoringId,
+    templateId,
+    scoringConfirmed,
+    playoffTeams,
+    started,
+    picks,
+  };
 }
 
 /**
