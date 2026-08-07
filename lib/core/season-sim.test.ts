@@ -534,8 +534,10 @@ describe("every league the product can express simulates coherently", () => {
     // and `playoffTeams === teamCount` does not, which the source says the first-round-bye
     // test relies on. That test ("gives the top seeds a first-round bye…") already exercises
     // the equal case with a six-team field in a six-team league, so this is a second reading
-    // of the same boundary against a season whose bracket sits inside the old regular-season
-    // range — not the only one, which an earlier version of this comment claimed.
+    // of the same boundary — not the only one, which an earlier version of this comment
+    // claimed. What it adds is the season shape: a twelve-team field needs four rounds, so
+    // a final in week 15 puts the bracket in weeks 12-15, overlapping the range a
+    // fourteen-week regular season used to own outright.
     //
     // Note what this does *not* pin, because the assertion looks like it does more than it
     // does. `playoffProbability` counts `seeded.slice(0, min(playoffTeams, teamCount))`,

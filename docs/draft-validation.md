@@ -421,10 +421,11 @@ Over a few hundred season shapes, well beyond the six the interface offers
   order. `sampleTeamWeeklyScores` concatenates them and `playBracket` indexes the result by
   position, so anything else scores the wrong week silently;
 - the bracket is **exactly** `bracketRoundsRequired(playoffTeams)` long. Too few and
-  `simulateLeague` refuses outright. Too many is quieter: `playBracket` stops once the field
-  is down to one, so the surplus round is simply never played — and the week it consumed
-  belongs to neither half of the season, which is what the hand-written pair actually cost a
-  four-team league;
+  `simulateLeague` refuses outright. Too many is quieter: the bracket is consumed from the
+  front and `playBracket` stops once the field is down to one, so the last week the pair
+  named is never reached — which is how a hand-written four-team bracket over weeks 15-17
+  decided its title in week 16, left week 17 unplayed, and spent week 15 on a playoff round
+  that should have closed the regular season;
 - moving the final one week later slides every playoff round by one and adds exactly one
   regular-season week — the bracket **moves rigidly**, it does not resize;
 - a larger field that needs another round takes that week from the regular season, and one
@@ -437,9 +438,9 @@ a payload written before the setting existed restores at the default final of we
 reproduces the old season exactly for a six-team field and deliberately does not for a
 four-team one — the old pair gave that field a three-week bracket it does not play, so
 restoring it unchanged would preserve the defect rather than the league; the sentence on
-screen names week counts *equal* to the ones simulated rather than a golden string; no two shapes share a
-recommendation memo key or a reply-gate fingerprint; and the regular season handed to the
-depth model is contiguous from week 1.
+screen names week counts *equal* to the ones simulated rather than a golden string; no two
+shapes share a recommendation memo key or a reply-gate fingerprint; and the regular season
+handed to the depth model is contiguous from week 1.
 
 That last one is not a precondition — `expectedAboveReplacement` tests each bye for
 *membership* in the week list and works for any list at all. It is the premise of a claim

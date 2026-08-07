@@ -171,10 +171,12 @@ export function bracketRoundsRequired(playoffTeams: number): number {
  * The bracket length is derived rather than configured for the same reason. A four-team
  * field is two rounds and a six-team field is three; asking for both the field and the
  * number of playoff weeks invites a pair that disagree, and the pair that disagreed here
- * was a four-team field over three playoff weeks. The surplus round is not played —
- * `playBracket` stops once the field is down to one — so what that pair actually cost was
- * the *week*: it was labelled a playoff round, nobody played it, and the regular season was
- * a week shorter than the league's.
+ * was a four-team field over three playoff weeks. That pair was wrong twice over, and the
+ * bracket being consumed from the front is what makes it so: over weeks 15-17 such a field
+ * played rounds in 15 and 16, decided the title in 16, and never reached 17 — `playBracket`
+ * stops once one team is left. So week 15 was spent as a playoff round when it should have
+ * closed the regular season, and week 17, the week the league had named as its final, went
+ * unplayed.
  *
  * A one-team "bracket" needs no rounds, so the season is regular weeks alone and
  * `championshipWeek` is the last of them. That is degenerate but coherent, and it falls
