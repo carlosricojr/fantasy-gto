@@ -4,6 +4,7 @@ import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { slotsForTemplate } from "@/lib/nfl/roster";
 import {
   type PoolPlayer,
+  byeGaps,
   filterPool,
   neededPositions,
   positionCounts,
@@ -206,5 +207,82 @@ describe("what the roster still needs", () => {
 describe("unrankedAdpFor", () => {
   it("puts an unpriced player behind everyone the market has priced", () => {
     expect(unrankedAdpFor(180)).toBeGreaterThan(180);
+  });
+});
+
+describe("byeGaps", () => {
+  const slots = slotsForTemplate("standard");
+
+  function risk(id: string, position: string, byeWeek: number | null): PlayerRisk {
+    return {
+      id,
+      name: id,
+      position,
+      weeklyMean: 12,
+      p10: 0.6,
+      p90: 1.4,
+      byeWeek,
+      availability: 0.9,
+    };
+  }
+
+  /** A roster that fills every starting slot, with each player on a different bye. */
+  function fullRoster(): PlayerRisk[] {
+    return [
+      risk("qb", "QB", 1),
+      risk("rb1", "RB", 2),
+      risk("rb2", "RB", 3),
+      risk("wr1", "WR", 4),
+      risk("wr2", "WR", 5),
+      risk("te", "TE", 6),
+      risk("flex", "WR", 7),
+      risk("k", "K", 8),
+      risk("dst", "DST", 9),
+    ];
+  }
+
+  it("reports the slot a bye leaves empty, not the players sharing a week", () => {
+    // The old panel said "Week 9: RB, RB". That is a fact about the roster, not a cost —
+    // what a manager needs to know is which slot has nobody in it that week.
+    const gaps = byeGaps(slots, fullRoster());
+    expect(gaps.find((gap) => gap.week === 1)?.slots).toEqual(["QB"]);
+    expect(gaps.find((gap) => gap.week === 6)?.slots).toEqual(["TE"]);
+  });
+
+  it("says nothing when depth covers the week", () => {
+    // Three backs sharing nothing but a position: losing one to a bye costs no slot,
+    // because the third steps into the flex. Counting shared byes reported this as a
+    // collision; it is exactly what a bench is for.
+    const roster = [...fullRoster(), risk("rb3", "RB", 9)];
+    const gaps = byeGaps(slots, roster);
+    expect(gaps.find((gap) => gap.week === 9)?.slots).toEqual(["D/ST"]);
+    expect(gaps.find((gap) => gap.week === 2)).toBeUndefined();
+  });
+
+  it("catches a starter and their only cover sharing a week", () => {
+    // The case that "count only the starters" misses. The backup is on the bench, so a
+    // starters-only tally sees one player on week 2 and reports nothing — while the
+    // roster is genuinely one back short that week.
+    const roster = [...fullRoster(), risk("rb3", "RB", 2)];
+    expect(byeGaps(slots, roster).find((gap) => gap.week === 2)?.slots).toEqual(["RB"]);
+  });
+
+  it("does not blame a bye for a slot nobody has drafted for", () => {
+    // Without the baseline subtraction, an empty tight end slot in round three is reported
+    // as a bye problem in every week of the season at once.
+    const roster = [risk("rb1", "RB", 5), risk("wr1", "WR", 7)];
+    const gaps = byeGaps(slots, roster);
+    expect(gaps.find((gap) => gap.week === 5)?.slots).toEqual(["RB"]);
+    expect(gaps.find((gap) => gap.week === 5)?.slots).not.toContain("TE");
+  });
+
+  it("is empty for a roster with no byes known", () => {
+    expect(byeGaps(slots, [risk("a", "RB", null)])).toEqual([]);
+    expect(byeGaps(slots, [])).toEqual([]);
+  });
+
+  it("returns weeks in order", () => {
+    const weeks = byeGaps(slots, fullRoster()).map((gap) => gap.week);
+    expect(weeks).toEqual([...weeks].sort((a, b) => a - b));
   });
 });

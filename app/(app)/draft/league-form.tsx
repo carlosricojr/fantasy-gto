@@ -94,7 +94,7 @@ export function LeagueForm({
           // round count up to `MAX_ROUNDS`, and the old number box let one be typed, so a
           // restored 17-round draft would otherwise open a control with nothing selected —
           // and the first arrow key would jump it to 10.
-          options={roundChoicesIncluding(value.rounds).map((rounds) => ({
+          options={roundChoicesIncluding(value.rounds, minRounds).map((rounds) => ({
             value: rounds,
             label: String(rounds),
             disabled: rounds < minRounds,
@@ -157,10 +157,15 @@ const ROUND_CHOICES = [10, 12, 13, 14, 15, 16, 18, 20, MAX_ROUNDS].filter(
   (rounds, index, all) => all.indexOf(rounds) === index && rounds <= MAX_ROUNDS,
 );
 
-/** The offered counts, plus whatever the draft is actually set to. */
-function roundChoicesIncluding(current: number): number[] {
-  if (ROUND_CHOICES.includes(current)) return ROUND_CHOICES;
-  return [...ROUND_CHOICES, current].sort((a, b) => a - b);
+/**
+ * The offered counts, plus the draft's actual value and its stated floor.
+ *
+ * `minRounds` has to be in the list or the hint lies: at eleven rounds already drafted the
+ * control disabled 10 and offered 12 upward, so the one value it named as the minimum was
+ * the one value that could not be chosen.
+ */
+function roundChoicesIncluding(current: number, minRounds: number): number[] {
+  return [...new Set([...ROUND_CHOICES, current, minRounds])].sort((a, b) => a - b);
 }
 
 function Field({

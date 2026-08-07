@@ -213,3 +213,65 @@ export function neededPositions(
   }
   return positions;
 }
+
+/** A bye week that leaves a starting slot unfillable, and which slots those are. */
+export interface ByeGap {
+  week: number;
+  /** Slot labels that go empty that week, one entry per empty slot. */
+  slots: string[];
+}
+
+/**
+ * Bye weeks that actually cost a starting slot.
+ *
+ * The panel this replaces listed every week where two players on the roster shared a bye.
+ * That over-reports in one direction and under-reports in the other, and by the end of a
+ * fifteen-round draft it fires on nearly every week and stops discriminating.
+ *
+ * Over-reports, because two backs sharing a bye costs nothing if a third can start in
+ * their place — depth is exactly what a bench is for. Under-reports, because restricting
+ * it to starters instead, which is the obvious correction, misses the case that matters
+ * most: a starter and the only player who could cover them sharing a week. The roster is
+ * then one player short at that slot and no tally of starters can see it.
+ *
+ * Both readings are guesses at a question the product can answer exactly. Take the week's
+ * players away and solve the lineup again; whatever slot the matching can no longer fill
+ * is the cost, in the same units the rest of this screen uses. The baseline is subtracted
+ * so a slot nobody has drafted for yet — no tight end in round three — is not reported as
+ * a bye problem in all fourteen weeks at once.
+ */
+export function byeGaps(
+  slots: readonly RosterSlot[],
+  roster: readonly PlayerRisk[],
+): ByeGap[] {
+  const weeks = [
+    ...new Set(
+      roster
+        .map((player) => player.byeWeek)
+        .filter((week): week is number => week !== null),
+    ),
+  ].sort((a, b) => a - b);
+  if (weeks.length === 0) return [];
+
+  const baseline = countLabels(unfilledSlots(slots, roster));
+
+  const gaps: ByeGap[] = [];
+  for (const week of weeks) {
+    const available = roster.filter((player) => player.byeWeek !== week);
+    const missing = countLabels(unfilledSlots(slots, available));
+
+    const worse: string[] = [];
+    for (const [label, count] of missing) {
+      const extra = count - (baseline.get(label) ?? 0);
+      for (let i = 0; i < extra; i += 1) worse.push(label);
+    }
+    if (worse.length > 0) gaps.push({ week, slots: worse });
+  }
+  return gaps;
+}
+
+function countLabels(labels: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return counts;
+}

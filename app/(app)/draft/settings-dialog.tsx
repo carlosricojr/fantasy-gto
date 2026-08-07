@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,16 @@ export function SettingsDialog({
   onReset: () => void;
 }) {
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+
+  // "Start over" unmounts itself to make room for the confirmation, and a focused element
+  // that unmounts drops focus to <body> — so a keyboard user asking to discard a draft was
+  // returned to the top of the page instead of to the question. Same failure the status
+  // bar's Undo and the queue's arrows guard against; this one needed moving focus rather
+  // than keeping the element.
+  useEffect(() => {
+    if (confirmingReset) confirmRef.current?.focus();
+  }, [confirmingReset]);
 
   return (
     <Dialog
@@ -73,6 +83,7 @@ export function SettingsDialog({
               </p>
               <div className="mt-3 flex gap-2">
                 <Button
+                  ref={confirmRef}
                   size="sm"
                   variant="destructive"
                   onClick={() => {

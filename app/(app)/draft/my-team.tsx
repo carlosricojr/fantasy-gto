@@ -6,6 +6,7 @@ import { type RosterSlot, solveLineup } from "@/lib/core/optimizer";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { cn } from "@/lib/utils";
 import { pickLabel } from "./board-view";
+import { byeGaps } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
 
 /**
@@ -120,7 +121,7 @@ export function MyTeam({
         </footer>
       )}
 
-      <ByeCollisions roster={roster} />
+      <ByeGaps slots={slots} roster={roster} />
     </section>
   );
 }
@@ -156,37 +157,30 @@ function PlayerLine({
 }
 
 /**
- * Bye collisions.
+ * Bye weeks that cost a starting slot.
  *
- * The thing a points-based board cannot show: two backs on the same bye means a week
- * fielding one fewer of them, and no ranking of season totals expresses that. The
- * simulation prices it already — this is the same fact made visible while there is still
- * time to draft around it.
+ * The thing a points-based board cannot show, and the reason it is worth its own block:
+ * the cost is not "two players share a week", it is "this slot has nobody to fill it that
+ * week". `byeGaps` answers that by solving the lineup again without the week's players,
+ * which is the same exact matching the panel above uses, so the two cannot disagree.
  */
-function ByeCollisions({ roster }: { roster: readonly PlayerRisk[] }) {
-  const crowded = useMemo(() => {
-    const byWeek = new Map<number, string[]>();
-    for (const player of roster) {
-      if (player.byeWeek === null) continue;
-      byWeek.set(player.byeWeek, [
-        ...(byWeek.get(player.byeWeek) ?? []),
-        positionLabel(player.position),
-      ]);
-    }
-    return [...byWeek.entries()]
-      .filter(([, positions]) => positions.length > 1)
-      .sort((a, b) => a[0] - b[0]);
-  }, [roster]);
-
-  if (crowded.length === 0) return null;
+function ByeGaps({
+  slots,
+  roster,
+}: {
+  slots: readonly RosterSlot[];
+  roster: readonly PlayerRisk[];
+}) {
+  const gaps = useMemo(() => byeGaps(slots, roster), [slots, roster]);
+  if (gaps.length === 0) return null;
 
   return (
     <div className="border-t p-3">
-      <p className="text-xs font-semibold">Bye weeks doubled up</p>
+      <p className="text-xs font-semibold">Byes that leave a slot empty</p>
       <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-        {crowded.map(([week, positions]) => (
-          <li key={week} className="tabular-nums">
-            Week {week}: {positions.join(", ")}
+        {gaps.map((gap) => (
+          <li key={gap.week} className="tabular-nums">
+            Week {gap.week}: no {gap.slots.join(", ")}
           </li>
         ))}
       </ul>

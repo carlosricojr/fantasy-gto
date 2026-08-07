@@ -73,7 +73,7 @@ export function PlayerDetail({
                 {player.byeWeek === null ? "" : ` · bye week ${player.byeWeek}`}
                 {player.draftedAt === null
                   ? ` · board rank ${player.overallRank}`
-                  : ` · taken at pick ${player.draftedAt} by ${player.draftedBy}`}
+                  : ` · taken at pick ${pickLabel(player.draftedAt, teams)} by ${player.draftedBy}`}
               </DialogDescription>
             </DialogHeader>
 
