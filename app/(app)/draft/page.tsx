@@ -263,11 +263,15 @@ export default function DraftPage() {
     api.draft.boardFreshness,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
-  // Two independent subscriptions, so one can settle before the other. `Caveat` reads the
-  // row count from the board and the build date from the freshness, and gating the notice
-  // on the board alone would let the new board's timestamp be printed over the old board's
-  // rows with nothing saying so.
-  const pending = boardPending || freshnessPending;
+  // Two independent subscriptions, so one can settle before the other — and each surface
+  // is marked by the one it actually reads. Marking a settled board as the previous
+  // selection's because a *freshness* query is still in flight is a false statement in the
+  // other direction, and this page is not allowed either of them.
+  //
+  //   boardPending      the rows: their projections, ADP, availability, and the count
+  //   freshnessPending  the build timestamp, the ADP source, the health of the last rebuild
+  //   describesHeldBoard  a sentence built from both, which needs both to have settled
+  const describesHeldBoard = boardPending || freshnessPending;
 
   const recommender = useRecommendations();
 
@@ -645,13 +649,13 @@ export default function DraftPage() {
   // met a search box that could never match anything, with nothing to explain it and no
   // control to change the league.
   //
-  // `!pending`, because `board` is held: an empty *previous* selection would otherwise name
+  // `!boardPending`, because `board` is held: an empty *previous* selection would name
   // the *new* one here — "no 2026 board has been built for 12-team ppr yet" about a query
   // that has not come back. Suppressing the same claim on the setup screen without this
   // moved it rather than removed it, since the Start button that reappears there is sticky
   // and lands under the thumb. While the answer is in flight the ordinary board renders,
   // marked as the previous selection's everywhere it shows a number.
-  if (started && board.length === 0 && !pending) {
+  if (started && board.length === 0 && !boardPending) {
     return (
       <PageShell title="Draft" subtitle="No board for this league">
         <p className="text-sm text-muted-foreground">
@@ -672,7 +676,7 @@ export default function DraftPage() {
         title="Draft"
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
-        <BoardHealthNotice freshness={freshness ?? null} pending={pending} />
+        <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
         {/* The size and scoring buttons on this screen key the board query too, so it used
             to replace itself with a skeleton on every click. The board is held now, which
             means the count and build date below belong to the previous selection until the
@@ -682,7 +686,7 @@ export default function DraftPage() {
         className="mb-3 h-4 truncate text-xs font-medium text-amber-700 dark:text-amber-300"
         role="status"
       >
-        {pending ? (
+        {describesHeldBoard ? (
           <>
             {/* Two lengths and a `truncate` backstop, the same treatment the draft's status
                 bar needs for the same reason: at 12px the long sentence runs about 470px,
@@ -699,7 +703,7 @@ export default function DraftPage() {
           onChange={applySettings}
           onStart={() => setStarted(true)}
           boardSize={board.length}
-          boardPending={pending}
+          boardPending={boardPending}
           season={season}
           leagueSizes={LEAGUE_SIZES}
           scoringConfirmed={scoringConfirmed}
@@ -708,7 +712,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
-            pending={pending}
+            pending={describesHeldBoard}
           />
         </DraftSetup>
       </PageShell>
@@ -733,7 +737,7 @@ export default function DraftPage() {
         {turn.summary}
       </p>
 
-      <BoardHealthNotice freshness={freshness ?? null} pending={pending} />
+      <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
 
       <StatusBar
         turn={turn}
@@ -751,7 +755,7 @@ export default function DraftPage() {
         // Every value below belongs to the setup the board was built for, which is not the
         // one the controls now show. The page says so rather than redrawing itself: see
         // `useStableQuery`.
-        reloading={pending}
+        reloading={boardPending}
       />
 
       <NeedsStrip
@@ -765,7 +769,7 @@ export default function DraftPage() {
           content column it sized itself to the longest one and scrolled sideways on a
           desktop with room to spare, which is the one thing a board must not do — the
           value of watching it is seeing the whole room at once. */}
-      <section className="mt-4" aria-busy={pending}>
+      <section className="mt-4" aria-busy={boardPending}>
         <button
           type="button"
           onClick={() => setBoardOpen((open) => !open)}
@@ -808,7 +812,7 @@ export default function DraftPage() {
           styling of its own at that width, so removing its box removes nothing from the
           accessibility tree either. */}
       <div
-        aria-busy={pending}
+        aria-busy={boardPending}
         className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]"
       >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
@@ -863,7 +867,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
-            pending={pending}
+            pending={describesHeldBoard}
           />
         </aside>
       </div>
@@ -897,7 +901,7 @@ export default function DraftPage() {
         // The dialog names the scoring format directly above the three estimates, and its
         // overlay covers the status bar's warning — so it is the one surface that would
         // put the new format's name on the old format's numbers with nothing to say so.
-        pending={pending}
+        pending={boardPending}
       />
     </PageShell>
   );

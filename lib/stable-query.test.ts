@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { stableQueryState } from "@/components/stable-query";
+import { stableQueryState } from "../components/stable-query";
 
 /**
  * The rule `useStableQuery` is built on.
@@ -11,6 +11,11 @@ import { stableQueryState } from "@/components/stable-query";
  * surface, and tested from here because `vitest.config.ts` only collects `lib/**` and
  * `app/**`. The module it tests imports nothing — that is what lets this run in the node
  * project with no DOM.
+ *
+ * By relative path, like everything else under `lib/`. The `@/*` alias would resolve here —
+ * `import-alias.test.ts` excludes test files deliberately, and vitest is configured with it
+ * — but this would be the only file in the directory relying on that, and "the rule has an
+ * exception you have to know about" is how the rule stops being followed.
  */
 describe("what to show while a different subscription loads", () => {
   it("settles on a value that has arrived", () => {
