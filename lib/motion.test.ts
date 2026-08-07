@@ -1,0 +1,104 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+import { sourceFiles, stripComments } from "./source-scan";
+
+/**
+ * Two rules about motion, both of which had already been broken by hand.
+ *
+ * **Every pulse asks first.** `motion-safe:` is the guard, and it is on twelve of the
+ * fifteen skeletons in this app — the three that lost it (the lineup's player names, the
+ * projection card's, the entitlement gate's) pulsed at somebody who had asked their
+ * operating system for less motion. `components/ui/skeleton.tsx` exists so new ones cannot
+ * be written without it, and this catches a hand-rolled one.
+ *
+ * **Nothing transitions `all`.** `transition-all` includes every layout property, so a
+ * change of padding or a label that changes width animates the geometry of the element and
+ * everything after it. It was on the base `Button` variant — the most-used component here —
+ * where it animated the width of every button whose content changed.
+ *
+ * The reduced-motion rule that is *not* checked here is the one in `app/globals.css`:
+ * `tw-animate-css` ships no guard, so dialogs and dropdowns zoomed and slid regardless of
+ * the setting. That is a stylesheet rule rather than a class convention, and a source scan
+ * is the wrong instrument — it is asserted by `globals.css` carrying the media query, which
+ * the third test below checks, and verified by rendering.
+ */
+const SCANNED = ["app", "components"];
+
+/**
+ * One utility, with whatever variants are in front of it.
+ *
+ * Bounded on a class separator rather than `\S*`, which swallowed the `className="` in
+ * front of it — and read through `stripComments`, because the first version of this scan
+ * reported the sentences in which these very rules are explained. A guard that flags its
+ * own documentation gets deleted rather than obeyed.
+ */
+function utilities(source: string, name: string): string[] {
+  const pattern = new RegExp(`(?:^|[\\s"'\`])((?:[^\\s"'\`]*:)?${name})(?![\\w-])`, "g");
+  return [...stripComments(source).matchAll(pattern)].map((m) => m[1]);
+}
+
+/** `animate-pulse` written without the variant that makes it optional. */
+function unguardedPulses(source: string): string[] {
+  return utilities(source, "animate-pulse").filter((u) => u !== "motion-safe:animate-pulse");
+}
+
+/** `transition-all`, under any variant. */
+function transitionAll(source: string): string[] {
+  return utilities(source, "transition-all");
+}
+
+describe("motion is asked for, not assumed", () => {
+  it("guards every pulse with motion-safe", () => {
+    const offenders: string[] = [];
+    let scanned = 0;
+    for (const dir of SCANNED) {
+      for (const file of sourceFiles(dir)) {
+        scanned += 1;
+        for (const hit of unguardedPulses(readFileSync(file, "utf8"))) {
+          offenders.push(`${file}: ${hit}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    expect(scanned).toBeGreaterThan(20);
+  });
+
+  it("transitions named properties rather than all of them", () => {
+    const offenders: string[] = [];
+    for (const dir of SCANNED) {
+      for (const file of sourceFiles(dir)) {
+        for (const hit of transitionAll(readFileSync(file, "utf8"))) {
+          offenders.push(`${file}: ${hit}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("would notice either if it appeared", () => {
+    expect(unguardedPulses('<div className="h-4 animate-pulse rounded" />')).toEqual([
+      "animate-pulse",
+    ]);
+    expect(unguardedPulses('<div className="motion-safe:animate-pulse" />')).toEqual([]);
+    // A different variant in front of it is not the guard.
+    expect(unguardedPulses('<div className="sm:animate-pulse" />')).toEqual(["sm:animate-pulse"]);
+    // Prose is not code. Both of these explain the rule and neither violates it.
+    expect(unguardedPulses("// never write a bare animate-pulse here")).toEqual([]);
+    expect(transitionAll("/* Not `transition-all`: it animates layout too. */")).toEqual([]);
+    expect(transitionAll('className="transition-all duration-200"')).toEqual(["transition-all"]);
+    expect(transitionAll('className="hover:transition-all"')).toEqual(["hover:transition-all"]);
+    expect(transitionAll('className="transition-[color,box-shadow]"')).toEqual([]);
+  });
+
+  it("keeps the reduced-motion rule the animation library does not ship", () => {
+    // Two halves in two places: the media query here, and `tw-animate-css` having no guard
+    // of its own. If the library ever adds one this becomes redundant rather than wrong,
+    // but silently dropping the block would restore the zoom for everybody who asked for
+    // less motion, and nothing else in the repo would notice.
+    const css = readFileSync("app/globals.css", "utf8");
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+    expect(css).toMatch(/--tw-enter-scale:\s*1/);
+    expect(css).toMatch(/--tw-enter-translate-y:\s*0/);
+  });
+});

@@ -62,7 +62,7 @@ export function SettingsDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Draft settings</DialogTitle>
           <DialogDescription>

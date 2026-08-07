@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
 import { useStableQuery } from "@/components/use-stable-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectionCard } from "@/components/projection-card";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
@@ -65,7 +66,27 @@ export default function ProjectionsPage() {
   }, [players]);
 
   if (season === undefined) {
-    return <PageShell title="Projections">Loading…</PageShell>;
+    // Shaped like the page it becomes rather than the word "Loading…", which is 60px of
+    // text where a hundred cards and two rows of controls arrive — the whole page shifting
+    // under the reader once, on every cold load.
+    return (
+      <PageShell title="Projections">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {SCORING_PRESETS.map((preset) => (
+            <Skeleton key={preset.id} className="h-8 w-24" />
+          ))}
+        </div>
+        <div className="mb-6 flex flex-wrap gap-2">
+          {["all", ...FILTERABLE_POSITIONS].map((code) => (
+            <Skeleton key={code} className="h-8 w-14" />
+          ))}
+        </div>
+        <ProjectionListSkeleton />
+        <p className="sr-only" role="status">
+          Loading projections.
+        </p>
+      </PageShell>
+    );
   }
 
   if (season === null) {
@@ -126,18 +147,12 @@ export default function ProjectionsPage() {
       )}
 
       {projections === undefined ? (
-        // First load only; a later change keeps the cards. The blocks are the height of the
-        // cards that replace them so the first paint settles rather than jumps.
         <>
           {/* The announcement is a *sibling* of the blocks, not a child. `aria-hidden`
               removes its whole subtree from the accessibility tree, live region included —
               so nested, the one element that exists to tell a screen reader user the page
               is loading was the one element guaranteed never to fire. */}
-          <div className="space-y-2" aria-hidden>
-            {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="h-20 motion-safe:animate-pulse rounded-lg bg-muted" />
-            ))}
-          </div>
+          <ProjectionListSkeleton />
           <p className="sr-only" role="status">
             Loading projections.
           </p>
@@ -192,5 +207,22 @@ export default function ProjectionsPage() {
         })}
       </div>
     </PageShell>
+  );
+}
+
+/**
+ * The card list, at the height it will be.
+ *
+ * Shared by the two loading paths this page has — before the season resolves, and before
+ * the first week of projections does — so they cannot drift into different heights and
+ * produce a shift between themselves.
+ */
+function ProjectionListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 8 }, (_, i) => (
+        <Skeleton key={i} className="h-20 rounded-lg" />
+      ))}
+    </div>
   );
 }

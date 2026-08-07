@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState, PageShell } from "@/components/page-shell";
 import { useStableQuery } from "@/components/use-stable-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -155,7 +156,24 @@ export default function LineupPage() {
     [pool],
   );
 
-  if (season === undefined) return <PageShell title="Lineup">Loading…</PageShell>;
+  if (season === undefined) {
+    // The shape of the optimizer, not the word "Loading…": a row of template and scoring
+    // controls, the solved lineup, and the picker under it.
+    return (
+      <PageShell title="Lineup">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-8 w-24" />
+          ))}
+        </div>
+        <Skeleton className="h-72 rounded-lg" />
+        <Skeleton className="mt-6 h-64 rounded-lg" />
+        <p className="sr-only" role="status">
+          Loading the optimizer.
+        </p>
+      </PageShell>
+    );
+  }
 
   if (season === null) {
     return (
@@ -326,7 +344,7 @@ export default function LineupPage() {
                   {player.position}
                 </span>
                 <span className="min-w-0 flex-1 truncate">
-                  {player.name ?? <span className="inline-block h-3 w-28 animate-pulse rounded bg-muted align-middle" />}
+                  {player.name ?? <Skeleton className="inline-block h-3 w-28 align-middle" />}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {player.team} vs {player.opponent}

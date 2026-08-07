@@ -1,6 +1,8 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+
+import { sourceFiles, stripComments } from "./source-scan";
 
 import { stableQueryState } from "../components/stable-query";
 
@@ -91,20 +93,6 @@ const SCANNED = ["app", "components"];
 /** The one wrapper that is *supposed* to call the unstable hook. */
 const WRAPPER = join("components", "use-stable-query.ts");
 
-function clientFiles(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string): void => {
-    for (const name of readdirSync(d)) {
-      if (name === "node_modules") continue;
-      const full = join(d, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(full);
-    }
-  };
-  walk(dir);
-  return out;
-}
-
 /**
  * Every hook in `convex/react` that keys its subscription on arguments.
  *
@@ -123,7 +111,7 @@ function unstableQueryCalls(source: string): string[] {
     // No `s` flag: a negated character class already spans newlines, and a multi-line call
     // is exactly the shape these are written in.
     const pattern = new RegExp(`\\b${hook}\\(\\s*([^)]*?)\\s*\\)`, "g");
-    for (const m of source.matchAll(pattern)) {
+    for (const m of stripComments(source).matchAll(pattern)) {
       const call = m[1].replace(/\s+/g, " ").trim();
       if (/^api\.[A-Za-z0-9_.]+, \{\}$/.test(call)) continue;
       found.push(`${hook}(${call.slice(0, 60)})`);
@@ -137,7 +125,7 @@ describe("no screen blanks when a query argument changes", () => {
     const offenders: string[] = [];
     let scanned = 0;
     for (const dir of SCANNED) {
-      for (const file of clientFiles(dir)) {
+      for (const file of sourceFiles(dir)) {
         scanned += 1;
         if (file === WRAPPER) continue;
         for (const call of unstableQueryCalls(readFileSync(file, "utf8"))) {

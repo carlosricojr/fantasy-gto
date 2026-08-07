@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * A projection with its explanation.
@@ -67,12 +68,7 @@ export function ProjectionCard({
 
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">
-            {name ?? (
-              <span
-                className="inline-block h-4 w-32 animate-pulse rounded bg-muted align-middle"
-                aria-label="Loading player name"
-              />
-            )}
+            {name ?? <Skeleton className="inline-block h-4 w-32 align-middle" />}
           </span>
           <span className="block truncate text-xs text-muted-foreground">
             {[team, subtitle].filter(Boolean).join(" · ") || "Free agent"}

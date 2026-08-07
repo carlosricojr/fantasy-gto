@@ -6,6 +6,7 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import type { FeatureKey } from "@/lib/billing/entitlements";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Client-side feature gating.
@@ -30,7 +31,7 @@ export function EntitlementGate({ feature, benefit, children }: EntitlementGateP
   // and an unauthenticated `users.me` resolves to the anonymous free-tier shape — so a
   // subscriber would be shown the upgrade prompt until clerk-js finished loading.
   if (authLoading || me === undefined) {
-    return <div className="h-24 animate-pulse rounded-lg bg-muted" aria-hidden />;
+    return <Skeleton className="h-24 rounded-lg" />;
   }
 
   if (me.entitlements[feature] === true) {

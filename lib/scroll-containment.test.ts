@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+
+import { sourceFiles, stripComments } from "./source-scan";
 
 /**
  * A scroll container is a containing block, or it does not clip what it scrolls.
@@ -38,21 +39,10 @@ const SCANNED = ["app", "components"];
  * runs, and these two are content-heavy dialogs — the likeliest place for somebody to add a
  * second, ordinary inner scroller that would then pass silently.
  */
-const EXEMPT = new Set(["max-h-[85dvh] overflow-y-auto sm:max-w-md", "max-h-[85dvh] overflow-y-auto sm:max-w-lg"]);
-
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string): void => {
-    for (const name of readdirSync(d)) {
-      if (name === "node_modules") continue;
-      const full = join(d, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(full);
-    }
-  };
-  walk(dir);
-  return out;
-}
+const EXEMPT = new Set([
+  "max-h-[85svh] overflow-y-auto sm:max-w-md",
+  "max-h-[85svh] overflow-y-auto sm:max-w-lg",
+]);
 
 /**
  * Class lists that scroll on some axis but establish no containing block.
@@ -65,7 +55,7 @@ function sourceFiles(dir: string): string[] {
  */
 function unclippedScrollers(source: string): string[] {
   const found: string[] = [];
-  for (const m of source.matchAll(/"([^"\n]*)"|`([^`]*)`/g)) {
+  for (const m of stripComments(source).matchAll(/"([^"\n]*)"|`([^`]*)`/g)) {
     const classes = (m[1] ?? m[2] ?? "").replace(/\s+/g, " ").trim();
     if (EXEMPT.has(classes)) continue;
     const utilities = classes.split(" ");
@@ -108,8 +98,10 @@ describe("every scroll container clips what it scrolls", () => {
   it("would notice one if it appeared", () => {
     // The exact class list that shipped the bug.
     expect(
-      unclippedScrollers('<div className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain" />'),
+      unclippedScrollers('<div className="max-h-[70svh] min-h-0 overflow-y-auto overscroll-contain" />'),
     ).toHaveLength(1);
+    // Prose that names a scroller is not a scroller.
+    expect(unclippedScrollers('/* the `overflow-y-auto` container above */')).toEqual([]);
     expect(unclippedScrollers('<div className="overflow-auto rounded-xl border" />')).toHaveLength(1);
     // ...and does not fire once the container is a containing block, by any of the ways of
     // being one.
@@ -125,7 +117,7 @@ describe("every scroll container clips what it scrolls", () => {
     expect(unclippedScrollers('"[&_div]:overflow-auto p-1"')).toHaveLength(1);
     expect(unclippedScrollers('"data-[state=open]:overflow-y-auto relative"')).toEqual([]);
     // The documented exemption is matched on the class list, not the file it lives in.
-    expect(unclippedScrollers('<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">')).toEqual([]);
+    expect(unclippedScrollers('<DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">')).toEqual([]);
     // `overflow-hidden` is not a scroll container and is not what this rule is about.
     expect(unclippedScrollers('<div className="overflow-hidden" />')).toEqual([]);
     // A responsive variant still scrolls, and still needs it.
