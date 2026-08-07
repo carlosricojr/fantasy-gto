@@ -859,13 +859,16 @@ export function recommendByChampionship(
   // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather
   // than inferential — see `ChampionshipRecommendation.vsLeader`. Ties on probability go to
   // the lower player id, so the leader does not depend on shortlist order.
-  const leader = evaluated.reduce((best, entry) =>
-    entry.outcome.championshipProbability > best.outcome.championshipProbability ||
-    (entry.outcome.championshipProbability === best.outcome.championshipProbability &&
-      entry.player.id < best.player.id)
-      ? entry
-      : best,
-  );
+  //
+  // On the *rounded* probability, which is the one `orderRecommendations` re-derives the
+  // leader from. Comparing raw here and rounded there lets two candidates 5e-5 apart pick
+  // different leaders, and the entry carrying `vsLeader: null` would then not be the entry
+  // the ordering treats as the leader.
+  const leader = evaluated.reduce((best, entry) => {
+    const a = round4(entry.outcome.championshipProbability);
+    const b = round4(best.outcome.championshipProbability);
+    return a > b || (a === b && entry.player.id < best.player.id) ? entry : best;
+  });
 
   const ranked = evaluated
     .map(({ player, outcome, titleByScenario }) => {

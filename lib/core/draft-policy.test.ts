@@ -354,6 +354,11 @@ describe("recommendByChampionship", () => {
     // the leader contains zero — these scenarios do not separate the two. It used to mean
     // "within the sum of the two marginal standard errors", which is not the standard error
     // of a difference between anything; see #40.
+    // Exactly one entry carries no paired comparison, and it is the one the ordering also
+    // treats as the leader. The two selections are made in different functions on the same
+    // rounded probability with the same id tiebreak; comparing raw in one and rounded in the
+    // other let two candidates 5e-5 apart disagree about who the leader was.
+    expect(recs.filter((r) => r.vsLeader === null)).toHaveLength(1);
     const marked = recs.find((r) => r.vsLeader === null)!;
     expect(marked.tiedWithLeader).toBe(true);
     expect(marked.championshipProbability).toBe(best);
