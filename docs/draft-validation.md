@@ -397,11 +397,12 @@ things followed, and neither announced itself:
   the relation is what survives changing it. The first round of a six-team bracket costs
   much less than a semi-final, because seeds one and two sit it out — also asserted, and
   also a thing no per-week weighting could express.
-- **A four-team field got a bracket it does not play.** Two rounds were configured as
-  three, so the final round paired the survivor with itself and re-elected it, and the week
-  that padding consumed belonged to neither half of the season: fourteen regular weeks and
-  a bracket ending in week 17 simply lost week 15. Deriving the bracket length from the
-  field size makes that pair impossible to write down.
+- **A four-team field got a bracket it does not play.** Two rounds were configured as three.
+  The surplus round is never played — `playBracket` stops once the field is down to one — so
+  the cost was the *week*: with fourteen regular weeks and a bracket ending in week 17, week
+  15 was labelled a playoff round that nobody played, and the regular season ran a week
+  shorter than the league's. Deriving the bracket length from the field size makes that pair
+  impossible to write down.
 
 ### What is guaranteed about a season that ends early
 
@@ -431,8 +432,10 @@ Over a few hundred season shapes, well beyond the six the interface offers
 Over every league the two controls can actually produce (`season-invariants.test.ts`), end
 to end: it ends before the NFL season does and leaves week `championshipWeek + 1` onward
 unplayed; every week it does play is a real NFL week; it round-trips through session storage;
-a payload written before the setting existed restores as weeks 1-14 with a bracket in 15-17,
-which is what it was already being simulated as; the sentence on screen names week counts
+a payload written before the setting existed restores at the default final of week 17, which
+reproduces the old season exactly for a six-team field and deliberately does not for a
+four-team one — the old pair gave that field a three-week bracket it does not play, so
+restoring it unchanged would preserve the defect rather than the league; the sentence on screen names week counts
 *equal* to the ones simulated rather than a golden string; no two shapes share a
 recommendation memo key or a reply-gate fingerprint; and the regular season handed to the
 depth model is contiguous from week 1.
@@ -459,7 +462,9 @@ Two consequences worth stating because they are easy to misread:
 - **`TeamOutcome.expectedPoints` is regular-season points**, the seeding tiebreak, not the
   season total. So a bye in a playoff round leaves it untouched while changing who wins the
   title. That is correct for what it is for and the wrong quantity to reach for if the
-  question is what a roster is worth over the whole season — `rosterUtility` answers that one.
+  question is what a roster is worth over every week it plays. Nothing reports that today:
+  `rosterUtility` sums whatever week list it is handed, and a `LeagueConfig` hands it the
+  regular season alone, so reaching for it returns the same weeks all over again.
 
 **Not handled: a two-week championship.** `playBracket` plays one round per week, so a
 final decided on the combined score of two weeks cannot be expressed. Leagues that do this

@@ -253,10 +253,11 @@ describe("fantasySeasonWeeks", () => {
   });
 
   it("gives a four-team field two rounds, not three", () => {
-    // What the literals it replaces got wrong. A four-team bracket over three playoff
-    // weeks plays a final round with one team in it, and the week that padding consumed
-    // belonged to neither half of the season: a fourteen-week regular season and a
-    // three-week bracket ending in 17 simply lost week 15.
+    // What the literals it replaces got wrong. A four-team bracket over three playoff weeks
+    // does not play its surplus round at all — `playBracket` stops once one team is left —
+    // so the cost was the week: under a fourteen-week regular season and a bracket ending
+    // in 17, week 15 was labelled a playoff round that nobody played, and the regular season
+    // ran a week shorter than the league's.
     expect(fantasySeasonWeeks(17, 4)).toEqual({
       weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       playoffWeeks: [16, 17],
@@ -527,9 +528,15 @@ describe("every league the product can express simulates coherently", () => {
   });
 
   it("seats everyone when the field is the whole league", () => {
-    // The boundary `simulateLeague` deliberately allows. Worth pinning against a season
-    // whose bracket sits inside the old regular-season range, because that is where a
-    // first-round bye is computed from a field size the weeks no longer match.
+    // The boundary `simulateLeague` deliberately allows: `playoffTeams > teamCount` throws,
+    // `playoffTeams === teamCount` does not, and the source says the bye test relies on that
+    // being `>` rather than `>=`. No other test covers the equal case.
+    //
+    // Note what this does *not* pin, because the assertion looks like it does more than it
+    // does. `playoffProbability` counts `seeded.slice(0, min(playoffTeams, teamCount))`,
+    // which with a field the size of the league is every team in every scenario — so it is
+    // blind to the bracket, the bye slice, the seeding and the scores. It says the boundary
+    // is accepted and everyone qualifies, and nothing about how the bracket is then played.
     const config: LeagueConfig = {
       slots: SLOTS,
       ...fantasySeasonWeeks(15, TEAMS),

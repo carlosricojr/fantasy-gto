@@ -106,10 +106,11 @@ describe("a fantasy season ends before the NFL season does", () => {
   });
 
   it("defaults to the latest final it offers, so every other choice ends earlier", () => {
-    // Two things at once. The default reproduces what the board did before the setting
-    // existed — which is what makes a stored draft with no championship week a migration
-    // rather than a guess — and it is the *ceiling*, so every league a manager can choose
-    // instead of it finishes sooner. That is the direction real leagues move.
+    // Two things at once. The default is the week the board used to hardcode, which is what
+    // makes a stored draft with no championship week a migration rather than a guess — see
+    // the restore test below for the one field size where that is not an exact identity.
+    // And it is the *ceiling*, so every league a manager can choose instead of it finishes
+    // sooner. That is the direction real leagues move.
     expect(DEFAULT_CHAMPIONSHIP_WEEK).toBe(Math.max(...CHAMPIONSHIP_WEEKS));
     expect(CHAMPIONSHIP_WEEKS).toContain(DEFAULT_CHAMPIONSHIP_WEEK);
     for (const week of CHAMPIONSHIP_WEEKS) {
@@ -148,18 +149,32 @@ describe("what is stored comes back as the season it was drafted against", () =>
     }
   });
 
-  it("restores a pre-existing draft into the season it was already being simulated as", () => {
-    // The migration, as an identity rather than as a default. Before the setting existed the
-    // board wrote out weeks 1-14 and a bracket in 15-17 for every league; a payload from
-    // then must come back as exactly that, or a draft in progress silently changes leagues
-    // when the deploy lands.
-    const legacy: Record<string, unknown> = { ...base, playoffTeams: 6 };
-    delete legacy.championshipWeek;
-    const restored = parsePersistedDraft(JSON.stringify(legacy));
-    expect(restored?.championshipWeek).toBe(DEFAULT_CHAMPIONSHIP_WEEK);
-    expect(seasonFor(restored!.championshipWeek, restored!.playoffTeams)).toEqual({
+  it("restores a pre-existing draft at the default final, whatever its playoff field", () => {
+    // The migration. Before the setting existed the board wrote out weeks 1-14 with a
+    // bracket in 15-17 for *every* league, regardless of the playoff field — so restoring a
+    // payload that predates it is only an exact identity for one of the two field sizes,
+    // and pretending otherwise is what an earlier version of this test did by asserting the
+    // six-team case alone.
+    for (const playoffTeams of PLAYOFF_FIELDS) {
+      const legacy: Record<string, unknown> = { ...base, playoffTeams };
+      delete legacy.championshipWeek;
+      const restored = parsePersistedDraft(JSON.stringify(legacy));
+      expect(restored?.championshipWeek).toBe(DEFAULT_CHAMPIONSHIP_WEEK);
+    }
+
+    // Six teams: exactly the old season, so a draft in progress does not move.
+    expect(seasonFor(DEFAULT_CHAMPIONSHIP_WEEK, 6)).toEqual({
       weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
       playoffWeeks: [15, 16, 17],
+    });
+
+    // Four teams: deliberately *not* the old season. The old pair gave a two-round field a
+    // three-week bracket, so week 15 was labelled a playoff round nobody played. Restoring
+    // it as that would be preserving the defect. A draft in progress does shift here, by
+    // one regular-season week, and that shift is the correction.
+    expect(seasonFor(DEFAULT_CHAMPIONSHIP_WEEK, 4)).toEqual({
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      playoffWeeks: [16, 17],
     });
   });
 });
