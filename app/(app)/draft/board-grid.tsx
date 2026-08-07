@@ -89,7 +89,12 @@ export function BoardGrid({
       // is a plain span, so the region has no focusable child at all and a keyboard user
       // cannot reach the later rounds — a scrollable region with no keyboard route into it.
       tabIndex={0}
-      className="max-h-[13rem] overflow-auto overscroll-contain rounded-xl border bg-card sm:max-h-[18rem] lg:max-h-[22rem]"
+      // `relative` for the reason `player-pool.tsx` records at length: a scroll container
+      // that is not a containing block does not clip absolutely positioned descendants, and
+      // `sr-only` is absolute. This one escapes it today only by accident — every cell is
+      // `relative` for its position bar — and an sr-only span added anywhere else in the
+      // grid would silently add its offset to the height of the page.
+      className="relative max-h-[13rem] overflow-auto overscroll-contain rounded-xl border bg-card sm:max-h-[18rem] lg:max-h-[22rem]"
     >
       <div
         className="grid text-xs"
