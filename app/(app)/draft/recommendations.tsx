@@ -95,8 +95,13 @@ export function Recommendations({
   if (state.loading || state.recommendations.length === 0) {
     // Shaped like the panel it stands in for, not three bars. This state is entered every
     // time the league changes — the answers belong to the previous scoring and are
-    // discarded rather than shown — and a 9rem placeholder where an 45rem panel was is a
-    // page that jumps under the reader at the exact moment they are deciding a pick. The
+    // discarded rather than shown — so a placeholder a fraction of the panel's height is a
+    // page that jumps under the reader at the exact moment they are deciding a pick.
+    //
+    // Every region the loaded panel has, under the same condition it has it: the header,
+    // the figures, the primary button *or* the "not your pick yet" line, the ranked rows
+    // *or* the disclosure that reveals them, and the footer — which is six lines of body
+    // copy in a 21rem column and was the largest thing missing from the first attempt. The
     // row count is the one the page asks for, so the two agree by construction.
     return (
       <Panel>
@@ -116,7 +121,14 @@ export function Recommendations({
           </div>
           {onTheClock ? (
             <div className="mt-3 h-9 motion-safe:animate-pulse rounded-md bg-muted" />
-          ) : null}
+          ) : (
+            // The "Not your pick yet…" line, which is `text-sm` over two lines in a
+            // narrow column.
+            <div className="mt-3 space-y-1.5">
+              <div className="h-4 motion-safe:animate-pulse rounded bg-muted" />
+              <div className="h-4 w-2/3 motion-safe:animate-pulse rounded bg-muted" />
+            </div>
+          )}
         </div>
         {onTheClock ? (
           <div className="divide-y" aria-hidden>
@@ -134,7 +146,26 @@ export function Recommendations({
               </div>
             ))}
           </div>
-        ) : null}
+        ) : (
+          // The disclosure that stands in for the rows when they are collapsed.
+          <div className="p-2.5" aria-hidden>
+            <div className="mx-auto h-4 w-48 max-w-full motion-safe:animate-pulse rounded bg-muted" />
+          </div>
+        )}
+        {/* The footer is rendered unconditionally by the loaded panel, so it is here
+            unconditionally too. Six short lines in the narrow column, three in the wide one. */}
+        <div className="space-y-1.5 border-t p-3" aria-hidden>
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              key={i}
+              className={cn(
+                "h-3 motion-safe:animate-pulse rounded bg-muted",
+                i === 5 && "w-2/3",
+                i > 2 && "3xl:hidden",
+              )}
+            />
+          ))}
+        </div>
         <p className="sr-only" role="status">
           Simulating the rest of the draft.
         </p>

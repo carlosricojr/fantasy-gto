@@ -17,9 +17,9 @@ import { type StableQueryState, stableQueryState } from "./stable-query";
  * result is keyed by the arguments — so changing one is indistinguishable, at the call
  * site, from having never loaded at all. Screens branch on that and unmount themselves:
  * one click on a scoring format took the draft board, the player pool, the roster, the
- * queue and the open settings dialog off the screen, dropped the page from about 4,500px
- * to 300px so the browser clamped the scroll position, and put them all back a few hundred
- * milliseconds later with their state reset.
+ * queue and the open settings dialog off the screen, dropped the document from 4,551px to
+ * 913px — both measured — so the browser clamped the scroll position, and put them all
+ * back a few hundred milliseconds later with their state reset.
  *
  * This holds the last value that arrived and reports that it is doing so. It is the
  * pattern Convex documents for React; the Svelte client has `keepPreviousData` built in and

@@ -100,15 +100,29 @@ function clientFiles(dir: string): string[] {
   return out;
 }
 
-/** `useQuery` calls that pass anything other than a literal `{}` for the arguments. */
+/**
+ * Every hook in `convex/react` that keys its subscription on arguments.
+ *
+ * `useQuery` is the one in use, but it is not the only one that can reintroduce this:
+ * `useQueries` resolves through the same `localQueryResult`, `usePaginatedQuery` keys
+ * through `serializePaginatedPathAndArgs`, which embeds the arguments too, and
+ * `useQuery_experimental` reports a `status` with no previous value behind it. None are
+ * used today, which is exactly when widening a mechanical guard is free.
+ */
+const ARGS_KEYED = ["useQuery", "useQueries", "usePaginatedQuery", "useQuery_experimental"];
+
+/** Calls that pass anything other than a literal `{}` for the arguments. */
 function unstableQueryCalls(source: string): string[] {
   const found: string[] = [];
-  // No `s` flag: a negated character class already spans newlines, and a
-    // multi-line call is exactly the shape these are written in.
-    for (const m of source.matchAll(/\buseQuery\(\s*([^)]*?)\s*\)/g)) {
-    const call = m[1].replace(/\s+/g, " ").trim();
-    if (/^api\.[A-Za-z0-9_.]+, \{\}$/.test(call)) continue;
-    found.push(call.slice(0, 60));
+  for (const hook of ARGS_KEYED) {
+    // No `s` flag: a negated character class already spans newlines, and a multi-line call
+    // is exactly the shape these are written in.
+    const pattern = new RegExp(`\\b${hook}\\(\\s*([^)]*?)\\s*\\)`, "g");
+    for (const m of source.matchAll(pattern)) {
+      const call = m[1].replace(/\s+/g, " ").trim();
+      if (/^api\.[A-Za-z0-9_.]+, \{\}$/.test(call)) continue;
+      found.push(`${hook}(${call.slice(0, 60)})`);
+    }
   }
   return found;
 }
@@ -122,7 +136,7 @@ describe("no screen blanks when a query argument changes", () => {
         scanned += 1;
         if (file === WRAPPER) continue;
         for (const call of unstableQueryCalls(readFileSync(file, "utf8"))) {
-          offenders.push(`${file}: useQuery(${call})`);
+          offenders.push(`${file}: ${call}`);
         }
       }
     }
@@ -134,9 +148,13 @@ describe("no screen blanks when a query argument changes", () => {
 
   it("would notice one if it appeared", () => {
     expect(unstableQueryCalls("const b = useQuery(api.draft.board, { season, scoringId });")).toEqual([
-      "api.draft.board, { season, scoringId }",
+      "useQuery(api.draft.board, { season, scoringId })",
     ]);
     expect(unstableQueryCalls('const b = useQuery(api.draft.board, x ? y : "skip");')).toHaveLength(1);
+    // The other three hooks that key on arguments, and would reintroduce this silently.
+    expect(unstableQueryCalls("usePaginatedQuery(api.x.y, { q }, { initialNumItems: 20 })")).toHaveLength(1);
+    expect(unstableQueryCalls("useQueries({ a: { query: api.x.y, args: { q } } })")).toHaveLength(1);
+    expect(unstableQueryCalls("useQuery_experimental({ query: api.x.y, args: { q } })")).toHaveLength(1);
     // The two shapes that are fine: no arguments to vary, and the stable wrapper.
     expect(unstableQueryCalls("const s = useQuery(api.season.current, {});")).toEqual([]);
     expect(unstableQueryCalls("const b = useStableQuery(api.draft.board, { scoringId });")).toEqual([]);

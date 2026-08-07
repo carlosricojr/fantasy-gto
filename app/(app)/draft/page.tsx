@@ -259,10 +259,15 @@ export default function DraftPage() {
     api.draft.board,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
-  const { data: freshness } = useStableQuery(
+  const { data: freshness, pending: freshnessPending } = useStableQuery(
     api.draft.boardFreshness,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
+  // Two independent subscriptions, so one can settle before the other. `Caveat` reads the
+  // row count from the board and the build date from the freshness, and gating the notice
+  // on the board alone would let the new board's timestamp be printed over the old board's
+  // rows with nothing saying so.
+  const pending = boardPending || freshnessPending;
 
   const recommender = useRecommendations();
 
@@ -471,6 +476,17 @@ export default function DraftPage() {
   // answer for a future position is worth having before the turn arrives.
   useEffect(() => {
     if (!started || draftState === null) return;
+    // Never off a held board. This is the invariant `use-recommendations.ts` was written
+    // against and describes in its own docblock: while the board query was reloading it
+    // returned `undefined`, `draftState` was null, and no request could go out. Holding the
+    // board removed that by construction — and the reply gate cannot see the difference,
+    // because it is retargeted to the *selected* league the moment the format changes. So a
+    // request built from the previous format's projections, sent during the reload by a
+    // recorded pick or a Rounds change in the same open dialog, comes back stamped as the
+    // new league's: applied, not stale, and printed as championship odds with no marker on
+    // them. Odds the code did not compute for the state on screen are the one thing this
+    // project refuses to render, so the request waits for the board it belongs to.
+    if (boardPending) return;
     if (draftState.available.length === 0) return;
     // A finished draft still changes `draftState` on the last pick, and the pool is never
     // empty — drafted players are a small slice of the board — so without this the worker
@@ -480,7 +496,7 @@ export default function DraftPage() {
     recommender.request(draftState, config, SEED, CANDIDATES);
     // `recommender.request` is stable; depending on the whole object would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, draftState, config, draftComplete]);
+  }, [started, draftState, config, draftComplete, boardPending]);
 
   // Memoized rather than defaulted inline. `?? []` builds a new array on every render
   // where the draft state is absent, which makes it a fresh dependency each time and
@@ -649,25 +665,34 @@ export default function DraftPage() {
         title="Draft"
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
-        <BoardHealthNotice freshness={freshness ?? null} />
+        <BoardHealthNotice freshness={freshness ?? null} pending={pending} />
         {/* The size and scoring buttons on this screen key the board query too, so it used
             to replace itself with a skeleton on every click. The board is held now, which
             means the count and build date below belong to the previous selection until the
             new one lands — the same fixed-height, always-present line the running board
             uses, for the same reason. */}
-        <p
-          className="mb-3 h-4 text-xs font-medium text-amber-700 dark:text-amber-300"
-          role="status"
-        >
-          {boardPending
-            ? "Loading the new selection — the board described below is the previous one."
-            : ""}
-        </p>
+      <p
+        className="mb-3 h-4 truncate text-xs font-medium text-amber-700 dark:text-amber-300"
+        role="status"
+      >
+        {pending ? (
+          <>
+            {/* Two lengths and a `truncate` backstop, the same treatment the draft's status
+                bar needs for the same reason: at 12px the long sentence runs about 470px,
+                which is wider than a phone's content column, and a fixed-height box with a
+                sentence wrapping inside it does not push the page down — it renders the
+                second line straight over whatever comes next. */}
+            <span className="hidden sm:inline">Loading the new selection — the board described below is the previous one.</span>
+            <span className="sm:hidden">Board below is the previous selection&rsquo;s.</span>
+          </>
+        ) : null}
+      </p>
         <DraftSetup
           settings={settings}
           onChange={applySettings}
           onStart={() => setStarted(true)}
           boardSize={board.length}
+          boardPending={pending}
           season={season}
           leagueSizes={LEAGUE_SIZES}
           scoringConfirmed={scoringConfirmed}
@@ -676,6 +701,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            pending={pending}
           />
         </DraftSetup>
       </PageShell>
@@ -700,7 +726,7 @@ export default function DraftPage() {
         {turn.summary}
       </p>
 
-      <BoardHealthNotice freshness={freshness ?? null} />
+      <BoardHealthNotice freshness={freshness ?? null} pending={pending} />
 
       <StatusBar
         turn={turn}
@@ -718,7 +744,7 @@ export default function DraftPage() {
         // Every value below belongs to the setup the board was built for, which is not the
         // one the controls now show. The page says so rather than redrawing itself: see
         // `useStableQuery`.
-        reloading={boardPending}
+        reloading={pending}
       />
 
       <NeedsStrip
@@ -732,7 +758,7 @@ export default function DraftPage() {
           content column it sized itself to the longest one and scrolled sideways on a
           desktop with room to spare, which is the one thing a board must not do — the
           value of watching it is seeing the whole room at once. */}
-      <section className="mt-4" aria-busy={boardPending}>
+      <section className="mt-4" aria-busy={pending}>
         <button
           type="button"
           onClick={() => setBoardOpen((open) => !open)}
@@ -775,7 +801,7 @@ export default function DraftPage() {
           styling of its own at that width, so removing its box removes nothing from the
           accessibility tree either. */}
       <div
-        aria-busy={boardPending}
+        aria-busy={pending}
         className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]"
       >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
@@ -830,6 +856,7 @@ export default function DraftPage() {
             freshness={freshness ?? null}
             boardSize={board.length}
             teams={setup.teams}
+            pending={pending}
           />
         </aside>
       </div>
@@ -860,6 +887,10 @@ export default function DraftPage() {
         teams={setup.teams}
         unrankedAdp={unrankedAdp}
         scoringLabel={scoringLabel}
+        // The dialog names the scoring format directly above the three estimates, and its
+        // overlay covers the status bar's warning — so it is the one surface that would
+        // put the new format's name on the old format's numbers with nothing to say so.
+        pending={pending}
       />
     </PageShell>
   );
@@ -955,13 +986,26 @@ function NeedsStrip({
  * failure is invisible. Somebody about to draft off it has to be told before they start,
  * not in a paragraph at the bottom of a sidebar.
  */
-function BoardHealthNotice({ freshness }: { freshness: BoardFreshness | null }) {
+function BoardHealthNotice({
+  freshness,
+  pending,
+}: {
+  freshness: BoardFreshness | null;
+  /** True while the freshness on hand belongs to a selection the controls have left. */
+  pending: boolean;
+}) {
   // `Date.now()` at mount rather than during render, for the same hydration reason the
   // formatted timestamp below has: a server render and a client render happen at different
   // instants and would disagree about how many hours old a board is.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => setNow(Date.now()), [freshness]);
   if (now === null) return null;
+  // This notice sits above the line that marks held data, and `describeBoardHealth` names
+  // no league shape — so during a reload it would state "no board has ever been built for
+  // this league shape" about the shape the reader has just left, with nothing to say which
+  // shape it meant. An existence claim is not worth making from data that is about to be
+  // replaced; it renders for the board it actually describes, a moment later.
+  if (pending) return null;
 
   const health = boardHealth({
     now,
@@ -986,10 +1030,13 @@ function Caveat({
   freshness,
   boardSize,
   teams,
+  pending,
 }: {
   freshness: BoardFreshness | null;
   boardSize: number;
   teams: number;
+  /** True while `boardSize` and `freshness` belong to a selection `teams` has left. */
+  pending: boolean;
 }) {
   // Formatted after mount, never during render. `toLocaleString` reads the locale and
   // timezone of whoever runs it, so the server's rendering of this timestamp and the
@@ -1010,8 +1057,15 @@ function Caveat({
   // written twice — once in the module that owns the fallback rule and once inline in this
   // component — which is a wording that can drift from the rule it describes, in the one
   // direction that matters: a derived board eventually described as a published one.
-  const provenance =
-    freshness?.computedAt == null
+  // `adpSourceLabel` takes the *selected* size and the *held* board's ADP source, and
+  // while those disagree it composes a sentence about neither: switching from an 11-team
+  // board (derived, sourced from 10) to a 10-team one printed "market prices published for
+  // 10-team leagues" over rows that had been rescaled — an approximation promoted to a
+  // published price, stated flatly. Only this clause mixes the two, so only this clause
+  // waits; the sentences around it are true of the board actually on screen.
+  const provenance = pending
+    ? "Where this board's market prices came from has not been re-read for this selection yet."
+    : freshness?.computedAt == null
       ? "No board has been built for this league size yet."
       : adpSourceLabel(teams, freshness.adpSourceTeams);
 

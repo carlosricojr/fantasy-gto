@@ -202,10 +202,20 @@ export default function LineupPage() {
           DOM and empty when idle, for the same live-region reason as the draft's status
           bar; a fixed height so it cannot move the lineup by appearing. */}
       <p
-        className="mb-3 h-4 text-xs font-medium text-amber-700 dark:text-amber-300"
+        className="mb-3 h-4 truncate text-xs font-medium text-amber-700 dark:text-amber-300"
         role="status"
       >
-        {pending ? "Loading the new ruleset — the points below are the previous one\u2019s." : ""}
+        {pending ? (
+          <>
+            {/* Two lengths and a `truncate` backstop, the same treatment the draft's status
+                bar needs for the same reason: at 12px the long sentence runs about 470px,
+                which is wider than a phone's content column, and a fixed-height box with a
+                sentence wrapping inside it does not push the page down — it renders the
+                second line straight over whatever comes next. */}
+            <span className="hidden sm:inline">Loading the new ruleset — the points below are the previous one&rsquo;s.</span>
+            <span className="sm:hidden">Points are the previous ruleset&rsquo;s.</span>
+          </>
+        ) : null}
       </p>
 
       {roster.length === 0 && selected.length > 0 && projections === undefined ? (

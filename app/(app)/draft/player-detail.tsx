@@ -39,6 +39,7 @@ export function PlayerDetail({
   teams,
   unrankedAdp,
   scoringLabel,
+  pending = false,
 }: {
   player: PoolPlayer | null;
   onClose: () => void;
@@ -51,6 +52,8 @@ export function PlayerDetail({
   teams: number;
   unrankedAdp: number;
   scoringLabel: string;
+  /** True while the figures shown are the previous selection's — see `useStableQuery`. */
+  pending?: boolean;
 }) {
   return (
     <Dialog open={player !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
@@ -81,8 +84,13 @@ export function PlayerDetail({
             <section>
               <h3 className="text-sm font-medium">Projected season points</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Under {scoringLabel} scoring. Two independent estimates and the blend the
-                board is ranked by.
+                {/* Not "under {scoringLabel}" while the board for that format is still
+                    loading: these three numbers are the previous one's, and this dialog's
+                    overlay covers the status bar that says so everywhere else. */}
+                {pending
+                  ? "Under the previous scoring — the board for the format you have selected is still loading."
+                  : `Under ${scoringLabel} scoring.`}{" "}
+                Two independent estimates and the blend the board is ranked by.
               </p>
               <dl className="mt-3 space-y-2">
                 <Estimate

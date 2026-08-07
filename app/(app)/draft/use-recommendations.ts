@@ -33,10 +33,17 @@ import {
  * A *third* case is not staleness at all and needed its own rule. When the league itself
  * changes — scoring, roster shape, size — every outstanding reply and everything already on
  * screen belongs to a different game. Request ids cannot see that, because they keep counting
- * up and the newest reply is still the newest; and the board query returns to `undefined`
- * while it reloads, so no new request goes out to displace the old answer. The previous
- * league's recommendations sat there unmarked for as long as the query took. `reply-gate.ts`
- * decides all three, and is pure so it can be tested without driving a component.
+ * up and the newest reply is still the newest. The previous league's recommendations sat
+ * there unmarked for as long as the query took. `reply-gate.ts` decides all three, and is
+ * pure so it can be tested without driving a component.
+ *
+ * What this hook does *not* police is a request built from the wrong board. It cannot: a
+ * `DraftPolicyState` carries players, not the league they were priced under. That used to
+ * be guaranteed by accident — the board query returned `undefined` while it reloaded, so
+ * the page had no state to send — and the page now holds the previous board to keep itself
+ * mounted. `page.tsx` therefore withholds the request explicitly while the board is the
+ * previous league's. If that guard is removed, this gate will stamp the answer as current,
+ * because from here it is indistinguishable from one.
  */
 
 export interface RecommendationState {
