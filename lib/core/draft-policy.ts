@@ -165,36 +165,52 @@ export const CHAMPIONSHIP_CANDIDATES = 10;
  * remaining picks on bench backs and started the season with the quarterback slot empty.
  * That is the baseline every improvement in this module is quoted against.
  *
- * **Two per position, not one, and the second one is load-bearing.**
+ * **Two per position, not one — and this is a heuristic, not a proof.**
  *
- * The narrowing is lossless because value is monotone in `weeklyMean * availability`
- * *within a regime*. A player who reaches the starting lineup is priced by what he adds to
- * it, and the better of two such players adds at least as much: he is eligible for every
- * slot the worse one is and worth at least as much in it. A player who does not reach it is
- * priced as a reserve, and the better of two such players is worth at least as much there
- * too — he beats replacement by more, and fewer of the roster's own players stand ahead of
- * him, so he is needed at least as often.
+ * It used to be a proof. `toCompetitor` valued a player at `weeklyMean * availability` and
+ * nothing else, so two players at one position differed to the solver in that number alone
+ * and the better of them dominated. #39 ended that: `coverValue` reads `availability` and
+ * `byeWeek` **separately**, because a durable backup covers more weeks than a fragile one of
+ * the same expected worth, and a backup sharing his starter's bye covers fewer. Three
+ * quarterbacks with an identical `weeklyMean * availability` of 12.00 score 3.094, 2.400 and
+ * 2.995. That is `draft-bench.ts` working as intended.
  *
- * The two regimes do not compare. A candidate who scrapes into the lineup for a tenth of a
- * point outranks nobody: a slightly worse candidate at the same position, who misses the
- * lineup and is therefore priced as cover for the starter ahead of him, can be worth more.
- * That is not a defect in the pricing — cover for a fragile starter really can be worth more
- * than a tenth of a point a week — but it does mean the single best player at a position no
- * longer dominates every other. Keeping the best of each regime restores it: the argmax over
- * the whole board is the argmax over these, because every dropped player is beaten by the
- * one kept in his own regime.
+ * So value is **not** a function of `weeklyMean * availability` alone, and the best player at
+ * a position by that key no longer provably dominates the rest. Measured on the real
+ * published board with a roster held: 20 of 1806 adjacent same-position pairs rank the
+ * lower-key player higher, the widest being a back scoring 0.543 against one scoring 0.809.
+ * The *pricing* is right in every one of those cases. What is false is any claim that the key
+ * used to narrow orders candidates the same way their value does.
  *
- * Which regime a candidate falls in is decided without solving anything. Adding one player
- * to an optimally assigned lineup improves it exactly when he beats the weakest player
- * currently seated in a slot he is eligible for — no chain can do better, because everyone
- * already seated is already optimally placed. `startThreshold` is that number per position.
+ * Two regimes are still kept, for two different reasons. The regimes genuinely do not
+ * compare — a candidate who scrapes into the lineup for a tenth of a point can be worth less
+ * than a slightly worse one priced as cover. And within the **reserve** regime the ordering
+ * *is* still monotone: a candidate who never reaches the lineup has no `certain` term to
+ * subtract, so his value is the stochastic expectation alone, which increases with his own
+ * worth. The starter regime carries no such guarantee.
+ *
+ * Which regime a candidate falls in is decided without solving anything. Adding one player to
+ * an optimally assigned lineup improves it exactly when he beats the weakest player currently
+ * seated in a slot he is eligible for — no chain can do better, because everyone already
+ * seated is already optimally placed. `startThreshold` is that number per position.
+ *
+ * **What the hole costs, measured rather than assumed.** Over a fifteen-round completion on
+ * the real board, and at three separate mid-draft roster states, `basePolicyPick` over the
+ * narrowed field chose the same player as `scoreCandidates` over all 614 rows every time. The
+ * gap is real and has not been observed to bite. Closing it exactly means keeping every
+ * candidate whose upper bound
+ *
+ *     (value - startThreshold)+  +  pMax * (value - replacement)+
+ *
+ * beats the best actual score found so far, where `pMax` is the position's crowding-out
+ * probability and the bound is monotone in the same key the scan walks. That is a change to
+ * the hot path and belongs with its own benchmark rather than beside this comment.
  *
  * `narrowing the field cannot change the base policy's answer` in the tests runs both paths
- * against each other rather than trusting the argument: `basePolicyPick` over the narrowed
- * field against `scoreCandidates` over the whole board, at every roster state of a
- * twelve-pick draft and again at the exhausted-position and no-demand boundaries. The
- * version of that test this replaced passed a pre-narrowed board *into* `basePolicyPick`
- * and so compared nothing.
+ * against each other rather than trusting any argument, on a board whose availability varies
+ * **independently** of projection — the only shape that can expose this. A fixture where the
+ * two co-vary passes whatever the narrowing does, which is how the first version of this test
+ * was green while the claim above it was false.
  */
 function contendersFor(
   available: readonly PlayerRisk[],

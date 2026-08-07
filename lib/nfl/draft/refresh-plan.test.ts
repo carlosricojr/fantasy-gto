@@ -4,10 +4,12 @@ import type { SeasonState } from "../season";
 import { SCORING_PRESETS } from "../scoring/presets";
 import { SUPPORTED_LEAGUE_SIZES } from "./league-size";
 import {
+  BOARD_REFRESH_CRON,
   BOARD_REFRESH_INTERVAL_HOURS,
   BOARD_STALE_AFTER_MS,
   type BoardHealthInput,
   boardHealth,
+  cronIntervalHours,
   describeBoardHealth,
   draftBoardMatrix,
   planDraftRefresh,
@@ -123,9 +125,46 @@ describe("the staleness threshold", () => {
     // most twelve hours old; twenty-six is two cycles plus two hours, the smallest threshold
     // that does not fire on a single late or slow run. A warning that appears routinely is a
     // warning nobody reads.
+    expect(BOARD_REFRESH_CRON).toBe("0 11,23 * * *");
     expect(BOARD_REFRESH_INTERVAL_HOURS).toBe(12);
     expect(BOARD_STALE_AFTER_MS).toBe(26 * HOUR);
     expect(BOARD_STALE_AFTER_MS).toBeGreaterThan(2 * BOARD_REFRESH_INTERVAL_HOURS * HOUR);
+  });
+
+  it("follows the schedule when the schedule changes", () => {
+    // The identity that had nothing enforcing it: a `12` in one file beside a cron expression
+    // in another. Moving to every six hours has to move the threshold, or the interface goes
+    // on calling a board that has missed four runs "fresh".
+    // Every six hours, written the way this parser accepts. (`0 */6 * * *` means the same
+    // thing to cron and is refused below rather than guessed at.)
+    expect(cronIntervalHours("0 0,6,12,18 * * *")).toBe(6);
+    expect(cronIntervalHours("0 9 * * *")).toBe(24);
+    expect(cronIntervalHours("30 3,15 * * *")).toBe(12);
+  });
+
+  it("counts the gap across midnight, which is the one a naive maximum misses", () => {
+    // Runs at 01:00 and 03:00 are two hours apart once and twenty-two hours apart the other
+    // way. Taking the largest difference between sorted hours answers 2, which reports the
+    // schedule as far tighter than it is — an error in the direction that suppresses the
+    // warning.
+    expect(cronIntervalHours("0 1,3 * * *")).toBe(22);
+    expect(cronIntervalHours("0 0,12 * * *")).toBe(12);
+  });
+
+  it("refuses a schedule it cannot reduce rather than guessing at one", () => {
+    // A wrong interval here produces a plausible threshold, which is exactly the failure the
+    // whole derivation exists to prevent.
+    for (const expression of [
+      "0 */6 * * *",
+      "0 11,23 * * 1",
+      "0 11,23 1 * *",
+      "0 11,23 * 6 *",
+      "*/5 11 * * *",
+      "0 11 * *",
+      "",
+    ]) {
+      expect(() => cronIntervalHours(expression)).toThrow();
+    }
   });
 
   it("does not fire on a board from the previous scheduled run", () => {

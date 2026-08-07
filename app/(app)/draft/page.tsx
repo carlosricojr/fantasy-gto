@@ -14,6 +14,7 @@ import type { LeagueConfig } from "@/lib/core/season-sim";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
 import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
+import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
@@ -907,20 +908,14 @@ function Caveat({
     );
   }, [freshness]);
 
-  // Four states rather than a boolean, because "we do not know" is not "it is fine". A run
-  // written before derived boards existed carries no source, and reading that as `direct`
-  // would present an approximation as a published board — which is the one thing this whole
-  // provenance chain exists to prevent.
+  // The sentence comes from `adpSourceLabel` rather than being written again here. It was
+  // written twice — once in the module that owns the fallback rule and once inline in this
+  // component — which is a wording that can drift from the rule it describes, in the one
+  // direction that matters: a derived board eventually described as a published one.
   const provenance =
     freshness?.computedAt == null
       ? "No board has been built for this league size yet."
-      : freshness.adpSourceTeams === null
-        ? "This board predates source tracking, so where its market prices came from is not recorded."
-        : freshness.adpSourceTeams === teams
-          ? `Market prices published for ${teams}-team leagues.`
-          : `No market board is published for ${teams}-team leagues, so prices are derived ` +
-            `from the ${freshness.adpSourceTeams}-team board by rescaling every pick number ` +
-            `by ${(teams / freshness.adpSourceTeams).toFixed(3)}. Read them as an approximation.`;
+      : adpSourceLabel(teams, freshness.adpSourceTeams);
 
   return (
     <p className="text-xs text-muted-foreground">
