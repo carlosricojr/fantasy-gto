@@ -12,10 +12,14 @@ import { sourceFiles, stripComments } from "./source-scan";
  * operating system for less motion. `components/ui/skeleton.tsx` exists so new ones cannot
  * be written without it, and this catches a hand-rolled one.
  *
- * **Nothing transitions `all`.** `transition-all` includes every layout property, so a
- * change of padding or a label that changes width animates the geometry of the element and
- * everything after it. It was on the base `Button` variant — the most-used component here —
- * where it animated the width of every button whose content changed.
+ * **Nothing transitions `all`, and every transform transition asks first.**
+ * `transition-all` includes every layout property, so a change of padding or a label that
+ * changes width animates the geometry of the element and everything after it; it was on the
+ * base `Button` variant, the most-used component here. And `transition-transform` is
+ * movement rather than a colour fade, so it is the one transition a reduced-motion
+ * preference should turn off rather than narrow — the recommendation panel's disclosure
+ * chevron rotated 180 degrees without the guard, and a first version of this file that only
+ * knew about `animate-pulse` did not see it.
  *
  * The reduced-motion rule that is *not* checked here is the one in `app/globals.css`:
  * `tw-animate-css` ships no guard, so dialogs and dropdowns zoomed and slid regardless of
@@ -48,6 +52,20 @@ function transitionAll(source: string): string[] {
   return utilities(source, "transition-all");
 }
 
+/**
+ * Transform transitions written without the guard.
+ *
+ * `transition-transform` animates translate, scale and rotate — movement, which is the
+ * thing a reduced-motion preference is about, unlike the colour fades everything else here
+ * transitions. The recommendation panel's disclosure chevron rotated 180 degrees without
+ * it, and was missed by a first version of this file that only knew about `animate-pulse`.
+ */
+function unguardedTransforms(source: string): string[] {
+  return utilities(source, "transition-transform").filter(
+    (u) => u !== "motion-safe:transition-transform",
+  );
+}
+
 describe("motion is asked for, not assumed", () => {
   it("guards every pulse with motion-safe", () => {
     const offenders: string[] = [];
@@ -62,6 +80,18 @@ describe("motion is asked for, not assumed", () => {
     }
     expect(offenders).toEqual([]);
     expect(scanned).toBeGreaterThan(20);
+  });
+
+  it("guards every transform transition with motion-safe", () => {
+    const offenders: string[] = [];
+    for (const dir of SCANNED) {
+      for (const file of sourceFiles(dir)) {
+        for (const hit of unguardedTransforms(readFileSync(file, "utf8"))) {
+          offenders.push(`${file}: ${hit}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("transitions named properties rather than all of them", () => {
@@ -89,6 +119,10 @@ describe("motion is asked for, not assumed", () => {
     expect(transitionAll('className="transition-all duration-200"')).toEqual(["transition-all"]);
     expect(transitionAll('className="hover:transition-all"')).toEqual(["hover:transition-all"]);
     expect(transitionAll('className="transition-[color,box-shadow]"')).toEqual([]);
+    expect(unguardedTransforms('className="size-4 transition-transform"')).toEqual([
+      "transition-transform",
+    ]);
+    expect(unguardedTransforms('className="motion-safe:transition-transform"')).toEqual([]);
   });
 
   it("keeps the reduced-motion rule the animation library does not ship", () => {

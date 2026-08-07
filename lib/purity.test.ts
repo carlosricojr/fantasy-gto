@@ -93,6 +93,14 @@ describe("the scanner itself", () => {
   it("blanks line and block comments", () => {
     expect(stripCommentsAndStrings("a // fetch(x)\nb")).not.toContain("fetch(");
     expect(stripCommentsAndStrings("a /* fetch(x) */ b")).not.toContain("fetch(");
+    // A regular expression is not a comment, however many slashes are inside it. Without
+    // this the rest of the line vanished — and the call this scan exists to find with it.
+    expect(stripCommentsAndStrings("const slash = /[//]/; Date.now()")).toContain("Date.now(");
+    expect(stripComments("const slash = /[//]/; Date.now()")).toContain("Date.now(");
+    expect(stripComments("const re = /a\\/b/; Date.now()")).toContain("Date.now(");
+    // ...and division still is not one.
+    expect(stripComments("const half = total / 2; // gone\nDate.now()")).toContain("Date.now(");
+    expect(stripComments("const half = total / 2; // gone\nx")).not.toContain("gone");
   });
 
   it("does not treat // inside a string as a comment", () => {

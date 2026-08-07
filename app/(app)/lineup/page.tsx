@@ -157,16 +157,31 @@ export default function LineupPage() {
   );
 
   if (season === undefined) {
-    // The shape of the optimizer, not the word "Loading…": a row of template and scoring
-    // controls, the solved lineup, and the picker under it.
+    // The shape of what actually arrives on a cold load, which is not the solved lineup:
+    // `selected` starts empty and is not persisted, so the resolved page shows the empty
+    // state and the picker under it. A skeleton shaped like the *solved* section stood for
+    // a section that had never rendered.
+    //
+    // The control row is one chip per control — nine roster templates and three scoring
+    // presets — rather than a round number, so the row wraps to the same height as the row
+    // it replaces instead of half of it.
     return (
-      <PageShell title="Lineup">
+      <PageShell
+        title="Lineup optimizer"
+        subtitle={<Skeleton className="h-4 w-64 max-w-full" />}
+      >
         <div className="mb-4 flex flex-wrap gap-2">
-          {Array.from({ length: 6 }, (_, i) => (
-            <Skeleton key={i} className="h-8 w-24" />
+          {ROSTER_TEMPLATES.map((template) => (
+            <Skeleton key={template.id} className="h-8 w-24" />
+          ))}
+          {SCORING_PRESETS.map((preset) => (
+            <Skeleton key={preset.id} className="h-8 w-20" />
           ))}
         </div>
-        <Skeleton className="h-72 rounded-lg" />
+        {/* The always-present status line the resolved page keeps empty, then the empty
+            state, then the picker. */}
+        <div className="mb-3 h-4" />
+        <Skeleton className="h-[9.5rem] rounded-lg" />
         <Skeleton className="mt-6 h-64 rounded-lg" />
         <p className="sr-only" role="status">
           Loading the optimizer.

@@ -4,16 +4,51 @@ import { join } from "node:path";
 /**
  * Reading this repository's own source, for the guards that are about how it is written.
  *
- * Five tests now scan the tree — purity, the `@/*` alias, the app shell's width, the stable
- * query hook, scroll containment and motion — and each had its own copy of the file walk.
- * The comment stripper is the part that actually needed sharing: a scan that reads prose as
- * code reports its own explanations as violations, which is exactly what the motion guard
- * did on its first run, and this implementation already knows the trap that a naive one
- * falls into.
+ * Four tests share it — purity, the stable query hook, scroll containment and motion.
+ * (`shell-width.test.ts` reads three named files and walks nothing; `import-alias.test.ts`
+ * still carries its own walker, which skips `_generated` for its own reasons.) The comment
+ * stripper is the part that actually needed sharing: a scan that reads prose as code
+ * reports its own explanations as violations, which is exactly what the motion guard did on
+ * its first run, and this implementation already knows the traps a naive one falls into.
  *
  * It lives outside `lib/core`, `lib/nfl` and `lib/billing`, which are the directories
  * `purity.test.ts` guards — this reads the filesystem by design.
  */
+
+/**
+ * Whether a `/` at `i` starts a regular expression rather than a comment or a division.
+ *
+ * The standard heuristic: a literal can only appear where an expression can begin, so the
+ * last meaningful character before it decides. Without this, `const re = /[//]/` reads as a
+ * line comment and everything after it on the line disappears — taking, say, a `Date.now()`
+ * with it, which is precisely the call the purity scan exists to find.
+ */
+function startsRegex(source: string, i: number): boolean {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(source[j])) j -= 1;
+  if (j < 0) return true;
+  const prev = source[j];
+  if ("(,=:[!&|?{};+-*%~^<>".includes(prev)) return true;
+  // `return /re/`, `typeof /re/`, and friends: a word here is a keyword, not a value.
+  const word = source.slice(Math.max(0, j - 10), j + 1).match(/[A-Za-z$_][\w$]*$/);
+  return word !== null && ["return", "typeof", "case", "in", "of", "new", "delete", "void", "instanceof"].includes(word[0]);
+}
+
+/** Skips a regular expression literal, returning the index just past it. */
+function skipRegex(source: string, start: number): number {
+  let i = start + 1;
+  let inClass = false;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === "\\") { i += 2; continue; }
+    if (c === "[") inClass = true;
+    else if (c === "]") inClass = false;
+    else if (c === "/" && !inClass) return i + 1;
+    else if (c === "\n") return start + 1;
+    i += 1;
+  }
+  return i;
+}
 
 /** Every non-test `.ts`/`.tsx` file under a directory. */
 export function sourceFiles(directory: string): string[] {
@@ -60,6 +95,12 @@ export function stripComments(source: string): string {
     if (char === "/" && next === "/") {
       while (i < source.length && source[i] !== "\n") i += 1;
       out += " ";
+      continue;
+    }
+    if (char === "/" && startsRegex(source, i)) {
+      const end = skipRegex(source, i);
+      out += source.slice(i, end);
+      i = end;
       continue;
     }
     if (char === '"' || char === "'" || char === "`") {
@@ -113,6 +154,12 @@ export function stripCommentsAndStrings(source: string): string {
     if (char === "/" && next === "/") {
       while (i < source.length && source[i] !== "\n") i += 1;
       out += " ";
+      continue;
+    }
+    if (char === "/" && startsRegex(source, i)) {
+      const end = skipRegex(source, i);
+      out += source.slice(i, end);
+      i = end;
       continue;
     }
 

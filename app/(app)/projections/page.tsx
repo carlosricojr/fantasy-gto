@@ -70,7 +70,9 @@ export default function ProjectionsPage() {
     // text where a hundred cards and two rows of controls arrive — the whole page shifting
     // under the reader once, on every cold load.
     return (
-      <PageShell title="Projections">
+      // The same title and a reserved subtitle line, because the resolved page has one and
+      // `PageShell` only emits the paragraph when it is given something to put in it.
+      <PageShell title="Projections" subtitle={<Skeleton className="h-4 w-64 max-w-full" />}>
         <div className="mb-4 flex flex-wrap gap-2">
           {SCORING_PRESETS.map((preset) => (
             <Skeleton key={preset.id} className="h-8 w-24" />

@@ -133,9 +133,13 @@
 
 /* `tw-animate-css` ships no `prefers-reduced-motion` guard of its own — grep it, there is
    not one — and four shadcn primitives animate through it: both dialogs and both dropdown
-   surfaces. So the one piece of motion in this app that ignored the setting was the modal
-   that opens on every Settings click, in a codebase where every skeleton is `motion-safe:`
-   and both scroll effects check `matchMedia` before choosing a behaviour.
+   surfaces. So the modal that opens on every Settings click zoomed and slid for somebody
+   who had asked their system for less motion, in a codebase where every skeleton is
+   `motion-safe:` and both scroll effects check `matchMedia` before choosing a behaviour.
+
+   This block is the library's half of that. The application's half is a class convention —
+   `motion-safe:` on anything that moves — which `lib/motion.test.ts` enforces across every
+   transform transition and every pulse.
 
    The motion is removed and the fade is kept, which is the distinction the guideline draws:
    WCAG 2.3.3 is about movement — the vestibular trigger is translation, scaling and

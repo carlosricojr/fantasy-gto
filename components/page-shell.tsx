@@ -10,7 +10,14 @@ export function PageShell({
   children,
 }: {
   title: string;
-  subtitle?: string;
+  /**
+   * `ReactNode`, not `string`, so a screen that does not know its subtitle yet can reserve
+   * the line with a skeleton. It was a string, and the two pages that load a season
+   * rendered no subtitle at all while loading and one after — moving everything below them
+   * down by the height of this paragraph at the exact moment their skeletons existed to
+   * stop the page moving.
+   */
+  subtitle?: React.ReactNode;
   /** Controls that belong beside the title rather than in the content. */
   actions?: React.ReactNode;
   /**
