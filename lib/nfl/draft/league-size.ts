@@ -148,11 +148,33 @@ export function distinctAdpSources(teams: readonly number[]): number[] {
   );
 }
 
-/** How a board's provenance reads on screen. */
-export function adpSourceLabel(source: AdpSource): string {
-  return source.kind === "direct"
-    ? `Market prices for ${source.teams}-team leagues, as published.`
-    : `No market board is published for ${source.teams}-team leagues, so prices are ` +
-        `derived from the ${source.sourceTeams}-team board by rescaling every pick number ` +
-        `by ${source.factor.toFixed(3)}. Read them as an approximation.`;
+/**
+ * How a board's provenance reads on screen.
+ *
+ * Takes the two numbers a *stored* board carries rather than an `AdpSource`, because that is
+ * what the reader has: `draftBoardRuns.adpSourceTeams` beside the league size, and no
+ * guarantee they were produced by today's fallback rule. Deriving the sentence from a fresh
+ * `adpSourceFor(teams)` would describe what the board *would* be built from now, which is a
+ * different claim from what it *was* built from — and the two differ exactly when the rule
+ * has changed, which is when it matters.
+ *
+ * `null` for a source the board does not record. A run written before the field existed has
+ * unknown provenance, and unknown is not "published": defaulting to the reassuring reading is
+ * how a derived board comes to be presented as a real one.
+ */
+export function adpSourceLabel(teams: number, sourceTeams: number | null): string {
+  if (sourceTeams === null) {
+    return (
+      "This board predates source tracking, so where its market prices came from is not " +
+      "recorded."
+    );
+  }
+  if (sourceTeams === teams) {
+    return `Market prices published for ${teams}-team leagues.`;
+  }
+  return (
+    `No market board is published for ${teams}-team leagues, so prices are derived from ` +
+    `the ${sourceTeams}-team board by rescaling every pick number by ` +
+    `${(teams / sourceTeams).toFixed(3)}. Read them as an approximation.`
+  );
 }
