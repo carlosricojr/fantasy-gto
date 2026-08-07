@@ -283,13 +283,25 @@ export function PlayerPool({
         <>
           <div
             ref={scroller}
+            // `relative`, and it is load-bearing rather than decorative. Tailwind's
+            // `sr-only` is `position: absolute`, and every ancestor of this scroller was
+            // `position: static` up to `<body>` — so the screen-reader spans inside the
+            // rows resolved against the *initial containing block* instead of against this
+            // element. An absolutely positioned box whose containing block is outside a
+            // scroller is not clipped by it, so their static positions — up to 3,995px down
+            // a 2,961px table — propagated into the document's scrollable overflow.
+            // `documentElement.scrollHeight` measured 4,630px against a 2,484px page: two
+            // thousand pixels of empty scroll below the footer, growing every time "Show
+            // more" added rows. Making the scroller the containing block puts them back
+            // inside the clip.
+            //
             // The `lg` cap is there because at that width the list sits *below* the
             // recommendation panel in the same column, and a viewport-tall list pushes
             // everything after it — the roster, the queue — off the bottom of the screen.
             // From `3xl` they are side by side in separate columns, nothing follows the
             // list in its own column, and the phone's viewport-relative height is right
             // again: the extra rows are free.
-            className="max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem] 3xl:max-h-[70dvh]"
+            className="relative max-h-[70dvh] min-h-0 overflow-y-auto overscroll-contain lg:max-h-[34rem] 3xl:max-h-[70dvh]"
           >
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-card">
