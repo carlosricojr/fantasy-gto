@@ -225,11 +225,28 @@ export function stripCommentsAndStrings(source: string): string {
         }
         if (depth > 0) {
           // Inside an interpolation: keep the expression, tracking nesting so a `}` in a
-          // nested object literal does not end it early — and stepping over string
-          // literals, so a brace *inside* a string does not either. `${row["}"]}` ended the
-          // interpolation at the quoted brace and left the rest of the template being read
-          // as executable code, which is the direction that hides calls rather than
-          // inventing them.
+          // nested object literal does not end it early — and stepping over strings and
+          // regular expressions, so a brace inside either does not either.
+          //
+          // `${a["}"] + Date.now()}` is the shape. The quoted brace dropped `depth` to 0,
+          // so everything after it was read as template literal *text* and blanked, and the
+          // call went with it: hiding a call from the purity scan rather than inventing
+          // one, which is the worse of the two directions. (An earlier version of this
+          // comment had that backwards.)
+          //
+          // The regex branch is the one the top level uses, and it is here for consistency
+          // rather than for a bug: without it the apostrophe in `${s.replace(/'/g, "")}`
+          // opens a "string" that runs to the next quote anywhere in the file. Everything
+          // it consumes is still emitted, so nothing is hidden by that alone, and no
+          // realistic input distinguishes the two — which is why there is no test for it. A
+          // walker that knows about regular expressions at one level and not the other is
+          // just a difference somebody has to rediscover.
+          if (source[i] === "/" && startsRegex(source, i)) {
+            const end = skipRegex(source, i);
+            out += source.slice(i, end);
+            i = end;
+            continue;
+          }
           if (source[i] === '"' || source[i] === "'") {
             const quote = source[i];
             out += source[i];
