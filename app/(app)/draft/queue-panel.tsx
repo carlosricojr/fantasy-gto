@@ -82,16 +82,21 @@ export function QueuePanel({
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm">{player.name}</span>
                 <span className="flex shrink-0 items-center">
+                  {/* `aria-disabled` rather than `disabled`, for the reason the status
+                      bar's Undo carries: moving an entry to the end of the queue disables
+                      its own down arrow on the same commit, and a focused element that
+                      becomes `disabled` is dropped from the tab order — so a keyboard user
+                      is returned to <body> by the act of using the control. */}
                   <IconButton
                     label={`Move ${player.name} up the queue`}
-                    disabled={index === 0}
+                    unavailable={index === 0}
                     onClick={() => onSwap(player.id, rows[index - 1].id)}
                   >
                     <ChevronUp className="size-3.5" />
                   </IconButton>
                   <IconButton
                     label={`Move ${player.name} down the queue`}
-                    disabled={index === rows.length - 1}
+                    unavailable={index === rows.length - 1}
                     onClick={() => onSwap(player.id, rows[index + 1].id)}
                   >
                     <ChevronDown className="size-3.5" />
@@ -114,12 +119,13 @@ export function QueuePanel({
 
 function IconButton({
   label,
-  disabled,
+  unavailable,
   onClick,
   children,
 }: {
   label: string;
-  disabled?: boolean;
+  /** Announced as disabled and styled as such, but still focusable and still a no-op. */
+  unavailable?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -127,9 +133,15 @@ function IconButton({
     <button
       type="button"
       aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-30"
+      aria-disabled={unavailable}
+      onClick={() => {
+        if (unavailable === true) return;
+        onClick();
+      }}
+      className={cn(
+        "rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+        unavailable === true && "opacity-30 hover:text-muted-foreground",
+      )}
     >
       {children}
     </button>

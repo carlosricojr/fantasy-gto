@@ -527,7 +527,7 @@ export default function DraftPage() {
       <PageShell title="Draft" subtitle="No board for this league">
         <p className="text-sm text-muted-foreground">
           No {season} board has been built for {setup.teams}-team{" "}
-          {scoringId.replace("_", " ")} yet, so there is nothing to draft from. Boards
+          {scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from. Boards
           exist for {LEAGUE_SIZES.join(", ")}-team leagues.
         </p>
         <Button className="mt-6" variant="outline" onClick={() => setStarted(false)}>

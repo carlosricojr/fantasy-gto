@@ -130,6 +130,18 @@ export function PlayerPool({
     setFilter(focus.drafted ? "drafted" : "available");
   }, [focus]);
 
+  // ...and extend the page far enough to actually contain them. `visible` resets to `PAGE`
+  // whenever the filter changes, which the effect above always does — so revealing a
+  // player sitting at row 140 of the drafted list switched the filter, rendered the first
+  // 60 rows, and stopped. The row never mounted, the scroll never happened, and clicking a
+  // cell on the board looked like a dead control.
+  useEffect(() => {
+    if (focus === null) return;
+    const index = rows.findIndex((player) => player.id === focus.playerId);
+    if (index < 0) return;
+    setVisible((current) => (index < current ? current : index + PAGE));
+  }, [focus, rows]);
+
   const shown = rows.slice(0, visible);
 
   return (

@@ -52,8 +52,13 @@ export function DraftSetup({
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <h2 className="text-sm font-medium">Your picks</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Seat {settings.slot} of {settings.teams}, snake order. The gap between your first
-          two picks is {picks.length > 1 ? picks[1] - picks[0] - 1 : 0} players.
+          Seat {settings.slot} of {settings.teams}, snake order.
+          {/* Only when there is a second pick to measure to. A one-round draft has no gap,
+              and the sentence reported it as "0 players" — a number about something that
+              does not exist. */}
+          {picks.length > 1
+            ? ` The gap between your first two picks is ${picks[1] - picks[0] - 1} players.`
+            : ""}
         </p>
         <ol className="mt-3 flex flex-wrap gap-1.5">
           {picks.map((pick, index) => (
@@ -77,7 +82,7 @@ export function DraftSetup({
         // told an end user to run an internal command.
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
           No {season} board has been built for {settings.teams}-team{" "}
-          {settings.scoringId.replace("_", " ")} yet, so there is nothing to draft from.
+          {settings.scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from.
           Choose another size or scoring format above; boards exist for{" "}
           {leagueSizes.join(", ")}-team leagues.
         </p>

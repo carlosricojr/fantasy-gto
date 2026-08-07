@@ -44,6 +44,14 @@ export function SegmentedControl<T extends string | number>({
   className?: string;
 }) {
   const index = options.findIndex((option) => option.value === value);
+  // The button that holds the group's single tab stop. Normally the selected one — but
+  // `value` can briefly name an option that is not in the list, on a render between a
+  // setting changing and the effect that clamps it. Every button then carried
+  // `tabIndex={-1}` and the whole group dropped out of the tab order, which is a worse
+  // failure than the transient it came from. `aria-checked` still answers strictly: no
+  // radio is checked when nothing matches.
+  const tabStop =
+    index >= 0 ? index : Math.max(0, options.findIndex((option) => option.disabled !== true));
   // Focus has to travel with the selection. Arrow keys changed `value` and returned, so
   // the roving `tabIndex` below moved to a button nobody was standing on: the ring stayed
   // on the old option, the new one was announced by nothing, and the next Tab left the
@@ -88,7 +96,7 @@ export function SegmentedControl<T extends string | number>({
         }
       }}
     >
-      {options.map((option) => {
+      {options.map((option, position) => {
         const selected = option.value === value;
         const locked = option.disabled === true;
         return (
@@ -110,7 +118,7 @@ export function SegmentedControl<T extends string | number>({
             // Only the selected option is in the tab order, so Tab moves past the whole
             // group rather than through every option in it — the behaviour of a native
             // radio group, and the reason arrow keys are wired above.
-            tabIndex={selected ? 0 : -1}
+            tabIndex={position === tabStop ? 0 : -1}
             onClick={() => {
               if (locked) return;
               onChange(option.value);
