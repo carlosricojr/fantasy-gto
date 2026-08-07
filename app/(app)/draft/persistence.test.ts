@@ -26,6 +26,7 @@ const VALID: PersistedDraft = {
   slot: 4,
   scoringId: "ppr",
   templateId: "standard",
+  scoringConfirmed: true,
   playoffTeams: 6,
   started: true,
   picks: { 1: "player-a", 2: "player-b" },
@@ -50,6 +51,7 @@ describe("parsePersistedDraft", () => {
       slot: 9,
       scoringId: "standard",
       templateId: "two_flex",
+      scoringConfirmed: true,
       playoffTeams: 6,
       started: true,
       picks: { 1: "player-a" },
@@ -78,6 +80,38 @@ describe("parsePersistedDraft", () => {
       expect(template.rounds).toBeLessThanOrEqual(MAX_ROUNDS);
       expect(template.rounds).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  it("reads a payload with no scoring confirmation as unconfirmed", () => {
+    // A draft stored before the confirmation existed carries a format nobody confirmed.
+    // Treating it as confirmed would invent the acknowledgement the field exists to require.
+    const { scoringConfirmed: _drop, ...older } = VALID;
+    expect(parsePersistedDraft(JSON.stringify(older))?.scoringConfirmed).toBe(false);
+  });
+
+  it("refuses a scoring confirmation that is not a boolean", () => {
+    // Not coerced. `"false"` is truthy, and a payload carrying the string "false" would
+    // otherwise confirm a format the user never looked at.
+    for (const value of ["true", "false", 1, 0, {}]) {
+      expect(parsePersistedDraft(stored({ scoringConfirmed: value }))).toBeNull();
+    }
+  });
+
+  it("treats an explicit null the same as an absent field", () => {
+    // Both mean "nobody confirmed anything", and both resolve to unconfirmed rather than to
+    // a refusal — a stored draft is not worth discarding over a field that says nothing.
+    expect(parsePersistedDraft(stored({ scoringConfirmed: null }))?.scoringConfirmed).toBe(
+      false,
+    );
+  });
+
+  it("round-trips a confirmed and an unconfirmed draft as different drafts", () => {
+    expect(parsePersistedDraft(stored({ scoringConfirmed: true }))?.scoringConfirmed).toBe(
+      true,
+    );
+    expect(parsePersistedDraft(stored({ scoringConfirmed: false }))?.scoringConfirmed).toBe(
+      false,
+    );
   });
 
   it("restores an unstarted draft, which is not the same as no draft", () => {

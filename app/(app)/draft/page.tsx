@@ -35,7 +35,11 @@ import {
   slotsForTemplate,
 } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
-import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import {
+  DEFAULT_SCORING,
+  SCORING_PRESETS,
+  scoringPresetById,
+} from "@/lib/nfl/scoring/presets";
 import { matchName } from "@/lib/nfl/draft/match";
 import {
   basisBadge,
@@ -52,6 +56,7 @@ import {
   shouldRevealLead,
   type Panel,
 } from "./panel-order";
+import { leagueFingerprint } from "./reply-gate";
 import { useRecommendations } from "./use-recommendations";
 
 /**
@@ -124,6 +129,16 @@ export default function DraftPage() {
   const [slot, setSlot] = useState(1);
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
+  /**
+   * Whether the user has *chosen* a scoring format rather than accepted the one preselected.
+   *
+   * PPR arrives selected because it is the most common format and a control has to show
+   * something. That is a reasonable default for a control and a bad one for a decision: a
+   * standard-scoring league that clicks past it drafts against a board built for rules it
+   * does not play, and every value on that board is wrong in a way that reads as surprising
+   * rather than as an error. So the draft cannot start until the format has been touched.
+   */
+  const [scoringConfirmed, setScoringConfirmed] = useState(false);
   const [started, setStarted] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -145,6 +160,7 @@ export default function DraftPage() {
       setRounds(stored.rounds);
       setSlot(stored.slot);
       setScoringId(stored.scoringId);
+      setScoringConfirmed(stored.scoringConfirmed);
       setTemplateId(stored.templateId);
       setPlayoffTeams(stored.playoffTeams);
       setStarted(stored.started);
@@ -163,6 +179,7 @@ export default function DraftPage() {
       slot,
       scoringId,
       templateId,
+      scoringConfirmed,
       playoffTeams,
       started,
       picks,
@@ -173,7 +190,18 @@ export default function DraftPage() {
       // A full or disabled store is not worth taking the board down for. The draft still
       // works; it just will not survive a remount.
     }
-  }, [restored, teams, rounds, slot, scoringId, templateId, playoffTeams, started, picks]);
+  }, [
+    restored,
+    teams,
+    rounds,
+    slot,
+    scoringId,
+    templateId,
+    scoringConfirmed,
+    playoffTeams,
+    started,
+    picks,
+  ]);
 
   // The season being drafted is the one after the last completed one, resolved from the
   // schedule rather than hardcoded — a literal year silently serves last season's board
@@ -446,6 +474,23 @@ export default function DraftPage() {
   // Recompute whenever the board changes, including while opponents are picking — the
   // answer for a future position is worth having before the turn arrives.
 
+  // Before anything is requested, and whether or not anything can be. Changing the scoring
+  // format re-queries the board, so `draftState` is null while it reloads and no request goes
+  // out — which is exactly the window in which the previous format's recommendations used to
+  // sit on screen unmarked.
+  const fingerprint = leagueFingerprint({
+    season,
+    scoringId,
+    templateId,
+    teams: setup.teams,
+    rounds: setup.rounds,
+  });
+  useEffect(() => {
+    recommender.retargetTo(fingerprint);
+    // `recommender.retargetTo` is stable; depending on the whole object would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fingerprint]);
+
   useEffect(() => {
     if (!started || draftState === null) return;
     if (draftState.available.length === 0) return;
@@ -587,14 +632,39 @@ export default function DraftPage() {
                   <Button
                     key={preset.id}
                     size="sm"
+                    // `aria-pressed` tracks `variant`, not the confirmation. They are the
+                    // same fact — which preset is currently selected — and letting them
+                    // disagree would tell a screen reader nothing is selected while the
+                    // screen shows one highlighted. The unconfirmed state is carried by the
+                    // hint below and by the disabled Start button, which is where a state
+                    // about the *form* belongs rather than on a radio-like control.
                     variant={preset.id === scoringId ? "default" : "outline"}
                     aria-pressed={preset.id === scoringId}
-                    onClick={() => setScoringId(preset.id)}
+                    onClick={() => {
+                      setScoringId(preset.id);
+                      setScoringConfirmed(true);
+                    }}
                   >
                     {preset.label}
                   </Button>
                 ))}
               </div>
+              {/*
+                Asked for rather than assumed. The board is built per format — the market
+                half of every value is average draft position, which is published separately
+                for each — so a league that plays standard and drafts off the PPR board is
+                reading prices for a game it is not playing.
+              */}
+              <p
+                id="scoring-confirmation-hint"
+                className="mt-2 text-sm text-muted-foreground"
+              >
+                {scoringConfirmed
+                  ? `${scoringPresetById(scoringId).label} · ${scoringPresetById(scoringId).offense.receptionPoints} point${
+                      scoringPresetById(scoringId).offense.receptionPoints === 1 ? "" : "s"
+                    } per reception.`
+                  : "Confirm your league's scoring — the whole board is built for it. Tap one, even if it is already highlighted."}
+              </p>
             </Field>
           </div>
 
@@ -652,7 +722,14 @@ export default function DraftPage() {
               boards exist for {LEAGUE_SIZES.join(", ")}-team leagues.
             </p>
           ) : (
-            <Button className="mt-6" onClick={() => setStarted(true)}>
+            <Button
+              className="mt-6"
+              disabled={!scoringConfirmed}
+              // Named rather than left to a disabled control with no explanation. A button
+              // that does nothing and says nothing is the worst of the three states.
+              aria-describedby="scoring-confirmation-hint"
+              onClick={() => setStarted(true)}
+            >
               Start draft
             </Button>
           )}
@@ -769,7 +846,9 @@ export default function DraftPage() {
       {started ? (
         <p className="mb-4 text-sm text-muted-foreground">
           {setup.teams} teams · {setup.rounds} rounds · seat {setup.slot} ·{" "}
-          {rosterTemplateById(templateId).label} ({slotSummary(templateId)})
+          {rosterTemplateById(templateId).label} ({slotSummary(templateId)}) ·{" "}
+          {scoringPresetById(scoringId).label},{" "}
+          {scoringPresetById(scoringId).offense.receptionPoints} per reception
         </p>
       ) : null}
 
