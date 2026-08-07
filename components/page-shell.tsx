@@ -14,8 +14,8 @@ export function PageShell({
   /** Controls that belong beside the title rather than in the content. */
   actions?: React.ReactNode;
   /**
-   * `wide` is the app shell's own width, shared with the header and footer via
-   * `APP_CONTAINER` so the two insets cannot disagree.
+   * `wide` opens the shell up to the width the display actually has, and the header and
+   * the footer follow it — see `data-shell` below.
    *
    * Reading text wants a narrow measure, which is what the default is for. A draft board
    * is a grid of fourteen columns and is not read, it is scanned — squeezing it into a
@@ -26,6 +26,10 @@ export function PageShell({
 }) {
   return (
     <main
+      // Read by `[data-app-shell]:has(...)` in `app/globals.css`, which is how the header
+      // and the footer end up inset by exactly as much as whatever page is under them,
+      // without the layout having to hold a list of which routes are wide.
+      data-shell={size}
       className={cn(
         size === "wide"
           ? `${APP_CONTAINER} px-4 py-6 sm:px-6`

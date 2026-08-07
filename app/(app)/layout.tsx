@@ -20,7 +20,10 @@ import { SiteHeader } from "@/components/nav/site-header";
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col">
+    // `data-app-shell` is what `app/globals.css` hangs `--app-shell-max` on: the width the
+    // header, the footer and the page all read, set from the `data-shell` the page itself
+    // carries. The chrome follows the content rather than guessing at it.
+    <div data-app-shell className="flex min-h-dvh flex-col">
       <EnsureUser />
       <SiteHeader variant="app" />
 
@@ -31,7 +34,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <footer className="border-t py-6 pb-20 sm:pb-6">
         <div
-          className={`${APP_CONTAINER} flex flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground`}
+          className={`${APP_CONTAINER} flex flex-wrap items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:px-6`}
         >
           <span>Fantasy GTO</span>
           <Link href="/accuracy" className="hover:text-foreground">

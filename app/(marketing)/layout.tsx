@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { MARKETING_CONTAINER } from "@/components/app-container";
 import { SiteHeader } from "@/components/nav/site-header";
 
 /**
@@ -26,7 +27,9 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       <div className="flex-1">{children}</div>
 
       <footer className="border-t py-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 text-sm text-muted-foreground">
+        <div
+          className={`${MARKETING_CONTAINER} flex flex-wrap items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:px-6`}
+        >
           <span>Fantasy GTO</span>
           <Link href="/accuracy" className="hover:text-foreground">
             How accurate is this?

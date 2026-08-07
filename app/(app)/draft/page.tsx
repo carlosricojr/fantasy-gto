@@ -724,8 +724,10 @@ export default function DraftPage() {
           and spending all of it on two columns makes a table whose widest cell is a
           player's name a thousand pixels across while the recommendation that decides the
           pick sits off the bottom of the screen. Splitting instead puts what to take, who
-          is left, and what you have side by side, which is the whole page on one screen and
-          no scrolling between the two panels a pick is actually decided from.
+          is left, and what you have beside each other, so a pick needs no scrolling between
+          the two panels it is decided from. Not the whole page on one screen — the board
+          above it is 22rem, and 1792px wide is commonly 1080px tall — but the part a
+          decision is actually made from, together.
 
           `3xl:contents` rather than a second grid: below that width these two panels share
           one column and stack, and `display: contents` promotes them to grid items of the
