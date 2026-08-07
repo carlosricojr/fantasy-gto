@@ -148,6 +148,19 @@
   }
 }
 
+:root {
+  /* The app header's total height — `h-14` plus its own bottom border — from the same
+     browser measurement recorded above. Anything that sticks *underneath* the header
+     reads this instead of repeating the literal.
+
+     It is deliberately not what `scroll-padding-top` is set from. That one has to clear
+     the tallest header on any surface, which is the marketing layout at phone width
+     (99px), plus room for a focus ring; this one is the app header a sticky element
+     actually sits below. Two different numbers from one measurement, not one number
+     copied twice. */
+  --app-header-h: 57px;
+}
+
 /* Clerk */
 .cl-button,
 .cl-input,

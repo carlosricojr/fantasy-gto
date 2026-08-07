@@ -28,10 +28,12 @@ export const DRAFT_STORAGE_KEY = "fantasy-gto:draft:v1";
 /**
  * League sizes a board is built for.
  *
- * One list, in `lib/nfl/draft/league-size.ts`, which is also what `DRAFT_BOARD_LEAGUE_SIZES`
- * in `convex/ingest.ts` is. They were two literals that had to be kept in step by hand, and
- * the direction they would drift in is the bad one: a size the page offers and the cron does
- * not build is a league whose board is permanently empty.
+ * One list, in `lib/nfl/draft/league-size.ts`, which the ingest path reads through
+ * `adpSourceFor` and the refresh plan through `draftBoardMatrix`. It used to be two literals
+ * kept in step by hand, and the direction they drift in is the bad one: a size the page
+ * offers and the cron does not build is a league whose board is permanently empty. The
+ * constant this comment named on the other side of that pairing is gone, which is what a
+ * stale guideline looks like from the inside.
  *
  * ADP is published per league size, so a board is not transferable between them — seven of
  * the eleven are derived from a neighbour by rescaling every pick number, and the board
@@ -76,6 +78,18 @@ export interface PersistedDraft {
   started: boolean;
   /** Overall pick number to player id. */
   picks: Record<number, string>;
+  /**
+   * Player ids the manager is watching, in their own order.
+   *
+   * Read leniently — a payload without it restores as an empty queue rather than being
+   * refused. That is deliberately different from every other field here. The rest decide
+   * *whose picks are whose*, and a half-read one produces a board belonging to a different
+   * league; a queue is a note to self, and a build that adds one must not throw away the
+   * in-progress drafts of everybody who was mid-draft when it shipped. Refusing on an
+   * absent optional field is how a storage-version bump loses a real draft to a cosmetic
+   * change.
+   */
+  queue: string[];
 }
 
 /**
@@ -151,7 +165,26 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     playoffTeams,
     started,
     picks,
+    queue: parseQueue(row.queue),
   };
+}
+
+/**
+ * A stored queue, or an empty one for anything unreadable.
+ *
+ * Total by construction, for the reason `PersistedDraft.queue` gives: nothing about a
+ * watch list justifies discarding a draft. Duplicates and non-strings are dropped rather
+ * than rejected — a queue holding the same player twice renders two identical rows whose
+ * remove buttons both delete the first, which is a defect, not a corrupt draft.
+ */
+function parseQueue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry === "") continue;
+    seen.add(entry);
+  }
+  return [...seen];
 }
 
 /**

@@ -30,10 +30,38 @@ const VALID: PersistedDraft = {
   playoffTeams: 6,
   started: true,
   picks: { 1: "player-a", 2: "player-b" },
+  queue: ["player-c", "player-d"],
 };
 
 const stored = (overrides: Record<string, unknown> = {}): string =>
   JSON.stringify({ ...VALID, ...overrides });
+
+describe("the queue is read leniently, and it is the only field that is", () => {
+  it("restores a payload written before the queue existed", () => {
+    // The failure this prevents is severe and entirely self-inflicted: a build that adds
+    // an optional field and validates it strictly throws away the in-progress draft of
+    // everybody who was mid-draft when it shipped. Every other field here decides whose
+    // picks are whose; a watch list does not.
+    const withoutQueue: Record<string, unknown> = { ...VALID };
+    delete withoutQueue.queue;
+    const restored = parsePersistedDraft(JSON.stringify(withoutQueue));
+    expect(restored?.picks).toEqual(VALID.picks);
+    expect(restored?.queue).toEqual([]);
+  });
+
+  it("drops unusable entries rather than the draft", () => {
+    expect(parsePersistedDraft(stored({ queue: "not an array" }))?.queue).toEqual([]);
+    expect(parsePersistedDraft(stored({ queue: [1, "", null, "a"] }))?.queue).toEqual(["a"]);
+  });
+
+  it("keeps the order the manager put them in, without duplicates", () => {
+    // Two rows for one player render two remove buttons that both delete the first.
+    expect(parsePersistedDraft(stored({ queue: ["b", "a", "b"] }))?.queue).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+});
 
 describe("parsePersistedDraft", () => {
   it("round-trips a draft it wrote", () => {
@@ -54,6 +82,7 @@ describe("parsePersistedDraft", () => {
       scoringConfirmed: true,
       playoffTeams: 6,
       started: true,
+      queue: [],
       picks: { 1: "player-a" },
     };
     expect(parsePersistedDraft(JSON.stringify(mock))).toEqual(mock);

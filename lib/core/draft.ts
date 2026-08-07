@@ -285,3 +285,51 @@ export function seatForTeamIndex(index: number, slot: number): number {
   return index < slot ? index : index + 1;
 }
 
+/**
+ * The team index sitting in a seat — the inverse of `seatForTeamIndex`.
+ *
+ * A board drawn as a grid is columns of seats, and every cell has to name the roster it
+ * belongs to. Going the other way round is what the rest of this module does, so this is
+ * the direction nothing had, and it is exactly the sort of mapping that is easy to write
+ * off by one and impossible to see afterwards: the grid still renders, every column still
+ * fills, and the only symptom is that a pick appears under the wrong manager.
+ *
+ * Tested as a round trip against `seatForTeamIndex` for every seat of every league size
+ * rather than by example, because an example is precisely what an off-by-one survives.
+ */
+export function teamIndexForSeat(seat: number, slot: number): number {
+  if (seat === slot) return 0;
+  return seat < slot ? seat : seat - 1;
+}
+
+/** Where an overall pick number sits on the board. */
+export interface PickCoordinates {
+  /** 1-based round. */
+  round: number;
+  /** 1-based seat, left to right, independent of which way the round runs. */
+  seat: number;
+}
+
+/**
+ * The round and seat an overall pick belongs to.
+ *
+ * The inverse of the arithmetic in `snakePicks`, and the reason it is here rather than in
+ * the component that draws the grid: the two have to agree exactly, and a grid that
+ * computes its own snake is a second implementation that can drift from the one deciding
+ * who owns what. Everything the interface labels — "3.07", the column a pick lands in,
+ * which round is on the clock — comes through here.
+ */
+export function pickCoordinates(pick: number, teams: number): PickCoordinates {
+  if (!Number.isInteger(teams) || teams < 1) {
+    throw new Error(`A league cannot have ${teams} teams.`);
+  }
+  if (!Number.isInteger(pick) || pick < 1) {
+    throw new Error(`Pick ${pick} is not a pick in a draft.`);
+  }
+  const round = Math.ceil(pick / teams);
+  const positionInRound = pick - (round - 1) * teams;
+  // Odd rounds run left to right, even rounds right to left. That is the whole of what
+  // "snake" means, and it is stated once, here and in `snakePicks`.
+  return { round, seat: round % 2 === 1 ? positionInRound : teams - positionInRound + 1 };
+}
+

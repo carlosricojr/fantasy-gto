@@ -1,78 +1,82 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useQuery } from "convex/react";
 
+import { api } from "@/convex/_generated/api";
+import { PageShell } from "@/components/page-shell";
+import { Button } from "@/components/ui/button";
+import { normalizeLeagueSetup, pickOwnership, seatForTeamIndex } from "@/lib/core/draft";
+import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
+import type { PlayerRisk } from "@/lib/core/roster-utility";
+import type { LeagueConfig } from "@/lib/core/season-sim";
+import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
+import { draftSeasonFor } from "@/lib/nfl/season";
+import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
+import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
+import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
+import { perGameRate } from "@/lib/nfl/draft/value";
+
+import { BoardGrid } from "./board-grid";
+import { describeTurn, nextPickFor, pickLabel, picksUntilTurn } from "./board-view";
+import type { LeagueSettings } from "./league-form";
+import { MyTeam } from "./my-team";
 import {
   DRAFT_STORAGE_KEY,
   LEAGUE_SIZES,
   MAX_ROUNDS,
   PLAYOFF_FIELDS,
   type PersistedDraft,
-  parsePersistedDraft,
   nextPick,
+  parsePersistedDraft,
   recordPick,
   undoPick,
 } from "./persistence";
-import { useQuery } from "convex/react";
-
-import { api } from "@/convex/_generated/api";
-import { PageShell } from "@/components/page-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PlayerDetail } from "./player-detail";
+import { PlayerPool } from "./player-pool";
 import {
-  normalizeLeagueSetup,
-  pickOwnership,
-  seatForTeamIndex,
-  snakePicks,
-} from "@/lib/core/draft";
-import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
-import type { PlayerRisk } from "@/lib/core/roster-utility";
-import type { LeagueConfig } from "@/lib/core/season-sim";
-import {
-  ROSTER_TEMPLATES,
-  rosterTemplateById,
-  slotSummary,
-  slotsForTemplate,
-} from "@/lib/nfl/roster";
-import { draftSeasonFor } from "@/lib/nfl/season";
-import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
-import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
-import {
-  DEFAULT_SCORING,
-  SCORING_PRESETS,
-  scoringPresetById,
-} from "@/lib/nfl/scoring/presets";
-import { matchName } from "@/lib/nfl/draft/match";
-import {
-  basisBadge,
-  basisExplanation,
-  basisForPosition,
-  recommendationCaveat,
-  valueBasis,
-} from "@/lib/nfl/draft/provenance";
-import { perGameRate } from "@/lib/nfl/draft/value";
-import {
-  leadingPanel,
-  nextArmed,
-  panelOrder,
-  shouldRevealLead,
-  type Panel,
-} from "./panel-order";
+  type PoolPlayer,
+  neededPositions,
+  unfilledSlots,
+  unrankedAdpFor,
+} from "./pool-view";
+import { QueuePanel } from "./queue-panel";
 import { leagueFingerprint } from "./reply-gate";
+import { Recommendations } from "./recommendations";
+import { SettingsDialog } from "./settings-dialog";
+import { DraftSetup } from "./setup";
+import { StatusBar } from "./status-bar";
 import { useRecommendations } from "./use-recommendations";
 
 /**
  * The draft board.
  *
  * Tracks every team's picks, not only yours, because the objective is the probability of
- * winning the league and that depends on who your opponents actually drafted. Entering a
- * pick is one click; the board is the source of truth and nothing is inferred.
+ * winning the league and that depends on who your opponents actually drafted. The board
+ * is the source of truth and nothing is inferred.
  *
  * What it will not do is claim to know better than the market which players are good. That
  * was measured and it is not true — see `/accuracy` and `docs/draft-validation.md`. What it
  * does is answer the question average draft position structurally cannot: given *your*
  * roster, *your* league's slots and *your* remaining picks, which player leaves you most
  * likely to win.
+ *
+ * ## Why the layout is what it is
+ *
+ * This screen used to be a search box and a recommendation list, with the two swapping
+ * places depending on whose turn it was. Everything else it knew — the grid of who took
+ * what, the two hundred players still on the board, what the roster was actually missing,
+ * how likely a player was to last until your next pick — was computed, held in memory and
+ * never shown. Three quarters of this file's data was invisible.
+ *
+ * It is now four surfaces, in the order a manager uses them: what to take, what has gone,
+ * who is left, and what you have. The swap is gone with them. One list serves both jobs —
+ * taking a player on your turn and recording somebody else's on theirs — with the row's
+ * button naming which it is doing, which is what the swapping panels were an attempt to
+ * express and could not, because "the first thing on the screen is the only thing on the
+ * screen" is a fact about phones that reordering the page under the reader does not fix.
  */
 
 const SEED = 20260731;
@@ -85,13 +89,8 @@ interface BoardPlayer {
   name: string;
   position: string;
   team: string | null;
-  blendedPoints: number;
-  /**
-   * `null` where the weekly model has no view — every kicker and defense, and any player
-   * with no prior games. Carried into the interface rather than dropped at the boundary,
-   * because a row that cannot say where its number came from cannot warn about it.
-   */
   modelPoints: number | null;
+  blendedPoints: number;
   marketPoints: number | null;
   adp: number | null;
   adpStdev: number | null;
@@ -102,27 +101,17 @@ interface BoardPlayer {
 }
 
 /**
- * The one-word warning that a row's number did not come from the model.
+ * What `boardFreshness` returns.
  *
- * Rendered beside the player rather than in a caveat elsewhere on the page. A general note
- * about kickers is true and is also two screens away from the kicker being compared with a
- * running back, and the number is what needs the qualification.
- *
- * `title` carries the sentence for a pointer, and it is also the accessible name, so a
- * screen reader gets the explanation rather than the two words.
+ * More than a timestamp, because a board whose last rebuild *failed* looks perfectly
+ * healthy in one: the failed run leaves the previous board intact, which is correct and is
+ * exactly why the failure is invisible.
  */
-function BasisBadge({ basis }: { basis: ReturnType<typeof valueBasis> }) {
-  const badge = basisBadge(basis);
-  if (badge === null) return null;
-  return (
-    <span
-      className="ml-1 shrink-0 rounded border px-1 py-px text-[10px] uppercase tracking-wide text-muted-foreground"
-      title={basisExplanation(basis)}
-      aria-label={basisExplanation(basis)}
-    >
-      {badge}
-    </span>
-  );
+interface BoardFreshness {
+  computedAt: number | null;
+  adpSourceTeams: number | null;
+  lastAttemptAt: number | null;
+  lastAttemptStatus: "running" | "succeeded" | "failed" | null;
 }
 
 export default function DraftPage() {
@@ -132,22 +121,27 @@ export default function DraftPage() {
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
   /**
-   * Whether the user has *chosen* a scoring format rather than accepted the one preselected.
+   * Whether the user *chose* a scoring format rather than accepting the preselected one.
    *
-   * PPR arrives selected because it is the most common format and a control has to show
-   * something. That is a reasonable default for a control and a bad one for a decision: a
-   * standard-scoring league that clicks past it drafts against a board built for rules it
+   * PPR arrives selected because a control has to show something and it is the commonest
+   * format. That is a reasonable default for a control and a bad one for a decision: a
+   * standard-scoring league that taps past it drafts against a board built for rules it
    * does not play, and every value on that board is wrong in a way that reads as surprising
-   * rather than as an error. So the draft cannot start until the format has been touched.
+   * rather than as an error. The draft cannot start until the format has been touched.
    */
   const [scoringConfirmed, setScoringConfirmed] = useState(false);
   const [started, setStarted] = useState(false);
-  const [search, setSearch] = useState("");
+  const [playoffTeams, setPlayoffTeams] = useState<number>(6);
 
   /** Overall pick number to the team index that made it. Index 0 is always the user. */
   const [picks, setPicks] = useState<Record<number, string>>({});
+  const [queue, setQueue] = useState<string[]>([]);
 
-  const [playoffTeams, setPlayoffTeams] = useState<number>(6);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  /** A request from the board to reveal one player in the pool. See `PlayerPool.focus`. */
+  const [focus, setFocus] = useState<{ playerId: string; drafted: boolean } | null>(null);
+  const [boardOpen, setBoardOpen] = useState(true);
 
   // A draft survives a remount. The error boundary's "Try again" re-renders this segment,
   // which reinitializes every `useState` above — without this, retrying after a crash
@@ -167,6 +161,7 @@ export default function DraftPage() {
       setPlayoffTeams(stored.playoffTeams);
       setStarted(stored.started);
       setPicks(stored.picks);
+      setQueue(stored.queue);
     }
     setRestored(true);
   }, []);
@@ -180,11 +175,12 @@ export default function DraftPage() {
       rounds,
       slot,
       scoringId,
-      templateId,
       scoringConfirmed,
+      templateId,
       playoffTeams,
       started,
       picks,
+      queue,
     };
     try {
       window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
@@ -198,11 +194,12 @@ export default function DraftPage() {
     rounds,
     slot,
     scoringId,
-    templateId,
     scoringConfirmed,
+    templateId,
     playoffTeams,
     started,
     picks,
+    queue,
   ]);
 
   // The season being drafted is the one after the last completed one, resolved from the
@@ -229,7 +226,11 @@ export default function DraftPage() {
     () =>
       normalizeLeagueSetup(
         { teams, slot, rounds },
-        { minTeams: LEAGUE_SIZES[0], maxTeams: LEAGUE_SIZES[LEAGUE_SIZES.length - 1] },
+        {
+          minTeams: LEAGUE_SIZES[0],
+          maxTeams: LEAGUE_SIZES[LEAGUE_SIZES.length - 1],
+          maxRounds: MAX_ROUNDS,
+        },
       ),
     [teams, slot, rounds],
   );
@@ -287,20 +288,6 @@ export default function DraftPage() {
 
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
 
-  // Where each row's number came from, keyed by player id. Built from the board rather than
-  // derived from the position at each render, so a rookie with no history is labelled for
-  // the reason he actually has — `PlayerRisk` carries the quantiles but not their source.
-  const basisById = useMemo(
-    () =>
-      new Map(
-        ((board ?? []) as BoardPlayer[]).map((row) => [
-          row.playerId,
-          valueBasis(row),
-        ]),
-      ),
-    [board],
-  );
-
   // Ownership comes from `lib/core/draft.ts`, where it is tested against the invariant
   // that every pick in the draft has exactly one owner, for every league shape. It was
   // inlined here once and silently gave one seat's picks to another.
@@ -321,111 +308,85 @@ export default function DraftPage() {
   const onTheClock = pickOwners.get(currentPick) === 0;
   const draftComplete = currentPick > totalPicks;
 
-  const lead = leadingPanel({ onTheClock, draftComplete });
+  const turn = useMemo(
+    () =>
+      describeTurn({
+        currentPick,
+        totalPicks,
+        teams: setup.teams,
+        slot: setup.slot,
+        owner: pickOwners.get(currentPick),
+      }),
+    [currentPick, totalPicks, setup, pickOwners],
+  );
 
-  // The two panels, and only the two panels. The scroll target is read from this
-  // container rather than tracked separately, so the page cannot scroll to something that
-  // is not one of them — the two failure notices above are siblings of the group, not of
-  // the panels.
-  const panelsRef = useRef<HTMLDivElement | null>(null);
-
-  // The element focus was on when the order last changed. Read from a listener rather
-  // than during render, because by the time the effect runs the answer is already <body>.
-  //
-  // Scoped to the panels. A document-wide listener remembers the header's nav links and
-  // theme toggle too, and the `activeElement === body` test below only establishes that
-  // *something* lost focus — not that the reorder is what lost it. On a browser that does
-  // not focus a button on tap, a toggle touched earlier in the draft stayed remembered,
-  // and the next turn change handed focus back to it: off-screen in the header, with the
-  // next Tab walking the primary nav instead of the record controls.
-  const lastFocused = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    const remember = (event: FocusEvent) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      lastFocused.current =
-        panelsRef.current?.contains(target) === true ? target : null;
-    };
-    document.addEventListener("focusin", remember);
-    return () => document.removeEventListener("focusin", remember);
-  }, []);
-
-  const previousLead = useRef<Panel | null>(null);
-  useEffect(() => {
-    const reveal = shouldRevealLead({
-      settled: restored,
-      previous: previousLead.current,
-      current: lead,
-    });
-    previousLead.current = nextArmed({
-      settled: restored,
-      previous: previousLead.current,
-      current: lead,
-    });
-    if (!reveal) return;
-
-    // Keys stop the swap remounting these panels; they do not stop it blurring them.
-    // React 19 reorders with `insertBefore` and has no `moveBefore`, so the node is
-    // detached and reattached, and the DOM drops focus when a focused node is removed.
-    // Pressing Undo flips the order, which moves the section holding the button that was
-    // just pressed — leaving a keyboard user back at <body>, tabbing from the top of the
-    // page to reach it again. Only reclaimed if the move is what lost it.
-    const wasFocused = lastFocused.current;
-    const active = document.activeElement;
-    if (
-      wasFocused !== null &&
-      wasFocused.isConnected &&
-      (active === null || active === document.body)
-    ) {
-      // No `preventScroll`: the browser brings it into view, and the scroll below is
-      // skipped. The panel that loses focus is always the one being *demoted* — React
-      // flags the previously-first child for placement — so scrolling to the promoted
-      // panel instead would park the viewport at the top of the page with the focus ring
-      // two or three screens below it, off-screen and with nothing marking where the
-      // keyboard is. Following focus is the only reading of "reveal" that serves someone
-      // who is not looking at the scrollbar.
-      wasFocused.focus();
-      lastFocused.current = null;
-      return;
+  /** Which pick each recorded player went at, and who took them. */
+  const pickedBy = useMemo(() => {
+    const out = new Map<string, { pick: number; owner: string }>();
+    for (const [pick, playerId] of Object.entries(picks)) {
+      const team = pickOwners.get(Number(pick));
+      if (team === undefined) continue;
+      out.set(playerId, {
+        pick: Number(pick),
+        owner: team === 0 ? "You" : `Seat ${seatForTeamIndex(team, setup.slot)}`,
+      });
     }
-    // Consumed either way. Restoring focus fires `focusin`, which would otherwise write
-    // this same element straight back and leave it armed for a swap the user had nothing
-    // to do with: tap something unfocusable, and the next lead change drops focus into a
-    // panel you never touched. Anything the user actually focuses re-arms it.
-    lastFocused.current = null;
+    return out;
+  }, [picks, pickOwners, setup]);
 
-    // Whichever panel now leads, not whichever one we guessed would. Guarding this on
-    // "the record panel leads" suppressed it on the turn coming back to you — where the
-    // recommendations, two or three screens of them, are inserted above where you are
-    // standing and nothing tells you the page grew upward.
-    //
-    // Reached when there was no focus to reclaim, which is the ordinary case: recording a
-    // pick unmounts the control that was clicked — every Draft button when the turn leaves
-    // you, the search results when `record` clears the query — so by the time this runs
-    // the remembered node is already gone.
-    //
-    // The first *rendered* panel, which is not always the leading one: `Recommendations`
-    // renders nothing when it has no candidates, so a lead of "recommendations" can leave
-    // the record section first in the DOM. Revealing what the reader will actually see
-    // first is the behavior wanted in that case anyway.
-    const leadingNode = panelsRef.current?.firstElementChild;
-    if (!(leadingNode instanceof HTMLElement)) return;
-    leadingNode.scrollIntoView({
-      block: "start",
-      // Honor the OS setting rather than animating over it.
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
-    });
-  }, [restored, lead]);
+  /**
+   * The board as the interface consumes it: every player, available or gone.
+   *
+   * Drafted players stay in the list rather than being filtered out of it. Checking that a
+   * pick was recorded against the right person is the one repair a manager can make under
+   * a clock, and it was impossible before — a mis-typed name simply vanished.
+   */
+  const poolPlayers = useMemo<PoolPlayer[]>(
+    () =>
+      ((board ?? []) as BoardPlayer[]).map((row, index) => {
+        const taken = pickedBy.get(row.playerId);
+        return {
+          id: row.playerId,
+          name: row.name,
+          position: row.position,
+          team: row.team,
+          byeWeek: row.byeWeek,
+          seasonPoints: row.blendedPoints,
+          modelPoints: row.modelPoints,
+          marketPoints: row.marketPoints,
+          adp: row.adp,
+          adpStdev: row.adpStdev,
+          availability: row.availability,
+          // Where this row's number came from, decided by the board's own columns rather
+          // than guessed from the position at render time — a rookie with no prior games is
+          // market-only for a different reason than a kicker is, and the row says which.
+          basis: valueBasis(row),
+          // The board arrives sorted by blended value, so position in it *is* the rank.
+          overallRank: index + 1,
+          draftedAt: taken?.pick ?? null,
+          draftedBy: taken?.owner ?? null,
+        };
+      }),
+    [board, pickedBy],
+  );
 
-  const clockOwner = pickOwners.get(currentPick);
-  const clockLabel =
-    clockOwner === undefined
-      ? "Nobody"
-      : clockOwner === 0
-        ? "You"
-        : `Seat ${seatForTeamIndex(clockOwner, setup.slot)}`;
+  const poolById = useMemo(
+    () => new Map(poolPlayers.map((player) => [player.id, player])),
+    [poolPlayers],
+  );
+
+  /**
+   * The basis for a player the recommendation panel holds.
+   *
+   * A `PlayerRisk` carries the quantiles but not their source, so the board is consulted
+   * first and the position is only the fallback — which is what distinguishes a rookie with
+   * no history from a kicker the model does not cover.
+   */
+  const basisFor = useCallback(
+    (player: { id: string; position: string }) =>
+      poolById.get(player.id)?.basis ?? basisForPosition(player.position),
+    [poolById],
+  );
 
   const draftState = useMemo<DraftPolicyState | null>(() => {
     if (pool.length === 0) return null;
@@ -473,13 +434,10 @@ export default function DraftPage() {
     [starters, playoffTeams],
   );
 
-  // Recompute whenever the board changes, including while opponents are picking — the
-  // answer for a future position is worth having before the turn arrives.
-
   // Before anything is requested, and whether or not anything can be. Changing the scoring
-  // format re-queries the board, so `draftState` is null while it reloads and no request goes
-  // out — which is exactly the window in which the previous format's recommendations used to
-  // sit on screen unmarked.
+  // format re-queries the board, so `draftState` is null while it reloads and no request
+  // goes out — which is exactly the window in which the previous format's recommendations
+  // used to sit on screen unmarked.
   const fingerprint = leagueFingerprint({
     season,
     scoringId,
@@ -493,6 +451,8 @@ export default function DraftPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fingerprint]);
 
+  // Recompute whenever the board changes, including while opponents are picking — the
+  // answer for a future position is worth having before the turn arrives.
   useEffect(() => {
     if (!started || draftState === null) return;
     if (draftState.available.length === 0) return;
@@ -506,30 +466,118 @@ export default function DraftPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, draftState, config, draftComplete]);
 
-  const myRoster = draftState?.teams[0].roster ?? [];
+  // Memoized rather than defaulted inline. `?? []` builds a new array on every render
+  // where the draft state is absent, which makes it a fresh dependency each time and
+  // re-solves the roster's slot assignment on renders where nothing changed.
+  const myRoster = useMemo(() => draftState?.teams[0].roster ?? [], [draftState]);
+  const myRemainingPicks = draftState?.teams[0].remainingPicks ?? [];
+  const nextOwnPick = nextPickFor(pickOwners, 0, currentPick);
+  const untilTurn = picksUntilTurn(pickOwners, 0, currentPick);
+  // "Will he last?" is always about the turn *after* the one being decided now. On your own
+  // turn `nextOwnPick` is the pick you are making, and asking whether a player survives
+  // until the moment you take him is not a question anybody has — the column read "83%
+  // lasts to 17" on pick 17.
+  const waitPick = nextPickFor(pickOwners, 0, onTheClock ? currentPick + 1 : currentPick);
+  const waitPickLabel = waitPick === null ? null : pickLabel(waitPick, setup.teams);
+  const unrankedAdp = unrankedAdpFor(totalPicks);
+  const needs = useMemo(() => neededPositions(starters, myRoster), [starters, myRoster]);
 
-  const searchResults = useMemo(() => {
-    const available = draftState?.available ?? [];
-    if (search.trim().length < 2) return [];
-    const match = matchName(search, available, 0.55);
-    const prefix = available
-      .filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()))
-      .slice(0, 8);
-    const seen = new Set(prefix.map((p) => p.id));
-    if (match !== null && !seen.has(match.candidate.id)) prefix.push(match.candidate);
-    return prefix.slice(0, 8);
-  }, [search, draftState]);
+  const rosterPicks = useMemo(
+    () => new Map([...pickedBy].map(([playerId, taken]) => [playerId, taken.pick])),
+    [pickedBy],
+  );
 
   // Both of these do their work inside the updater, on the state it is handed. Reading
   // `currentPick` from this render instead let two clicks arriving before a re-render write
   // the same key: the second player overwrote the first, and the first stayed on the board.
-  function record(playerId: string): void {
-    setPicks((previous) => recordPick(previous, playerId, totalPicks));
-    setSearch("");
+  const record = useCallback(
+    (playerId: string) => {
+      setPicks((previous) => recordPick(previous, playerId, totalPicks));
+      // The queue is deliberately *not* pruned here. `QueuePanel` already hides anyone
+      // drafted, so a taken player disappears from it either way — but removing the id
+      // outright made Undo asymmetric: correcting a mis-recorded pick brought the pick
+      // back and left the player un-starred, at the exact moment a manager is repairing a
+      // mistake under a clock. Keeping the id means undo restores the queue with it.
+      setFocus(null);
+    },
+    [totalPicks],
+  );
+
+  const undo = useCallback(() => {
+    setPicks((previous) => undoPick(previous, totalPicks));
+    // Cleared for the same reason it is cleared on record: the highlight refers to a board
+    // cell whose contents just changed.
+    setFocus(null);
+  }, [totalPicks]);
+
+  const toggleQueue = useCallback((playerId: string) => {
+    setQueue((previous) =>
+      previous.includes(playerId)
+        ? previous.filter((id) => id !== playerId)
+        : [...previous, playerId],
+    );
+  }, []);
+
+  const selectBoardPick = useCallback(
+    (pick: number) => {
+      const playerId = picks[pick];
+      if (playerId === undefined) return;
+      // A board cell only ever holds a player who has been taken, so `drafted` is settled
+      // here rather than looked up in the pool — which is what lets the pool act on this
+      // without depending on a list that changes every pick.
+      //
+      // A fresh object every time, and identity is what marks it as a new request — so
+      // clicking the same cell twice asks twice. A counter was tried and was wrong: it
+      // restarted at 1 whenever `record` or `undo` cleared the focus, so the pool, having
+      // already handled a request numbered 1, silently ignored the next one.
+      setFocus({ playerId, drafted: true });
+    },
+    [picks],
+  );
+
+  const swapInQueue = useCallback((a: string, b: string) => {
+    setQueue((previous) => {
+      const from = previous.indexOf(a);
+      const to = previous.indexOf(b);
+      if (from === -1 || to === -1) return previous;
+      const next = [...previous];
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+  }, []);
+
+  const settings: LeagueSettings = {
+    teams,
+    rounds,
+    slot,
+    playoffTeams,
+    scoringId,
+    templateId,
+  };
+
+  function applySettings(patch: Partial<LeagueSettings>): void {
+    if (patch.teams !== undefined) setTeams(patch.teams);
+    if (patch.rounds !== undefined) setRounds(patch.rounds);
+    if (patch.slot !== undefined) setSlot(patch.slot);
+    if (patch.playoffTeams !== undefined) setPlayoffTeams(patch.playoffTeams);
+    if (patch.scoringId !== undefined) {
+      setScoringId(patch.scoringId);
+      // Touching the control *is* the confirmation. The format decides the whole board, so
+      // it is asked for rather than assumed — see `scoringConfirmed`.
+      setScoringConfirmed(true);
+    }
+    if (patch.templateId !== undefined) setTemplateId(patch.templateId);
   }
 
-  function undo(): void {
-    setPicks((previous) => undoPick(previous, totalPicks));
+  function resetDraft(): void {
+    setPicks({});
+    setQueue([]);
+    setStarted(false);
+    // The format has to be confirmed again for the next draft. Carrying the acknowledgement
+    // across a reset would let a manager set a league up once and never be asked again.
+    setScoringConfirmed(false);
+    setFocus(null);
+    setDetailId(null);
   }
 
   if (!seasonLoading && season === null) {
@@ -547,7 +595,7 @@ export default function DraftPage() {
   if (season === null || board === undefined) {
     return (
       <PageShell title="Draft" subtitle="Loading the board…">
-        <div className="h-40 animate-pulse rounded-lg bg-muted" aria-hidden />
+        <div className="h-40 motion-safe:animate-pulse rounded-lg bg-muted" aria-hidden />
       </PageShell>
     );
   }
@@ -555,14 +603,14 @@ export default function DraftPage() {
   // A restored draft arrives with `started: true` and goes straight past the setup screen,
   // where the empty-board message lives. If no board exists for that season, scoring and
   // size — a shape that was never built, or one whose rows have not landed yet — the user
-  // met "Record pick 1 — You" over a search box that could never match anything, with
-  // nothing to explain it and no control to change the league.
+  // met a search box that could never match anything, with nothing to explain it and no
+  // control to change the league.
   if (started && board.length === 0) {
     return (
       <PageShell title="Draft" subtitle="No board for this league">
         <p className="text-sm text-muted-foreground">
           No {season} board has been built for {setup.teams}-team{" "}
-          {scoringId.replace("_", " ")} yet, so there is nothing to draft from. Boards
+          {scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from. Boards
           exist for {LEAGUE_SIZES.join(", ")}-team leagues.
         </p>
         <Button className="mt-6" variant="outline" onClick={() => setStarted(false)}>
@@ -576,549 +624,240 @@ export default function DraftPage() {
     return (
       <PageShell
         title="Draft"
-        subtitle="Set your league up once. Everything after that is one click per pick."
+        subtitle="Set your league up once. Everything after that is one tap per pick."
       >
-        {/*
-          Before the draft starts, not after. A board whose last rebuild failed is only hours
-          old — the failed run left the previous one intact, which is correct and is exactly
-          why the failure is invisible in a timestamp — and somebody about to spend an hour
-          drafting off it needs to know at the point they choose to.
-        */}
         <BoardHealthNotice freshness={freshness ?? null} />
-        <section className="rounded-lg border p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Teams">
-              <div className="flex flex-wrap gap-2" role="group" aria-label="League size">
-                {LEAGUE_SIZES.map((size) => (
-                  <Button
-                    key={size}
-                    size="sm"
-                    variant={size === teams ? "default" : "outline"}
-                    aria-pressed={size === teams}
-                    onClick={() => setTeams(size)}
-                  >
-                    {size}
-                  </Button>
-                ))}
-              </div>
-            </Field>
-            <Field label="Rounds">
-              <NumberPicker
-                label="Rounds"
-                value={rounds}
-                onChange={setRounds}
-                min={1}
-                max={MAX_ROUNDS}
-              />
-            </Field>
-            <Field label="Your draft slot">
-              <NumberPicker
-                label="Your draft slot"
-                value={slot}
-                onChange={setSlot}
-                min={1}
-                max={teams}
-              />
-            </Field>
-            <Field label="Playoff teams">
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Playoff teams">
-                {PLAYOFF_FIELDS.filter((field) => field < teams).map((field) => (
-                  <Button
-                    key={field}
-                    size="sm"
-                    variant={field === playoffTeams ? "default" : "outline"}
-                    aria-pressed={field === playoffTeams}
-                    onClick={() => setPlayoffTeams(field)}
-                  >
-                    {field}
-                  </Button>
-                ))}
-              </div>
-            </Field>
-            <Field label="Scoring">
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Scoring">
-                {SCORING_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    size="sm"
-                    // `aria-pressed` tracks `variant`, not the confirmation. They are the
-                    // same fact — which preset is currently selected — and letting them
-                    // disagree would tell a screen reader nothing is selected while the
-                    // screen shows one highlighted. The unconfirmed state is carried by the
-                    // hint below and by the disabled Start button, which is where a state
-                    // about the *form* belongs rather than on a radio-like control.
-                    variant={preset.id === scoringId ? "default" : "outline"}
-                    aria-pressed={preset.id === scoringId}
-                    onClick={() => {
-                      setScoringId(preset.id);
-                      setScoringConfirmed(true);
-                    }}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
-              {/*
-                Asked for rather than assumed. The board is built per format — the market
-                half of every value is average draft position, which is published separately
-                for each — so a league that plays standard and drafts off the PPR board is
-                reading prices for a game it is not playing.
-              */}
-              <p
-                id="scoring-confirmation-hint"
-                className="mt-2 text-sm text-muted-foreground"
-              >
-                {scoringConfirmed
-                  ? `${scoringPresetById(scoringId).label} · ${scoringPresetById(scoringId).offense.receptionPoints} point${
-                      scoringPresetById(scoringId).offense.receptionPoints === 1 ? "" : "s"
-                    } per reception.`
-                  : "Confirm your league's scoring — the whole board is built for it. Tap one, even if it is already highlighted."}
-              </p>
-            </Field>
-          </div>
-
-          <div className="mt-4">
-            <Field label="Roster">
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Roster shape">
-                {ROSTER_TEMPLATES.map((template) => (
-                  <Button
-                    key={template.id}
-                    size="sm"
-                    variant={template.id === templateId ? "default" : "outline"}
-                    aria-pressed={template.id === templateId}
-                    // The roster size comes with the shape, because the two are not
-                    // independent: nine starters over fifteen rounds is a six-man bench and
-                    // over thirteen a four-man one, and the depth model prices those
-                    // differently. Applied rather than enforced — the Rounds control above
-                    // still overrides it, which is what a league that drafts sixteen with a
-                    // standard lineup needs.
-                    onClick={() => {
-                      setTemplateId(template.id);
-                      setRounds(template.rounds);
-                    }}
-                  >
-                    {template.label}
-                  </Button>
-                ))}
-              </div>
-            </Field>
-            {/*
-              The slots themselves, derived from the counts rather than from the label.
-              "Standard" and "2 FLEX" are four characters apart on a phone and field
-              different lineups; a user who cannot see the difference cannot check it, and
-              the whole epic exists because a real league's shape could not be represented
-              exactly.
-            */}
-            <p className="mt-2 text-sm text-muted-foreground">
-              Starts {slotSummary(templateId)} · {starters.length} starters,{" "}
-              {Math.max(setup.rounds - starters.length, 0)} bench
-            </p>
-          </div>
-
-          <p className="mt-4 text-sm text-muted-foreground">
-            Your picks:{" "}
-            {snakePicks(setup.slot, setup.teams, setup.rounds).slice(0, 6).join(", ")}
-            {rounds > 6 ? "…" : ""}
-          </p>
-
-          {board.length === 0 ? (
-            // Deliberately inside the form rather than replacing it. Unmounting the setup
-            // screen took the Teams control away with it, leaving no way back except a
-            // full reload — and told an end user to run an internal CLI command.
-            <p className="mt-6 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              No {season} board has been built for {teams}-team{" "}
-              {scoringId.replace("_", " ")} yet. Pick another size or scoring format above;
-              boards exist for {LEAGUE_SIZES.join(", ")}-team leagues.
-            </p>
-          ) : (
-            <Button
-              className="mt-6"
-              disabled={!scoringConfirmed}
-              // Named rather than left to a disabled control with no explanation. A button
-              // that does nothing and says nothing is the worst of the three states.
-              aria-describedby="scoring-confirmation-hint"
-              onClick={() => setStarted(true)}
-            >
-              Start draft
-            </Button>
-          )}
-        </section>
-
-        <Caveat
-          freshness={freshness ?? null}
+        <DraftSetup
+          settings={settings}
+          onChange={applySettings}
+          onStart={() => setStarted(true)}
           boardSize={board.length}
-          teams={setup.teams}
-        />
+          season={season}
+          leagueSizes={LEAGUE_SIZES}
+          scoringConfirmed={scoringConfirmed}
+        >
+          <Caveat
+            freshness={freshness ?? null}
+            boardSize={board.length}
+            teams={setup.teams}
+          />
+        </DraftSetup>
       </PageShell>
     );
   }
 
-  const recommendationsPanel = draftComplete ? (
-    <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-      The draft is over &mdash; every pick is recorded. Your roster is below.
-    </p>
-  ) : (
-    <Recommendations state={recommender} onPick={record} onTheClock={onTheClock} />
-  );
-
-  const recordPanel = (
-    <section>
-      {/* The *controls* are hidden once every pick is in — not the section, which still
-          has to carry Undo. `currentPick` runs one past the last pick when the draft is
-          complete, so the heading below read "Record pick 181 — Nobody" over a search
-          that could not attribute anything to a seat. Undo sits outside this wrapper
-          because correcting a mistaken *last* pick is exactly when it is needed, and
-          hiding the whole section made it unreachable at that moment. */}
-      <div className={draftComplete ? "hidden" : undefined}>
-        {/* Names whose pick this is. "Record pick 2 — Seat 2" reads as a label for a
-            row of data; the reader has to work out that it is asking them for
-            something. */}
-        <h2 className="text-sm font-medium">
-          {onTheClock
-            ? `Record pick ${currentPick} — your pick`
-            : `Record pick ${currentPick} — what ${clockLabel} took`}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Every pick, not only yours. Opponents&rsquo; rosters decide the odds, so a
-          missing one makes every number after it wrong.
-        </p>
-        <Input
-          className="mt-3"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search a player…"
-          aria-label="Search a player to record as drafted"
-        />
-        <ul className="mt-2 space-y-1">
-          {searchResults.map((player) => (
-            <li key={player.id}>
-              <button
-                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
-                onClick={() => record(player.id)}
-              >
-                <span>
-                  {player.name}{" "}
-                  <span className="text-muted-foreground">
-                    {player.position}
-                    {player.byeWeek === null ? "" : ` · bye ${player.byeWeek}`}
-                  </span>
-                  <BasisBadge basis={basisById.get(player.id) ?? basisForPosition(player.position)} />
-                </span>
-                <span className="text-muted-foreground">
-                  {player.adp == null ? "unranked" : `ADP ${player.adp.toFixed(1)}`}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {/* Gated on the pick it actually removes, not on the map being non-empty.
-          `currentPick` is the first *empty* pick, so a restored board with a gap in it
-          offered "Undo pick N" for an entry that does not exist and removed nothing
-          when pressed. */}
-      {picks[currentPick - 1] !== undefined ? (
-        <Button className="mt-3" size="sm" variant="outline" onClick={undo}>
-          Undo pick {currentPick - 1}
-        </Button>
-      ) : null}
-    </section>
-  );
-
-  // One sentence for both the subtitle and the live region below, so the thing announced
-  // and the thing shown cannot drift apart.
-  const turnSummary = draftComplete
-    ? "Draft complete."
-    : onTheClock
-      ? `Pick ${currentPick} — you are on the clock.`
-      : // Not `Pick 2 — Seat 2.`, which states a fact and asks for nothing. Eleven picks
-        // in twelve belong to somebody else, and during every one of them the only thing
-        // this screen can do is be told what that person took.
-        `Pick ${currentPick} — ${clockLabel} on the clock. Record their pick below.`;
+  const scoringLabel =
+    SCORING_PRESETS.find((preset) => preset.id === scoringId)?.label ?? scoringId;
 
   return (
-    <PageShell title="Draft" subtitle={turnSummary}>
-      {/* The turn changing rearranges this page under the reader: the two panels swap, and
-          the viewport moves to whichever now leads. Sighted users see that happen. Without
-          this, nobody else was told — the subtitle that names whose pick it is is a plain
-          paragraph, so a screen reader would announce nothing at all and leave the user on
-          a page whose running order had silently changed beneath them.
-
-          `polite`, so it waits for a pause rather than cutting across whatever is being
-          read, and it is the same sentence the subtitle shows rather than a second wording
-          to keep in step. */}
+    <PageShell
+      title="Draft"
+      subtitle={`${setup.teams}-team · ${scoringLabel} · snake · ${setup.rounds} rounds · seat ${setup.slot}`}
+      size="wide"
+    >
+      {/* The turn changing is announced, not only shown. The status bar below says whose
+          pick it is in a plain paragraph, which a screen reader passes over in silence —
+          leaving a user to discover a turn change by finding a button that has changed its
+          label. `polite`, so it waits for a pause, and it is the same sentence the bar
+          shows rather than a second wording to keep in step. */}
       <p className="sr-only" role="status" aria-live="polite">
-        {turnSummary}
+        {turn.summary}
       </p>
 
       <BoardHealthNotice freshness={freshness ?? null} />
 
-      {/*
-        The league's shape, kept in front of the reader for the whole draft rather than only
-        on the setup screen it was chosen on. A draft is an hour of picks made against a
-        lineup nobody is looking at, and a board built for the wrong shape gives advice that
-        is wrong in a way that reads as merely surprising.
-      */}
-      {started ? (
-        <p className="mb-4 text-sm text-muted-foreground">
-          {setup.teams} teams · {setup.rounds} rounds · seat {setup.slot} ·{" "}
-          {rosterTemplateById(templateId).label} ({slotSummary(templateId)}) ·{" "}
-          {scoringPresetById(scoringId).label},{" "}
-          {scoringPresetById(scoringId).offense.receptionPoints} per reception
-        </p>
-      ) : null}
+      <StatusBar
+        turn={turn}
+        pickLabel={draftComplete ? null : pickLabel(currentPick, setup.teams)}
+        currentPick={currentPick}
+        totalPicks={totalPicks}
+        picksUntilTurn={untilTurn}
+        nextOwnPickLabel={nextOwnPick === null ? null : pickLabel(nextOwnPick, setup.teams)}
+        // Gated on the pick it actually removes, not on the map being non-empty.
+        // `currentPick` is the first *empty* pick, so a restored board with a gap in it
+        // offered an undo for an entry that did not exist and removed nothing when pressed.
+        canUndo={picks[currentPick - 1] !== undefined}
+        onUndo={undo}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div className="flex flex-col gap-6">
-          {recommender.unavailable !== null ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              {recommender.unavailable}, so recommendations are unavailable. The board below
-              still works.
-            </p>
-          ) : null}
+      <NeedsStrip
+        slots={starters}
+        roster={myRoster}
+        picksLeft={myRemainingPicks.length}
+        draftComplete={draftComplete}
+      />
 
-          {recommender.error !== null ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              The recommendation failed: {recommender.error}
-            </p>
-          ) : null}
+      {/* Full width, above the columns. A draft board is fourteen columns of names; in the
+          content column it sized itself to the longest one and scrolled sideways on a
+          desktop with room to spare, which is the one thing a board must not do — the
+          value of watching it is seeing the whole room at once. */}
+      <section className="mt-4">
+        <button
+          type="button"
+          onClick={() => setBoardOpen((open) => !open)}
+          aria-expanded={boardOpen}
+          aria-controls="draft-board-region"
+          className="mb-2 flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          The board
+          {boardOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </button>
+        <div id="draft-board-region">
+        {boardOpen ? (
+          <BoardGrid
+            teams={setup.teams}
+            slot={setup.slot}
+            rounds={setup.rounds}
+            picks={picks}
+            playersById={poolById}
+            currentPick={currentPick}
+            onSelectPick={selectBoardPick}
+          />
+        ) : null}
+        </div>
+      </section>
 
-          {/*
-            Which of these comes first depends on whose turn it is, because on a phone the
-            first thing on the screen is the only thing on the screen.
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Recommendations
+            state={recommender}
+            scenarios={SCENARIOS}
+            onTheClock={onTheClock && !draftComplete}
+            draftComplete={draftComplete}
+            onPick={record}
+            waitPick={waitPick}
+            waitPickLabel={waitPickLabel}
+            unrankedAdp={unrankedAdp}
+            basisFor={basisFor}
+          />
 
-            The recommendation panel is a header, ten candidate rows and a footer — two or
-            three screens on a handset. Rendering it first put the recording controls below
-            all of it, so on an opponent's turn the entire visible page was a list of
-            players you cannot draft yet, and the control for the only action available was
-            somewhere past the fold. A tester with the board open on a phone concluded there
-            was no way to enter an opponent's pick at all.
-
-            That is what this ordering exists to prevent, and it is not cosmetic: a draft
-            recorded with only your own picks produces recommendations against a board that
-            does not exist, confidently and with nothing to say so.
-
-            Reordered in the DOM rather than with CSS `order`, so that what a screen reader
-            announces and where the tab sequence goes both match what is on the screen.
-          */}
-          {/* Its own element so that "the panel that leads" is exactly this container's
-              first child — which is what the effect above scrolls to. The two notices
-              above are siblings of this group, not of the panels, so a failed
-              recommendation cannot become the thing the page scrolls to.
-
-              Keyed, so React moves these two nodes rather than tearing both down and
-              building them again. Rendered as bare fragments the children reconcile by
-              index, the element type at each index changes on every turn, and both
-              subtrees remount. Keys do not preserve focus across the move — the effect
-              above handles that — and they are not what keeps the search box's contents
-              either, since `search` is state on this component and survives regardless.
-              What they hold is what lives in the DOM rather than in React: caret and
-              selection inside that input, an in-flight IME composition, and the scroll
-              offset of anything inside the panels. */}
-          <div ref={panelsRef} className="flex flex-col gap-6">
-            {panelOrder({ onTheClock, draftComplete }).map((panel) => (
-              <Fragment key={panel}>
-                {panel === "record" ? recordPanel : recommendationsPanel}
-              </Fragment>
-            ))}
-          </div>
+          <PlayerPool
+            players={poolPlayers}
+            onTheClock={onTheClock && !draftComplete}
+            actionLabel={turn.action}
+            draftComplete={draftComplete}
+            onRecord={record}
+            queue={queue}
+            onToggleQueue={toggleQueue}
+            neededPositions={needs}
+            waitPick={waitPick}
+            waitPickLabel={waitPickLabel}
+            unrankedAdp={unrankedAdp}
+            focus={focus}
+            teams={setup.teams}
+            onOpenDetail={setDetailId}
+          />
         </div>
 
-        <aside>
-          <h2 className="text-sm font-medium">Your roster</h2>
-          {myRoster.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">Nothing drafted yet.</p>
-          ) : (
-            <ul className="mt-2 space-y-1 text-sm">
-              {myRoster.map((player) => (
-                <li key={player.id} className="flex justify-between">
-                  <span>{player.name}</span>
-                  <span className="text-muted-foreground">
-                    {player.position}
-                    {player.byeWeek === null ? "" : ` · ${player.byeWeek}`}
-                    <BasisBadge
-                      basis={basisById.get(player.id) ?? basisForPosition(player.position)}
-                    />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <ByeSummary roster={myRoster} />
+        <aside className="flex flex-col gap-4">
+          <MyTeam
+            slots={starters}
+            roster={myRoster}
+            pickByPlayerId={rosterPicks}
+            teams={setup.teams}
+            basisFor={basisFor}
+          />
+          <QueuePanel
+            queue={queue}
+            playersById={poolById}
+            onTheClock={onTheClock && !draftComplete}
+            onRecord={record}
+            onRemove={toggleQueue}
+            onSwap={swapInQueue}
+          />
           <Caveat
-          freshness={freshness ?? null}
-          boardSize={board.length}
-          teams={setup.teams}
-        />
+            freshness={freshness ?? null}
+            boardSize={board.length}
+            teams={setup.teams}
+          />
         </aside>
       </div>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onChange={applySettings}
+        // Picks are a prefix of 1..n, so the rounds already touched is what the count
+        // implies. Dropping below it would put recorded picks past the end of the draft.
+        minRounds={Math.max(1, Math.ceil(Object.keys(picks).length / setup.teams))}
+        onReset={resetDraft}
+      />
+
+      <PlayerDetail
+        player={detailId === null ? null : (poolById.get(detailId) ?? null)}
+        onClose={() => setDetailId(null)}
+        onRecord={record}
+        actionLabel={turn.action}
+        canRecord={!draftComplete}
+        // Drops the pick on the clock when it is yours. `remainingPicks` is filtered
+        // `pick >= currentPick`, so on your own turn its first entry is the pick you are
+        // making — and "45% chance he is still there at 3.04" for a player you are looking
+        // at, available, at 3.04 is not a question anybody has. Same correction as
+        // `waitPick`, applied to the same idea.
+        remainingOwnPicks={onTheClock ? myRemainingPicks.slice(1) : myRemainingPicks}
+        teams={setup.teams}
+        unrankedAdp={unrankedAdp}
+        scoringLabel={scoringLabel}
+      />
     </PageShell>
   );
 }
 
-function Recommendations({
-  state,
-  onPick,
-  onTheClock,
+/**
+ * The starting slots still empty, always on screen.
+ *
+ * The one fact from the roster that changes a decision mid-draft. Putting it in the roster
+ * panel alone means a manager on a phone has to scroll past two hundred players to learn
+ * that they have no tight end, which is exactly the information that should have stopped
+ * them taking a fourth receiver.
+ */
+function NeedsStrip({
+  slots,
+  roster,
+  picksLeft,
+  draftComplete,
 }: {
-  state: ReturnType<typeof useRecommendations>;
-  onPick: (id: string) => void;
-  onTheClock: boolean;
+  slots: ReturnType<typeof slotsForTemplate>;
+  roster: readonly PlayerRisk[];
+  picksLeft: number;
+  draftComplete: boolean;
 }) {
-  if (state.loading) {
-    return <div className="h-32 animate-pulse rounded-lg bg-muted" aria-hidden />;
-  }
-  if (state.recommendations.length === 0) return null;
+  const empty = useMemo(() => unfilledSlots(slots, roster), [slots, roster]);
 
-  const leader = state.recommendations[0];
+  if (draftComplete) return null;
 
   return (
-    <section className="rounded-lg border">
-      <header className="flex items-baseline justify-between gap-4 border-b p-4">
-        <div>
-          <h2 className="font-medium">
-            {onTheClock ? "Take" : "If the board holds, take"} {leader.player.name}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Ranked by the probability of winning the league, simulated over {SCENARIOS}{" "}
-            seasons against the rosters your opponents have actually drafted.
-          </p>
-        </div>
-        {state.stale ? (
-          <span className="shrink-0 text-xs text-muted-foreground">recalculating…</span>
-        ) : null}
-      </header>
-
-      <ul className="divide-y">
-        {state.recommendations.map((rec) => (
-          <li key={rec.player.id} className="flex items-center justify-between gap-4 p-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">
-                {rec.player.name}{" "}
-                <span className="font-normal text-muted-foreground">
-                  {rec.player.position}
-                  {rec.player.byeWeek === null ? "" : ` · bye ${rec.player.byeWeek}`}
-                </span>
-                <BasisBadge basis={basisForPosition(rec.player.position)} />
-              </p>
-              {/*
-                Two uncertainties, named apart, because they answer different questions and
-                are not interchangeable. The first is how well this candidate's *own* title
-                probability is pinned down. The second is how well these scenarios separate
-                him from the leader — a paired quantity, since every candidate is simulated
-                over the same seasons, and emphatically not the sum of two marginal errors.
-                Reporting one number invited reading it as both.
-              */}
-              <p className="text-xs text-muted-foreground">
-                {(rec.championshipProbability * 100).toFixed(1)}% title ±
-                {(rec.standardError * 100).toFixed(1)} ·{" "}
-                {(rec.playoffProbability * 100).toFixed(0)}% playoffs
-              </p>
-              {/*
-                Spelled out under the row rather than left to the badge, because this row
-                carries a *probability* and the probability itself rests on the assumed
-                spread. A reader comparing a kicker's title odds with a back's is comparing
-                a number built on a fitted outcome distribution with one built on a
-                placeholder, and the badge alone does not say that the number above it is
-                the thing affected.
-              */}
-              {recommendationCaveat(rec.player.position) === null ? null : (
-                <p className="text-xs text-muted-foreground">
-                  {recommendationCaveat(rec.player.position)}
-                </p>
-              )}
-              {rec.vsLeader === null ? null : (
-                <p className="text-xs text-muted-foreground">
-                  vs leader {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
-                  {(rec.vsLeader.meanDifference * 100).toFixed(1)} pts of title odds,{" "}
-                  {rec.vsLeader.confidenceLevel}% range{" "}
-                  {(rec.vsLeader.interval[0] * 100).toFixed(1)} to{" "}
-                  {(rec.vsLeader.interval[1] * 100).toFixed(1)}
-                  {rec.tiedWithLeader ? " — not separated" : ""}
-                </p>
-              )}
-            </div>
-            {/*
-              The button only records *your* pick, and only when the pick belongs to you.
-              It used to render regardless: during an opponent's turn the panel says "if
-              the board holds, take X", and tapping it wrote X as that opponent's pick —
-              so you did not get the player, and whoever they really took stayed on the
-              board and kept being recommended.
-            */}
-            {/*
-              Nothing in this slot on an opponent's turn. It held "Seat 2 picks next",
-              repeated down all ten rows, which read as the app waiting on the opponent
-              rather than on you to say what they took — the opposite of what the page
-              needs next. The heading above the panel already names whose pick it is.
-            */}
-            {onTheClock ? (
-              <Button size="sm" variant="outline" onClick={() => onPick(rec.player.id)}>
-                Draft
-              </Button>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-
-      <footer className="border-t p-3 text-xs text-muted-foreground">
-        Candidates within a couple of standard errors of each other are statistically tied
-        and are ordered by playoff probability, which resolves at this sample size when
-        title odds do not.
-        {state.lastElapsedMs === null
-          ? null
-          : ` Computed in ${state.lastElapsedMs}ms${state.lastFromCache ? " (cached)" : ""}.`}
-      </footer>
-    </section>
-  );
-}
-
-/** Bye collisions are the thing a points-based board cannot show, so it is shown. */
-function ByeSummary({ roster }: { roster: readonly PlayerRisk[] }) {
-  const byWeek = new Map<number, string[]>();
-  for (const player of roster) {
-    if (player.byeWeek === null) continue;
-    byWeek.set(player.byeWeek, [...(byWeek.get(player.byeWeek) ?? []), player.position]);
-  }
-  const crowded = [...byWeek.entries()]
-    .filter(([, positions]) => positions.length > 1)
-    .sort((a, b) => a[0] - b[0]);
-
-  if (crowded.length === 0) return null;
-
-  return (
-    <div className="mt-4 rounded-md border border-dashed p-3">
-      <p className="text-xs font-medium">Bye weeks doubled up</p>
-      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-        {crowded.map(([week, positions]) => (
-          <li key={week}>
-            Week {week}: {positions.join(", ")}
-          </li>
-        ))}
-      </ul>
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+      <span className="font-medium text-muted-foreground">
+        {empty.length === 0 ? "Every starting slot is filled" : "Still to fill"}
+      </span>
+      {[...new Set(empty)].map((label) => (
+        <span
+          key={label}
+          className="rounded bg-amber-500/12 px-1.5 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-500/25 ring-inset dark:text-amber-300"
+        >
+          {label}
+        </span>
+      ))}
+      <span className="text-muted-foreground tabular-nums">
+        {picksLeft} {picksLeft === 1 ? "pick" : "picks"} left
+      </span>
     </div>
   );
-}
-
-interface BoardFreshness {
-  computedAt: number | null;
-  adpSourceTeams: number | null;
-  lastAttemptAt: number | null;
-  lastAttemptStatus: "running" | "succeeded" | "failed" | null;
 }
 
 /**
  * How healthy the board is, in one prominent line above everything else.
  *
- * Separated from the small-print caveat below, and deliberately: a board whose last rebuild
+ * Separate from the small print below, and deliberately: a board whose last rebuild
  * *failed* looks entirely healthy in a timestamp — it is only hours old, because the failed
  * run left the previous one intact, which is the correct behaviour and exactly why the
- * failure is invisible. Somebody about to draft off it has to be told before they start, not
- * in a paragraph at the bottom of a sidebar.
+ * failure is invisible. Somebody about to draft off it has to be told before they start,
+ * not in a paragraph at the bottom of a sidebar.
  */
-function BoardHealthNotice({
-  freshness,
-}: {
-  freshness: BoardFreshness | null;
-}) {
+function BoardHealthNotice({ freshness }: { freshness: BoardFreshness | null }) {
   // `Date.now()` at mount rather than during render, for the same hydration reason the
   // formatted timestamp below has: a server render and a client render happen at different
   // instants and would disagree about how many hours old a board is.
@@ -1137,13 +876,10 @@ function BoardHealthNotice({
 
   return (
     <p
-      className="mb-4 rounded-md border border-dashed p-3 text-sm"
+      className="mb-4 rounded-lg border border-dashed p-3 text-sm"
       role={health === "refreshing" ? "status" : "alert"}
     >
-      {describeBoardHealth(health, {
-        now,
-        publishedAt: freshness?.computedAt ?? null,
-      })}
+      {describeBoardHealth(health, { now, publishedAt: freshness?.computedAt ?? null })}
     </p>
   );
 }
@@ -1182,7 +918,7 @@ function Caveat({
       : adpSourceLabel(teams, freshness.adpSourceTeams);
 
   return (
-    <p className="mt-6 text-xs text-muted-foreground">
+    <p className="text-xs text-muted-foreground">
       {boardSize} players.{" "}
       {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
       Odds assume a 14-week regular season and a three-week bracket. Player values blend
@@ -1191,58 +927,9 @@ function Caveat({
       defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed
       placeholder rather than a measured one — every such row is marked, so this sentence is
       a summary of the labels rather than the only place the limitation appears. Scoring is
-      limited to PPR, half PPR and standard. Opponents&rsquo; unfilled roster spots are completed by a simple
-      best-available rule, so early-round odds lean on that assumption more than late ones.
+      limited to PPR, half PPR and standard. Opponents&rsquo; unfilled roster spots are
+      completed by a simple best-available rule, so early-round odds lean on that assumption
+      more than late ones.
     </p>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-sm font-medium">{label}</p>
-      <div className="mt-2">{children}</div>
-    </div>
-  );
-}
-
-function NumberPicker({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-}: {
-  label: string;
-  value: number;
-  onChange: (next: number) => void;
-  min: number;
-  max: number;
-}) {
-  return (
-    <Input
-      type="number"
-      aria-label={label}
-      value={value}
-      min={min}
-      max={max}
-      onChange={(event) => {
-        // Rounded, not merely clamped. `<input type="number">` happily yields "1.5", and
-        // every consumer here counts seats and rounds — whole things. A fractional slot
-        // used to produce odd pick numbers; since `snakePicks` started rejecting one it
-        // throws during render instead, and there is no error boundary under `app/`, so
-        // the setup screen is replaced by a crash page that only a reload clears.
-        //
-        // An empty field is a keystroke in the middle of retyping, not a request for the
-        // minimum. `Number("")` is 0, which rounds to 0 and is finite, so clamping it
-        // immediately snapped the box to `min` the moment the user deleted the last digit
-        // — and because the input is controlled, "15" could never be replaced by "12",
-        // only appended to.
-        const raw = event.target.value.trim();
-        if (raw === "") return;
-        const next = Math.round(Number(raw));
-        if (Number.isFinite(next)) onChange(Math.min(Math.max(next, min), max));
-      }}
-    />
   );
 }
