@@ -303,11 +303,15 @@ describe("fantasySeasonWeeks", () => {
   });
 
   it("never asks for a negative number of rounds", () => {
-    // A bracket cannot need fewer than no rounds. `Math.ceil(Math.log2(x))` is negative for
-    // a field between 0 and 1, so the `<= 1` guard is what keeps the return total — and
-    // nothing pinned that, because every *sensible* field size is an integer and the
-    // callers all validate before reaching here. A mutation run moving that guard produced
-    // -1 rounds and no test objected.
+    // A bracket cannot need fewer than no rounds. `Math.ceil(Math.log2(x))` goes negative
+    // below a field of one half — not merely below one, which is worth stating precisely:
+    // on `(0.5, 1)` it rounds up to `-0`, and `-0 >= 0` is true, so a value picked from
+    // there would pass this test while killing nothing. The whole mutation value sits in
+    // `0.25` and `0.5`, which is why they are here.
+    //
+    // What the guard buys is a total function, and nothing pinned it, because every
+    // sensible field size is an integer and the callers all validate before reaching here.
+    // A mutation run moving that guard produced -1 rounds and no test objected.
     for (const playoffTeams of [-4, -1, -0.5, 0, 0.25, 0.5, 1, 1.5, 2, 3, 12]) {
       expect(bracketRoundsRequired(playoffTeams)).toBeGreaterThanOrEqual(0);
     }

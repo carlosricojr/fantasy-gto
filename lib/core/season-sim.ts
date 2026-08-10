@@ -146,7 +146,23 @@ export function tieBreakKey(scenario: number, team: number): number {
   return (hash ^ (hash >>> 16)) >>> 0;
 }
 
-/** Rounds a single-elimination bracket needs to reduce a field to one. */
+/**
+ * Rounds a single-elimination bracket needs to reduce a field to one.
+ *
+ * The guard is doing two jobs, and a mutation run reports a survivor for each — so both are
+ * written down here, because the whole point of marking them is that the report leads
+ * somewhere.
+ *
+ * **`<=` to `<` is an equivalent mutant.** The two branches differ only at exactly
+ * `playoffTeams === 1`, and there the else-branch returns `Math.ceil(Math.log2(1))`, which
+ * is 0 — the same answer. No input distinguishes them, so no test can.
+ *
+ * **Moving the `1` is not**, and it is the reason this reads `<= 1` rather than `<= 0`:
+ * `Math.log2` is negative below 1, so a fractional field would come back asking for a
+ * *negative* number of rounds. Every caller validates for an integer first, which is why
+ * nothing noticed until the harness did. `season-sim.test.ts` pins the non-negativity
+ * directly.
+ */
 export function bracketRoundsRequired(playoffTeams: number): number {
   return playoffTeams <= 1 ? 0 : Math.ceil(Math.log2(playoffTeams));
 }
@@ -386,8 +402,12 @@ export function simulateLeagueScenarios(
     for (const t of qualified) berths[t] += 1;
 
     const champion = playBracket(qualified, teamScores, s, config, regularWeeks);
-    // `?? -1` is unreachable for the same reason the fill above is — see it. Both are
-    // survivors of a mutation run and both are equivalent mutants, not coverage gaps.
+    // The `-1` here is unreachable for the same reason the fill above is — see it — and it
+    // is only that *literal* whose mutants are equivalent. The `??` is load-bearing: as
+    // `||` this line stores -1 whenever team 0 wins, because `0` is falsy, and
+    // `championshipScenarios` reads the result as `team === 0`. Our own team is always
+    // index 0, so that mutant reports every scenario we won as a loss. It is killed, and
+    // this comment is scoped so it cannot be read as cover for the operator too.
     championByScenario[s] = champion ?? -1;
     if (champion !== null) titles[champion] += 1;
   }
