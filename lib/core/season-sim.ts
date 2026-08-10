@@ -406,8 +406,12 @@ export function simulateLeagueScenarios(
     // is only that *literal* whose mutants are equivalent. The `??` is load-bearing: as
     // `||` this line stores -1 whenever team 0 wins, because `0` is falsy, and
     // `championshipScenarios` reads the result as `team === 0`. Our own team is always
-    // index 0, so that mutant reports every scenario we won as a loss. It is killed, and
-    // this comment is scoped so it cannot be read as cover for the operator too.
+    // index 0, so that mutant reports every scenario we won as a loss.
+    //
+    // Pinned by "records index 0 as a champion rather than as the absent-champion sentinel"
+    // in `season-sim.test.ts`. It was already killed before that test existed, but only by
+    // `draft-policy.test.ts` two modules away, through championship probabilities coming
+    // out wrong — a thin place to leave a hazard whose whole nature is that zero is falsy.
     championByScenario[s] = champion ?? -1;
     if (champion !== null) titles[champion] += 1;
   }

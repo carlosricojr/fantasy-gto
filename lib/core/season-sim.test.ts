@@ -10,6 +10,7 @@ import {
   roundRobinSchedule,
   sampleTeamWeeklyScores,
   simulateLeague,
+  simulateLeagueScenarios,
   tieBreakKey,
 } from "./season-sim";
 
@@ -445,6 +446,53 @@ describe("a season is a partition of its weeks, whatever shape it is", () => {
  * nobody shows up as arithmetic that does not balance rather than as odds that look
  * plausible.
  */
+describe("team zero winning is not the same as nobody winning", () => {
+  it("records index 0 as a champion rather than as the absent-champion sentinel", () => {
+    // `championByScenario` uses `-1` for "no champion" and `0` is a real team — our own,
+    // always, since `championshipProbability` passes us first. So the two have to stay
+    // distinguishable through a falsy value, and `??` rather than `||` is what does it:
+    // `champion || -1` stores -1 whenever team 0 wins, and `championshipScenarios` reads
+    // the result as `team === 0`, so every scenario we actually won would report as a loss.
+    //
+    // That mutant *is* killed — but by `draft-policy.test.ts`, two modules away, through
+    // championship probabilities coming out wrong. Nothing here objected, which is a thin
+    // place to leave a hazard whose whole nature is that zero is falsy. This pins it where
+    // the sentinel lives.
+    const config: LeagueConfig = {
+      slots: SLOTS,
+      ...fantasySeasonWeeks(16, 4),
+      playoffTeams: 4,
+      scenarios: 40,
+      meanAbsenceWeeks: 3,
+    };
+    // Team 0 is far the strongest, so it wins every scenario outright.
+    const teams = Array.from({ length: 8 }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`z${i}`, i === 0 ? 40 : 8), config, 4200 + i),
+    );
+    const { championByScenario, outcomes } = simulateLeagueScenarios(teams, config);
+
+    expect(championByScenario).toHaveLength(config.scenarios);
+    // That team 0 is *recorded* when it wins, which is the whole point — not that it wins
+    // every time. It does not: at these quantiles a single-elimination round is losable
+    // even at five times the mean, and one scenario in forty goes the other way. Asserting
+    // a clean sweep would have been a test about the lognormal tail rather than about the
+    // sentinel, and would fail the day either changed.
+    expect(championByScenario).toContain(0);
+    expect(championByScenario).not.toContain(-1);
+    // Stated separately, because `toContain(0)` would also pass on `-0`: it compares equal
+    // to 0 and would hide the very confusion this test is about. `Object.is` tells them
+    // apart.
+    expect(championByScenario.some((team) => Object.is(team, -0))).toBe(false);
+    // And every entry is a real team, so nothing else is standing in for a champion.
+    for (const team of championByScenario) {
+      expect(Number.isInteger(team)).toBe(true);
+      expect(team).toBeGreaterThanOrEqual(0);
+      expect(team).toBeLessThan(teams.length);
+    }
+    expect(outcomes[0].championshipProbability).toBeGreaterThan(0.9);
+  });
+});
+
 describe("every league the product can express simulates coherently", () => {
   const TEAMS = 12;
   const SCENARIOS = 200;
