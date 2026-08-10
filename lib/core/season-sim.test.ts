@@ -294,6 +294,27 @@ describe("fantasySeasonWeeks", () => {
     });
   });
 
+  it("accepts the smallest season there is, and refuses the one below it", () => {
+    // Where the boundary actually sits. One regular week and no bracket is coherent — the
+    // guard rejects a *non-positive* final, not a short one — and asserting only the
+    // rejection leaves the guard free to slide a week without any test objecting.
+    expect(fantasySeasonWeeks(1, 1)).toEqual({ weeks: [1], playoffWeeks: [] });
+    expect(() => fantasySeasonWeeks(0, 1)).toThrow(/whole, positive week/);
+  });
+
+  it("never asks for a negative number of rounds", () => {
+    // A bracket cannot need fewer than no rounds. `Math.ceil(Math.log2(x))` is negative for
+    // a field between 0 and 1, so the `<= 1` guard is what keeps the return total — and
+    // nothing pinned that, because every *sensible* field size is an integer and the
+    // callers all validate before reaching here. A mutation run moving that guard produced
+    // -1 rounds and no test objected.
+    for (const playoffTeams of [-4, -1, -0.5, 0, 0.25, 0.5, 1, 1.5, 2, 3, 12]) {
+      expect(bracketRoundsRequired(playoffTeams)).toBeGreaterThanOrEqual(0);
+    }
+    expect(bracketRoundsRequired(0.5)).toBe(0);
+    expect(bracketRoundsRequired(0)).toBe(0);
+  });
+
   it("refuses a season it cannot lay out rather than returning a broken one", () => {
     expect(() => fantasySeasonWeeks(16.5, 6)).toThrow(/whole, positive week/);
     expect(() => fantasySeasonWeeks(0, 6)).toThrow(/whole, positive week/);
@@ -321,7 +342,11 @@ describe("fantasySeasonWeeks", () => {
 describe("a season is a partition of its weeks, whatever shape it is", () => {
   /** Every pair `fantasySeasonWeeks` accepts, well beyond the three the product offers. */
   const shapes: Array<{ championshipWeek: number; playoffTeams: number }> = [];
-  for (let championshipWeek = 2; championshipWeek <= 20; championshipWeek += 1) {
+  // From week 1, not week 2. A season ending in week 1 is the smallest `fantasySeasonWeeks`
+  // accepts — one regular week, no bracket — and the guard it sits against is `< 1` rather
+  // than `<= 1`. Starting the walk at 2 left that boundary untested, which a mutation run
+  // found by moving the guard a week and watching nothing fail.
+  for (let championshipWeek = 1; championshipWeek <= 20; championshipWeek += 1) {
     for (let playoffTeams = 1; playoffTeams <= 12; playoffTeams += 1) {
       if (championshipWeek > bracketRoundsRequired(playoffTeams)) {
         shapes.push({ championshipWeek, playoffTeams });

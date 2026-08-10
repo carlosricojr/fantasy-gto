@@ -324,6 +324,11 @@ export function simulateLeagueScenarios(
   }
   const schedule = roundRobinSchedule(teamCount, regularWeeks);
 
+  // The `-1` fill is defensive and, as the guards currently stand, dead: every index is
+  // overwritten below, and `playBracket` cannot return null once `playoffTeams >= 1` and
+  // `teamCount >= playoffTeams` have both been checked. Kept because the sentinel is part of
+  // `LeagueSimulation`'s contract rather than an internal detail. It is why a mutation run
+  // reports the `-1` here and at the assignment below as survivors: nothing reads either.
   const championByScenario = new Array<number>(config.scenarios).fill(-1);
   const titles = new Array<number>(teamCount).fill(0);
   const berths = new Array<number>(teamCount).fill(0);
@@ -356,6 +361,11 @@ export function simulateLeagueScenarios(
       }
     }
 
+    // Loosening this bound to `<=` is an equivalent mutant and a mutation run reports it as
+    // a survivor. It writes a NaN one past the end of two arrays that are only ever read up
+    // to `teamCount - 1`, by the `teamScores.map` at the end of this function, so no figure
+    // moves. Stated here so the next person to read that report does not go looking for the
+    // test that should have caught it.
     for (let t = 0; t < teamCount; t += 1) {
       winTotals[t] += wins[t];
       pointTotals[t] += points[t];
@@ -376,6 +386,8 @@ export function simulateLeagueScenarios(
     for (const t of qualified) berths[t] += 1;
 
     const champion = playBracket(qualified, teamScores, s, config, regularWeeks);
+    // `?? -1` is unreachable for the same reason the fill above is — see it. Both are
+    // survivors of a mutation run and both are equivalent mutants, not coverage gaps.
     championByScenario[s] = champion ?? -1;
     if (champion !== null) titles[champion] += 1;
   }
@@ -407,6 +419,9 @@ function playBracket(
   regularWeeks: number,
 ): number | null {
   if (qualified.length === 0) return null;
+  // An optimization, not a branch the result depends on: a single qualifier falls straight
+  // through the loop below, whose guard is already false, and comes back as `field[0]`
+  // anyway. So changing this constant is an equivalent mutant, and a mutation run says so.
   if (qualified.length === 1) return qualified[0];
 
   let field = [...qualified];
