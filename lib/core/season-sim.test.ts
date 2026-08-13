@@ -10,6 +10,7 @@ import {
   roundRobinSchedule,
   sampleTeamWeeklyScores,
   simulateLeague,
+  simulateLeagueScenarios,
   tieBreakKey,
 } from "./season-sim";
 
@@ -294,6 +295,31 @@ describe("fantasySeasonWeeks", () => {
     });
   });
 
+  it("accepts the smallest season there is, and refuses the one below it", () => {
+    // Where the boundary actually sits. One regular week and no bracket is coherent — the
+    // guard rejects a *non-positive* final, not a short one — and asserting only the
+    // rejection leaves the guard free to slide a week without any test objecting.
+    expect(fantasySeasonWeeks(1, 1)).toEqual({ weeks: [1], playoffWeeks: [] });
+    expect(() => fantasySeasonWeeks(0, 1)).toThrow(/whole, positive week/);
+  });
+
+  it("never asks for a negative number of rounds", () => {
+    // A bracket cannot need fewer than no rounds. `Math.ceil(Math.log2(x))` goes negative
+    // below a field of one half — not merely below one, which is worth stating precisely:
+    // on `(0.5, 1)` it rounds up to `-0`, and `-0 >= 0` is true, so a value picked from
+    // there would pass this test while killing nothing. The whole mutation value sits in
+    // `0.25` and `0.5`, which is why they are here.
+    //
+    // What the guard buys is a total function, and nothing pinned it, because every
+    // sensible field size is an integer and the callers all validate before reaching here.
+    // A mutation run moving that guard produced -1 rounds and no test objected.
+    for (const playoffTeams of [-4, -1, -0.5, 0, 0.25, 0.5, 1, 1.5, 2, 3, 12]) {
+      expect(bracketRoundsRequired(playoffTeams)).toBeGreaterThanOrEqual(0);
+    }
+    expect(bracketRoundsRequired(0.5)).toBe(0);
+    expect(bracketRoundsRequired(0)).toBe(0);
+  });
+
   it("refuses a season it cannot lay out rather than returning a broken one", () => {
     expect(() => fantasySeasonWeeks(16.5, 6)).toThrow(/whole, positive week/);
     expect(() => fantasySeasonWeeks(0, 6)).toThrow(/whole, positive week/);
@@ -321,7 +347,11 @@ describe("fantasySeasonWeeks", () => {
 describe("a season is a partition of its weeks, whatever shape it is", () => {
   /** Every pair `fantasySeasonWeeks` accepts, well beyond the three the product offers. */
   const shapes: Array<{ championshipWeek: number; playoffTeams: number }> = [];
-  for (let championshipWeek = 2; championshipWeek <= 20; championshipWeek += 1) {
+  // From week 1, not week 2. A season ending in week 1 is the smallest `fantasySeasonWeeks`
+  // accepts — one regular week, no bracket — and the guard it sits against is `< 1` rather
+  // than `<= 1`. Starting the walk at 2 left that boundary untested, which a mutation run
+  // found by moving the guard a week and watching nothing fail.
+  for (let championshipWeek = 1; championshipWeek <= 20; championshipWeek += 1) {
     for (let playoffTeams = 1; playoffTeams <= 12; playoffTeams += 1) {
       if (championshipWeek > bracketRoundsRequired(playoffTeams)) {
         shapes.push({ championshipWeek, playoffTeams });
@@ -416,6 +446,53 @@ describe("a season is a partition of its weeks, whatever shape it is", () => {
  * nobody shows up as arithmetic that does not balance rather than as odds that look
  * plausible.
  */
+describe("team zero winning is not the same as nobody winning", () => {
+  it("records index 0 as a champion rather than as the absent-champion sentinel", () => {
+    // `championByScenario` uses `-1` for "no champion" and `0` is a real team — our own,
+    // always, since `championshipProbability` passes us first. So the two have to stay
+    // distinguishable through a falsy value, and `??` rather than `||` is what does it:
+    // `champion || -1` stores -1 whenever team 0 wins, and `championshipScenarios` reads
+    // the result as `team === 0`, so every scenario we actually won would report as a loss.
+    //
+    // That mutant *is* killed — but by `draft-policy.test.ts`, two modules away, through
+    // championship probabilities coming out wrong. Nothing here objected, which is a thin
+    // place to leave a hazard whose whole nature is that zero is falsy. This pins it where
+    // the sentinel lives.
+    const config: LeagueConfig = {
+      slots: SLOTS,
+      ...fantasySeasonWeeks(16, 4),
+      playoffTeams: 4,
+      scenarios: 40,
+      meanAbsenceWeeks: 3,
+    };
+    // Team 0 is far the strongest, so it wins every scenario outright.
+    const teams = Array.from({ length: 8 }, (_, i) =>
+      sampleTeamWeeklyScores(roster(`z${i}`, i === 0 ? 40 : 8), config, 4200 + i),
+    );
+    const { championByScenario, outcomes } = simulateLeagueScenarios(teams, config);
+
+    expect(championByScenario).toHaveLength(config.scenarios);
+    // That team 0 is *recorded* when it wins, which is the whole point — not that it wins
+    // every time. It does not: at these quantiles a single-elimination round is losable
+    // even at five times the mean, and one scenario in forty goes the other way. Asserting
+    // a clean sweep would have been a test about the lognormal tail rather than about the
+    // sentinel, and would fail the day either changed.
+    expect(championByScenario).toContain(0);
+    expect(championByScenario).not.toContain(-1);
+    // Stated separately, because `toContain(0)` would also pass on `-0`: it compares equal
+    // to 0 and would hide the very confusion this test is about. `Object.is` tells them
+    // apart.
+    expect(championByScenario.some((team) => Object.is(team, -0))).toBe(false);
+    // And every entry is a real team, so nothing else is standing in for a champion.
+    for (const team of championByScenario) {
+      expect(Number.isInteger(team)).toBe(true);
+      expect(team).toBeGreaterThanOrEqual(0);
+      expect(team).toBeLessThan(teams.length);
+    }
+    expect(outcomes[0].championshipProbability).toBeGreaterThan(0.9);
+  });
+});
+
 describe("every league the product can express simulates coherently", () => {
   const TEAMS = 12;
   const SCENARIOS = 200;

@@ -146,7 +146,23 @@ export function tieBreakKey(scenario: number, team: number): number {
   return (hash ^ (hash >>> 16)) >>> 0;
 }
 
-/** Rounds a single-elimination bracket needs to reduce a field to one. */
+/**
+ * Rounds a single-elimination bracket needs to reduce a field to one.
+ *
+ * The guard is doing two jobs, and a mutation run reports a survivor for each — so both are
+ * written down here, because the whole point of marking them is that the report leads
+ * somewhere.
+ *
+ * **`<=` to `<` is an equivalent mutant.** The two branches differ only at exactly
+ * `playoffTeams === 1`, and there the else-branch returns `Math.ceil(Math.log2(1))`, which
+ * is 0 — the same answer. No input distinguishes them, so no test can.
+ *
+ * **Moving the `1` is not**, and it is the reason this reads `<= 1` rather than `<= 0`:
+ * `Math.log2` is negative below 1, so a fractional field would come back asking for a
+ * *negative* number of rounds. Every caller validates for an integer first, which is why
+ * nothing noticed until the harness did. `season-sim.test.ts` pins the non-negativity
+ * directly.
+ */
 export function bracketRoundsRequired(playoffTeams: number): number {
   return playoffTeams <= 1 ? 0 : Math.ceil(Math.log2(playoffTeams));
 }
@@ -324,6 +340,11 @@ export function simulateLeagueScenarios(
   }
   const schedule = roundRobinSchedule(teamCount, regularWeeks);
 
+  // The `-1` fill is defensive and, as the guards currently stand, dead: every index is
+  // overwritten below, and `playBracket` cannot return null once `playoffTeams >= 1` and
+  // `teamCount >= playoffTeams` have both been checked. Kept because the sentinel is part of
+  // `LeagueSimulation`'s contract rather than an internal detail. It is why a mutation run
+  // reports the `-1` here and at the assignment below as survivors: nothing reads either.
   const championByScenario = new Array<number>(config.scenarios).fill(-1);
   const titles = new Array<number>(teamCount).fill(0);
   const berths = new Array<number>(teamCount).fill(0);
@@ -356,6 +377,11 @@ export function simulateLeagueScenarios(
       }
     }
 
+    // Loosening this bound to `<=` is an equivalent mutant and a mutation run reports it as
+    // a survivor. It writes a NaN one past the end of two arrays that are only ever read up
+    // to `teamCount - 1`, by the `teamScores.map` at the end of this function, so no figure
+    // moves. Stated here so the next person to read that report does not go looking for the
+    // test that should have caught it.
     for (let t = 0; t < teamCount; t += 1) {
       winTotals[t] += wins[t];
       pointTotals[t] += points[t];
@@ -376,6 +402,16 @@ export function simulateLeagueScenarios(
     for (const t of qualified) berths[t] += 1;
 
     const champion = playBracket(qualified, teamScores, s, config, regularWeeks);
+    // The `-1` here is unreachable for the same reason the fill above is — see it — and it
+    // is only that *literal* whose mutants are equivalent. The `??` is load-bearing: as
+    // `||` this line stores -1 whenever team 0 wins, because `0` is falsy, and
+    // `championshipScenarios` reads the result as `team === 0`. Our own team is always
+    // index 0, so that mutant reports every scenario we won as a loss.
+    //
+    // Pinned by "records index 0 as a champion rather than as the absent-champion sentinel"
+    // in `season-sim.test.ts`. It was already killed before that test existed, but only by
+    // `draft-policy.test.ts` two modules away, through championship probabilities coming
+    // out wrong — a thin place to leave a hazard whose whole nature is that zero is falsy.
     championByScenario[s] = champion ?? -1;
     if (champion !== null) titles[champion] += 1;
   }
@@ -407,6 +443,9 @@ function playBracket(
   regularWeeks: number,
 ): number | null {
   if (qualified.length === 0) return null;
+  // An optimization, not a branch the result depends on: a single qualifier falls straight
+  // through the loop below, whose guard is already false, and comes back as `field[0]`
+  // anyway. So changing this constant is an equivalent mutant, and a mutation run says so.
   if (qualified.length === 1) return qualified[0];
 
   let field = [...qualified];
