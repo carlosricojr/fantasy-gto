@@ -1,15 +1,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { UNRANKED_ADP_PADDING } from "@/lib/core/draft";
 import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import {
   type CheckOutcome,
   type MockBoardRow,
   type MockDraftReplay,
   evaluateChecks,
+  fixtureLeagueMismatch,
   parseBoardFixture,
   replayAdpMockDraft,
+  unexpectedOutcomes,
 } from "@/lib/nfl/draft/mock";
 import { slotsForTemplate } from "@/lib/nfl/roster";
 
@@ -20,9 +21,10 @@ import { slotsForTemplate } from "@/lib/nfl/roster";
  * `pnpm draft-mock -- --log`   also print all 160 picks, not only ours
  *
  * Nine opponents draft strictly by ADP; seat 5 takes the recommendation panel's #1 every
- * turn, exactly as the audit's browser automation did on the production board built
- * 2026-08-17 07:00 UTC — the board frozen under `tests/fixtures/`. The replay is
- * deterministic, so the scoreboard is a property of the code, not of a run.
+ * turn, exactly as the audit's browser automation did. The board is frozen under
+ * `tests/fixtures/`, `computedAt` 2026-08-17T11:01Z — 07:01 US Eastern, the build #88
+ * cites as "07:00". The replay is deterministic, so the scoreboard is a property of the
+ * code, not of a run.
  *
  * Five of the six checks are currently **documented expected failures**: `expected:
  * "fail"` in `lib/nfl/draft/mock.ts`, carrying the audit's observed numbers. Check (c)
@@ -132,17 +134,12 @@ function main(): void {
   const showFullLog = process.argv.includes("--log");
 
   const fixture = parseBoardFixture(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
-  if (
-    fixture.season !== SEASON ||
-    fixture.scoringId !== SCORING_ID ||
-    fixture.teams !== TEAMS
-  ) {
-    throw new Error(
-      `fixture is for season ${fixture.season}, ${fixture.scoringId}, ` +
-        `${fixture.teams} teams; this harness replays the ${SEASON} ${SCORING_ID} ` +
-        `${TEAMS}-team audit and refuses to mislabel another board's results`,
-    );
-  }
+  const mismatch = fixtureLeagueMismatch(fixture, {
+    season: SEASON,
+    scoringId: SCORING_ID,
+    teams: TEAMS,
+  });
+  if (mismatch !== null) throw new Error(mismatch);
 
   const slots = slotsForTemplate(TEMPLATE_ID);
   const config: LeagueConfig = {
@@ -164,8 +161,8 @@ function main(): void {
       `final week ${CHAMPIONSHIP_WEEK}\n` +
       `  engine seed ${SEED}, ${SCENARIOS} scenarios, ${CANDIDATES} candidates — ` +
       `the /draft page's own constants\n` +
-      `  policy opponents take the lowest ADP (unranked players last, ` +
-      `priced at +${UNRANKED_ADP_PADDING} picks); we take the panel's #1\n\n`,
+      `  policy opponents take the lowest ADP, unranked players last; ` +
+      `we take the panel's #1\n\n`,
   );
 
   const started = process.hrtime.bigint();
@@ -191,7 +188,7 @@ function main(): void {
   const outcomes = evaluateChecks(replay, fixture.rows);
   process.stdout.write(`scoreboard\n${scoreboardLines(outcomes)}\n\n`);
 
-  const unexpected = outcomes.filter((outcome) => outcome.status !== outcome.expected);
+  const unexpected = unexpectedOutcomes(outcomes);
   const failing = outcomes.filter((outcome) => outcome.status === "fail").length;
   if (unexpected.length === 0) {
     process.stdout.write(

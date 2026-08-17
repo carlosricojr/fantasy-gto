@@ -27,18 +27,26 @@ import { perGameRate } from "./value";
  *
  * ## Where the replay and the audit's transcript agree, and where they cannot
  *
- * On the frozen board this replay reproduces the audit's picks 1.05 through 5.05
- * exactly — including the 2.06 capture verbatim: Gainwell leading at 14.5%±1.4 with
- * Barkley displayed at 16.2%±1.5. That agreement is what proves the fixture is the
- * audit's board build and the engine path is the page's. From 6.06 on the two runs
- * diverge: the live panel recomputes after every recorded pick and the audit's automation
- * clicked whatever was *presented*, which its own log shows was sometimes computed for a
- * state a pick or two old — the reply gate blocked three takes whose leader was already
- * drafted, and a stale panel whose leader was still available blocks nothing. A replay
- * cannot reproduce click timing, and should not: #91 defines the harness as "same board →
- * same draft", which is this function, not the browser session. Every audit finding
- * reproduces here through its own mechanism — the roster below still starts a no-ADP
- * player taken in round 2, drafts three kickers, two defences, and two wide receivers.
+ * On the frozen board, the engine as shipped in this PR reproduces the audit's picks
+ * 1.05 through 5.05 exactly — including the 2.06 capture verbatim: Gainwell leading at
+ * 14.5%±1.4 with Barkley displayed at 16.2%±1.5. The fixture's `computedAt` is the build
+ * #88 cites (07:01 US Eastern, which #88 rounds to "07:00"), and reproducing the
+ * *displayed percentages* is strong evidence the board matches — a different board would
+ * move them. One discrepancy is on record rather than resolved: #89.E reports Kyle Pitts
+ * absent from the market's list, while this board carries him at ADP 81.7 with a bye;
+ * both cannot be literally true of the same build, and the reproduced figures argue the
+ * board is right and #89.E's raw-list check missed him. Later PRs change these picks
+ * deliberately — the scoreboard is the contract, not the pick list.
+ *
+ * From 6.06 on the two runs diverge: the live panel recomputes after every recorded
+ * pick, the audit's automation clicked whatever was *presented*, and #88 records the
+ * reply gate preventing three stale takes — clicks on a player already drafted, which is
+ * only possible if the presented panel lagged the recorded picks. A stale panel whose
+ * leader was still available blocks nothing, and a replay cannot and should not
+ * reproduce click timing: #91 defines the harness as "same board → same draft", which is
+ * this function, not the browser session. Every audit finding reproduces here through
+ * its own mechanism — the roster below still drafts a no-ADP player in round 2, three
+ * kickers, two defences, and two wide receivers.
  *
  * ## Why the opponents are strict-ADP
  *
@@ -152,6 +160,9 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+/** The positions a board row may carry — the NFL fantasy set the season sim slots. */
+const VALID_POSITIONS = new Set(["QB", "RB", "WR", "TE", "K", "DST"]);
+
 function expectNumberOrNull(value: unknown, where: string): number | null {
   if (value === null) return null;
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -195,7 +206,7 @@ export function parseBoardFixture(value: unknown): BoardFixture {
     if (provenance !== "measured" && provenance !== "placeholder") {
       fail(`${where("quantileProvenance")} must be "measured" or "placeholder"`);
     }
-    return {
+    const parsed: MockBoardRow = {
       playerId: expectString(row.playerId, where("playerId")),
       name: expectString(row.name, where("name")),
       position: expectString(row.position, where("position")),
@@ -211,6 +222,31 @@ export function parseBoardFixture(value: unknown): BoardFixture {
       p90: expectNumber(row.p90, where("p90")),
       quantileProvenance: provenance,
     };
+    // Domain gates, past shape: a finite number in the wrong range distorts every
+    // championship figure as silently as #37's missing field did. A misspelt position
+    // fills no roster slot; an availability outside (0, 1] is hidden downstream by
+    // `perGameRate`'s clamp rather than surfaced; quantiles out of order invert the
+    // outcome distribution; an ADP of zero or less cannot come from `parseAdp`, which
+    // drops such rows at the source.
+    if (!VALID_POSITIONS.has(parsed.position)) {
+      fail(`${where("position")} must be one of QB/RB/WR/TE/K/DST, got "${parsed.position}"`);
+    }
+    if (parsed.availability <= 0 || parsed.availability > 1) {
+      fail(`${where("availability")} must be within (0, 1], got ${parsed.availability}`);
+    }
+    if (parsed.p10 > parsed.p90) {
+      fail(`${where("p10")} must not exceed p90, got ${parsed.p10} > ${parsed.p90}`);
+    }
+    if (parsed.adp !== null && parsed.adp <= 0) {
+      fail(`${where("adp")} must be positive or null, got ${parsed.adp}`);
+    }
+    if (
+      parsed.byeWeek !== null &&
+      (!Number.isInteger(parsed.byeWeek) || parsed.byeWeek < 1 || parsed.byeWeek > 18)
+    ) {
+      fail(`${where("byeWeek")} must be a week within 1..18 or null, got ${parsed.byeWeek}`);
+    }
+    return parsed;
   });
   // Board order is rank order — the checks and the replay both read a row's index as its
   // overall rank, so a fixture whose rows have been reordered is a different board.
@@ -446,8 +482,12 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   },
   {
     id: "d",
+    // "No more than N rounds before", not "within N rounds": the check is one-sided on
+    // purpose — taking a kicker *later* than his market round is discipline, not a
+    // defect, and PR 5's fix will push K/D-ST later than market for good.
     title:
-      `first K and first D/ST within ${MARKET_ROUND_TOLERANCE} rounds of their market round`,
+      `first K and first D/ST no more than ${MARKET_ROUND_TOLERANCE} rounds ` +
+      `before their market round`,
     expected: "fail",
     audit: "Seattle D/ST at 5.05 against a round-9 market (ADP 82.9); first K at 9.05 " +
       "against a round-15 market (ADP 143)",
@@ -610,4 +650,43 @@ export function evaluateChecks(
     status: violations[definition.id].length === 0 ? "pass" : "fail",
     violations: violations[definition.id],
   }));
+}
+
+/**
+ * The outcomes that disagree with their documented expectation.
+ *
+ * This is the harness's alarm — an unexpected pass means a fix landed without flipping
+ * its check, an unexpected failure is a regression — and the alarm's logic lives here
+ * rather than in the script so a test can ring it. The script's only job is to print it
+ * and set the exit code.
+ */
+export function unexpectedOutcomes(outcomes: readonly CheckOutcome[]): CheckOutcome[] {
+  return outcomes.filter((outcome) => outcome.status !== outcome.expected);
+}
+
+/**
+ * Why a fixture cannot stand in for the league the harness claims to replay, or `null`
+ * when it can.
+ *
+ * A sentence rather than a boolean, because the refusal is user-facing: the harness
+ * would rather say which board it was handed than mislabel another board's results as
+ * the audit's.
+ */
+export function fixtureLeagueMismatch(
+  fixture: BoardFixture,
+  league: { season: number; scoringId: string; teams: number },
+): string | null {
+  if (
+    fixture.season === league.season &&
+    fixture.scoringId === league.scoringId &&
+    fixture.teams === league.teams
+  ) {
+    return null;
+  }
+  return (
+    `fixture is for season ${fixture.season}, ${fixture.scoringId}, ` +
+    `${fixture.teams} teams; this harness replays the ${league.season} ` +
+    `${league.scoringId} ${league.teams}-team audit and refuses to mislabel ` +
+    `another board's results`
+  );
 }

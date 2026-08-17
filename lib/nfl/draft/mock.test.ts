@@ -6,6 +6,7 @@ import type { ChampionshipRecommendation } from "../../core/draft-policy";
 import type { PlayerRisk } from "../../core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "../../core/season-sim";
 import { slotsForTemplate } from "../roster";
+import { teamIndexForSeat } from "../../core/draft";
 import {
   CHECK_DEFINITIONS,
   EARLY_ROUNDS,
@@ -15,11 +16,13 @@ import {
   type MockDraftSetup,
   type MockPick,
   evaluateChecks,
+  fixtureLeagueMismatch,
   parseBoardFixture,
   pickLabelFor,
   replayAdpMockDraft,
   stateAtPick,
   toPlayerRisk,
+  unexpectedOutcomes,
 } from "./mock";
 
 const FIXTURE_PATH = join(
@@ -112,13 +115,16 @@ function pick(
 ): MockPick {
   const round = Math.ceil(overall / teams);
   const inRound = overall - (round - 1) * teams;
-  const mine = (round % 2 === 1 ? inRound : teams + 1 - inRound) === slot;
+  const seat = round % 2 === 1 ? inRound : teams + 1 - inRound;
+  const mine = seat === slot;
   return {
     overall,
     round,
     label: pickLabelFor(overall, teams),
-    teamIndex: mine ? 0 : 1,
-    seat: mine ? slot : inRound,
+    // Honest even though no check reads them today: a future check that does must not
+    // be tested against fabricated seats.
+    teamIndex: teamIndexForSeat(seat, slot),
+    seat,
     mine,
     playerId,
     recommendations: mine ? recommendations : null,
@@ -219,7 +225,10 @@ describe("parseBoardFixture", () => {
     expect(fixture.season).toBe(2026);
     expect(fixture.scoringId).toBe("half_ppr");
     expect(fixture.teams).toBe(10);
-    expect(fixture.rows.length).toBeGreaterThanOrEqual(160);
+    // The fixture's identity, not just its label: this is the board run #88 audited, and
+    // a silently regenerated or truncated fixture must not keep wearing its provenance.
+    expect(fixture.computedAt).toBe(1786964483127);
+    expect(fixture.rows.length).toBe(622);
     // The facts the known-fail checks hinge on: the audit's round-2 pick is on this board
     // with no market rank and no bye — the exact combination #88 and #89.D describe.
     const gainwell = fixture.rows.find((entry) => entry.name === "Kenneth Gainwell");
@@ -304,6 +313,115 @@ describe("parseBoardFixture", () => {
     const nullRow = base();
     nullRow.rows[0] = null as unknown as Record<string, unknown>;
     expect(() => parseBoardFixture(nullRow)).toThrow(/rows\[0\] must be an object/);
+  });
+
+  it("rejects finite numbers outside their domain", () => {
+    const base = () =>
+      JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as {
+        rows: Array<Record<string, unknown>>;
+      };
+    // A misspelt position fills no roster slot and silently distorts every figure — the
+    // #37 failure class one level up from shape.
+    const position = base();
+    position.rows[0].position = "RB ";
+    expect(() => parseBoardFixture(position)).toThrow(/position/);
+    const available = base();
+    available.rows[0].availability = 1.2;
+    expect(() => parseBoardFixture(available)).toThrow(/availability/);
+    const never = base();
+    never.rows[0].availability = 0;
+    expect(() => parseBoardFixture(never)).toThrow(/availability/);
+    const inverted = base();
+    inverted.rows[0].p10 = 2;
+    inverted.rows[0].p90 = 1;
+    expect(() => parseBoardFixture(inverted)).toThrow(/p10/);
+    const freeAgent = base();
+    freeAgent.rows[0].adp = 0;
+    expect(() => parseBoardFixture(freeAgent)).toThrow(/adp/);
+    const bye = base();
+    bye.rows[0].byeWeek = 99;
+    expect(() => parseBoardFixture(bye)).toThrow(/byeWeek/);
+  });
+
+  it("keeps the domain gates on their boundaries", () => {
+    const base = () =>
+      JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as {
+        rows: Array<Record<string, unknown>>;
+      };
+    // Legal edges parse: a zero-width quantile band, a market's very first fraction of a
+    // pick, week-1 and week-18 byes, a fully available player.
+    const edges = base();
+    edges.rows[0].p10 = 1;
+    edges.rows[0].p90 = 1;
+    edges.rows[0].adp = 0.5;
+    edges.rows[0].byeWeek = 1;
+    edges.rows[0].availability = 1;
+    edges.rows[1].byeWeek = 18;
+    expect(parseBoardFixture(edges).rows[0].adp).toBe(0.5);
+    // Illegal edges fail: week 0, week 19, and a fractional week.
+    const weekZero = base();
+    weekZero.rows[0].byeWeek = 0;
+    expect(() => parseBoardFixture(weekZero)).toThrow(/byeWeek/);
+    const weekNineteen = base();
+    weekNineteen.rows[0].byeWeek = 19;
+    expect(() => parseBoardFixture(weekNineteen)).toThrow(/byeWeek/);
+    const halfWeek = base();
+    halfWeek.rows[0].byeWeek = 5.5;
+    expect(() => parseBoardFixture(halfWeek)).toThrow(/byeWeek/);
+  });
+});
+
+describe("fixtureLeagueMismatch", () => {
+  const fixture = parseBoardFixture(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
+
+  it("accepts the league the fixture was frozen for", () => {
+    expect(
+      fixtureLeagueMismatch(fixture, { season: 2026, scoringId: "half_ppr", teams: 10 }),
+    ).toBeNull();
+  });
+
+  it("refuses to mislabel another board's results, naming both leagues", () => {
+    const message = fixtureLeagueMismatch(fixture, {
+      season: 2026,
+      scoringId: "ppr",
+      teams: 12,
+    });
+    expect(message).toContain("fixture is for season 2026, half_ppr, 10 teams");
+    expect(message).toContain("2026 ppr 12-team audit");
+  });
+
+  it("refuses on any single differing field, however many agree", () => {
+    // One wrong field with the other two right, each way — a match must be all three.
+    expect(
+      fixtureLeagueMismatch(fixture, { season: 2025, scoringId: "half_ppr", teams: 10 }),
+    ).not.toBeNull();
+    expect(
+      fixtureLeagueMismatch(fixture, { season: 2026, scoringId: "ppr", teams: 10 }),
+    ).not.toBeNull();
+    expect(
+      fixtureLeagueMismatch(fixture, { season: 2026, scoringId: "half_ppr", teams: 12 }),
+    ).not.toBeNull();
+  });
+});
+
+describe("unexpectedOutcomes", () => {
+  it("rings only for a status that disagrees with its documented expectation", () => {
+    const outcomes = CHECK_DEFINITIONS.map((definition) => ({
+      ...definition,
+      status: definition.expected,
+      violations: [],
+    }));
+    expect(unexpectedOutcomes(outcomes)).toEqual([]);
+
+    // Flip one check each way: an unexpected pass and an unexpected failure both ring.
+    const surprisePass = outcomes.map((outcome) =>
+      outcome.id === "a" ? { ...outcome, status: "pass" as const } : outcome,
+    );
+    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual(["a"]);
+    const regression = outcomes.map((outcome) =>
+      outcome.id === "c" ? { ...outcome, status: "fail" as const } : outcome,
+    );
+    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual(["c"]);
   });
 });
 
@@ -543,7 +661,7 @@ describe("evaluateChecks", () => {
     );
     expect(titles.get("b")).toBe("at most one K and one D/ST before the final 2 rounds");
     expect(titles.get("d")).toBe(
-      "first K and first D/ST within 2 rounds of their market round",
+      "first K and first D/ST no more than 2 rounds before their market round",
     );
     expect(titles.get("e")).toBe("at least 4 wide receivers on the final roster");
   });
