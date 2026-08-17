@@ -41,7 +41,15 @@ export interface PlayerRisk {
    */
   p10: number;
   p90: number;
-  /** The week his team is idle, or `null` if unknown. */
+  /**
+   * The week his team is idle, or `null` if unknown.
+   *
+   * Unknown is not "no bye". A null here used to mean the player played every simulated
+   * week, which handed a free week of season value to exactly the rows with the worst
+   * data behind them; `simulateAvailability` now charges an unknown bye as a
+   * probabilistic absence instead — one assumed week per scenario, drawn from the
+   * player's own stream.
+   */
   byeWeek: number | null;
   /**
    * Probability he is fit in any given non-bye week, from his own availability history.
@@ -163,6 +171,16 @@ function drawPoints(player: PlayerRisk, rng: Rng): number {
  * `q` is the chance of going down in a given week and `r` the chance of returning, chosen
  * so the long-run fit rate matches the player's own availability and absences last
  * `meanAbsenceWeeks` on average.
+ *
+ * A *known* bye is a certain absence in one known week. An *unknown* bye (`byeWeek:
+ * null`) is not the absence of one: every team sits out a week, and reading null as
+ * "plays every week" paid a free week of season value to exactly the players whose data
+ * was worst — the #89.D subsidy. So a null bye is charged as a probabilistic absence in
+ * an unknown week: each scenario draws one assumed bye week uniformly from the simulated
+ * weeks, from the player's own stream, which keeps the expected cost at one week while
+ * admitting the week itself is not known. The draw is per scenario and per player, so
+ * common random numbers still hold — the same player misses the same assumed week in
+ * both rosters of a comparison.
  */
 export function simulateAvailability(
   player: PlayerRisk,
@@ -174,10 +192,18 @@ export function simulateAvailability(
   const r = 1 / Math.max(meanAbsenceWeeks, 1);
 
   // A player who never plays is a fixed state, not a chain — solving for `q` divides by
-  // zero and yields Infinity.
+  // zero and yields Infinity. Returning before the assumed-bye draw is fine: no later
+  // draw exists for it to desynchronize, because every week is already an absence.
   if (availability <= 0) return weeks.map(() => false);
+
+  // Drawn before the chain starts, so a null-bye player consumes one extra draw whether
+  // the chain runs or the `availability >= 1` shortcut does. `rng.next()` is on [0, 1),
+  // so the index never reaches `weeks.length`.
+  const byeWeek =
+    player.byeWeek ?? weeks[Math.floor(rng.next() * weeks.length)] ?? null;
+
   if (availability >= 1) {
-    return weeks.map((week) => week !== player.byeWeek);
+    return weeks.map((week) => week !== byeWeek);
   }
 
   // Steady state of the chain is r / (q + r); solve for q to hit the target rate. Clamped
@@ -196,7 +222,7 @@ export function simulateAvailability(
   let healthy = rng.next() < availability;
   for (const week of weeks) {
     healthy = healthy ? rng.next() >= q : rng.next() < r;
-    out.push(healthy && week !== player.byeWeek);
+    out.push(healthy && week !== byeWeek);
   }
   return out;
 }

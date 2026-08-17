@@ -33,11 +33,27 @@ const TEAM = "PHI";
 const OPPONENT = "DAL";
 
 /**
- * A schedule, served only because the provider can be asked for one.
- *
- * `runBuildDraftBoard` never requests it — the season is a parameter and bye weeks come
- * from the market feed, not the schedule. The previous comment here claimed both, which
- * would have told a maintainer that bye handling was covered when nothing touches it.
+ * The bye week the drafted season's schedule gives PHI, and the different one it gives
+ * DAL. PHI's matches the market feed's `bye: 9` so the healthy-feed tests see no
+ * disagreement; DAL's differs from it so a test can watch the schedule outvote the feed.
+ */
+const TEAM_BYE = 9;
+const OPPONENT_BYE = 7;
+
+/**
+ * The team the drafted season's schedule cannot answer for: it appears in exactly one
+ * week (covering DAL's bye), so seventeen weeks are "missing" and `teamByeWeeks` refuses
+ * to guess. A player on it exercises the fall-back to the market's own bye.
+ */
+const AMBIGUOUS_TEAM = "NYG";
+
+/**
+ * The schedule. Byes on the board come from it — `runBuildDraftBoard` derives each
+ * team's bye as the one week the drafted season's schedule leaves it idle, with the
+ * market feed's bye demoted to a fallback — so the drafted season is present here with a
+ * real bye structure: PHI idle in week `TEAM_BYE`, DAL in week `OPPONENT_BYE`, filler
+ * opponents covering those two weeks. The two prior seasons stay bye-less; only the
+ * curve fit reads them, and it reads points, not schedules.
  */
 function gamesCsv(): string {
   const header = [
@@ -46,15 +62,29 @@ function gamesCsv(): string {
     "spread_line", "total_line",
   ];
   const rows: string[][] = [];
+  const game = (season: number, week: number, away: string, home: string) => {
+    rows.push([
+      `${season}_${week}_${away}_${home}`, String(season), "REG", String(week),
+      `${season}-09-10`, "13:00", away, "20", home, "24", "-3.0", "45.0",
+    ]);
+  };
   for (const season of [SEASON - 2, SEASON - 1]) {
-    for (let week = 1; week <= 17; week += 1) {
-      rows.push([
-        `${season}_${week}_${OPPONENT}_${TEAM}`, String(season), "REG", String(week),
-        `${season}-09-10`, "13:00", OPPONENT, "20", TEAM, "24", "-3.0", "45.0",
-      ]);
-    }
+    for (let week = 1; week <= 17; week += 1) game(season, week, OPPONENT, TEAM);
+  }
+  for (let week = 1; week <= 18; week += 1) {
+    if (week === TEAM_BYE) game(SEASON, week, OPPONENT, "WAS");
+    else if (week === OPPONENT_BYE) game(SEASON, week, AMBIGUOUS_TEAM, TEAM);
+    else game(SEASON, week, OPPONENT, TEAM);
   }
   return [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+}
+
+/** The schedule as it stood before the drafted season's release — prior seasons only. */
+function gamesCsvWithoutDraftSeason(): string {
+  const kept = gamesCsv()
+    .split("\n")
+    .filter((line) => !line.startsWith(`${SEASON}_`));
+  return kept.join("\n");
 }
 
 /**
@@ -96,6 +126,10 @@ interface Fixture {
   /** Receptions per game, which drives season points through the real scorer. */
   volume: number;
   adp: number;
+  /** Roster team, when it is not `TEAM`. */
+  team?: string;
+  /** The bye the market feed publishes for him, when it is not the agreeing default. */
+  marketBye?: number;
 }
 
 const PLAYERS: Fixture[] = POSITIONS.flatMap((position, p) =>
@@ -147,7 +181,28 @@ const KICKER_PLAYERS: Fixture[] = Array.from({ length: KICKERS }, (_, i) => ({
   adp: 150 + i * 5,
 }));
 
-const ALL: Fixture[] = [...PLAYERS, OUTLIER, ...SAME_NAME, ...KICKER_PLAYERS];
+/**
+ * The one player whose team the schedule cannot derive a bye for. His market row says
+ * week 11, and week 11 is what his board row must carry — the market bye is demoted to a
+ * fallback, not deleted.
+ */
+const AMBIGUOUS_TEAM_PLAYER: Fixture = {
+  id: "00-016000",
+  name: "WR Elsewhere",
+  position: "WR",
+  volume: 4.1,
+  adp: 90,
+  team: AMBIGUOUS_TEAM,
+  marketBye: 11,
+};
+
+const ALL: Fixture[] = [
+  ...PLAYERS,
+  OUTLIER,
+  ...SAME_NAME,
+  ...KICKER_PLAYERS,
+  AMBIGUOUS_TEAM_PLAYER,
+];
 
 /** Defenses never appear on a roster file; they are synthesized from the market board. */
 const DEFENSES = [
@@ -158,7 +213,9 @@ const DEFENSES = [
 /** Season roster: the players the board can contain at all. */
 function rosterCsv(): string {
   const header = ["season", "team", "position", "status", "full_name", "gsis_id"];
-  const rows = ALL.map((f) => [String(SEASON), TEAM, f.position, "ACT", f.name, f.id]);
+  const rows = ALL.map((f) => [
+    String(SEASON), f.team ?? TEAM, f.position, "ACT", f.name, f.id,
+  ]);
   return [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
 
@@ -186,8 +243,7 @@ function statsCsv(season: number): string {
   return [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
 
-function nflverse(): NflverseProvider {
-  const games = gamesCsv();
+function nflverse(games: string = gamesCsv()): NflverseProvider {
   const roster = rosterCsv();
   return new NflverseProvider(async (url) => {
     if (url === schedulesUrl()) return games;
@@ -217,13 +273,15 @@ function adp(
   });
 }
 
-const market = (name: string, position: string, adpValue: number) => ({
+const market = (name: string, position: string, adpValue: number, bye: number = TEAM_BYE) => ({
   name,
   position,
   team: TEAM,
   adp: adpValue,
   stdev: 4,
-  bye: 9,
+  // `TEAM_BYE` by default, so the feed and the schedule agree for every PHI row and the
+  // healthy-feed builds count zero disagreements.
+  bye,
   times_drafted: 100,
 });
 
@@ -258,10 +316,12 @@ interface BoardRow {
   playerId: string;
   name: string;
   position: string;
+  team: string | null;
   modelPoints: number | null;
   blendedPoints: number;
   marketPoints: number | null;
   adp: number | null;
+  byeWeek: number | null;
   p10: number;
   p90: number;
   quantileProvenance: string;
@@ -272,12 +332,12 @@ const boardRows = (calls: Recorded[]): BoardRow[] =>
     .filter((c) => c.fn === "draft:upsertBoardBatch")
     .flatMap((c) => c.args.rows as BoardRow[]);
 
-async function build(adpRows: Array<Record<string, unknown>>) {
+async function build(adpRows: Array<Record<string, unknown>>, games?: string) {
   const { ctx, calls } = recordingCtx();
   const result = await runBuildDraftBoard(
     ctx,
     { season: SEASON, scoringId: "ppr", teams: 12 },
-    nflverse(),
+    nflverse(games),
     adp(adpRows),
   );
   return { result, calls, rows: boardRows(calls) };
@@ -285,7 +345,7 @@ async function build(adpRows: Array<Record<string, unknown>>) {
 
 /** One market row per rostered player — the healthy feed. */
 const ONE_ROW_EACH = [
-  ...ALL.map((f) => market(f.name, f.position, f.adp)),
+  ...ALL.map((f) => market(f.name, f.position, f.adp, f.marketBye)),
   ...DEFENSES.map((d) => market(d.name, "DEF", d.adp)),
 ];
 
@@ -490,6 +550,70 @@ describe("runBuildDraftBoard", () => {
     // which is the earlier of the two guards, and equally must not return quietly.
     await expect(build([market("Nobody At All", "WR", 12)])).rejects.toThrow(
       /Could not fit a market curve/,
+    );
+  });
+});
+
+describe("byes come from the schedule", () => {
+  // #90.1 / #89.D. The board used to copy `bye` off the ADP payload, so every player the
+  // market had not priced carried null — and the season simulation read null as "plays
+  // every week", a value subsidy for exactly the rows with no market discipline. A bye is
+  // a team fact and the schedule is its source; the market's bye is a fallback.
+
+  it("gives a market-absent player his team's bye", async () => {
+    // The direction the fix exists for. Dropped from the feed, he keeps a model value and
+    // reaches the board — with his adp null, which is what "market-absent" means, and his
+    // bye read off PHI's schedule where it used to be null.
+    const dropped = PLAYERS.find((f) => f.position === "WR")!;
+    const { rows } = await build(
+      ONE_ROW_EACH.filter((r) => r.name !== dropped.name),
+    );
+    const row = rows.find((r) => r.playerId === dropped.id);
+    expect(row).toBeDefined();
+    expect(row!.adp).toBeNull();
+    expect(row!.byeWeek).toBe(TEAM_BYE);
+  });
+
+  it("lets the schedule outvote a market bye that disagrees, and counts it", async () => {
+    // The cross-check half of the demotion: the disagreement is not silent — it is the
+    // one figure that would show the feed had gone stale — but it also does not win.
+    const contested = PLAYERS.find((f) => f.position === "TE")!;
+    const { result, rows } = await build([
+      ...ONE_ROW_EACH.filter((r) => r.name !== contested.name),
+      market(contested.name, contested.position, contested.adp, TEAM_BYE + 3),
+    ]);
+    expect(rows.find((r) => r.playerId === contested.id)!.byeWeek).toBe(TEAM_BYE);
+    expect(result.byeMismatches).toBe(1);
+  });
+
+  it("falls back to the market's bye for a team the schedule cannot answer for", async () => {
+    // `WR Elsewhere` plays for the team that appears in exactly one scheduled week, so
+    // `teamByeWeeks` has no entry for it. His market row is then the only source left,
+    // and using it is not a disagreement — nothing disagreed.
+    const { result, rows } = await build(ONE_ROW_EACH);
+    const row = rows.find((r) => r.playerId === AMBIGUOUS_TEAM_PLAYER.id);
+    expect(row!.team).toBe(AMBIGUOUS_TEAM);
+    expect(row!.byeWeek).toBe(AMBIGUOUS_TEAM_PLAYER.marketBye);
+    expect(result.byeMismatches).toBe(0);
+  });
+
+  it("derives a defense's bye from its team's schedule", async () => {
+    // Defenses never join through the roster, so their team comes off the market row —
+    // this one carries DAL and no published bye, and lands with DAL's schedule bye where
+    // the old path would have written null.
+    const { rows } = await build([
+      ...ONE_ROW_EACH.filter((r) => r.name !== "Dallas Cowboys"),
+      { ...market("Dallas Cowboys", "DEF", 140, TEAM_BYE), team: OPPONENT, bye: null },
+    ]);
+    const dallas = rows.find((r) => r.playerId === "dst-dallascowboys");
+    expect(dallas!.byeWeek).toBe(OPPONENT_BYE);
+  });
+
+  it("refuses to build when the schedule has no games for the drafted season", async () => {
+    // Falling back to the market feed here would quietly rebuild the exact coverage hole
+    // this derivation removes, on a board that looks healthy in every other respect.
+    await expect(build(ONE_ROW_EACH, gamesCsvWithoutDraftSeason())).rejects.toThrow(
+      /schedule yields no bye weeks/,
     );
   });
 });

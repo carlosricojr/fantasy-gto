@@ -37,6 +37,16 @@ const CONFIG: LeagueConfig = {
   meanAbsenceWeeks: 3,
 };
 
+/**
+ * A known bye past every final these tests configure (the latest is week 17).
+ *
+ * This is the "no bye in the simulated season" control. It used to be `null`, but null
+ * means *unknown* and `simulateAvailability` charges it as an assumed absent week — while
+ * a known bye past the final provably costs nothing, which is exactly what the fixtures
+ * here need from their default.
+ */
+const BYE_OUTSIDE_SEASON = 18;
+
 function player(
   id: string,
   position: string,
@@ -50,7 +60,7 @@ function player(
     weeklyMean,
     p10: 0.269,
     p90: 1.901,
-    byeWeek: null,
+    byeWeek: BYE_OUTSIDE_SEASON,
     availability: 1,
     ...overrides,
   };
@@ -644,8 +654,10 @@ describe("every league the product can express simulates coherently", () => {
  * 17 and the rest is football nobody's league scores. So a bye that lands past the final has
  * to be worth *nothing*, and "nothing" here is provable rather than measurable — each
  * player's random stream is keyed on his own id and `simulateAvailability` consumes it
- * identically whatever his bye is, so an out-of-season bye cannot even perturb the draw. If
- * these ever come apart, a week nobody plays is being priced.
+ * identically whichever *known* week his bye is, so an out-of-season bye cannot even perturb
+ * the draw. (An `unknown` bye is the one exception, deliberately: null draws an assumed
+ * week and costs it, which the last test here pins.) If the known-bye cases ever come
+ * apart, a week nobody plays is being priced.
  */
 describe("a bye after the final costs nothing at all", () => {
   const config: LeagueConfig = {
@@ -666,8 +678,8 @@ describe("a bye after the final costs nothing at all", () => {
     // Week 16, 17 and 18 are real NFL weeks that this league does not play. Bit-identical,
     // asserted with `toEqual` on the whole sample rather than on a probability, because a
     // probability could agree by luck and a full scenario table cannot.
-    const baseline = sampleTeamWeeklyScores(withBye(null), config, 11);
-    for (const byeWeek of [16, 17, 18]) {
+    const baseline = sampleTeamWeeklyScores(withBye(16), config, 11);
+    for (const byeWeek of [17, 18]) {
       expect(byeWeek).toBeGreaterThan(config.playoffWeeks[config.playoffWeeks.length - 1]);
       expect(sampleTeamWeeklyScores(withBye(byeWeek), config, 11)).toEqual(baseline);
     }
@@ -676,10 +688,19 @@ describe("a bye after the final costs nothing at all", () => {
   it("draws different scores for a bye the league does play", () => {
     // The complement, so the test above cannot pass by the bye being ignored everywhere.
     // Every week of this season, including the three bracket rounds, must register.
-    const baseline = sampleTeamWeeklyScores(withBye(null), config, 11);
+    const baseline = sampleTeamWeeklyScores(withBye(16), config, 11);
     for (const byeWeek of [...config.weeks, ...config.playoffWeeks]) {
       expect(sampleTeamWeeklyScores(withBye(byeWeek), config, 11)).not.toEqual(baseline);
     }
+  });
+
+  it("charges an unknown bye where a past-the-final one costs nothing", () => {
+    // `null` is not a fourth inert week. The star's bye being *unknown* draws an assumed
+    // absent week per scenario (see `simulateAvailability`), so the sample must move —
+    // the frozen board carried 403 null byes and their old free-week reading is the
+    // #89.D subsidy this pins shut.
+    const baseline = sampleTeamWeeklyScores(withBye(16), config, 11);
+    expect(sampleTeamWeeklyScores(withBye(null), config, 11)).not.toEqual(baseline);
   });
 
   it("cannot make a roster score more in the standings by losing a week", () => {
@@ -701,11 +722,14 @@ describe("a bye after the final costs nothing at all", () => {
         config,
       ).expectedPoints;
 
-    const noBye = points(null);
-    // Outside the season entirely: identical, to the last bit.
-    expect(points(16)).toBe(noBye);
+    const noBye = points(16);
+    // A second week outside the season: identical, to the last bit.
+    expect(points(17)).toBe(noBye);
     // A regular-season week: strictly fewer points in the standings.
     for (const byeWeek of config.weeks) expect(points(byeWeek)).toBeLessThan(noBye);
+    // An unknown bye: also strictly fewer. Most scenarios place the assumed week in the
+    // regular season, and no placement can add points.
+    expect(points(null)).toBeLessThan(noBye);
     // A playoff round: the standings are already settled, so this figure does not move —
     // and the week is emphatically still played, which the sampled-score test above pins.
     for (const byeWeek of config.playoffWeeks) expect(points(byeWeek)).toBe(noBye);
@@ -755,9 +779,10 @@ describe("when the final is played changes what a bye is worth", () => {
     const regularSeasonBye = titleOdds(cfg, 7);
     const playoffBye = titleOdds(cfg, 14);
     expect(playoffBye).toBeLessThan(regularSeasonBye * 0.7);
-    // And an ordinary bye is a real but modest cost against no bye at all, which is what
-    // makes the number above a statement about the *week* rather than about byes.
-    const noBye = titleOdds(cfg, null);
+    // And an ordinary bye is a real but modest cost against no bye at all — a bye past
+    // the final, now that null means "unknown" and is charged — which is what makes the
+    // number above a statement about the *week* rather than about byes.
+    const noBye = titleOdds(cfg, 16);
     expect(regularSeasonBye).toBeLessThan(noBye);
     expect(regularSeasonBye).toBeGreaterThan(noBye * 0.8);
   });

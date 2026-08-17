@@ -44,6 +44,7 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
+import { teamByeWeeks } from "../lib/nfl/byes";
 import { weeksBetween } from "../lib/nfl/season";
 import { planDraftRefresh } from "../lib/nfl/draft/refresh-plan";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
@@ -782,8 +783,12 @@ export const buildDraftBoard = internalAction({
   handler: async (
     ctx,
     args,
-  ): Promise<{ players: number; withMarketPrice: number; unpriced: number }> =>
-    runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
+  ): Promise<{
+    players: number;
+    withMarketPrice: number;
+    unpriced: number;
+    byeMismatches: number;
+  }> => runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
 });
 
 export async function runBuildDraftBoard(
@@ -795,7 +800,17 @@ export async function runBuildDraftBoard(
   }: { season: number; scoringId?: string; teams?: number },
   provider: NflverseProvider,
   adpProvider: AdpProvider,
-): Promise<{ players: number; withMarketPrice: number; unpriced: number }> {
+): Promise<{
+  players: number;
+  withMarketPrice: number;
+  unpriced: number;
+  /**
+   * Rows whose market-published bye disagreed with the schedule's. The schedule won;
+   * this figure exists so a feed gone stale is visible in the job's logs rather than
+   * silently outvoted.
+   */
+  byeMismatches: number;
+}> {
   const jobId = await ctx.runMutation(internal.jobs.start, {
     kind: boardJobKind(season, scoringId, teams),
     detail: `Building ${season} draft board (${scoringId}, ${teams}-team)`,
@@ -805,6 +820,33 @@ export async function runBuildDraftBoard(
     // Who is on a team this season. The only source that knows before a game is played.
     const rosterResult = await provider.seasonRoster(season);
     if (!rosterResult.ok) throw new Error(rosterResult.reason);
+
+    // Bye weeks, from the season's schedule. A bye is a property of the team, and the
+    // schedule is published complete months before anybody drafts — whereas the ADP feed
+    // only knows a bye for players it prices, which left every market-absent row at null
+    // and handed those rows a free week of simulated season value (#89.D, #90.1). The
+    // market's bye survives only as a fallback for a team the schedule cannot answer for,
+    // and as a cross-check: a disagreement is counted and the schedule wins.
+    const contestsResult = await provider.allContests();
+    if (!contestsResult.ok) throw new Error(contestsResult.reason);
+    const scheduleByes = teamByeWeeks(contestsResult.data, season);
+    // Loudly, because falling back to the market feed here would rebuild the exact
+    // coverage hole this derivation removes — and it would look like a healthy board.
+    if (scheduleByes.size === 0) {
+      throw new Error(
+        `The schedule yields no bye weeks for ${season} — either the season is not in ` +
+          `the schedule release yet or the release is truncated. A board built without ` +
+          `byes overvalues every row the market has not priced, so none was written.`,
+      );
+    }
+    let byeMismatches = 0;
+    /** Schedule first, market bye as fallback; disagreements counted, schedule kept. */
+    const resolveBye = (team: string | null, marketBye: number | null): number | null => {
+      const scheduleBye = team === null ? null : (scheduleByes.get(team) ?? null);
+      if (scheduleBye === null) return marketBye;
+      if (marketBye !== null && marketBye !== scheduleBye) byeMismatches += 1;
+      return scheduleBye;
+    };
 
     // Two prior seasons of production, matching the backtest's window.
     const priorSeasons: PlayerWeek[][] = [];
@@ -1054,7 +1096,7 @@ export async function runBuildDraftBoard(
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
-        byeWeek: market?.bye ?? null,
+        byeWeek: resolveBye(entry.team, market?.bye ?? null),
         availability: shrunkAvailability(
           priorGames.get(entry.playerId) ?? 0,
           history.length > 0,
@@ -1086,7 +1128,7 @@ export async function runBuildDraftBoard(
         blendedPoints: blendedSeasonValue(null, marketPoints),
         adp: scalePick(entry.adp, adpSource),
         adpStdev: scalePick(entry.stdev, adpSource),
-        byeWeek: entry.bye,
+        byeWeek: resolveBye(entry.team, entry.bye),
         // No games-played history exists for a defense; a team plays every week it is not
         // on bye, so availability is the bye alone.
         availability: 1,
@@ -1151,6 +1193,7 @@ export async function runBuildDraftBoard(
       players: rows.length,
       withMarketPrice,
       unpriced: rows.length - withMarketPrice,
+      byeMismatches,
     };
   } catch (error) {
     await ctx.runMutation(internal.jobs.finish, {

@@ -58,6 +58,14 @@ const CONFIG: LeagueConfig = {
   meanAbsenceWeeks: 3,
 };
 
+/**
+ * The default fixture bye: a known week past this file's every simulated span, so the
+ * player provably plays the whole season. Not `null` — an unknown bye is charged as an
+ * assumed absent week by `simulateAvailability`, which would put noise under the measured
+ * thresholds below (the 0.7667-at-seed-13 kind) that exist to detect logic, not byes.
+ */
+const BYE_OUTSIDE_SEASON = 18;
+
 function player(
   id: string,
   position: string,
@@ -71,7 +79,7 @@ function player(
     weeklyMean,
     p10: 0.269,
     p90: 1.901,
-    byeWeek: null,
+    byeWeek: BYE_OUTSIDE_SEASON,
     availability: 0.9,
     ...overrides,
   };

@@ -33,6 +33,16 @@ const CONFIG: UtilityConfig = {
   meanAbsenceWeeks: 3,
 };
 
+/**
+ * A known bye outside every span these tests simulate.
+ *
+ * This is the "no bye in the simulated season" control. It used to be `null`, but null
+ * now means *unknown* and is charged an assumed week — reading it as "plays every week"
+ * was the #89.D subsidy — while a known bye in a week nobody simulates genuinely costs
+ * nothing and consumes no randomness, exactly as null used to.
+ */
+const BYE_OUTSIDE_SEASON = 18;
+
 function player(
   id: string,
   position: string,
@@ -46,7 +56,7 @@ function player(
     weeklyMean,
     p10: 0.269,
     p90: 1.901,
-    byeWeek: null,
+    byeWeek: BYE_OUTSIDE_SEASON,
     availability: 1,
     ...overrides,
   };
@@ -299,7 +309,10 @@ describe("simulateAvailability", () => {
   const SEASON = Array.from({ length: 17 }, (_, i) => i + 1);
 
   /** Fraction of weeks actually played, pooled over many independent seasons. */
-  function realizedRate(availability: number, byeWeek: number | null = null): number {
+  function realizedRate(
+    availability: number,
+    byeWeek: number | null = BYE_OUTSIDE_SEASON,
+  ): number {
     let played = 0;
     let total = 0;
     for (let scenario = 0; scenario < 400; scenario += 1) {
@@ -371,6 +384,49 @@ describe("simulateAvailability", () => {
   it("takes the bye out of the weeks a fragile player would otherwise have played", () => {
     // The bye is not part of the chain — it is subtracted from whatever the chain says.
     const rate = realizedRate(0.8, 9);
+    expect(rate).toBeLessThan(0.8);
+    expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
+  });
+
+  it("charges an unknown bye as exactly one assumed week", () => {
+    // The #89.D subsidy, closed at the boundary: `byeWeek: null` used to mean "plays all
+    // seventeen weeks", which paid a free week to exactly the players whose data was
+    // worst. An ironman with an unknown bye now sits out one week per scenario — the
+    // same cost as a known bye, without pretending to know the week.
+    for (let scenario = 0; scenario < 50; scenario += 1) {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability: 1, byeWeek: null }),
+        SEASON,
+        3,
+        createRng(scenario + 1),
+      );
+      expect(weeks.filter((ok) => !ok)).toHaveLength(1);
+    }
+  });
+
+  it("spreads the assumed week across scenarios instead of electing one", () => {
+    // The whole point of a *probabilistic* absence: the week is unknown, so no single
+    // week may be charged systematically — that would misprice bench cover against
+    // players whose real bye is elsewhere. Over enough scenarios every week of the
+    // season is the assumed one at least once.
+    const missedWeek = (seed: number): number => {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability: 1, byeWeek: null }),
+        SEASON,
+        3,
+        createRng(seed),
+      );
+      return SEASON[weeks.indexOf(false)];
+    };
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 400; seed += 1) seen.add(missedWeek(seed));
+    expect(seen.size).toBe(SEASON.length);
+  });
+
+  it("charges the assumed week on top of the injury chain too", () => {
+    // The fragile-player mirror of the known-bye subtraction above: an unknown bye costs
+    // a fragile player the same expected week a known one does.
+    const rate = realizedRate(0.8, null);
     expect(rate).toBeLessThan(0.8);
     expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
   });
@@ -492,7 +548,12 @@ describe("the simulation is reproducible", () => {
  * bye and identical quantiles — so every number is exactly predictable.
  */
 describe("the totals are accumulated from zero", () => {
-  const CERTAIN: Partial<PlayerRisk> = { p10: 1, p90: 1, availability: 1, byeWeek: null };
+  const CERTAIN: Partial<PlayerRisk> = {
+    p10: 1,
+    p90: 1,
+    availability: 1,
+    byeWeek: BYE_OUTSIDE_SEASON,
+  };
   const flatConfig: UtilityConfig = { weeks: [1, 2, 3], scenarios: 4, meanAbsenceWeeks: 3 };
 
   it("totals exactly what a deterministic roster scores", () => {

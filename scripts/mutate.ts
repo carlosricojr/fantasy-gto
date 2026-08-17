@@ -170,6 +170,7 @@ const DEFAULT_TARGETS = [
   "lib/core/rng.ts",
   "lib/nfl/model/project.ts",
   "lib/nfl/scoring/score.ts",
+  "lib/nfl/byes.ts",
   "lib/nfl/season.ts",
   "lib/nfl/teams.ts",
   "lib/nfl/csv.ts",
