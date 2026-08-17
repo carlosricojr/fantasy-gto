@@ -913,6 +913,17 @@ export function recommendByChampionship(
   // zero, with exact raw ties falling to the same residual keys this selection used. When
   // the leader was chosen on the rounded probability instead, two candidates 5e-5 apart
   // could put the `vsLeader: null` entry second, with its own baseline displayed below it.
+  // A mutation run reports survivors on this selection, triaged: the id arm's `<` has no
+  // `<=` to disagree with (two entries never share a player id), and the reduce's `> 0`
+  // cannot see `>= 0` because `leadsOver` never returns zero — the id arm is ±1. The
+  // `||` joins are genuine gaps rather than equivalences: turned into `&&`, a residual
+  // key outvotes the championship rate wherever the two disagree at the top of a
+  // shortlist, and no deterministic fixture in the suite produces that disagreement on
+  // an exact budget. What bounds the damage is that the displayed ordering never
+  // consults this selection: `orderRecommendations`' mean-difference key is offset by a
+  // constant whichever leader is chosen, so a wrong leader can mislabel which row
+  // carries the null comparison and anchors the tie flags — never which row displays
+  // the higher number.
   const leadsOver = (a: (typeof evaluated)[number], b: (typeof evaluated)[number]) =>
     a.outcome.championshipProbability - b.outcome.championshipProbability ||
     a.outcome.playoffProbability - b.outcome.playoffProbability ||
@@ -1046,7 +1057,9 @@ export function orderRecommendations(
   // though at the page's scenario count it never fires (see the docstring: a rounded tie
   // there is an exact tie). `?? 0` covers the leader — a zero difference with himself,
   // by definition — and hand-built entries reaching this exported function with no
-  // paired vector at all, which then order on the remaining keys alone. Playoff
+  // paired vector at all, which then order on the remaining keys alone. (A mutation run
+  // reports `??`→`||` here as a survivor, correctly: the only falsy mean difference is
+  // zero, which both forms send to zero.) Playoff
   // probability and expected points decide only exact rate ties, where any deterministic
   // order is as honest as any other and the likelier playoff team is the more useful row
   // to read first.

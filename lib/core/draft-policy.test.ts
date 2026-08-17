@@ -1938,6 +1938,28 @@ describe("orderRecommendations", () => {
     expect(ordered.map((r) => r.player.id)).toEqual(["leader", "closer", "farther"]);
   });
 
+  it("counts a paired interval that only touches zero as tied, and one clear of it as not", () => {
+    // The flag's boundary sits at the interval's endpoints: [-0.02, 0] and [0, 0.02]
+    // still contain a zero difference, so the scenarios have not separated the pair and
+    // the doubtful case belongs inside the flag — the same judgement the marginal band's
+    // edge case makes. The strictly-positive interval pins the comparison's zero as a
+    // zero rather than a tolerance: a mutant widening either endpoint check flags
+    // "clear" tied or "touch-below"/"touch-above" untied.
+    const ordered = orderRecommendations([
+      rec("lead", 0.3, 0.01),
+      rec("touch-below", 0.29, 0.01, 0.5, 100, paired(0, 1000)),
+      rec("touch-above", 0.28, 0.01, 0.5, 100, paired(1000, 0)),
+      rec("clear", 0.27, 0.01, 0.5, 100, paired(2000, 0)),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual([
+      "lead",
+      "touch-below",
+      "touch-above",
+      "clear",
+    ]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true, true, false]);
+  });
+
   it("keeps the displayed odds primary over the paired difference", () => {
     // Adversarial hand-built input: a paired vector arguing the opposite of the displayed
     // numbers must lose, because the row order the user checks is the displayed one — a
