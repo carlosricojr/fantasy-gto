@@ -125,7 +125,10 @@ function scoreboardLines(outcomes: readonly CheckOutcome[]): string {
     for (const violation of outcome.violations) {
       lines.push(`        - ${violation}`);
     }
-    lines.push(`      audit: ${outcome.audit}`);
+    // Labelled as the browser run's observation: these figures were read off the #88/#89
+    // audit session, not computed by this replay — the violations above are what this
+    // run measured.
+    lines.push(`      #88/#89 browser audit observed: ${outcome.audit}`);
   }
   return lines.join("\n");
 }
