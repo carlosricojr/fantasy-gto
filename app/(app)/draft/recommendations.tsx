@@ -23,9 +23,11 @@ import { positionChipClass, positionLabel } from "./positions";
  * turn, which is what decides whether the recommendation has to be acted on now.
  *
  * It states its own uncertainty rather than presenting an ordering as resolved. Candidates
- * inside a couple of standard errors of the leader are marked tied, because at a draft
+ * whose paired comparison with the leader spans zero are marked tied, because at a draft
  * clock's worth of scenarios they are, and a ranked list that hides that is the kind of
- * false precision this product exists not to ship.
+ * false precision this product exists not to ship. The tie is a label, not a sort key:
+ * the list descends by title odds, so the top card is never a lower number than a row
+ * beneath it (#88.2).
  */
 export function Recommendations({
   state,
@@ -295,9 +297,10 @@ export function Recommendations({
         Ranked by the probability of winning the league, simulated over {scenarios} seasons
         against the picks your opponents have actually made — their unfilled spots are
         completed by a simple best-available rule, so an early-round answer leans on that
-        assumption more than a late one. Candidates within a couple
-        of standard errors are statistically tied and are ordered by playoff probability,
-        which resolves at this sample size when title odds do not.
+        assumption more than a late one. Every candidate is simulated over the same
+        seasons, so the ranking follows each row&apos;s comparison against the leader;
+        candidates whose comparison spans zero are marked tied — these seasons do not
+        separate them — but a tie never moves a lower number above a higher one.
         {state.lastElapsedMs === null
           ? null
           : ` Computed in ${state.lastElapsedMs}ms${state.lastFromCache ? " (cached)" : ""}.`}

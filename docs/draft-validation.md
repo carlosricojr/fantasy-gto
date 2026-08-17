@@ -228,9 +228,13 @@ decided would be exactly the false precision this project exists to avoid.
   mostly win and lose the same seasons — but negatively correlated ones make it larger, and a
   sample can land either way. `stats.test.ts` contains a fixture where it is larger.
 
-`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and tied
-candidates are ordered by playoff probability, which resolves at these sample sizes because
-it is roughly a coin flip rather than a rare event.
+`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and it is
+a label rather than a sort key. The ranking descends by title odds, refined inside a
+rounded tie by the paired mean difference — the same instrument the interval comes from.
+Tied candidates used to be reordered by playoff probability, and the #88 audit showed the
+cost: the hidden key promoted a 14.5% candidate into the leader card above a 16.2%
+runner-up. The mock-draft harness's check (f) locks the fix — the displayed leader's title
+odds are never below a displayed runner-up's.
 
 **The leader is selected from the same sample the intervals are computed on, so they are
 descriptive rather than inferential.** No multiple-comparison correction is applied and no
