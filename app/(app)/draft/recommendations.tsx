@@ -298,9 +298,9 @@ export function Recommendations({
         against the picks your opponents have actually made — their unfilled spots are
         completed by a simple best-available rule, so an early-round answer leans on that
         assumption more than a late one. Every candidate is simulated over the same
-        seasons, so the ranking follows each row&apos;s comparison against the leader;
-        candidates whose comparison spans zero are marked tied — these seasons do not
-        separate them — but a tie never moves a lower number above a higher one.
+        seasons, so each row&apos;s vs-leader line measures its gap to the leader directly;
+        rows whose gap spans zero are marked tied — these seasons do not separate them —
+        and a tie is a label, never a reordering: the list descends by title odds.
         {state.lastElapsedMs === null
           ? null
           : ` Computed in ${state.lastElapsedMs}ms${state.lastFromCache ? " (cached)" : ""}.`}

@@ -158,8 +158,11 @@ export interface ChampionshipRecommendation {
    * A label, not a sort key. It used to reorder: everything flagged tied was ranked by
    * playoff probability, which is how a 14.5% candidate came to wear the leader label above
    * a 16.2% runner-up in the #88 audit — the hidden key outranked the number on the card.
-   * The ordering is now by the paired comparison throughout (see `orderRecommendations`),
-   * and this flag only says which gaps these scenarios cannot resolve.
+   * The ordering now descends by title odds throughout (see `orderRecommendations`), and
+   * this flag only says which gaps these scenarios cannot resolve. The flagged rows are
+   * therefore not necessarily contiguous: a candidate the scenarios do separate from the
+   * leader can sit above one they cannot, which is the display being honest rather than a
+   * sorting error.
    */
   tiedWithLeader: boolean;
 }
@@ -954,7 +957,7 @@ export function recommendByChampionship(
  * reliable nor readable; the ordering itself is a pure function of a few numbers per
  * candidate and belongs in one.
  *
- * ## The ordering is by the paired comparison, and the tie flag no longer reorders
+ * ## The ordering descends by title odds, and the tie flag no longer reorders
  *
  * It used to: everything flagged tied with the leader was ranked by playoff probability,
  * on the argument that title odds inside the noise band carried no information and the
@@ -963,18 +966,26 @@ export function recommendByChampionship(
  * number into the top slot — and #89.C identified the instrument the argument overlooked:
  * the *paired* vs-leader comparison. Candidates are simulated over the same seasons, so
  * the difference between two of them is measured far more tightly than the two marginal
- * probabilities suggest, and its point estimate — `vsLeader.meanDifference`, the raw rate
- * difference against the leader — is an ordering that means something even where the
- * marginal intervals overlap.
+ * probabilities suggest. Its point estimate is exactly the difference of the title rates
+ * — pairing changes the variance, not the mean (`stats.ts` says so at length) — so
+ * "rank by the paired comparison" and "rank by title odds" are the same ordering, and
+ * what the pairing buys is the honest tie flag, not a different order. The argument the
+ * old tiebreak rested on was measuring the wrong uncertainty: the marginal bands overlap
+ * long after the paired comparison has an unambiguous sign.
  *
- * So the sort is: displayed title odds first, the paired mean difference as the
- * refinement inside a rounded tie, and playoff probability, expected points and id only
- * where the scenarios genuinely cannot tell two candidates apart — an exactly equal rate
- * difference. Rounding is monotone, so the refinement can never contradict the displayed
- * number, and no residual key can put a lower displayed probability above a higher one.
- * The top card therefore always carries the panel's highest title odds, which is what
- * "best available" has to mean. `tiedWithLeader` still says which gaps are inside
- * sampling noise; it just says it without resorting the list.
+ * So the sort is: displayed title odds first, then the paired mean difference, and
+ * playoff probability, expected points and id only where the scenarios genuinely cannot
+ * tell two candidates apart — an exactly equal rate difference. The mean-difference key
+ * deserves honesty about its own weight: at the page's 600 scenarios adjacent title rates
+ * differ by at least 1/600, far above the display's 1e-4 rounding grain, so a rounded tie
+ * is always an exact tie and the key never separates anything today. It is kept because
+ * it costs one comparison and keeps the ordering exact for any scenario count that
+ * *does* outrun the rounding grain, rather than quietly re-introducing a residual-key
+ * decision there. Rounding is monotone, so neither it nor any residual key can put a
+ * lower displayed probability above a higher one. The top card therefore always carries
+ * the panel's highest title odds, which is what "best available" has to mean.
+ * `tiedWithLeader` still says which gaps are inside sampling noise; it just says it
+ * without resorting the list.
  */
 export function orderRecommendations(
   ranked: ReadonlyArray<Omit<ChampionshipRecommendation, "tiedWithLeader">>,
@@ -1029,15 +1040,16 @@ export function orderRecommendations(
   }
 
   // Displayed title odds first, so no row can sit above a higher number than its own —
-  // the #88.2 contract. The paired mean difference refines inside a rounded tie: it is
-  // the raw rate difference against the leader, computed from the scenario counts, so it
-  // carries the resolution the display's rounding dropped and cannot disagree with the
-  // display's ordering. `?? 0` covers the leader — a zero difference with himself, by
-  // definition — and hand-built entries reaching this exported function with no paired
-  // vector at all, which then order on the remaining keys alone. Playoff probability and
-  // expected points decide only exact rate ties, where any deterministic order is as
-  // honest as any other and the likelier playoff team is the more useful row to read
-  // first.
+  // the #88.2 contract. The paired mean difference is the raw rate difference against
+  // the leader, computed from the scenario counts, so it restores whatever resolution
+  // the display's rounding dropped and cannot disagree with the display's ordering —
+  // though at the page's scenario count it never fires (see the docstring: a rounded tie
+  // there is an exact tie). `?? 0` covers the leader — a zero difference with himself,
+  // by definition — and hand-built entries reaching this exported function with no
+  // paired vector at all, which then order on the remaining keys alone. Playoff
+  // probability and expected points decide only exact rate ties, where any deterministic
+  // order is as honest as any other and the likelier playoff team is the more useful row
+  // to read first.
   //
   // The final clause never compares a candidate with itself — `ranked` holds one entry
   // per player — so the `1` arm is only ever reached as "greater", and

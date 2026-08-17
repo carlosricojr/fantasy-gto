@@ -482,16 +482,17 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // expected to flip or shrink … measure, don't assume", and the measurement went the
     // other way: ranked by title odds, the replay takes Fannin 7.05 then Pitts 8.06 and
     // Mevis 9.05 then Myers 10.06, each second pick benching the first by the board's own
-    // ranking. The playoff tiebreak had been *masking* this churn, not causing it — the
-    // smoother key gave consecutive tied panels a stable hidden order, where the honest
-    // ranking re-rolls the sampling noise every turn and nothing charges the engine for
-    // buying a position it just filled. That cost model is #89.A's finding and #91 puts
-    // it in PR 5 ("any residual (c)"), which owns flipping this back.
+    // ranking. Consistent with the playoff tiebreak having *masked* churn rather than
+    // caused it — the smoother key gave consecutive tied panels a stable hidden order,
+    // where the honest ranking re-rolls the sampling noise every turn — though the two
+    // replays diverge from 2.06, so that is an inference about the mechanism, not a
+    // same-roster measurement. What the fixture does establish: nothing charges the
+    // engine for buying a position it just filled, which is #89.A's finding, and #91
+    // puts it in PR 5 ("any residual (c)"), which owns flipping this back.
     expected: "fail",
     audit:
-      "the browser run took Goff 10.06 then Nix 11.05 (Nix starts, the round-10 pick " +
-      "benched); the pre-PR-4 deterministic replay did not reproduce that pair, and the " +
-      "PR-4 ranking surfaces the same shape at 7.05→8.06 (TE) and 9.05→10.06 (K)",
+      "the browser run took Goff 10.06 then Nix 11.05 — Nix starts, the round-10 pick " +
+      "benched",
   },
   {
     id: "d",

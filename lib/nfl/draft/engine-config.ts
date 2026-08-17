@@ -25,11 +25,11 @@ export const RECOMMEND_SEED = 20260731;
  * A draft-clock budget, not a resolving sample. This constant used to claim "600 resolves
  * the ordering; 300 leaves the top few tied", and #89.C measured that claim false for a
  * real league shape: from round 2 onward the top of the board sat statistically tied at
- * this size. What resolves the ordering is the *paired* vs-leader comparison — every
- * candidate is simulated over the same seasons, so the difference between two of them is
- * measured far more tightly than the marginal probabilities are — and the ranking now
- * follows it (see `orderRecommendations`). Raising the count buys narrower intervals,
- * not a different rule, and costs time on a draft clock.
+ * this size. The ranking now simply descends by title odds — identically, by the paired
+ * vs-leader comparison's point estimate — and the gaps these scenarios cannot resolve
+ * are *flagged* tied rather than re-ordered (see `orderRecommendations`). Raising the
+ * count buys narrower paired intervals and therefore fewer flagged ties, not a different
+ * rule, and costs time on a draft clock.
  */
 export const RECOMMEND_SCENARIOS = 600;
 

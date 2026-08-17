@@ -227,16 +227,21 @@ describe("recommendByChampionship", () => {
     );
     expect(recs.length).toBeGreaterThan(0);
     for (const r of recs) expect(r.standardError).toBeGreaterThan(0);
-    // Checked against the condition, not against the ordering. `recs[0]` is the leader,
-    // whose difference from itself is zero, so it is flagged tied whenever the standard
-    // error is positive — which the line above already asserts. Testing that told us
-    // nothing and would have survived a mutant that set the flag unconditionally.
+    // Checked against the implemented rule, per entry. This used to assert the
+    // marginal-sum band — `best - p <= SE_leader + SE_r` — for *every* entry, which is a
+    // rule the implementation applies only to entries carrying no paired vector; the
+    // production path's flag comes from the paired interval, and the assertion held only
+    // because this fixture's two verdicts happen to coincide. A test that documents the
+    // wrong rule fails on an innocent reseed and then teaches its reader the old
+    // arithmetic, so it asserts the real one now.
     const best = Math.max(...recs.map((r) => r.championshipProbability));
-    const leader = recs.find((r) => r.championshipProbability === best)!;
+    const marked = recs.find((r) => r.vsLeader === null)!;
+    expect(marked.championshipProbability).toBe(best);
+    expect(marked.tiedWithLeader).toBe(true);
     for (const r of recs) {
-      expect(r.tiedWithLeader).toBe(
-        best - r.championshipProbability <= leader.standardError + r.standardError,
-      );
+      if (r.vsLeader === null) continue;
+      const separatesZero = r.vsLeader.interval[0] > 0 || r.vsLeader.interval[1] < 0;
+      expect(r.tiedWithLeader).toBe(!separatesZero);
     }
   });
 
@@ -1057,8 +1062,10 @@ describe("re-completing the opponent who held the candidate", () => {
  * comparator is inconsistent and the order becomes whatever the engine's sort happens to
  * do.
  *
- * All are caught by asserting the documented contract across the whole ranking rather
- * than checking one fixture's leader — a leader can come out right by luck.
+ * The key-by-key kills live in the `orderRecommendations` unit fixtures below, where
+ * every key can be set against its neighbor; what this block adds is the same contract
+ * asserted across a whole simulated ranking rather than one hand-built fixture — a
+ * leader can come out right by luck, and a property over every adjacent pair cannot.
  */
 describe("the ranking follows its documented order", () => {
   const riskyBoard = () =>
@@ -1138,6 +1145,11 @@ describe("the ranking follows its documented order", () => {
       3,
     );
     expect(recs.map((r) => r.player.id)).toEqual(["aa", "bb", "cc"]);
+    // The leader must also *be* the first row on an exact tie. Every sort key ties here
+    // down to the id, so this is the one fixture where the id arm of the leader
+    // selection's `leadsOver` decides — inverted, the output order would be unchanged
+    // but the top card would carry a vs-leader comparison against a row below it.
+    expect(recs[0].vsLeader).toBeNull();
   });
 });
 
@@ -1847,20 +1859,33 @@ describe("orderRecommendations", () => {
     tiedWithLeader: false,
   });
 
-  /** A paired vector whose only load-bearing figure here is its mean difference. */
+  /**
+   * A paired vector built from its counts, so the fixture is one `pairedOutcomeComparison`
+   * could actually produce rather than a mean difference floating free of them.
+   *
+   * `n` defaults to 100,000 — deliberately far above the page's 600. At 600, adjacent
+   * title rates differ by at least 1/600, so a displayed (4-decimal) tie is always an
+   * exact tie and the mean-difference sort key never separates anything; the key exists
+   * for scenario counts that outrun the display's rounding grain, and these fixtures are
+   * drawn from that regime.
+   */
   const paired = (
-    meanDifference: number,
-    interval: readonly [number, number] = [meanDifference - 0.01, meanDifference + 0.01],
-  ): ChampionshipRecommendation["vsLeader"] => ({
-    n: 600,
-    candidateOnly: 0,
-    baselineOnly: 0,
-    agreed: 600,
-    meanDifference,
-    standardError: 0.005,
-    interval,
-    confidenceLevel: 95,
-  });
+    candidateOnly: number,
+    baselineOnly: number,
+    n = 100_000,
+  ): ChampionshipRecommendation["vsLeader"] => {
+    const meanDifference = (candidateOnly - baselineOnly) / n;
+    return {
+      n,
+      candidateOnly,
+      baselineOnly,
+      agreed: n - candidateOnly - baselineOnly,
+      meanDifference,
+      standardError: 0.005,
+      interval: [meanDifference - 0.01, meanDifference + 0.01],
+      confidenceLevel: 95,
+    };
+  };
 
   it("returns an empty board unchanged", () => {
     expect(orderRecommendations([])).toEqual([]);
@@ -1906,8 +1931,8 @@ describe("orderRecommendations", () => {
     // paired comparison still separates them, and it — not the playoff odds, which are
     // set against it — decides the order. The primary key cannot: it is equal.
     const ordered = orderRecommendations([
-      rec("closer", 0.15, 0.014, 0.4, 100, paired(-0.00002)),
-      rec("farther", 0.15, 0.014, 0.9, 200, paired(-0.00004)),
+      rec("closer", 0.15, 0.014, 0.4, 100, paired(0, 2)),
+      rec("farther", 0.15, 0.014, 0.9, 200, paired(0, 4)),
       rec("leader", 0.15, 0.014, 0.1, 50),
     ]);
     expect(ordered.map((r) => r.player.id)).toEqual(["leader", "closer", "farther"]);
@@ -1918,8 +1943,8 @@ describe("orderRecommendations", () => {
     // numbers must lose, because the row order the user checks is the displayed one — a
     // comparator with the keys swapped would print 0.15 above 0.16.
     const ordered = orderRecommendations([
-      rec("lower", 0.15, 0.014, 0.5, 100, paired(0.5)),
-      rec("higher", 0.16, 0.014, 0.5, 100, paired(-0.5)),
+      rec("lower", 0.15, 0.014, 0.5, 100, paired(50_000, 0)),
+      rec("higher", 0.16, 0.014, 0.5, 100, paired(0, 50_000)),
     ]);
     expect(ordered.map((r) => r.player.id)).toEqual(["higher", "lower"]);
   });
@@ -1944,12 +1969,18 @@ describe("orderRecommendations", () => {
     // All three displayed identically and carrying no paired vector, so only the residual
     // keys can decide — the case where any deterministic order is as honest as any other
     // and the likelier playoff team reads first.
+    //
+    // Each residual key is set *against* the one below it, because a fixture where the
+    // keys agree is a fixture that passes with any of them deleted: "y" leads on points
+    // but loses on playoff odds, and "a" beats "z" on id but loses on points. An earlier
+    // version aligned all three and a mutation run could drop the playoff key, drop the
+    // points key, or swap the pair without a single test noticing.
     const ordered = orderRecommendations([
-      rec("c", 0.2, 0.5, 0.4, 100),
-      rec("b", 0.2, 0.5, 0.6, 100),
-      rec("a", 0.2, 0.5, 0.6, 120),
+      rec("y", 0.2, 0.5, 0.4, 200),
+      rec("a", 0.2, 0.5, 0.6, 100),
+      rec("z", 0.2, 0.5, 0.6, 120),
     ]);
-    expect(ordered.map((r) => r.player.id)).toEqual(["a", "b", "c"]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["z", "a", "y"]);
     expect(ordered.every((r) => r.tiedWithLeader)).toBe(true);
   });
 
