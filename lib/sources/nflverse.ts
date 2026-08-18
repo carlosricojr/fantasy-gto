@@ -301,6 +301,7 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   private readonly fetchText: TextFetcher;
   private schedulesCache: CsvRow[] | null = null;
   private contestsCache: Contest[] | null = null;
+  private contestsInFlight: Promise<ProviderResult<Contest[]>> | null = null;
 
   constructor(fetchText: TextFetcher = httpTextFetcher) {
     this.fetchText = fetchText;
@@ -668,9 +669,23 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * expensive part. `refreshDraftBoards` now calls this once per board shape inside a
    * single action (33 shapes over a ~7,000-row file), which is exactly the repeated-work
    * shape the one-provider-per-run comment there exists to prevent.
+   *
+   * The in-flight promise is shared, following `AdpProvider`'s discipline: with only the
+   * settled cache, two concurrent callers on one provider both miss it and fetch and
+   * parse the whole file twice. Only a success populates the cache — a failure is
+   * usually transient, and one provider serves a whole run.
    */
   async allContests(): Promise<ProviderResult<Contest[]>> {
     if (this.contestsCache) return ok(this.contestsCache);
+    if (this.contestsInFlight === null) {
+      this.contestsInFlight = this.fetchAllContests().finally(() => {
+        this.contestsInFlight = null;
+      });
+    }
+    return this.contestsInFlight;
+  }
+
+  private async fetchAllContests(): Promise<ProviderResult<Contest[]>> {
     const rows = await this.schedules();
     if (!rows.ok) return failed(rows.reason, rows.cause);
     this.contestsCache = parseContests(rows.data);

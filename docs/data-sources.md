@@ -167,7 +167,11 @@ annual state: `draftSeasonFor` flips to the next season as soon as the current o
 while nflverse publishes the next `games.csv` rows only at the May schedule release — in
 that window every board shape fails to rebuild, by design, rather than shipping boards
 whose market-absent rows carry the #89.D null-bye subsidy. The previous board stays
-published throughout; `refreshDraftBoards` records the failure per shape.
+published throughout; `refreshDraftBoards` records the failure per shape. Its returned
+record also carries `byeMismatches` alongside `rebuilt`/`failed`/`attempted` — the count,
+summed across shapes, of rows whose feed-published bye disagreed with the schedule's
+(the schedule won). Zero is the healthy state; a nonzero value means the ADP feed's byes
+have gone stale and is worth a look even though no wrong bye reached a board.
 
 ### 1.2a Historical coverage — a present column is not a populated one
 

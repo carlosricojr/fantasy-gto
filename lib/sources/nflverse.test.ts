@@ -193,6 +193,43 @@ describe("NflverseProvider", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("unavailable");
   });
+
+  it("shares one fetch and parse across concurrent contest calls", async () => {
+    // The in-flight promise, not just the settled cache. With only the cache, two
+    // concurrent callers both miss it and the whole schedule file is fetched and parsed
+    // twice — `AdpProvider` documents the same discipline for the same reason.
+    let fetches = 0;
+    const provider = new NflverseProvider(async (url: string) => {
+      if (url !== schedulesUrl()) throw new Error(`404 for ${url}`);
+      fetches += 1;
+      // A microtask boundary, so both calls are genuinely in flight together.
+      await Promise.resolve();
+      return gamesCsv;
+    });
+    const [first, second] = await Promise.all([
+      provider.allContests(),
+      provider.allContests(),
+    ]);
+    expect(fetches).toBe(1);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (first.ok && second.ok) expect(second.data).toBe(first.data);
+  });
+
+  it("retries a failed contest fetch instead of caching the failure", async () => {
+    // Only successes persist. One transient outage must not fail every later call for
+    // the provider's lifetime — the exact trade `AdpProvider`'s cache documents.
+    let attempts = 0;
+    const provider = new NflverseProvider(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("network down");
+      return gamesCsv;
+    });
+    const first = await provider.allContests();
+    expect(first.ok).toBe(false);
+    const second = await provider.allContests();
+    expect(second.ok).toBe(true);
+  });
 });
 
 describe("parseSeasonRoster", () => {
