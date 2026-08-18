@@ -247,7 +247,11 @@ export function applyMarketGate<T extends { player: PlayerRisk }>(
  */
 export function currentRoundOf(state: DraftPolicyState): number | null {
   const next = state.teams[state.myTeamIndex]?.remainingPicks[0];
-  if (next === undefined || !Number.isFinite(next) || next < 1) return null;
+  // `isInteger` rather than `isFinite`, and it subsumes it: a fractional pick number is
+  // not a pick that got rounded, it is a state this function does not understand — the
+  // same rule `lib/sources/sleeper.ts` applies to a fractional team count, and for the
+  // same reason. Rounding 1.5 up to round 1 would gate on a pick nobody holds.
+  if (next === undefined || !Number.isInteger(next) || next < 1) return null;
   return Math.ceil(next / state.teams.length);
 }
 

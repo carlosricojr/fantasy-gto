@@ -2396,6 +2396,9 @@ describe("the market-discipline gate", () => {
     expect(currentRoundOf(stateWith([-4]))).toBeNull();
     expect(currentRoundOf(stateWith([Number.NaN]))).toBeNull();
     expect(currentRoundOf(stateWith([Number.POSITIVE_INFINITY]))).toBeNull();
+    // A fractional pick number would otherwise round up to a real-looking round —
+    // 1.5 becomes round 1 — and gate on a pick nobody holds.
+    expect(currentRoundOf(stateWith([1.5]))).toBeNull();
   });
 
   it("stands the gate down for a state whose round it cannot place", () => {
