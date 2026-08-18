@@ -200,6 +200,38 @@ describe("joinMarketAwareness", () => {
     expect(unmatched).toEqual([]);
   });
 
+  it("folds the BOARD's position spelling too, not only the source's", () => {
+    // The price feed spells defenses `DEF` and kickers `PK` before
+    // `normalizeMarketPosition` runs, and `AwarenessBoardRow` is documented as satisfied
+    // by ingest rows. Folding only the source side builds a key the index does not hold,
+    // and every defense and kicker lands in `unmatched` with no error.
+    const { byPlayerId, unmatched } = joinMarketAwareness(
+      [boardRow({ name: "Seattle Seahawks", position: "DEF", team: "SEA" })],
+      [
+        sourceRow({
+          name: "Seattle Seahawks",
+          position: "DST",
+          team: "SEA",
+          searchRank: 120,
+        }),
+      ],
+    );
+    expect(byPlayerId.get("p1")?.searchRank).toBe(120);
+    expect(unmatched).toEqual([]);
+  });
+
+  it("treats a board row with no adp field at all as unpriced", () => {
+    // `undefined` and `null` say the same thing about the player. Reading absent as
+    // priced would skip the row into neither `unmatched` nor `ambiguities` — the one
+    // outcome this module refuses everywhere else.
+    const { adp: _dropped, ...withoutAdp } = boardRow();
+    const { byPlayerId } = joinMarketAwareness(
+      [withoutAdp as AwarenessBoardRow],
+      [sourceRow()],
+    );
+    expect(byPlayerId.get("p1")?.searchRank).toBe(86);
+  });
+
   it("lists what it could not match rather than dropping it", () => {
     const { unmatched } = joinMarketAwareness(
       [boardRow({ name: "Bam Knight", team: null })],
@@ -218,8 +250,13 @@ describe("search rank stays out of the pricing pipeline", () => {
    * file that calls the curve fit and asserts none of them can see a search rank. A
    * future change that genuinely needs both in one file has to edit this test in the
    * same commit, which is the deliberate-flip discipline every lock in this repo uses.
+   *
+   * `app/` is guarded too, though nothing there calls the curve fit today: the claim the
+   * README makes is "every caller", and a lock that skipped the one directory where a
+   * label is actually rendered would be the weaker claim wearing the stronger one's
+   * words.
    */
-  const GUARDED = ["lib", "convex", "scripts"];
+  const GUARDED = ["lib", "convex", "scripts", "app"];
 
   function sourceFiles(dir: string): string[] {
     const out: string[] = [];

@@ -1,5 +1,5 @@
 import { normalizeMarketPosition } from "./config";
-import { aliasNameKeys, normalizeWords } from "./match";
+import { aliasNameKeys, normalizeName, normalizeWords } from "./match";
 
 /**
  * Joining the board's market-absent rows onto a deeper awareness source.
@@ -88,8 +88,9 @@ export function joinMarketAwareness(
 ): AwarenessJoin {
   // Indexed under every alias key, so the lookup below can stay single-key: the board's
   // "Kenneth Gainwell" finds the dump's "Kenny Gainwell" because the dump row was filed
-  // under both spellings. Expanding both sides instead would let two different aliases
-  // meet in the middle, which widens the match beyond anything that was measured.
+  // under both spellings, and the reverse direction works for the same reason. Expanding
+  // both sides would instead let two aliases meet in the middle — safe only while the
+  // pairs stay disjoint, which is an invariant nothing here enforces. One side expands.
   const byNameAndPosition = new Map<string, Claim>();
   const byTeamAndLastName = new Map<string, Claim>();
   for (const row of source) {
@@ -111,20 +112,27 @@ export function joinMarketAwareness(
 
   for (const row of board) {
     // The rows the market has priced keep their price; the signal exists for the rest.
-    if (row.adp !== null) continue;
+    // `!= null`, matching `applyMarketGate`: a row whose `adp` is absent rather than null
+    // means the same thing about the player, and treating it as priced would skip it
+    // silently — into neither `unmatched` nor `ambiguities`, which is the one outcome
+    // this module refuses everywhere else.
+    if (row.adp != null) continue;
 
-    let found: Claim | undefined;
-    for (const key of aliasNameKeys(row.name)) {
-      const hit = byNameAndPosition.get(`${key}|${row.position}`);
-      if (hit !== undefined) {
-        found = hit;
-        break;
-      }
-    }
+    // The board's position is folded the same way the source's was. Without it a board
+    // row spelled `DEF` or `PK` — which is how the price feed spells them before
+    // `normalizeMarketPosition` runs — builds a key the index does not hold, and every
+    // defense and kicker lands in `unmatched` with no error. That exact class of silent
+    // miss has shipped here once already; `lib/sources/adp.ts` documents it.
+    const position = normalizeMarketPosition(row.position);
+    // The strict key alone, because the index above already carries every alias. See the
+    // comment there: expanding both sides is what would let two aliases meet.
+    const nameKey = normalizeName(row.name);
+    let found: Claim | undefined =
+      nameKey === "" ? undefined : byNameAndPosition.get(`${nameKey}|${position}`);
     if (found === undefined && row.team !== null) {
       const last = lastNameKey(row.name);
       if (last !== "") {
-        found = byTeamAndLastName.get(`${row.team}|${row.position}|${last}`);
+        found = byTeamAndLastName.get(`${row.team}|${position}|${last}`);
       }
     }
 

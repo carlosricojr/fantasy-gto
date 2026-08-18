@@ -546,33 +546,62 @@ https://api.sleeper.app/v1/players/nfl
 ```
 
 Public, unauthenticated, one JSON object keyed by Sleeper's player id. **Verified by
-direct request 2026-08-18**: HTTP 200, 14,641,482 bytes, 12,221 entries, every entry an
-object. The fields `lib/sources/sleeper.ts` reads — `full_name`, `first_name`/`last_name`,
+direct request 2026-08-18**: HTTP 200, ~14.6 MB, 12,221 entries, every entry an object.
+The fields `lib/sources/sleeper.ts` reads — `full_name`, `first_name`/`last_name`,
 `position`, `fantasy_positions`, `team`, `search_rank`, `depth_chart_position`,
 `depth_chart_order` — were all observed in the live payload, unlike the draft endpoints
 above, whose shapes come from documentation.
 
-Why it is ingested at all: the ADP feed covers only the players the market drafts, and
-the #88 audit measured what the board does with everyone else. This dump is the deeper
-*awareness* signal (#90.2) behind the market-discipline gate: for a player the board
-prices at `adp: null`, `search_rank` and the depth chart say whether anyone outside our
-model has an opinion about him. The audit's culprits, re-measured 2026-08-18: Kenny
-Gainwell rank **86**, RB2 (spelled "Kenneth" on our board — the join needs the first-name
-aliases in `lib/nfl/draft/match.ts`); Colby Parkinson rank 136, TE2; Troy Franklin rank
-171, depth `SWR` 3; Kyle Pitts rank 68, TE1.
+**Nothing in the product reads this dump.** It is the seam and the measurement only, in
+exactly the sense the snap-count row of the README's honesty ledger uses those words.
+The market-discipline gate (`applyMarketGate`, `lib/core/draft-policy.ts`) keys on the
+**board's own `adp` field** and on nothing else — deliberately, because the board's
+10-team prices are derived by rescaling a 12-team list, so any re-fetched external list
+measures a different universe than the engine sees. What this dump supplies is the
+evidence for the gate's premise: that the players the board leaves unpriced are ones a
+deeper source does know about, at ranks nowhere near the rounds the model was leading
+them in. `pnpm verify-sources` and the tests are its only callers.
 
-Measured coverage, 2026-08-18, through the shipped parser and join rather than a
-side-channel script, with the definitions spelled out because the dump drifts daily: the
-parser reads 11,981 of 12,221 entries (the rest have no usable name or position), 4,144
-of them skill entries (QB/RB/WR/TE by fantasy position), of which **835 carry a
-meaningful `search_rank` and a team**, 695 of those also a `depth_chart_order` — against
-the ADP feed's **185 skill rows** (221 total) the same day. #90 recorded 431 vs 187 on
-2026-08-17; the difference is recorded here as a difference, not explained — no natural
-threshold reproduces 431 from today's payload. `joinMarketAwareness` over the frozen
-audit board's 403 `adp: null` skill rows: **397 matched** (361 with a meaningful rank; 8
-only through the measured first-name aliases or the team+position+last-name fallback),
-**2 refused as ambiguous** — the dump carries two Kyle Williamses and two Jacoby Joneses
-at the same position — and **4 unmatched**, listed rather than dropped.
+The audit's culprits, re-measured 2026-08-18: Kenny Gainwell rank **86**, RB2 — spelled
+"Kenneth" on our board, which is why the join needs the first-name aliases in
+`lib/nfl/draft/match.ts`; Colby Parkinson rank 136, TE2; Troy Franklin rank 171, depth
+`SWR` 3. Kyle Pitts sits at rank 68, TE1, and is **not** one of them: the frozen board
+prices him at ADP 81.7, so the join skips him along with every other priced row. He is
+the coverage-cap evidence #90 raised and #89's own correction comment settled, not a
+market-absent leader.
+
+Measured coverage, reproduced by `pnpm verify-sources` through the shipped parser and
+join rather than a side-channel script:
+
+| | measured 2026-08-18 |
+|---|---|
+| entries in the payload | 12,221 |
+| rows the parser accepts | 11,981 (240 have no usable name or position) |
+| skill rows (QB/RB/WR/TE by *fantasy* position) | 4,144 |
+| …carrying a meaningful `search_rank` **and** a team | **837** |
+| …of those, also a `depth_chart_order` | 695 |
+| skill rows with no usable rank at all | 2,373 |
+| price feed the same day | 221 rows, **185** of them skill |
+| frozen audit board | 587 skill rows, **403** unpriced |
+| joined by `joinMarketAwareness` | **397** (361 with a meaningful rank) |
+| refused as ambiguous | 2 — Kyle Williams, Jacoby Jones |
+| unmatched, listed not dropped | 4 — Bam Knight, Jack Westover, Ben VanSumeren, Brady Russell |
+
+**These figures drift daily and are meant to.** `search_rank` is a live search-relevance
+ordering: the ranked-and-teamed count moved from 835 to 837 between two runs an hour
+apart on the day above, and the payload's byte count moved with it. The date stamp is
+what makes the table honest, and `pnpm verify-sources` is how a reader re-measures rather
+than trusts. What must not move is the shape — the check fails outright if the join
+answers for under half the unpriced board, because that is a broken matcher rather than a
+busy offseason. #90 recorded 431 vs 187 on 2026-08-17; the difference from 837 vs 185 is
+recorded here as a difference, not explained, since no threshold definition reproduces
+431 from the payloads since.
+
+Of the 397 joined rows, 29 are spelled differently by the two sources. Suffix and
+punctuation folding bridges most of them (`Michael Penix Jr.` against `Michael Penix`);
+the residue that normalization alone cannot bridge is the eight first-name pairs in
+`FIRST_NAME_ALIASES`, each one added because it was measured missing rather than
+imagined.
 
 Three hazards, all load-bearing:
 
@@ -580,12 +609,10 @@ Three hazards, all load-bearing:
   pick 86. It must never reach `fitAdpCurve` or any other pricing path, and no interface
   label may call it a market price — `lib/nfl/draft/market-awareness.test.ts` walks every
   deployable file that calls the curve fit and asserts none of them can see a search
-  rank. The honest uses are the round-gated discipline check
-  (`applyMarketGate`, `lib/core/draft-policy.ts`) and provenance labelling.
-- **The sentinel is 9,999,999, not a missing field.** 2,195 of the 4,039 skill entries
-  carry it (107 carry `null`). Read as a number it sorts as "the 9,999,999th most
-  relevant player", which looks like information and is the absence of it; the parser
-  folds it to `null`.
+  rank.
+- **The sentinel is 9,999,999, not a missing field.** Read as a number it sorts as "the
+  9,999,999th most relevant player", which looks like information and is the absence of
+  it; the parser folds it to `null`.
 - **`position` is the roster position, not the fantasy one.** Kyle Juszczyk is
   `position: "FB"` with `fantasy_positions: ["RB"]`, and reading the roster code drops
   him (rank 410) from a skill join. The parser prefers `fantasy_positions[0]`.

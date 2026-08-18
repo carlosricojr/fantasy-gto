@@ -115,7 +115,17 @@ export interface ChampionshipRecommendation {
   player: PlayerRisk;
   /** Championship probability if this player is taken and the draft finishes normally. */
   championshipProbability: number;
-  /** Change against taking whatever the base policy would have taken. */
+  /**
+   * Change against taking whatever the base policy would have taken.
+   *
+   * With one deliberate exception, and it is the honest reading rather than a special
+   * case: where the market-discipline gate withheld a candidate, the comparison is
+   * against the best *offerable* player instead. The base policy is ungated, so it would
+   * happily take the market-absent player the panel is refusing to name — and a delta
+   * measured against him tells the user their recommendation is worse than something the
+   * panel will not show them and gives them no way to identify. See
+   * `recommendByChampionship`.
+   */
   deltaVsBaseline: number;
   playoffProbability: number;
   expectedPoints: number;
@@ -871,12 +881,14 @@ export function recommendByChampionship(
   // market-absent player *later, at his value* is exactly the outcome the gate is
   // steering toward. Filtered before the slice, so the gate promotes the next priced
   // candidate into the field rather than shortening it.
-  const shortlist = applyMarketGate(
-    scoreCandidates(me.roster, state.available, league, leagueUnfilled),
-    currentRoundOf(state),
-  )
+  const scored = scoreCandidates(me.roster, state.available, league, leagueUnfilled);
+  const gated = applyMarketGate(scored, currentRoundOf(state));
+  const shortlist = gated
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
+  // Whether the gate actually withheld anyone, which decides what "vs. best available"
+  // can honestly mean below.
+  const gateWithheld = gated.length !== scored.length;
 
   // Opponents are completed once. Their behavior changes by at most one player depending
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
@@ -985,9 +997,25 @@ export function recommendByChampionship(
     return championshipScenarios(mine, scores, config);
   };
 
-  const baseline = evaluate(null);
-
   const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
+
+  // What `deltaVsBaseline` is measured against — and the gate moves it.
+  //
+  // `evaluate(null)` is the base policy left to its own devices, which is the right
+  // baseline while every candidate it might take is also a candidate we might recommend.
+  // Once the gate withholds someone, it stops being: the base policy still takes the
+  // market-absent player the panel refuses to name, so every displayed delta would be
+  // measured against a row the user cannot see, cannot take, and is not told about. The
+  // panel labels this figure "title odds vs. best available", and best available has to
+  // mean the best thing on offer.
+  //
+  // So where the gate withheld a candidate, the baseline is the best *offerable* one —
+  // `gated[0]`, the top of the prefilter's own ordering, which is exactly what the base
+  // policy would have taken had it been subject to the same discipline. That entry is
+  // already evaluated, so this costs no extra simulation. Nothing about the ordering
+  // changes either way: `orderRecommendations` never reads this field.
+  const baseline =
+    gateWithheld && evaluated.length > 0 ? evaluated[0] : evaluate(null);
 
   // The leader is the empirical maximum over these same scenarios. That is a choice made
   // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather

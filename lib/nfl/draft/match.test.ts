@@ -619,10 +619,13 @@ describe("aliasNameKeys", () => {
 });
 
 describe("normalizeWords", () => {
-  it("joins to exactly what normalizeName returns", () => {
-    for (const raw of ["A.J. Brown", "Amon-Ra St. Brown", "José Ramírez Jr."]) {
-      expect(normalizeWords(raw).join("")).toBe(normalizeName(raw));
-    }
+  it("splits a name into the words the folding leaves standing", () => {
+    // Literal expectations rather than a round-trip against `normalizeName`: that
+    // function is *defined* as this one joined, so asserting the identity holds is a
+    // tautology no defect in the folding could fail.
+    expect(normalizeWords("A.J. Brown")).toEqual(["aj", "brown"]);
+    expect(normalizeWords("Amon-Ra St. Brown")).toEqual(["amonra", "st", "brown"]);
+    expect(normalizeWords("José Ramírez Jr.")).toEqual(["jose", "ramirez"]);
   });
 
   it("keeps the word boundaries the joined key erases", () => {

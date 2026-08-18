@@ -242,7 +242,9 @@ export function parsePicks(
  * **`search_rank` is a search-relevance ordering, not an ADP, and must never be priced
  * as one.** It must not reach `fitAdpCurve` or any other pricing path; the honest uses
  * are a discipline gate and a provenance label, and no interface label may call it a
- * market price. `lib/nfl/draft/value.test.ts` enforces the pricing boundary.
+ * market price. `lib/nfl/draft/market-awareness.test.ts` enforces that boundary, by
+ * walking every deployable file that calls the curve fit and asserting none of them can
+ * see a search rank.
  */
 export interface SleeperPlayerRow {
   /** Sleeper's own player id — the dump's key, kept for de-duplication and audit. */
@@ -262,7 +264,8 @@ export interface SleeperPlayerRow {
    * Sleeper's search-relevance rank, or `null` where Sleeper itself declines one.
    *
    * The dump marks a player outside its search relevance with the sentinel 9,999,999
-   * rather than omitting the field (measured: 2,195 of 4,039 skill rows carry it).
+   * rather than omitting the field (measured 2026-08-18 through this parser: 2,373 of
+   * 4,144 skill rows carry no usable rank; `pnpm verify-sources` re-measures it).
    * Parsed to `null` because the sentinel is not a rank — carried as a number it would
    * sort as "the 9,999,999th most relevant player", which reads as information and is
    * the absence of it.

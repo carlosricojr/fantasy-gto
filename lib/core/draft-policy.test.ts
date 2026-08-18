@@ -2422,6 +2422,32 @@ describe("the market-discipline gate", () => {
     expect(recs.some((entry) => entry.player.id === "ghost")).toBe(true);
   });
 
+  it("measures the delta against the best offerable player, not the withheld one", () => {
+    // The panel labels this figure "title odds vs. best available". With the gate active
+    // the ungated base policy would take the market-absent player the panel refuses to
+    // name, so a delta measured against him tells the user their recommendation is worse
+    // than a row they cannot see and cannot take. The leader's delta is therefore zero
+    // against the gated field: the top offerable candidate is the baseline.
+    const pool = board().map((entry, index) => ({ ...entry, adp: index + 1 }));
+    const ghost = player("ghost", "RB", 25, { adp: null });
+    const recs = recommendByChampionship(
+      {
+        teams: freshTeams(),
+        myTeamIndex: 0,
+        available: [ghost, ...pool],
+        rosterSize: ROUNDS,
+      },
+      CONFIG,
+      7,
+      4,
+    );
+    expect(recs.some((entry) => entry.player.id === "ghost")).toBe(false);
+    // Exactly one row carries a zero delta — the baseline itself — and no row is
+    // measured against a player the panel withheld, which would show as every delta
+    // sitting below zero with no zero among them.
+    expect(recs.filter((entry) => entry.deltaVsBaseline === 0)).toHaveLength(1);
+  });
+
   it("keeps a market-absent player from leading an early round, and only an early round", () => {
     // The #88 shape end to end: the best player on the board by the model's own numbers
     // has no market price. Before the gate he led pick 2.06 (Gainwell) and 6.06
