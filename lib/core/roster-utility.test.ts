@@ -454,6 +454,10 @@ describe("simulateAvailability", () => {
       expect(constrained).toEqual([true, false, true]);
       const fallback = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), []);
       expect(fallback.filter((ok) => !ok)).toHaveLength(1);
+      // A list with no week in the span is the same degenerate case wearing numbers: an
+      // assumed bye at week 99 masks nothing, so it must fall back too, not charge zero.
+      const disjoint = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [99]);
+      expect(disjoint.filter((ok) => !ok)).toHaveLength(1);
     }
   });
 

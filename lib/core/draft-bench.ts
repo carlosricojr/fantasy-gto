@@ -130,6 +130,11 @@ function expectedInOneWeek(
 ): number {
   // `distribution[j]` — probability that exactly `j` of the players already walked past are
   // available. Starts as "none walked past, so zero are available, certainly".
+  //
+  // A mutation run reports the `total` initializer as a survivor, and it is equivalent
+  // through the exported surface rather than a gap: `coverValue` consumes this only inside
+  // two differences of two calls each, so a constant offset added to every call cancels
+  // exactly.
   let distribution = [1];
   let total = 0;
   for (const player of ordered) {
@@ -178,6 +183,10 @@ function expectedAboveReplacement(
   replacement: number,
   weeks: readonly number[],
 ): number {
+  // A mutation run reports this guard's `<=` (as `<`) and its `0` return (as `1`) as
+  // survivors; both are equivalent through `coverValue`, which guards `slots <= 0` itself
+  // before calling — the zero-slot walk below contributes nothing anyway, and a changed
+  // return for the empty-weeks case cancels in `coverValue`'s differences.
   if (slots <= 0 || weeks.length === 0) return 0;
   const ordered = [...players].sort((a, b) => b.value - a.value);
   const byes = new Set<number>();
@@ -240,6 +249,10 @@ export function coverValue(
    */
   weeks: readonly number[],
 ): number {
+  // `<` survives a mutation run here: at exactly zero slots the unguarded path walks a
+  // zero-slot distribution to a zero total on both sides of both differences, and
+  // `Math.max(…, 0)` returns the same zero this shortcut does. The guard is for clarity
+  // and cost, not correctness, and that is why no test can tell the two apart.
   if (slots <= 0) return 0;
   const withHim = [...rosterAtPosition, candidate];
   // "Certain" is the world the lineup solver already priced: everybody present, every week.

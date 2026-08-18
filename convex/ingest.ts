@@ -843,13 +843,25 @@ export async function runBuildDraftBoard(
           `row the market has not priced, so none was written.`,
       );
     }
+    // The weeks the season actually plays, for validating a market fallback: a feed bye
+    // outside this set would pass the teamed-null guard below and then be inert — no
+    // played week ever matches it, so the player is never charged, which is the #89.D
+    // subsidy wearing a number instead of a null. An invalid fallback becomes null and
+    // the guard rejects the board loudly.
+    const scheduleWeeks = new Set(
+      contestsResult.data
+        .filter((contest) => contest.period.season === season)
+        .map((contest) => contest.period.index),
+    );
     let byeMismatches = 0;
     /** Schedule first, market bye as fallback; disagreements counted, schedule kept. */
     const resolveBye = (team: string | null, marketBye: number | null): number | null => {
       const scheduleBye = team === null ? null : (scheduleByes.get(team) ?? null);
-      if (scheduleBye === null) return marketBye;
-      if (marketBye !== null && marketBye !== scheduleBye) byeMismatches += 1;
-      return scheduleBye;
+      if (scheduleBye !== null) {
+        if (marketBye !== null && marketBye !== scheduleBye) byeMismatches += 1;
+        return scheduleBye;
+      }
+      return marketBye !== null && scheduleWeeks.has(marketBye) ? marketBye : null;
     };
 
     // Two prior seasons of production, matching the backtest's window.

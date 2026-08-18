@@ -609,6 +609,19 @@ describe("byes come from the schedule", () => {
     expect(dallas!.byeWeek).toBe(OPPONENT_BYE);
   });
 
+  it("refuses a market fallback bye the season never plays", async () => {
+    // The fallback's own validity gate. A feed bye in a week outside the season's span
+    // would pass the teamed-null guard as a number and then be inert — no played week
+    // ever matches it, so the player is never charged, which is the null subsidy wearing
+    // a number. Resolved to null instead, and the teamed-null guard rejects the board.
+    await expect(
+      build([
+        ...ONE_ROW_EACH.filter((r) => r.name !== AMBIGUOUS_TEAM_PLAYER.name),
+        market(AMBIGUOUS_TEAM_PLAYER.name, AMBIGUOUS_TEAM_PLAYER.position, 90, 22),
+      ]),
+    ).rejects.toThrow(new RegExp(`No bye from any source for ${AMBIGUOUS_TEAM}`));
+  });
+
   it("refuses to build when the schedule has no games for the drafted season", async () => {
     // Falling back to the market feed here would quietly rebuild the exact coverage hole
     // this derivation removes, on a board that looks healthy in every other respect.

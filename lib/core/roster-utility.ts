@@ -213,8 +213,12 @@ export function simulateAvailability(
 
   // Drawn before the chain starts, so a null-bye player consumes one extra draw whether
   // the chain runs or the `availability >= 1` shortcut does. `rng.next()` is on [0, 1),
-  // so the index never reaches the candidate count.
-  const candidates = byeCandidateWeeks.length > 0 ? byeCandidateWeeks : weeks;
+  // so the index never reaches the candidate count. Candidates outside the simulated
+  // span are dropped first — an assumed bye in a week nobody simulates masks nothing,
+  // which would quietly resurrect the free-week reading for a caller with a bad list —
+  // and a list that is empty, or empties, falls back to the whole span.
+  const legal = byeCandidateWeeks.filter((week) => weeks.includes(week));
+  const candidates = legal.length > 0 ? legal : weeks;
   const byeWeek =
     player.byeWeek ?? candidates[Math.floor(rng.next() * candidates.length)] ?? null;
 
