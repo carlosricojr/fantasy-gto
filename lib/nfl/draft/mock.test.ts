@@ -764,16 +764,18 @@ describe("evaluateChecks", () => {
       "e",
       "f",
     ]);
-    // Both modes, as measured after PR 2: (a) flipped to pass by the assumed-bye
-    // charge, (c) measured passing with its near-miss on record in the definition, and
-    // the four structural findings — streamable positions, market-round distance, WR
-    // count, leader inversion — remain known failures for PRs 4 and 5.
+    // As measured on the merged engine — PR 2's bye charge plus PR 4's paired tie
+    // ranking. (f) is closed by the ranking by construction; (a) failed again once the
+    // two fixes merged (Parkinson leads 6.06 in both modes — PR 3's market gate, as
+    // #91 always assigned); (c) splits, churning on the frozen board's bye noise and
+    // passing once byes resolve from the schedule; (b), (d), (e) are the structural
+    // findings PR 5 owns. Each definition in `mock.ts` records its mechanism.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:fail"]);
+    ).toEqual(["a:fail", "b:fail", "c:fail", "d:fail", "e:fail", "f:pass"]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
-    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:fail"]);
+    ).toEqual(["a:fail", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
   });
 
   it("states the protocol numbers in the titles it displays", () => {

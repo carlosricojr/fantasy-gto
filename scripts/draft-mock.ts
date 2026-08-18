@@ -5,6 +5,11 @@ import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { teamByeWeeks } from "@/lib/nfl/byes";
 import { parseCsv } from "@/lib/nfl/csv";
 import {
+  RECOMMEND_CANDIDATES,
+  RECOMMEND_SCENARIOS,
+  RECOMMEND_SEED,
+} from "@/lib/nfl/draft/engine-config";
+import {
   type CheckOutcome,
   type MockBoardRow,
   type MockDraftReplay,
@@ -44,15 +49,14 @@ import { parseContests } from "@/lib/sources/nflverse";
  * code, not of a run.
  *
  * Each check carries a **documented expectation per mode** in `lib/nfl/draft/mock.ts`,
- * with the audit's observed numbers alongside. As measured after PR 2: (a) passes in
- * both modes (the null-bye charge removed the subsidy that led Gainwell to 2.06), (c)
- * passes in both (with a near-miss on record in its definition — tie churn is one noise
- * source away, PR 4's target), and (b), (d), (e), (f) remain known failures. The PR that fixes
- * a finding flips its expectation in the same commit — #91's table says which PR owns
- * which check, with one recorded exception: (a) was assigned to PR 3's market gate and
- * flipped early, because PR 2's bye charge alone removed it on this board (the gate is
- * still owed as the structural guarantee). The exit code enforces the contract in both
- * directions:
+ * with the audit's observed numbers alongside. As measured on the merged engine (PR 2's
+ * bye charge + PR 4's paired tie ranking): (f) passes in both modes; (a) fails in both —
+ * each PR alone had measured it passing, and the merged ordering surfaced Parkinson
+ * leading 6.06, the audit's other market-absent leader, so the flip went back to PR 3's
+ * market gate where #91 always put it; (c) splits, failing frozen and passing with
+ * schedule byes; (b), (d), (e) remain the structural failures PR 5 owns. The PR that
+ * changes a check's status flips its expectation in the same commit. The exit code
+ * enforces the contract in both directions:
  *
  *  - a check failing as expected is the documented state — exit 0;
  *  - a check *passing* while expected to fail means a fix landed without flipping its
@@ -83,10 +87,15 @@ const SEASON = 2026;
 const PLAYOFF_TEAMS = 6;
 const CHAMPIONSHIP_WEEK = 17;
 
-/** The page's own constants — see `app/(app)/draft/page.tsx`. */
-const SEED = 20260731;
-const SCENARIOS = 600;
-const CANDIDATES = 10;
+/**
+ * The page's own constants, imported rather than re-declared: PR #92 shipped these as
+ * copies and recorded the drift risk as its known limitation — a page-side change would
+ * not have failed the harness. `lib/nfl/draft/engine-config.ts` is now the single copy
+ * both read.
+ */
+const SEED = RECOMMEND_SEED;
+const SCENARIOS = RECOMMEND_SCENARIOS;
+const CANDIDATES = RECOMMEND_CANDIDATES;
 
 function positionSummary(rows: readonly MockBoardRow[]): string {
   const counts = new Map<string, number>();

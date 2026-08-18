@@ -155,10 +155,14 @@ export interface ChampionshipRecommendation {
    * two marginal standard errors, which is not the standard error of a difference between
    * anything.
    *
-   * Without the flag the ordering reads as broken: a candidate showing 12.3% can rank above
-   * one showing 14.7% because the two are tied and the smoother playoff signal decided
-   * between them. Saying so is the honest presentation; silently sorting by a hidden key is
-   * not.
+   * A label, not a sort key. It used to reorder: everything flagged tied was ranked by
+   * playoff probability, which is how a 14.5% candidate came to wear the leader label above
+   * a 16.2% runner-up in the #88 audit — the hidden key outranked the number on the card.
+   * The ordering now descends by title odds throughout (see `orderRecommendations`), and
+   * this flag only says which gaps these scenarios cannot resolve. The flagged rows are
+   * therefore not necessarily contiguous: a candidate the scenarios do separate from the
+   * leader can sit above one they cannot, which is the display being honest rather than a
+   * sorting error.
    */
   tiedWithLeader: boolean;
 }
@@ -898,18 +902,36 @@ export function recommendByChampionship(
 
   // The leader is the empirical maximum over these same scenarios. That is a choice made
   // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather
-  // than inferential — see `ChampionshipRecommendation.vsLeader`. Ties on probability go to
-  // the lower player id, so the leader does not depend on shortlist order.
+  // than inferential — see `ChampionshipRecommendation.vsLeader`.
   //
-  // On the *rounded* probability, which is the one `orderRecommendations` re-derives the
-  // leader from. Comparing raw here and rounded there lets two candidates 5e-5 apart pick
-  // different leaders, and the entry carrying `vsLeader: null` would then not be the entry
-  // the ordering treats as the leader.
-  const leader = evaluated.reduce((best, entry) => {
-    const a = round4(entry.outcome.championshipProbability);
-    const b = round4(best.outcome.championshipProbability);
-    return a > b || (a === b && entry.player.id < best.player.id) ? entry : best;
-  });
+  // On the *raw* probability, with ties broken by exactly the residual keys
+  // `orderRecommendations` sorts by — playoff probability, expected points, lower id — so
+  // the entry carrying `vsLeader: null` is provably the entry the ordering puts first.
+  // The proof leans on `meanDifference` being the raw rate difference against this leader:
+  // rounding is monotone, so no rounded probability outranks the leader's, and within the
+  // leader's rounded class every other entry's mean difference is at most the leader's
+  // zero, with exact raw ties falling to the same residual keys this selection used. When
+  // the leader was chosen on the rounded probability instead, two candidates 5e-5 apart
+  // could put the `vsLeader: null` entry second, with its own baseline displayed below it.
+  // A mutation run reports survivors on this selection, triaged: the id arm's `<` has no
+  // `<=` to disagree with (two entries never share a player id), and the reduce's `> 0`
+  // cannot see `>= 0` because `leadsOver` never returns zero — the id arm is ±1. The
+  // `||` joins are genuine gaps rather than equivalences: turned into `&&`, a residual
+  // key outvotes the championship rate wherever the two disagree at the top of a
+  // shortlist, and no deterministic fixture in the suite produces that disagreement on
+  // an exact budget. What bounds the damage is that the displayed ordering never
+  // consults this selection: `orderRecommendations`' mean-difference key is offset by a
+  // constant whichever leader is chosen, so a wrong leader can mislabel which row
+  // carries the null comparison and anchors the tie flags — never which row displays
+  // the higher number.
+  const leadsOver = (a: (typeof evaluated)[number], b: (typeof evaluated)[number]) =>
+    a.outcome.championshipProbability - b.outcome.championshipProbability ||
+    a.outcome.playoffProbability - b.outcome.playoffProbability ||
+    a.outcome.expectedPoints - b.outcome.expectedPoints ||
+    (a.player.id < b.player.id ? 1 : -1);
+  const leader = evaluated.reduce((best, entry) =>
+    leadsOver(entry, best) > 0 ? entry : best,
+  );
 
   const ranked = evaluated
     .map(({ player, outcome, titleByScenario }) => {
@@ -943,8 +965,38 @@ export function recommendByChampionship(
  * Separated from the simulation above so it can be tested on its own. Reaching these
  * branches through `recommendByChampionship` means finding a roster and a seed whose
  * simulated title odds happen to land in the arrangement under test, which is neither
- * reliable nor readable; the ordering itself is a pure function of five numbers per
+ * reliable nor readable; the ordering itself is a pure function of a few numbers per
  * candidate and belongs in one.
+ *
+ * ## The ordering descends by title odds, and the tie flag no longer reorders
+ *
+ * It used to: everything flagged tied with the leader was ranked by playoff probability,
+ * on the argument that title odds inside the noise band carried no information and the
+ * smoother signal did. The #88 audit showed what that costs — the "leader" card read
+ * 14.5% above a runner-up's 16.2%, because the hidden playoff key promoted a lower title
+ * number into the top slot — and #89.C identified the instrument the argument overlooked:
+ * the *paired* vs-leader comparison. Candidates are simulated over the same seasons, so
+ * the difference between two of them is measured far more tightly than the two marginal
+ * probabilities suggest. Its point estimate is exactly the difference of the title rates
+ * — pairing changes the variance, not the mean (`stats.ts` says so at length) — so
+ * "rank by the paired comparison" and "rank by title odds" are the same ordering, and
+ * what the pairing buys is the honest tie flag, not a different order. The argument the
+ * old tiebreak rested on was measuring the wrong uncertainty: the marginal bands overlap
+ * long after the paired comparison has an unambiguous sign.
+ *
+ * So the sort is: displayed title odds first, then the paired mean difference, and
+ * playoff probability, expected points and id only where the scenarios genuinely cannot
+ * tell two candidates apart — an exactly equal rate difference. The mean-difference key
+ * deserves honesty about its own weight: at the page's 600 scenarios adjacent title rates
+ * differ by at least 1/600, far above the display's 1e-4 rounding grain, so a rounded tie
+ * is always an exact tie and the key never separates anything today. It is kept because
+ * it costs one comparison and keeps the ordering exact for any scenario count that
+ * *does* outrun the rounding grain, rather than quietly re-introducing a residual-key
+ * decision there. Rounding is monotone, so neither it nor any residual key can put a
+ * lower displayed probability above a higher one. The top card therefore always carries
+ * the panel's highest title odds, which is what "best available" has to mean.
+ * `tiedWithLeader` still says which gaps are inside sampling noise; it just says it
+ * without resorting the list.
  */
 export function orderRecommendations(
   ranked: ReadonlyArray<Omit<ChampionshipRecommendation, "tiedWithLeader">>,
@@ -963,18 +1015,14 @@ export function orderRecommendations(
     tiedWithLeader: false,
   }));
 
-  // Partition against the true maximum rather than sorting with the tie rule directly.
+  // The reference for the tie flag's fallback rule below, established against the true
+  // maximum rather than pairwise: "within noise of the neighbor" is not transitive, and a
+  // flag measured against whoever happened to sit above would call 12% tied through a
+  // chain of overlapping bands.
   //
-  // "Within noise, prefer the smoother signal" is not a transitive relation, so it is not
-  // a valid comparator: with title odds of 12.0%, 14.0% and 16.0% at 600 scenarios, the
-  // first two are tied, the last two are tied, but the first and third are not — a cycle.
-  // `Array.prototype.sort` given a cycle may return anything, and it could put the 12%
-  // candidate first while the 16% one placed third. Establishing the leader first makes
-  // the comparison well-defined.
-  //
-  // Which of several equal-probability entries `reduce` settles on does not matter to the
-  // ordering, but it does decide which entry carries `vsLeader: null`, so it is broken on
-  // the player id rather than on argument order.
+  // Which of several equal-probability entries `reduce` settles on is broken on the player
+  // id rather than on argument order, so the flags do not depend on the order the entries
+  // arrived in.
   const best = ordered.reduce((a, b) =>
     b.championshipProbability > a.championshipProbability ||
     (b.championshipProbability === a.championshipProbability && b.player.id < a.player.id)
@@ -1002,26 +1050,31 @@ export function orderRecommendations(
         : entry.vsLeader.interval[0] <= 0 && entry.vsLeader.interval[1] >= 0;
   }
 
-  // Everything statistically level with the leader is ordered by playoff probability,
-  // which is roughly a coin flip rather than a one-in-twelve event and so resolves at the
-  // sample sizes a draft clock allows. Everything below it is ordered on title odds.
-  // The final clause never compares a candidate with itself — `ranked` holds one entry per
-  // player — so `<` and `<=` are the same function here, and the `1` arm can be `0` without
-  // changing any ordering: it is only ever reached as "greater", and `Array.prototype.sort`
-  // needs no more than the "strictly less" signal. Not antisymmetric, and not observably
-  // wrong; the same is true of the `1` in the tied-versus-untied branch below.
-  const bySmootherSignal = (a: ChampionshipRecommendation, b: ChampionshipRecommendation) =>
-    b.playoffProbability - a.playoffProbability ||
-    b.expectedPoints - a.expectedPoints ||
-    (a.player.id < b.player.id ? -1 : 1);
-
-  return ordered.sort((a, b) => {
-    if (a.tiedWithLeader !== b.tiedWithLeader) return a.tiedWithLeader ? -1 : 1;
-    if (a.tiedWithLeader) return bySmootherSignal(a, b);
-    return (
-      b.championshipProbability - a.championshipProbability || bySmootherSignal(a, b)
-    );
-  });
+  // Displayed title odds first, so no row can sit above a higher number than its own —
+  // the #88.2 contract. The paired mean difference is the raw rate difference against
+  // the leader, computed from the scenario counts, so it restores whatever resolution
+  // the display's rounding dropped and cannot disagree with the display's ordering —
+  // though at the page's scenario count it never fires (see the docstring: a rounded tie
+  // there is an exact tie). `?? 0` covers the leader — a zero difference with himself,
+  // by definition — and hand-built entries reaching this exported function with no
+  // paired vector at all, which then order on the remaining keys alone. (A mutation run
+  // reports `??`→`||` here as a survivor, correctly: the only falsy mean difference is
+  // zero, which both forms send to zero.) Playoff
+  // probability and expected points decide only exact rate ties, where any deterministic
+  // order is as honest as any other and the likelier playoff team is the more useful row
+  // to read first.
+  //
+  // The final clause never compares a candidate with itself — `ranked` holds one entry
+  // per player — so the `1` arm is only ever reached as "greater", and
+  // `Array.prototype.sort` needs no more than the "strictly less" signal.
+  return ordered.sort(
+    (a, b) =>
+      b.championshipProbability - a.championshipProbability ||
+      (b.vsLeader?.meanDifference ?? 0) - (a.vsLeader?.meanDifference ?? 0) ||
+      b.playoffProbability - a.playoffProbability ||
+      b.expectedPoints - a.expectedPoints ||
+      (a.player.id < b.player.id ? -1 : 1),
+  );
 }
 
 function round4(value: number): number {
