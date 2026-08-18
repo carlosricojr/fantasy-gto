@@ -114,7 +114,20 @@ export function sampleTeamWeeklyScores(
   const scenarios: number[][] = [];
   for (let s = 0; s < config.scenarios; s += 1) {
     scenarios.push(
-      drawWeek(roster, config.slots, allWeeks, config.meanAbsenceWeeks, seed, s),
+      // An unknown bye is drawn from the regular-season weeks only. The league schedules
+      // no byes in its bracket, so letting the assumed week land there would charge a
+      // playoff absence — worth well over a regular week's odds — for a team fact that
+      // cannot occur, while undercharging the seeding points the fix exists to stop
+      // subsidizing.
+      drawWeek(
+        roster,
+        config.slots,
+        allWeeks,
+        config.meanAbsenceWeeks,
+        seed,
+        s,
+        config.weeks,
+      ),
     );
   }
   return scenarios;

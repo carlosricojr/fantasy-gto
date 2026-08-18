@@ -19,20 +19,23 @@ import { perGameRate } from "./value";
  * ranked, benched a kicker drafted in round 9 behind another drafted in round 12, and
  * finished a half-PPR 2-FLEX draft with two wide receivers. Every one of those is a
  * property this module asserts, as a **documented expectation per check** in
- * `CHECK_DEFINITIONS` that the PR fixing a finding flips in the same commit. No fix ships
- * without flipping its check; no check flips without a fix. See #91 for the sequence,
- * #64 for why the harness is policy-level.
+ * `CHECK_DEFINITIONS`. The contract: an expectation flips only in the commit that
+ * changes the measured behavior, and the flip names its mechanism — and were a commit to
+ * *cause* a failure it could not fix, the honest flip is to "fail" with the PR that owns
+ * the fix named, not silence. What the contract rules out is a drive-by flip: an
+ * expectation edited to green without the behavior change and its cause on record in the
+ * same commit. See #91 for the sequence, #64 for why the harness is policy-level.
  *
  * Since PR 2 (byes from the schedule) the harness replays in two modes, each with its own
  * expectation column: the frozen fixture verbatim, and `--schedule-byes` — the same rows
  * with byes resolved from the schedule the way ingest now resolves them
  * (`applyTeamByes`). The pair brackets the bye fix: the frozen mode measures the engine on
  * the audit's data (403 null byes, now each charged as an assumed absent week), the
- * schedule-byes mode measures it on the data a rebuilt board carries. Measured flips so
+ * schedule-byes mode measures it on the same board with only the byes a rebuilt board
+ * would carry — every other column stays at the frozen build's values. Measured flip so
  * far: (a) passes in both modes — charging the null byes alone removed the subsidy that
- * led Gainwell to 2.06, and the panel takes Barkley, the audit's displayed runner-up —
- * and (c) split, failing frozen and passing with schedule byes; the definitions below
- * record both mechanisms.
+ * led Gainwell to 2.06, and the panel takes Barkley, the audit's displayed runner-up.
+ * The definitions below record each check's mechanism.
  *
  * ## Where the replay and the audit's transcript agree, and where they cannot
  *
@@ -537,20 +540,23 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     id: "c",
     title:
       "no same-position pick on consecutive own turns where the second outranks the first",
-    // The one check whose two columns disagree, and the disagreement is the measurement.
-    // PR 1 measured this passing (the audit's Goff→Nix pair was click timing, not
-    // policy). PR 2's sim change re-surfaced it on the *frozen* board: with 403 null
-    // byes each charged as an assumed week, the tie ordering churns and 11.05 takes
-    // Hunter Henry (board #120) with Colby Parkinson (#84) taken next — the engine
-    // outbidding itself again. Resolve the byes from the schedule (`--schedule-byes`)
-    // and the churn disappears, which isolates the residual as tie-noise on top of bye
-    // noise. The frozen column stays "fail" until #91's PR 4 ranks ties by the paired
-    // comparison; the schedule-byes column is the regression lock on today's pass.
-    expected: "fail",
+    // Measured passing in both modes, with a caution flag on file: PR 1 measured it
+    // passing (the audit's Goff→Nix pair was click timing, not policy), and an interim
+    // draft of PR 2 briefly re-surfaced the churn on the frozen board — its assumed-bye
+    // draw spanned the playoff bracket, and that extra noise in the tie ordering was
+    // enough to make 11.05 take a TE the next pick outranked. Restricting the draw to
+    // weeks a bye can legally occupy removed it. The lesson stands even though the
+    // failure did not survive review: this check sits one noise source away from
+    // failing, which is exactly #91 PR 4's case for ranking ties by the paired
+    // comparison. Armed in both columns as the regression lock.
+    //
+    // The audit string below is only the browser run's observation; PR 1's replay did
+    // not reproduce the Goff→Nix pair (click timing, measured, per #91).
+    expected: "pass",
     expectedWithScheduleByes: "pass",
     audit:
-      "the browser run took Goff 10.06 then Nix 11.05 (Nix starts, the round-10 pick " +
-      "benched); the deterministic replay does not reproduce that pair — measured, per #91",
+      "the browser run took Goff 10.06 then Nix 11.05 — Nix starts, the round-10 pick " +
+      "benched",
   },
   {
     id: "d",

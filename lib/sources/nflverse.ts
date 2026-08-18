@@ -300,6 +300,7 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
 
   private readonly fetchText: TextFetcher;
   private schedulesCache: CsvRow[] | null = null;
+  private contestsCache: Contest[] | null = null;
 
   constructor(fetchText: TextFetcher = httpTextFetcher) {
     this.fetchText = fetchText;
@@ -643,10 +644,10 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   }
 
   async contestsForPeriod(period: Period): Promise<ProviderResult<Contest[]>> {
-    const rows = await this.schedules();
-    if (!rows.ok) return failed(rows.reason, rows.cause);
+    const all = await this.allContests();
+    if (!all.ok) return all;
     return ok(
-      parseContests(rows.data).filter(
+      all.data.filter(
         (c) => c.period.season === period.season && c.period.index === period.index,
       ),
     );
@@ -659,11 +660,21 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
     return ok(parseMarketLines(rows.data).filter((line) => wanted.has(line.contestId)));
   }
 
-  /** Every contest across all seasons. */
+  /**
+   * Every contest across all seasons, parsed once per provider.
+   *
+   * The raw rows were already cached, but the *parse* was not — and `parseContests`
+   * resolves an Eastern wall-clock per row through `Intl.DateTimeFormat`, which is the
+   * expensive part. `refreshDraftBoards` now calls this once per board shape inside a
+   * single action (33 shapes over a ~7,000-row file), which is exactly the repeated-work
+   * shape the one-provider-per-run comment there exists to prevent.
+   */
   async allContests(): Promise<ProviderResult<Contest[]>> {
+    if (this.contestsCache) return ok(this.contestsCache);
     const rows = await this.schedules();
     if (!rows.ok) return failed(rows.reason, rows.cause);
-    return ok(parseContests(rows.data));
+    this.contestsCache = parseContests(rows.data);
+    return ok(this.contestsCache);
   }
 
   async allMarketLines(): Promise<ProviderResult<MarketLine[]>> {

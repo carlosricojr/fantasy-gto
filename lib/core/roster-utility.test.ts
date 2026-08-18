@@ -62,6 +62,18 @@ function player(
   };
 }
 
+describe("the no-bye control", () => {
+  it("lies outside every span this file simulates", () => {
+    // Week 18 is a real NFL week that `PlayerRisk.byeWeek` legitimately carries, so the
+    // control is only sound while no fixture here simulates it. The longest span in this
+    // file is the seventeen-week SEASON of the availability tests; if a league ending in
+    // week 18 ever appears in these tests, this is the assertion that says the default
+    // bye silently moved in-season and every golden value below it moved too.
+    expect(WEEKS).not.toContain(BYE_OUTSIDE_SEASON);
+    expect(BYE_OUTSIDE_SEASON).toBeGreaterThan(17);
+  });
+});
+
 describe("fitLognormal", () => {
   it("reproduces the quantiles it was fitted to", () => {
     const { mu, sigma } = fitLognormal(0.269, 1.901);
@@ -418,17 +430,28 @@ describe("simulateAvailability", () => {
       );
       return SEASON[weeks.indexOf(false)];
     };
-    const seen = new Set<number>();
-    for (let seed = 1; seed <= 400; seed += 1) seen.add(missedWeek(seed));
-    expect(seen.size).toBe(SEASON.length);
+    const counts = new Map<number, number>();
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const week = missedWeek(seed);
+      counts.set(week, (counts.get(week) ?? 0) + 1);
+    }
+    // Every week drawn, and none starved: uniform over 17 weeks puts ~23.5 draws on each,
+    // and the measured minimum at these seeds is 17. A draw that merely *touched* every
+    // week while concentrating on one would pass a support check and still charge one
+    // week systematically — the floor is what rules that out.
+    expect(counts.size).toBe(SEASON.length);
+    for (const count of counts.values()) expect(count).toBeGreaterThanOrEqual(10);
   });
 
   it("charges the assumed week on top of the injury chain too", () => {
     // The fragile-player mirror of the known-bye subtraction above: an unknown bye costs
-    // a fragile player the same expected week a known one does.
+    // a fragile player the same expected week a known one does. The bounds are chosen to
+    // discriminate: the target is 0.7529 (measured 0.7478 at these seeds), the unfixed
+    // rate is 0.8 with an estimator error under 0.009, and a `toBeCloseTo(…, 1)` band of
+    // ±0.05 would have accepted both.
     const rate = realizedRate(0.8, null);
-    expect(rate).toBeLessThan(0.8);
-    expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
+    expect(rate).toBeLessThan(0.78);
+    expect(rate).toBeGreaterThan(0.72);
   });
 });
 

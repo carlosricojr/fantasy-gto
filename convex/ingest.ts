@@ -806,8 +806,8 @@ export async function runBuildDraftBoard(
   unpriced: number;
   /**
    * Rows whose market-published bye disagreed with the schedule's. The schedule won;
-   * this figure exists so a feed gone stale is visible in the job's logs rather than
-   * silently outvoted.
+   * this figure exists so a feed gone stale is visible rather than silently outvoted —
+   * `refreshDraftBoards` sums it across shapes into its own returned record.
    */
   byeMismatches: number;
 }> {
@@ -832,11 +832,15 @@ export async function runBuildDraftBoard(
     const scheduleByes = teamByeWeeks(contestsResult.data, season);
     // Loudly, because falling back to the market feed here would rebuild the exact
     // coverage hole this derivation removes — and it would look like a healthy board.
+    // This catches only the wholly absent season (the annual window between the roster
+    // release and the schedule release, documented in docs/data-sources.md); a
+    // *truncated* season passes here and is caught by the teamed-null guard below, after
+    // the market fallback has had its chance.
     if (scheduleByes.size === 0) {
       throw new Error(
-        `The schedule yields no bye weeks for ${season} — either the season is not in ` +
-          `the schedule release yet or the release is truncated. A board built without ` +
-          `byes overvalues every row the market has not priced, so none was written.`,
+        `The schedule has no ${season} games, so no bye can be derived — the season is ` +
+          `not in the schedule release yet. A board built without byes overvalues every ` +
+          `row the market has not priced, so none was written.`,
       );
     }
     let byeMismatches = 0;
@@ -1151,6 +1155,28 @@ export async function runBuildDraftBoard(
       );
     }
 
+    // The acceptance criterion of the bye fix, enforced where it can fail: no *teamed*
+    // row may be written with a null bye. The size guard above cannot see a truncated
+    // schedule — a partial season derives byes for some teams and quietly leaves the
+    // rest to a market fallback that is null for exactly the market-absent rows #89.D
+    // is about. A teamless row may still carry null; the season simulation charges
+    // those an assumed week rather than a free one.
+    const teamsWithoutByes = [
+      ...new Set(
+        rows
+          .filter((row) => row.team !== null && row.byeWeek === null)
+          .map((row) => row.team as string),
+      ),
+    ].sort();
+    if (teamsWithoutByes.length > 0) {
+      throw new Error(
+        `No bye from any source for ${teamsWithoutByes.join(", ")} — the ${season} ` +
+          `schedule is truncated or lost its structure, and the market feed does not ` +
+          `price these rows. Writing them with null byes would re-open the missing-bye ` +
+          `subsidy, so nothing was written.`,
+      );
+    }
+
     const computedAt = Date.now();
     for (const batch of chunk(rows, WRITE_BATCH)) {
       await ctx.runMutation(internal.draft.upsertBoardBatch, {
@@ -1225,6 +1251,8 @@ export const refreshDraftBoards = internalAction({
     failed: string[];
     attempted?: number;
     skipped?: string;
+    /** Summed across shapes; nonzero means the market feed's byes have gone stale. */
+    byeMismatches?: number;
   }> => {
     const season = await ctx.runQuery(api.season.current, {});
     // The same season the draft page reads, from the same function, because these two
@@ -1254,6 +1282,7 @@ export const refreshDraftBoards = internalAction({
     const adpProvider = new AdpProvider();
 
     let rebuilt = 0;
+    let byeMismatches = 0;
     const failed: string[] = [];
     for (const scoringId of [...new Set(plan.shapes.map((s) => s.scoringId))]) {
       // The distinct published boards this scoring format's sizes need, warmed before the
@@ -1270,13 +1299,14 @@ export const refreshDraftBoards = internalAction({
         (shape) => shape.scoringId === scoringId,
       )) {
         try {
-          await runBuildDraftBoard(
+          const built = await runBuildDraftBoard(
             ctx,
             { season: target, scoringId, teams },
             provider,
             adpProvider,
           );
           rebuilt += 1;
+          byeMismatches += built.byeMismatches;
         } catch (error) {
           // One shape failing must not stop the rest: a market board can be missing for an
           // unusual league size while the common ones are fine. Each failure is already
@@ -1288,6 +1318,6 @@ export const refreshDraftBoards = internalAction({
         }
       }
     }
-    return { rebuilt, failed, attempted: plan.shapes.length };
+    return { rebuilt, failed, attempted: plan.shapes.length, byeMismatches };
   },
 });

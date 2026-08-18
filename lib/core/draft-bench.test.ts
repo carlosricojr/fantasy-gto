@@ -26,10 +26,14 @@ import { type DepthPlayer, coverValue } from "./draft-bench";
  */
 const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
 
+// Week zero is the explicit "no bye in any played week" control — a known bye no league
+// plays through, exactly what `coverValue`'s own baseline uses. It used to be `null`, but
+// null now means *unknown* and is charged an expected absent week, which would move every
+// hand-computed figure below.
 const p = (
   value: number,
   availability: number,
-  byeWeek: number | null = null,
+  byeWeek: number | null = 0,
 ): DepthPlayer => ({ value, availability, byeWeek });
 
 describe("coverValue diminishes as the same position is stacked", () => {
@@ -119,7 +123,7 @@ describe("a bye is an absence the depth model can see", () => {
     // has a bye inside the season and the other has none.
     const candidate = p(15, 0.95, 9);
     const withBye = coverValue([p(20, 0.95, 6)], candidate, 1, 8, WEEKS);
-    const withoutBye = coverValue([p(20, 0.95, null)], candidate, 1, 8, WEEKS);
+    const withoutBye = coverValue([p(20, 0.95, 0)], candidate, 1, 8, WEEKS);
     expect(withBye).toBeGreaterThan(withoutBye);
     // One week of fourteen, and the arithmetic is exact. In that week the starter is out
     // for certain, where in an ordinary week he is out with probability 0.05 — so the bye
@@ -138,11 +142,27 @@ describe("a bye is an absence the depth model can see", () => {
   });
 
   it("ignores a bye week outside the season", () => {
-    // A week nobody plays through is not a week to reserve a share of the average for.
+    // A week nobody plays through is not a week to reserve a share of the average for —
+    // any known out-of-season week prices identically to any other.
     expect(coverValue([p(20, 0.95, 18)], p(15, 0.95), 1, 8, WEEKS)).toBeCloseTo(
-      coverValue([p(20, 0.95, null)], p(15, 0.95), 1, 8, WEEKS),
+      coverValue([p(20, 0.95, 0)], p(15, 0.95), 1, 8, WEEKS),
       12,
     );
+  });
+
+  it("prices an unknown bye between sharing the starter's bye and certainly missing it", () => {
+    // The #89.D subsidy, closed on the heuristic side too. Three otherwise-identical
+    // backups behind a starter idle in week 6: one shares the bye (worthless in the one
+    // week cover matters), one is certainly present then (bye week 9), one has no bye
+    // listed. Unknown must land strictly between — his bye falls on the starter's with
+    // probability 1/14, not 0 and not 1. Before this change the unknown backup priced
+    // *above* the certainly-present one: missing data read as playing every week.
+    const starter = [p(20, 0.95, 6)];
+    const shared = coverValue(starter, p(15, 0.95, 6), 1, 8, WEEKS);
+    const unknown = coverValue(starter, p(15, 0.95, null), 1, 8, WEEKS);
+    const separate = coverValue(starter, p(15, 0.95, 9), 1, 8, WEEKS);
+    expect(unknown).toBeGreaterThan(shared);
+    expect(unknown).toBeLessThan(separate);
   });
 
   it("reads the weeks it is given, not their count", () => {
@@ -153,7 +173,7 @@ describe("a bye is an absence the depth model can see", () => {
     // because the argument used to be a count doing two jobs, and this is the job it did
     // only by coincidence.
     const gappy = [...Array.from({ length: 12 }, (_, i) => i + 1), 14, 15];
-    const noBye = coverValue([p(20, 0.95, null)], p(15, 0.95), 1, 8, gappy);
+    const noBye = coverValue([p(20, 0.95, 0)], p(15, 0.95), 1, 8, gappy);
     expect(coverValue([p(20, 0.95, 14)], p(15, 0.95), 1, 8, gappy)).toBeGreaterThan(noBye);
     expect(coverValue([p(20, 0.95, 13)], p(15, 0.95), 1, 8, gappy)).toBeCloseTo(noBye, 12);
   });

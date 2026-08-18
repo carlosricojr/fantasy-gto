@@ -176,31 +176,47 @@ function drawPoints(player: PlayerRisk, rng: Rng): number {
  * null`) is not the absence of one: every team sits out a week, and reading null as
  * "plays every week" paid a free week of season value to exactly the players whose data
  * was worst — the #89.D subsidy. So a null bye is charged as a probabilistic absence in
- * an unknown week: each scenario draws one assumed bye week uniformly from the simulated
- * weeks, from the player's own stream, which keeps the expected cost at one week while
- * admitting the week itself is not known. The draw is per scenario and per player, so
- * common random numbers still hold — the same player misses the same assumed week in
- * both rosters of a comparison.
+ * an unknown week: each scenario draws one assumed bye week uniformly, from the player's
+ * own stream, which keeps the expected cost at one week while admitting the week itself
+ * is not known. The draw is per scenario and per player, so common random numbers still
+ * hold — the same player misses the same assumed week in both rosters of a comparison.
+ *
+ * `byeCandidateWeeks` is where the assumed week may fall, defaulting to the whole
+ * simulated span. A caller whose span includes weeks a real bye cannot occupy — the
+ * season simulation appends the playoff bracket, where the league schedules no byes at
+ * all — passes the narrower list, or the draw would charge bracket rounds a team fact
+ * that cannot land there.
+ *
+ * One admitted limit: the draws are independent per player, so two unknown-bye teammates
+ * — who in reality share one bye with certainty — collide only at 1/|candidates|.
+ * `PlayerRisk` carries no team, so the correlation cannot be modeled here; after the
+ * schedule-derivation fix, unknown byes are rare enough (teamless rows only) that the
+ * error is confined to players who may not have a shared team at all.
  */
 export function simulateAvailability(
   player: PlayerRisk,
   weeks: readonly number[],
   meanAbsenceWeeks: number,
   rng: Rng,
+  byeCandidateWeeks: readonly number[] = weeks,
 ): boolean[] {
   const availability = Math.min(Math.max(player.availability, 0), 1);
   const r = 1 / Math.max(meanAbsenceWeeks, 1);
 
   // A player who never plays is a fixed state, not a chain — solving for `q` divides by
-  // zero and yields Infinity. Returning before the assumed-bye draw is fine: no later
-  // draw exists for it to desynchronize, because every week is already an absence.
+  // zero and yields Infinity. Returning before the assumed-bye draw keeps common random
+  // numbers intact for a subtler reason than "nothing follows": point draws do follow on
+  // this same stream, but the branch depends only on the player's own fields, so both
+  // rosters of any comparison skip the bye draw together — and the skipped player's
+  // points are never read, because he is available in no week.
   if (availability <= 0) return weeks.map(() => false);
 
   // Drawn before the chain starts, so a null-bye player consumes one extra draw whether
   // the chain runs or the `availability >= 1` shortcut does. `rng.next()` is on [0, 1),
-  // so the index never reaches `weeks.length`.
+  // so the index never reaches the candidate count.
+  const candidates = byeCandidateWeeks.length > 0 ? byeCandidateWeeks : weeks;
   const byeWeek =
-    player.byeWeek ?? weeks[Math.floor(rng.next() * weeks.length)] ?? null;
+    player.byeWeek ?? candidates[Math.floor(rng.next() * candidates.length)] ?? null;
 
   if (availability >= 1) {
     return weeks.map((week) => week !== byeWeek);
@@ -241,6 +257,8 @@ export function drawWeek(
   meanAbsenceWeeks: number,
   seed: number,
   scenario: number,
+  /** Where an unknown bye may fall — see `simulateAvailability`. */
+  byeCandidateWeeks: readonly number[] = weeks,
 ): number[] {
   // Every player draws his availability and his points for every week, from his own
   // stream, before anything is filtered. Drawing only for the weeks he turns out to be fit
@@ -248,7 +266,13 @@ export function drawWeek(
   // that is precisely what desynchronized the comparison.
   const draws = roster.map((player) => {
     const rng = playerStream(player.id, seed, scenario);
-    const available = simulateAvailability(player, weeks, meanAbsenceWeeks, rng);
+    const available = simulateAvailability(
+      player,
+      weeks,
+      meanAbsenceWeeks,
+      rng,
+      byeCandidateWeeks,
+    );
     const points = weeks.map(() => drawPoints(player, rng));
     return { player, available, points };
   });

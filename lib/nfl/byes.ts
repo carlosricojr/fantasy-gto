@@ -31,6 +31,13 @@ export function teamByeWeeks(
   season: number,
 ): Map<string, number> {
   const weeksPlayed = new Map<string, Set<number>>();
+  // A mutation run reports the `0` initializer, the `>` in the max, and the `??` on the
+  // Set lookup as survivors, and all three are genuinely equivalent rather than coverage
+  // gaps: real week numbers start at 1, so any initializer at or below 1 yields the same
+  // maximum (and with no season contests, `weeksPlayed` is empty and the sweep below
+  // visits nobody, whatever `lastWeek` says); `>=` differs from `>` only in re-assigning
+  // an equal value; and the lookup produces a `Set` or `undefined`, never a falsy `Set`,
+  // so `||` and `??` cannot disagree.
   let lastWeek = 0;
   for (const contest of contests) {
     if (contest.period.season !== season) continue;

@@ -498,9 +498,15 @@ describe("unexpectedOutcomes", () => {
 
     // Flip one check each way: an unexpected pass and an unexpected failure both ring.
     // The flipped checks are picked by their documented expectation rather than by id,
-    // so this test survives a fix PR flipping a particular check's column.
-    const knownFail = CHECK_DEFINITIONS.find((d) => d.expected === "fail")!;
-    const knownPass = CHECK_DEFINITIONS.find((d) => d.expected === "pass")!;
+    // so this test survives a fix PR flipping a particular check's column. Asserted
+    // before use so the protocol's end state — every check expected to pass — fails
+    // this test with an instruction to construct a synthetic definition, not with a
+    // TypeError.
+    const knownFail = CHECK_DEFINITIONS.find((d) => d.expected === "fail");
+    const knownPass = CHECK_DEFINITIONS.find((d) => d.expected === "pass");
+    expect(knownFail, "no expected-fail check left; flip one synthetically here").toBeDefined();
+    expect(knownPass, "no expected-pass check left; flip one synthetically here").toBeDefined();
+    if (knownFail === undefined || knownPass === undefined) return;
     const surprisePass = outcomes.map((outcome) =>
       outcome.id === knownFail.id ? { ...outcome, status: "pass" as const } : outcome,
     );
@@ -758,13 +764,13 @@ describe("evaluateChecks", () => {
       "e",
       "f",
     ]);
-    // Frozen fixture: (a) flipped to pass by PR 2's assumed-bye charge; (c) fails —
-    // the same charge re-surfaced tie churn on the board's 403 null byes.
+    // Both modes, as measured after PR 2: (a) flipped to pass by the assumed-bye
+    // charge, (c) measured passing with its near-miss on record in the definition, and
+    // the four structural findings — streamable positions, market-round distance, WR
+    // count, leader inversion — remain known failures for PRs 4 and 5.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:pass", "b:fail", "c:fail", "d:fail", "e:fail", "f:fail"]);
-    // Schedule-byes mode: the same board with byes resolved — the churn behind (c)
-    // disappears with the bye noise, and the four structural findings remain.
+    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:fail"]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
     ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:fail"]);

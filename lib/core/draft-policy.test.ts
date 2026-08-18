@@ -66,6 +66,13 @@ const CONFIG: LeagueConfig = {
  */
 const BYE_OUTSIDE_SEASON = 18;
 
+describe("the no-bye control", () => {
+  it("lies outside every span this file simulates", () => {
+    expect([...CONFIG.weeks, ...CONFIG.playoffWeeks]).not.toContain(BYE_OUTSIDE_SEASON);
+    expect(WEEKS).not.toContain(BYE_OUTSIDE_SEASON);
+  });
+});
+
 function player(
   id: string,
   position: string,

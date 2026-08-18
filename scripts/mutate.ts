@@ -165,6 +165,7 @@ const DEFAULT_TARGETS = [
   "lib/core/roster-utility.ts",
   "lib/core/season-sim.ts",
   "lib/core/draft-policy.ts",
+  "lib/core/draft-bench.ts",
   "lib/core/draft-speculation.ts",
   "lib/core/draft-memo.ts",
   "lib/core/rng.ts",

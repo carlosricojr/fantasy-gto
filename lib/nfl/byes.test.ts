@@ -55,12 +55,30 @@ describe("teamByeWeeks", () => {
   it("reads only the requested season", () => {
     // Both seasons are present, as they are in the real schedule file, and PHI's bye
     // differs between them. Skipping the season filter merges the two week sets, no week
-    // is missing, and every bye vanishes — so this also pins that a team playing every
-    // week of the span gets no entry rather than a fabricated one.
+    // is missing, and every bye vanishes.
     const contests = [...seasonSchedule(2025, 5, 6), ...seasonSchedule(2026, 9, 7)];
     expect(teamByeWeeks(contests, 2026).get("PHI")).toBe(9);
     expect(teamByeWeeks(contests, 2025).get("PHI")).toBe(5);
     expect(teamByeWeeks([...seasonSchedule(2026, 9, 7)], 2025).size).toBe(0);
+  });
+
+  it("gives a team playing every week of the span no entry at all", () => {
+    // No bye is not a bye of week zero, or of any week — an eighteen-game slate with no
+    // idle week (not a real NFL shape, but a possible feed defect) must yield nothing
+    // rather than a fabricated number.
+    const noByes: Contest[] = [];
+    for (let week = 1; week <= 18; week += 1) noByes.push(contest(2026, week, "PHI", "DAL"));
+    const byes = teamByeWeeks(noByes, 2026);
+    expect(byes.has("PHI")).toBe(false);
+    expect(byes.has("DAL")).toBe(false);
+  });
+
+  it("derives a bye in the final week of the span", () => {
+    // The span's upper boundary, inclusive. Real byes never land in the last scheduled
+    // week, which is exactly why only a test can hold this edge: an off-by-one that
+    // stops the sweep before `lastWeek` loses precisely this bye and nothing else.
+    const byes = teamByeWeeks(seasonSchedule(2026, 18, 7), 2026);
+    expect(byes.get("PHI")).toBe(18);
   });
 
   it("derives from a truncated schedule only what the truncation can support", () => {

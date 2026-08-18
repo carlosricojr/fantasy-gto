@@ -23,15 +23,19 @@ import { parseContests } from "@/lib/sources/nflverse";
 /**
  * The mock-draft harness: the #88/#89 audit as a command.
  *
- * `pnpm draft-mock`                      replay the audit draft on the frozen board and score it
+ * `pnpm draft-mock`                      replay BOTH modes and enforce both scoreboards
  * `pnpm draft-mock -- --log`             also print all 160 picks, not only ours
- * `pnpm draft-mock -- --schedule-byes`   same frozen board, byes resolved from the schedule
+ * `pnpm draft-mock -- --frozen`          only the frozen-board replay (fast iteration)
+ * `pnpm draft-mock -- --schedule-byes`   only the schedule-byes replay
  *
- * The second mode is #91 PR 2's measurement: the frozen fixture is the audit's record and
- * is never regenerated, so the ingest fix's effect on the replay is measured by applying
- * the same pure bye derivation (`teamByeWeeks` over the frozen 2026 schedule fixture) to
- * the frozen rows at load time. Each mode carries its own expectation column in
- * `CHECK_DEFINITIONS`, enforced by the same exit contract.
+ * The schedule-byes mode is #91 PR 2's measurement: the frozen fixture is the audit's
+ * record and is never regenerated, so the ingest fix's effect on the replay is measured
+ * by applying the same pure bye derivation (`teamByeWeeks` over the frozen 2026 schedule
+ * fixture) to the frozen rows at load time. Each mode carries its own expectation column
+ * in `CHECK_DEFINITIONS`, and the default invocation replays *both* — a column enforced
+ * only when somebody remembers a flag is not a lock, and the two columns are expected to
+ * diverge as later PRs land mode-sensitive fixes. The single-mode flags exist for
+ * iteration speed and carry the same contract for the one column they run.
  *
  * Nine opponents draft strictly by ADP; seat 5 takes the recommendation panel's #1 every
  * turn, exactly as the audit's browser automation did. The board is frozen under
@@ -42,10 +46,13 @@ import { parseContests } from "@/lib/sources/nflverse";
  * Each check carries a **documented expectation per mode** in `lib/nfl/draft/mock.ts`,
  * with the audit's observed numbers alongside. As measured after PR 2: (a) passes in
  * both modes (the null-bye charge removed the subsidy that led Gainwell to 2.06), (c)
- * fails frozen and passes with schedule byes (tie churn re-surfaced by the assumed-bye
- * noise, PR 4's target), and (b), (d), (e), (f) remain known failures. The PR that fixes
- * a finding flips its expectation in the same commit (#91's table says which PR owns
- * which check). The exit code enforces the contract in both directions:
+ * passes in both (with a near-miss on record in its definition — tie churn is one noise
+ * source away, PR 4's target), and (b), (d), (e), (f) remain known failures. The PR that fixes
+ * a finding flips its expectation in the same commit — #91's table says which PR owns
+ * which check, with one recorded exception: (a) was assigned to PR 3's market gate and
+ * flipped early, because PR 2's bye charge alone removed it on this board (the gate is
+ * still owed as the structural guarantee). The exit code enforces the contract in both
+ * directions:
  *
  *  - a check failing as expected is the documented state — exit 0;
  *  - a check *passing* while expected to fail means a fix landed without flipping its
@@ -171,53 +178,40 @@ function boardWithScheduleByes(rows: readonly MockBoardRow[]): MockBoardRow[] {
   return applyTeamByes(rows, byes);
 }
 
-function main(): void {
-  const showFullLog = process.argv.includes("--log");
-  const mode: ReplayMode = process.argv.includes("--schedule-byes")
-    ? "schedule-byes"
-    : "frozen";
+/** The expectation column a mode reads, by the name a fixer has to type. */
+function columnName(mode: ReplayMode): string {
+  return mode === "frozen" ? "expected" : "expectedWithScheduleByes";
+}
 
-  const fixture = parseBoardFixture(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
-  const mismatch = fixtureLeagueMismatch(fixture, {
-    season: SEASON,
-    scoringId: SCORING_ID,
-    teams: TEAMS,
-  });
-  if (mismatch !== null) throw new Error(mismatch);
-
+/** Replays one mode, prints its section, and returns the outcomes that ring the alarm. */
+function runMode(
+  mode: ReplayMode,
+  fixture: ReturnType<typeof parseBoardFixture>,
+  config: LeagueConfig,
+  showFullLog: boolean,
+): CheckOutcome[] {
   const board = mode === "frozen" ? fixture.rows : boardWithScheduleByes(fixture.rows);
-  const byesResolved = board.filter(
-    (row, index) => row.byeWeek !== fixture.rows[index].byeWeek,
-  ).length;
-
-  const slots = slotsForTemplate(TEMPLATE_ID);
-  const config: LeagueConfig = {
-    slots,
-    ...fantasySeasonWeeks(CHAMPIONSHIP_WEEK, PLAYOFF_TEAMS),
-    playoffTeams: PLAYOFF_TEAMS,
-    scenarios: SCENARIOS,
-    meanAbsenceWeeks: 3,
-  };
-
-  process.stdout.write(
-    `mock draft replay — strict-ADP opponents vs the recommendation panel\n\n` +
-      `inputs\n` +
-      `  board  ${fixture.rows.length} players (${positionSummary(fixture.rows)})\n` +
-      `         frozen from ${fixture.source}\n` +
-      `         computedAt ${new Date(fixture.computedAt).toISOString()}\n` +
-      (mode === "schedule-byes"
-        ? `  mode   schedule-byes: byes resolved from tests/fixtures/games_2026.csv at ` +
-          `load (${byesResolved} of ${fixture.rows.length} rows filled; ` +
-          `the fixture file is untouched)\n`
-        : ``) +
-      `  league ${TEAMS} teams, seat ${SLOT}, ${ROUNDS} rounds, ${SCORING_ID}, ` +
-      `${TEMPLATE_ID} (${slots.length} starters), top ${PLAYOFF_TEAMS}, ` +
-      `final week ${CHAMPIONSHIP_WEEK}\n` +
-      `  engine seed ${SEED}, ${SCENARIOS} scenarios, ${CANDIDATES} candidates — ` +
-      `the /draft page's own constants\n` +
-      `  policy opponents take the lowest ADP, unranked players last; ` +
-      `we take the panel's #1\n\n`,
-  );
+  if (mode === "schedule-byes") {
+    // "Resolved", counted by kind: on this fixture every change is a fill (the pinned
+    // 213-agree/0-disagree cross-check), but `applyTeamByes` also overwrites a
+    // disagreeing market bye, and a label that only ever says "filled" would misreport
+    // the day the feed drifts.
+    const filled = board.filter(
+      (row, index) => fixture.rows[index].byeWeek === null && row.byeWeek !== null,
+    ).length;
+    const overwritten = board.filter(
+      (row, index) =>
+        fixture.rows[index].byeWeek !== null &&
+        row.byeWeek !== fixture.rows[index].byeWeek,
+    ).length;
+    process.stdout.write(
+      `mode: schedule-byes — byes resolved from tests/fixtures/games_2026.csv at load\n` +
+        `  ${filled} null byes filled, ${overwritten} market byes overwritten, of ` +
+        `${fixture.rows.length} rows; the fixture file is untouched\n\n`,
+    );
+  } else {
+    process.stdout.write(`mode: frozen — the audit board verbatim\n\n`);
+  }
 
   const started = process.hrtime.bigint();
   const replay = replayAdpMockDraft(board, {
@@ -250,8 +244,8 @@ function main(): void {
         `every outcome matches its documented ${mode} expectation.\n` +
         (failing > 0
           ? `The failures are the audit's findings, regression-locked; ` +
-            `#91 says which PR flips which.\n`
-          : ``),
+            `#91 says which PR flips which.\n\n`
+          : `\n`),
     );
   } else {
     process.stdout.write(
@@ -259,11 +253,82 @@ function main(): void {
         `expectation: ` +
         `${unexpected.map((outcome) => `(${outcome.id}) expected ` +
           `${expectationFor(outcome, mode)}, got ${outcome.status}`).join("; ")}\n` +
-        `An unexpected pass means a fix landed without flipping its expectation in ` +
-        `lib/nfl/draft/mock.ts. An unexpected failure is a regression.\n`,
+        `An unexpected pass means a fix landed without flipping \`${columnName(mode)}\` ` +
+        `in lib/nfl/draft/mock.ts. An unexpected failure is a regression.\n\n`,
+    );
+  }
+  return unexpected;
+}
+
+function main(): void {
+  const args = process.argv.slice(2).filter((a) => a !== "--");
+  // Rejected rather than defaulted: `--schedule-bye` or `--scheduleByes` silently
+  // downgrading to a green frozen run would publish a number for work that did not
+  // happen — the exact defect class `scripts/mutate.ts`'s `--limit` guard documents.
+  const KNOWN_FLAGS = ["--log", "--frozen", "--schedule-byes"];
+  const unknown = args.filter((a) => !KNOWN_FLAGS.includes(a));
+  if (unknown.length > 0) {
+    process.stderr.write(
+      `Unknown argument(s): ${unknown.join(", ")}. Known flags: ${KNOWN_FLAGS.join(", ")}.\n`,
     );
     process.exitCode = 1;
+    return;
   }
+  const showFullLog = args.includes("--log");
+  if (args.includes("--frozen") && args.includes("--schedule-byes")) {
+    process.stderr.write(
+      `--frozen and --schedule-byes are each a single-mode filter; ` +
+        `to run both modes, pass neither.\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  // Both by default. Each mode's expectation column is a regression lock, and a lock in
+  // a mode nothing runs is not one — (c) is currently locked only by schedule-byes.
+  const modes: ReplayMode[] = args.includes("--frozen")
+    ? ["frozen"]
+    : args.includes("--schedule-byes")
+      ? ["schedule-byes"]
+      : ["frozen", "schedule-byes"];
+
+  const fixture = parseBoardFixture(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
+  const mismatch = fixtureLeagueMismatch(fixture, {
+    season: SEASON,
+    scoringId: SCORING_ID,
+    teams: TEAMS,
+  });
+  if (mismatch !== null) throw new Error(mismatch);
+
+  const slots = slotsForTemplate(TEMPLATE_ID);
+  const config: LeagueConfig = {
+    slots,
+    ...fantasySeasonWeeks(CHAMPIONSHIP_WEEK, PLAYOFF_TEAMS),
+    playoffTeams: PLAYOFF_TEAMS,
+    scenarios: SCENARIOS,
+    meanAbsenceWeeks: 3,
+  };
+
+  process.stdout.write(
+    `mock draft replay — strict-ADP opponents vs the recommendation panel\n\n` +
+      `inputs\n` +
+      `  board  ${fixture.rows.length} players (${positionSummary(fixture.rows)})\n` +
+      `         frozen from ${fixture.source}\n` +
+      `         computedAt ${new Date(fixture.computedAt).toISOString()}\n` +
+      `  league ${TEAMS} teams, seat ${SLOT}, ${ROUNDS} rounds, ${SCORING_ID}, ` +
+      `${TEMPLATE_ID} (${slots.length} starters), top ${PLAYOFF_TEAMS}, ` +
+      `final week ${CHAMPIONSHIP_WEEK}\n` +
+      `  engine seed ${SEED}, ${SCENARIOS} scenarios, ${CANDIDATES} candidates — ` +
+      `the /draft page's own constants\n` +
+      `  policy opponents take the lowest ADP, unranked players last; ` +
+      `we take the panel's #1\n` +
+      `  modes  ${modes.join(", ")}\n\n`,
+  );
+
+  let alarms = 0;
+  for (const mode of modes) {
+    alarms += runMode(mode, fixture, config, showFullLog).length;
+  }
+  if (alarms > 0) process.exitCode = 1;
 }
 
 main();

@@ -613,7 +613,7 @@ describe("byes come from the schedule", () => {
     // Falling back to the market feed here would quietly rebuild the exact coverage hole
     // this derivation removes, on a board that looks healthy in every other respect.
     await expect(build(ONE_ROW_EACH, gamesCsvWithoutDraftSeason())).rejects.toThrow(
-      /schedule yields no bye weeks/,
+      /has no 2026 games/,
     );
   });
 });

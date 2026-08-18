@@ -158,6 +158,17 @@ demoted to a fallback (`convex/ingest.ts` counts any disagreement as `byeMismatc
 `tests/fixtures/games_2026.csv` freezes the 2026 regular-season rows (the ten columns
 `parseContests` reads) for the draft-mock harness's `--schedule-byes` mode.
 
+**Operator note — the annual roster-before-schedule window.** The draft-board build now
+*requires* derivable byes and fails loudly without them, in two distinguishable ways: "no
+games for the season" (the drafted season is not in the schedule release yet) and "no bye
+from any source for &lt;teams&gt;" (the release is truncated, or a team's idle week is
+ambiguous, and the market feed does not price the affected rows). The first is an expected
+annual state: `draftSeasonFor` flips to the next season as soon as the current one ends,
+while nflverse publishes the next `games.csv` rows only at the May schedule release — in
+that window every board shape fails to rebuild, by design, rather than shipping boards
+whose market-absent rows carry the #89.D null-bye subsidy. The previous board stays
+published throughout; `refreshDraftBoards` records the failure per shape.
+
 ### 1.2a Historical coverage — a present column is not a populated one
 
 Verified 2026-08-05 by direct request, parsed with this repository's own CSV reader.

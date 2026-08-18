@@ -75,6 +75,16 @@ function roster(tag: string, strength: number, spread?: { p10: number; p90: numb
   ];
 }
 
+describe("the no-bye control", () => {
+  it("lies outside every span this file simulates", () => {
+    // The latest final any league here plays is week 17 (`fantasySeasonWeeks(17, …)`),
+    // so a default bye of 18 provably never lands in-season. This is what keeps every
+    // fixture built from `player()` bye-free in fact and not merely by intent.
+    expect([...CONFIG.weeks, ...CONFIG.playoffWeeks]).not.toContain(BYE_OUTSIDE_SEASON);
+    expect(BYE_OUTSIDE_SEASON).toBeGreaterThan(17);
+  });
+});
+
 describe("roundRobinSchedule", () => {
   it("pairs every team exactly once each week", () => {
     const schedule = roundRobinSchedule(12, 14);
@@ -678,6 +688,9 @@ describe("a bye after the final costs nothing at all", () => {
     // Week 16, 17 and 18 are real NFL weeks that this league does not play. Bit-identical,
     // asserted with `toEqual` on the whole sample rather than on a probability, because a
     // probability could agree by luck and a full scenario table cannot.
+    // The baseline is itself a past-the-final bye, so the claim under test — inertness —
+    // has to hold for it too; asserted the same way as for the weeks compared against it.
+    expect(16).toBeGreaterThan(config.playoffWeeks[config.playoffWeeks.length - 1]);
     const baseline = sampleTeamWeeklyScores(withBye(16), config, 11);
     for (const byeWeek of [17, 18]) {
       expect(byeWeek).toBeGreaterThan(config.playoffWeeks[config.playoffWeeks.length - 1]);
@@ -701,6 +714,42 @@ describe("a bye after the final costs nothing at all", () => {
     // #89.D subsidy this pins shut.
     const baseline = sampleTeamWeeklyScores(withBye(16), config, 11);
     expect(sampleTeamWeeklyScores(withBye(null), config, 11)).not.toEqual(baseline);
+  });
+
+  it("never lands the assumed bye in a bracket round", () => {
+    // A real bye cannot fall in the playoffs — the league schedules none there — so
+    // `sampleTeamWeeklyScores` restricts the assumed-week draw to the regular season.
+    // Pinned observationally because this is the property that once reverted without a
+    // single test objecting: an ironman with no spread scores his mean in every week he
+    // plays, so the one zero per scenario is the assumed bye, and its index must always
+    // fall before the bracket starts.
+    const ironman: PlayerRisk = {
+      id: "iron",
+      name: "iron",
+      position: "RB",
+      weeklyMean: 10,
+      p10: 1,
+      p90: 1,
+      byeWeek: null,
+      availability: 1,
+    };
+    const soloSlots: RosterSlot[] = [{ id: "rb", label: "RB", eligiblePositions: ["RB"] }];
+    const soloConfig: LeagueConfig = {
+      slots: soloSlots,
+      weeks: [1, 2, 3, 4, 5, 6, 7, 8],
+      playoffWeeks: [9, 10],
+      playoffTeams: 4,
+      scenarios: 200,
+      meanAbsenceWeeks: 3,
+    };
+    const scenarios = sampleTeamWeeklyScores([ironman], soloConfig, 7);
+    for (const weekly of scenarios) {
+      const zeroIndexes = weekly
+        .map((points, index) => (points === 0 ? index : -1))
+        .filter((index) => index !== -1);
+      expect(zeroIndexes).toHaveLength(1);
+      expect(zeroIndexes[0]).toBeLessThan(soloConfig.weeks.length);
+    }
   });
 
   it("cannot make a roster score more in the standings by losing a week", () => {
