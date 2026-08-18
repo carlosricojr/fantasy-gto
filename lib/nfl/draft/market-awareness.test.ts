@@ -224,9 +224,10 @@ describe("joinMarketAwareness", () => {
     // `undefined` and `null` say the same thing about the player. Reading absent as
     // priced would skip the row into neither `unmatched` nor `ambiguities` — the one
     // outcome this module refuses everywhere else.
-    const { adp: _dropped, ...withoutAdp } = boardRow();
+    const withoutAdp: Record<string, unknown> = { ...boardRow() };
+    delete withoutAdp.adp;
     const { byPlayerId } = joinMarketAwareness(
-      [withoutAdp as AwarenessBoardRow],
+      [withoutAdp as unknown as AwarenessBoardRow],
       [sourceRow()],
     );
     expect(byPlayerId.get("p1")?.searchRank).toBe(86);

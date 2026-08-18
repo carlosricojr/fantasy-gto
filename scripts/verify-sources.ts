@@ -70,16 +70,27 @@ async function cached(url: string): Promise<string> {
   return text;
 }
 
-/** `cached`, with the directory chosen by the caller — the same on-disk contract. */
-async function cachedIn(dir: string, name: string, url: string): Promise<string> {
+/**
+ * Fetched every run, never served from disk — the opposite contract to `cached`.
+ *
+ * The nflverse releases above are published artifacts: last season's file is the same
+ * file today, so caching them makes a re-run fast and offline without making it stale.
+ * A search-relevance ordering is not that. Serving yesterday's copy would report
+ * yesterday's coverage under today's date, which is precisely the failure this script
+ * exists to prevent — and it would do it silently, since the figures look no different.
+ *
+ * The copy on disk is written for inspection after the fact and is never read back. A
+ * failed fetch therefore fails the check rather than falling back: this section measures
+ * a live feed and cannot be reproduced offline, which is a limitation worth stating
+ * loudly rather than papering over with a stale number.
+ */
+async function fetchedFresh(dir: string, name: string, url: string): Promise<string> {
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, name);
-  if (existsSync(file)) return readFileSync(file, "utf8");
-  process.stdout.write(`  downloading ${name}...\n`);
+  process.stdout.write(`  fetching ${name} (live — never cached)...\n`);
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) throw new Error(`${url} responded ${response.status}`);
   const text = await response.text();
-  writeFileSync(file, text);
+  writeFileSync(join(dir, name), text);
   return text;
 }
 
@@ -100,7 +111,7 @@ async function verifySleeperAwareness(): Promise<void> {
   process.stdout.write(
     `\n${"=".repeat(78)}\nSleeper players dump: market-awareness coverage\n${"=".repeat(78)}\n`,
   );
-  const raw = await cachedIn(SLEEPER_CACHE_DIR, "players_nfl.json", sleeperPlayersUrl());
+  const raw = await fetchedFresh(SLEEPER_CACHE_DIR, "players_nfl.json", sleeperPlayersUrl());
   const payload: unknown = JSON.parse(raw);
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
     throw new Error("the Sleeper players dump is not the object the parser expects");
@@ -113,7 +124,11 @@ async function verifySleeperAwareness(): Promise<void> {
   const ranked = skill.filter((row) => row.searchRank !== null && row.team !== null);
   const withDepth = ranked.filter((row) => row.depthChartOrder !== null);
   process.stdout.write(
-    `  payload ${raw.length.toLocaleString()} bytes, ${entries.toLocaleString()} entries\n` +
+    // `Buffer.byteLength`, not `raw.length`: the latter counts UTF-16 code units, and
+    // the dump carries accented names — so a string length labelled "bytes" understates
+    // the payload by however many non-ASCII characters it happens to hold.
+    `  payload ${Buffer.byteLength(raw, "utf8").toLocaleString()} bytes, ` +
+      `${entries.toLocaleString()} entries\n` +
       `  parsed ${rows.length.toLocaleString()} rows ` +
       `(${entries - rows.length} skipped for no usable name or position)\n` +
       `  skill rows (QB/RB/WR/TE by fantasy position): ${skill.length}\n` +
@@ -125,7 +140,7 @@ async function verifySleeperAwareness(): Promise<void> {
 
   // The price feed, for the comparison the document draws: this is the coverage the
   // board actually has today, not a historical figure.
-  const adpRaw = await cachedIn(
+  const adpRaw = await fetchedFresh(
     ADP_CACHE_DIR,
     `${AWARENESS_SCORING}_${AWARENESS_TEAMS}_${AWARENESS_SEASON}.json`,
     adpUrl(AWARENESS_SCORING, AWARENESS_TEAMS, AWARENESS_SEASON),
