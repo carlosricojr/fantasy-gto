@@ -833,9 +833,12 @@ export async function runBuildDraftBoard(
     // Loudly, because falling back to the market feed here would rebuild the exact
     // coverage hole this derivation removes — and it would look like a healthy board.
     // This catches only the wholly absent season (the annual window between the roster
-    // release and the schedule release, documented in docs/data-sources.md); a
-    // *truncated* season passes here and is caught by the teamed-null guard below, after
-    // the market fallback has had its chance.
+    // release and the schedule release, documented in docs/data-sources.md). A
+    // *truncated* season passes here and fails at the teamed-null guard below instead:
+    // its underivable teams need a market bye the truncated schedule can still
+    // corroborate as a bye week, which a bye past the truncation point never is — so a
+    // truncated release refuses to build, market feed or not, rather than shipping a
+    // board whose byes quietly mix a broken schedule with the demoted feed.
     if (scheduleByes.size === 0) {
       throw new Error(
         `The schedule has no ${season} games, so no bye can be derived — the season is ` +
@@ -843,16 +846,16 @@ export async function runBuildDraftBoard(
           `row the market has not priced, so none was written.`,
       );
     }
-    // The weeks the season actually plays, for validating a market fallback: a feed bye
-    // outside this set would pass the teamed-null guard below and then be inert — no
-    // played week ever matches it, so the player is never charged, which is the #89.D
-    // subsidy wearing a number instead of a null. An invalid fallback becomes null and
-    // the guard rejects the board loudly.
-    const scheduleWeeks = new Set(
-      contestsResult.data
-        .filter((contest) => contest.period.season === season)
-        .map((contest) => contest.period.index),
-    );
+    // The weeks the schedule shows some team actually idle, for validating a market
+    // fallback. A feed bye outside this set would pass the teamed-null guard below and
+    // then be wrong in one of two ways, both silent: inert — a bye the league never
+    // simulates masks nothing, the #89.D subsidy wearing a number instead of a null —
+    // or charged in a week the schedule proves nobody sits out. Membership in the
+    // *played* weeks would be too weak for the first case (a stale feed's bye of 18 is
+    // a played week and still inert in every league), so the gate is the byes the
+    // schedule itself exhibits. An invalid fallback becomes null and the guard rejects
+    // the board loudly.
+    const observedByeWeeks = new Set(scheduleByes.values());
     let byeMismatches = 0;
     /** Schedule first, market bye as fallback; disagreements counted, schedule kept. */
     const resolveBye = (team: string | null, marketBye: number | null): number | null => {
@@ -861,7 +864,7 @@ export async function runBuildDraftBoard(
         if (marketBye !== null && marketBye !== scheduleBye) byeMismatches += 1;
         return scheduleBye;
       }
-      return marketBye !== null && scheduleWeeks.has(marketBye) ? marketBye : null;
+      return marketBye !== null && observedByeWeeks.has(marketBye) ? marketBye : null;
     };
 
     // Two prior seasons of production, matching the backtest's window.

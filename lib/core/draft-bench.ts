@@ -249,10 +249,12 @@ export function coverValue(
    */
   weeks: readonly number[],
 ): number {
-  // `<` survives a mutation run here: at exactly zero slots the unguarded path walks a
-  // zero-slot distribution to a zero total on both sides of both differences, and
-  // `Math.max(…, 0)` returns the same zero this shortcut does. The guard is for clarity
-  // and cost, not correctness, and that is why no test can tell the two apart.
+  // `<` survives a mutation run here, and it is equivalent one mutant at a time: with
+  // this shortcut skipped at exactly zero slots, `expectedAboveReplacement`'s own
+  // `slots <= 0` guard returns zero for all four calls before anything is walked, and
+  // `Math.max(0 - 0, 0)` is the same zero this line returns. The two guards vouch for
+  // each other — which is fine under single-mutant testing and worth knowing if either
+  // is ever removed.
   if (slots <= 0) return 0;
   const withHim = [...rosterAtPosition, candidate];
   // "Certain" is the world the lineup solver already priced: everybody present, every week.

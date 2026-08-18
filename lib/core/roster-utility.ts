@@ -216,11 +216,16 @@ export function simulateAvailability(
   // so the index never reaches the candidate count. Candidates outside the simulated
   // span are dropped first — an assumed bye in a week nobody simulates masks nothing,
   // which would quietly resurrect the free-week reading for a caller with a bad list —
-  // and a list that is empty, or empties, falls back to the whole span.
-  const legal = byeCandidateWeeks.filter((week) => weeks.includes(week));
-  const candidates = legal.length > 0 ? legal : weeks;
-  const byeWeek =
-    player.byeWeek ?? candidates[Math.floor(rng.next() * candidates.length)] ?? null;
+  // and a list that is empty, or empties, falls back to the whole span. The whole block
+  // sits inside the null check on purpose: this is the innermost function of the
+  // simulation, known-bye players are the overwhelming majority once byes come from the
+  // schedule, and they should pay for neither the scan nor the allocation.
+  let byeWeek = player.byeWeek;
+  if (byeWeek === null) {
+    const legal = byeCandidateWeeks.filter((week) => weeks.includes(week));
+    const candidates = legal.length > 0 ? legal : weeks;
+    byeWeek = candidates[Math.floor(rng.next() * candidates.length)] ?? null;
+  }
 
   if (availability >= 1) {
     return weeks.map((week) => week !== byeWeek);

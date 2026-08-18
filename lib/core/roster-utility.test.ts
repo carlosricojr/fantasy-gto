@@ -458,6 +458,11 @@ describe("simulateAvailability", () => {
       // assumed bye at week 99 masks nothing, so it must fall back too, not charge zero.
       const disjoint = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [99]);
       expect(disjoint.filter((ok) => !ok)).toHaveLength(1);
+      // And a partially legal list is filtered, not discarded: with 99 dropped, week 2
+      // is the only candidate left and the bye lands there every time — where an
+      // unfiltered draw would have picked 99 half the time and charged nothing.
+      const partial = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [2, 99]);
+      expect(partial).toEqual([true, false, true]);
     }
   });
 

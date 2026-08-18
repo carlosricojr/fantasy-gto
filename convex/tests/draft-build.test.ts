@@ -4,9 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import { runBuildDraftBoard } from "../ingest";
 import { AdpProvider } from "../../lib/sources/adp";
+import { teamByeWeeks } from "../../lib/nfl/byes";
+import { parseCsv } from "../../lib/nfl/csv";
 import { MODEL_BLEND_WEIGHT } from "../../lib/nfl/draft/config";
 import {
   NflverseProvider,
+  parseContests,
   schedulesUrl,
   seasonRosterUrl,
   weeklyStatsUrl,
@@ -183,8 +186,10 @@ const KICKER_PLAYERS: Fixture[] = Array.from({ length: KICKERS }, (_, i) => ({
 
 /**
  * The one player whose team the schedule cannot derive a bye for. His market row says
- * week 11, and week 11 is what his board row must carry — the market bye is demoted to a
- * fallback, not deleted.
+ * week `OPPONENT_BYE`, and that is what his board row must carry — the market bye is
+ * demoted to a fallback, not deleted. It has to be a week the schedule shows *some* team
+ * idle, because the fallback is validated against exactly that set: a feed bye in a week
+ * nobody sits out is a contradiction the build refuses rather than writes.
  */
 const AMBIGUOUS_TEAM_PLAYER: Fixture = {
   id: "00-016000",
@@ -193,7 +198,7 @@ const AMBIGUOUS_TEAM_PLAYER: Fixture = {
   volume: 4.1,
   adp: 90,
   team: AMBIGUOUS_TEAM,
-  marketBye: 11,
+  marketBye: OPPONENT_BYE,
 };
 
 const ALL: Fixture[] = [
@@ -590,6 +595,15 @@ describe("byes come from the schedule", () => {
     // `WR Elsewhere` plays for the team that appears in exactly one scheduled week, so
     // `teamByeWeeks` has no entry for it. His market row is then the only source left,
     // and using it is not a disagreement — nothing disagreed.
+    //
+    // The premise is asserted, not assumed: his board bye equalling his market bye is
+    // only evidence of the fallback if the schedule genuinely cannot answer — the same
+    // value would come out of a derivation that resolved his team, or out of the old
+    // market-only path.
+    const derived = teamByeWeeks(parseContests(parseCsv(gamesCsv())), SEASON);
+    expect(derived.has(AMBIGUOUS_TEAM)).toBe(false);
+    expect(derived.get(TEAM)).toBe(TEAM_BYE);
+
     const { result, rows } = await build(ONE_ROW_EACH);
     const row = rows.find((r) => r.playerId === AMBIGUOUS_TEAM_PLAYER.id);
     expect(row!.team).toBe(AMBIGUOUS_TEAM);
@@ -609,17 +623,21 @@ describe("byes come from the schedule", () => {
     expect(dallas!.byeWeek).toBe(OPPONENT_BYE);
   });
 
-  it("refuses a market fallback bye the season never plays", async () => {
-    // The fallback's own validity gate. A feed bye in a week outside the season's span
-    // would pass the teamed-null guard as a number and then be inert — no played week
-    // ever matches it, so the player is never charged, which is the null subsidy wearing
-    // a number. Resolved to null instead, and the teamed-null guard rejects the board.
-    await expect(
-      build([
-        ...ONE_ROW_EACH.filter((r) => r.name !== AMBIGUOUS_TEAM_PLAYER.name),
-        market(AMBIGUOUS_TEAM_PLAYER.name, AMBIGUOUS_TEAM_PLAYER.position, 90, 22),
-      ]),
-    ).rejects.toThrow(new RegExp(`No bye from any source for ${AMBIGUOUS_TEAM}`));
+  it("refuses a market fallback bye the schedule shows nobody taking", async () => {
+    // The fallback's own validity gate, against the byes the schedule exhibits rather
+    // than the weeks it plays. Week 22 is outside the season entirely; week 11 is a
+    // played week in which every fixture team is on the field — a feed bye there is
+    // inert in the simulation (nothing ever masks) or a contradiction of the schedule,
+    // and either way it is the null subsidy wearing a number. Both resolve to null, and
+    // the teamed-null guard refuses the board.
+    for (const bogusBye of [11, 22]) {
+      await expect(
+        build([
+          ...ONE_ROW_EACH.filter((r) => r.name !== AMBIGUOUS_TEAM_PLAYER.name),
+          market(AMBIGUOUS_TEAM_PLAYER.name, AMBIGUOUS_TEAM_PLAYER.position, 90, bogusBye),
+        ]),
+      ).rejects.toThrow(new RegExp(`No bye from any source for ${AMBIGUOUS_TEAM}`));
+    }
   });
 
   it("refuses to build when the schedule has no games for the drafted season", async () => {
