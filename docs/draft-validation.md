@@ -228,9 +228,17 @@ decided would be exactly the false precision this project exists to avoid.
   mostly win and lose the same seasons — but negatively correlated ones make it larger, and a
   sample can land either way. `stats.test.ts` contains a fixture where it is larger.
 
-`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and tied
-candidates are ordered by playoff probability, which resolves at these sample sizes because
-it is roughly a coin flip rather than a rare event.
+`tiedWithLeader` is now decided by whether zero lies inside that paired interval, and it is
+a label rather than a sort key. The ranking descends by title odds — which is the paired
+comparison's own point estimate, since pairing changes the variance and not the mean — and
+what the pairing buys is the honest flag, not a different order. Tied candidates used to
+be reordered by playoff probability, and the #88 audit showed the cost: the hidden key
+promoted a 14.5% candidate into the leader card above a 16.2% runner-up. The mock-draft
+harness's check (f) locks the fix — the displayed leader's title odds are never below a
+displayed runner-up's. One visible consequence of flag-without-reorder: the tied rows need
+not be contiguous. A near candidate the scenarios *do* separate can sit above a farther
+one they cannot, so an unflagged row above a flagged one is the display working, not a
+sorting error.
 
 **The leader is selected from the same sample the intervals are computed on, so they are
 descriptive rather than inferential.** No multiple-comparison correction is applied and no
@@ -339,8 +347,12 @@ on a cached download would not run at all on a machine that has never fetched it
 An earlier version of this table read 0.56 / 0.97 / 1.9 / 3.1 seconds with no environment
 recorded. Those were measured on different hardware and are not comparable to anything here.
 
-At 300 scenarios the leading candidates are usually tied within noise; at 600 the ordering
-resolves. 600 is the sensible default given a draft clock of a minute or more.
+At either count the leading candidates are usually tied within noise from the middle
+rounds on — #89.C measured the top of the board statistically tied at 600 from round 2 of
+a real league shape, and an earlier version of this paragraph claimed the opposite. The
+ranking therefore descends by title odds with the unresolved gaps flagged rather than
+re-ordered, and 600 is a draft-clock budget: more scenarios narrow the intervals but cost
+seconds a pick does not have.
 
 Two optimizations got the cold path from 7.8s. The rollout was completing all twelve teams
 for every candidate while only ever reading our own — the other eleven come from the
@@ -585,7 +597,9 @@ worth more than the individual fixes.
   the same six over three. It now refuses to run.
 - **The recommendation comparator was intransitive.** "Within noise, prefer the smoother
   signal" is not a valid ordering: 12%, 14% and 16% give A~B, B~C, A<C. `Array.sort` on a
-  cycle may return anything. The leader is now established before sorting.
+  cycle may return anything. First fixed by establishing the leader before sorting; the
+  comparator is now a plain lexicographic descent on title odds, which cannot cycle, and
+  the leader anchors only the tie flag.
 - **The memo key omitted the shortlist length and the identity of the weeks.** Two leagues
   with playoffs in weeks 15-17 and 14-16 were both "3" and shared a memo, though a bye
   lands inside one and outside the other. An answer for three candidates could be served to

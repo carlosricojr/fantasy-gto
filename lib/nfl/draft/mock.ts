@@ -18,35 +18,37 @@ import { perGameRate } from "./value";
  * as presented, and the roster that fell out started three players the market had never
  * ranked, benched a kicker drafted in round 9 behind another drafted in round 12, and
  * finished a half-PPR 2-FLEX draft with two wide receivers. Every one of those is a
- * property this module asserts. Five of the six ship as **documented expected failures**
- * (`expected: "fail"` in `CHECK_DEFINITIONS`) that the PR fixing the finding flips to
- * `"pass"`; check (c) is the exception — the audit's browser run observed it failing, the
- * deterministic replay measures it passing, and the definition below records both. No fix
- * ships without flipping its check; no check flips without a fix. See #91 for the
- * sequence, #64 for why the harness is policy-level.
+ * property this module asserts. Each check's `expected` in `CHECK_DEFINITIONS` records
+ * what the engine is *measured* to do on the frozen fixture — a `"fail"` is a documented
+ * defect with an open PR slot in #91, a `"pass"` is either a landed fix or a regression
+ * lock, and every definition says which it is and why. No fix ships without flipping its
+ * check; no check flips without a measurement. See #91 for the sequence, #64 for why the
+ * harness is policy-level.
  *
  * ## Where the replay and the audit's transcript agree, and where they cannot
  *
- * On the frozen board, the engine as shipped in this PR reproduces the audit's picks
+ * On the frozen board, the engine as PR #92 shipped it reproduced the audit's picks
  * 1.05 through 5.05 exactly — including the 2.06 capture verbatim: Gainwell leading at
  * 14.5%±1.4 with Barkley displayed at 16.2%±1.5. The fixture's `computedAt` is the build
  * #88 cites (07:01 US Eastern, which #88 rounds to "07:00"), and reproducing the
- * *displayed percentages* is strong evidence the board matches — a different board would
- * move them. One discrepancy is on record rather than resolved: #89.E reports Kyle Pitts
+ * *displayed percentages* was strong evidence the board matches — a different board would
+ * move them. Later PRs change the picks deliberately — the scoreboard is the contract,
+ * not the pick list — and PR 4 (the paired tie ranking) did: 2.06 is now Barkley's
+ * 16.2%, because Gainwell's lead *was* the tie reorder this harness exists to catch.
+ * One discrepancy is on record rather than resolved: #89.E reports Kyle Pitts
  * absent from the market's list, while this board carries him at ADP 81.7 with a bye;
  * both cannot be literally true of the same build, and the reproduced figures argue the
- * board is right and #89.E's raw-list check missed him. Later PRs change these picks
- * deliberately — the scoreboard is the contract, not the pick list.
+ * board is right and #89.E's raw-list check missed him.
  *
- * From 6.06 on the two runs diverge: the live panel recomputes after every recorded
- * pick, the audit's automation clicked whatever was *presented*, and #88 records the
- * reply gate preventing three stale takes — clicks on a player already drafted, which is
- * only possible if the presented panel lagged the recorded picks. A stale panel whose
- * leader was still available blocks nothing, and a replay cannot and should not
- * reproduce click timing: #91 defines the harness as "same board → same draft", which is
- * this function, not the browser session. Every audit finding reproduces here through
- * its own mechanism — the roster below still drafts a no-ADP player in round 2, three
- * kickers, two defences, and two wide receivers.
+ * The browser transcript and a replay also cannot agree pick-for-pick in the tail: the
+ * live panel recomputes after every recorded pick, the audit's automation clicked
+ * whatever was *presented*, and #88 records the reply gate preventing three stale takes —
+ * clicks on a player already drafted, which is only possible if the presented panel
+ * lagged the recorded picks. A replay cannot and should not reproduce click timing: #91
+ * defines the harness as "same board → same draft", which is this function, not the
+ * browser session. The audit's unfixed findings still reproduce here through their own
+ * mechanisms — the roster below still buys two kickers and two defences early against
+ * their market rounds and finishes with two wide receivers.
  *
  * ## Why the opponents are strict-ADP
  *
@@ -450,7 +452,15 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: "a",
     title: `no player absent from the market's list leads a pick in rounds 1-${EARLY_ROUNDS}`,
-    expected: "fail",
+    // Flipped by PR 4 (the paired tie ranking), not by #91's PR 3 — measured, not
+    // designed. Gainwell's 2.06 lead was the tie reorder itself: he sat inside the noise
+    // band with the better playoff odds, and the hidden key promoted him over Barkley's
+    // higher title number. Ranked by title odds, no market-absent player leads any pick
+    // in rounds 1-6 on this fixture. That is an observation about this board, not a
+    // structural guarantee — a no-ADP player whose raw title odds top the panel would
+    // still lead — so PR 3's market-awareness gate is still owed; until it lands, this
+    // check stands armed as a regression lock.
+    expected: "pass",
     audit:
       "Kenneth Gainwell (no ADP) led 2.06 at 14.5%±1.4 over Saquon Barkley's 16.2%±1.5; " +
       "Colby Parkinson (no ADP, a TE) led 6.06",
@@ -467,18 +477,22 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     id: "c",
     title:
       "no same-position pick on consecutive own turns where the second outranks the first",
-    // The one check the deterministic replay does not currently fail. The audit's browser
-    // run took Goff at 10.06 and then Nix at 11.05 — and Nix outranks Goff on this very
-    // board (#10 against #12), so the pair would trigger this check — but the deterministic
-    // panel at 10.06 recommends Nix directly, no Goff detour. The audit's pair came from
-    // the live page's click timing (see the module docstring), which a replay cannot and
-    // should not reproduce. Kept armed as a regression lock: #91's PR 4 predicts tie-noise
-    // churn shrinks when ranking moves to the paired comparison, and this is the check
-    // that would catch the opposite.
-    expected: "pass",
+    // PR 1 measured this passing on the pre-PR-4 engine — the audit's Goff→Nix pair was
+    // browser click timing, not the deterministic panel. #91's PR-4 row hedged "(c)
+    // expected to flip or shrink … measure, don't assume", and the measurement went the
+    // other way: ranked by title odds, the replay takes Fannin 7.05 then Pitts 8.06 and
+    // Mevis 9.05 then Myers 10.06, each second pick benching the first by the board's own
+    // ranking. Consistent with the playoff tiebreak having *masked* churn rather than
+    // caused it — the smoother key gave consecutive tied panels a stable hidden order,
+    // where the honest ranking re-rolls the sampling noise every turn — though the two
+    // replays diverge from 2.06, so that is an inference about the mechanism, not a
+    // same-roster measurement. What the fixture does establish: nothing charges the
+    // engine for buying a position it just filled, which is #89.A's finding, and #91
+    // puts it in PR 5 ("any residual (c)"), which owns flipping this back.
+    expected: "fail",
     audit:
-      "the browser run took Goff 10.06 then Nix 11.05 (Nix starts, the round-10 pick " +
-      "benched); the deterministic replay does not reproduce that pair — measured, per #91",
+      "the browser run took Goff 10.06 then Nix 11.05 — Nix starts, the round-10 pick " +
+      "benched",
   },
   {
     id: "d",
@@ -501,7 +515,11 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: "f",
     title: "the displayed leader's championship odds are not below any runner-up's",
-    expected: "fail",
+    // Flipped by PR 4: the panel now descends by title odds throughout — the paired
+    // vs-leader comparison is the ranking instrument and the tie flag is a label, not a
+    // sort key — so the top card carries the panel's highest number by construction.
+    // Measured before the fix: inverted at 11 of 16 picks on this fixture.
+    expected: "pass",
     audit: "leader shown at 14.5% with the #2 row at 16.2% — the tie reorder by playoff " +
       "probability promoted the lower title number",
   },

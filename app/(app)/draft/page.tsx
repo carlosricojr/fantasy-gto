@@ -15,6 +15,11 @@ import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
+import {
+  RECOMMEND_CANDIDATES,
+  RECOMMEND_SCENARIOS,
+  RECOMMEND_SEED,
+} from "@/lib/nfl/draft/engine-config";
 import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
 import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
@@ -83,19 +88,18 @@ import { useRecommendations } from "./use-recommendations";
  * screen" is a fact about phones that reordering the page under the reader does not fix.
  */
 
-const SEED = 20260731;
-
-/** Scenarios per recommendation. 600 resolves the ordering; 300 leaves the top few tied. */
-const SCENARIOS = 600;
-
 /**
- * Candidates the worker is asked to rank.
+ * Seed, scenario count and candidate count live in `lib/nfl/draft/engine-config.ts`,
+ * shared with the mock-draft harness so `pnpm draft-mock` provably runs this page's own
+ * engine settings — re-declared copies here were PR #92's recorded drift risk.
  *
- * A constant rather than a literal at the call site, because the panel's loading skeleton
- * is sized from it: a placeholder that is not the height of what replaces it is a layout
- * shift dressed as a courtesy.
+ * `CANDIDATES` is a named import rather than a literal at the call site also because the
+ * panel's loading skeleton is sized from it: a placeholder that is not the height of what
+ * replaces it is a layout shift dressed as a courtesy.
  */
-const CANDIDATES = 10;
+const SEED = RECOMMEND_SEED;
+const SCENARIOS = RECOMMEND_SCENARIOS;
+const CANDIDATES = RECOMMEND_CANDIDATES;
 
 interface BoardPlayer {
   playerId: string;

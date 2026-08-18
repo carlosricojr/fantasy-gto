@@ -414,14 +414,17 @@ describe("unexpectedOutcomes", () => {
     expect(unexpectedOutcomes(outcomes)).toEqual([]);
 
     // Flip one check each way: an unexpected pass and an unexpected failure both ring.
+    // (b) is documented failing and (a) documented passing, so each flip disagrees with
+    // its expectation. These letters track the current expectation vector — the PR that
+    // flips (b) or (a) updates this fixture with it, as PR 4 did when it took over (a).
     const surprisePass = outcomes.map((outcome) =>
-      outcome.id === "a" ? { ...outcome, status: "pass" as const } : outcome,
+      outcome.id === "b" ? { ...outcome, status: "pass" as const } : outcome,
     );
-    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual(["a"]);
+    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual(["b"]);
     const regression = outcomes.map((outcome) =>
-      outcome.id === "c" ? { ...outcome, status: "fail" as const } : outcome,
+      outcome.id === "a" ? { ...outcome, status: "fail" as const } : outcome,
     );
-    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual(["c"]);
+    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual(["a"]);
   });
 });
 
@@ -637,7 +640,9 @@ describe("stateAtPick", () => {
 });
 
 describe("evaluateChecks", () => {
-  it("documents six checks, five expected to fail and (c) measured passing", () => {
+  it("documents six checks with the expectations measured after the paired tie ranking", () => {
+    // (f) fixed and (a) measured passing since PR 4 of #91; (c) measured failing since
+    // the same change — the definitions in `mock.ts` record each mechanism.
     expect(CHECK_DEFINITIONS.map((entry) => entry.id)).toEqual([
       "a",
       "b",
@@ -648,7 +653,7 @@ describe("evaluateChecks", () => {
     ]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:fail", "b:fail", "c:pass", "d:fail", "e:fail", "f:fail"]);
+    ).toEqual(["a:pass", "b:fail", "c:fail", "d:fail", "e:fail", "f:pass"]);
   });
 
   it("states the protocol numbers in the titles it displays", () => {

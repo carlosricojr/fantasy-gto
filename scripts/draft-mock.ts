@@ -3,6 +3,11 @@ import { join } from "node:path";
 
 import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import {
+  RECOMMEND_CANDIDATES,
+  RECOMMEND_SCENARIOS,
+  RECOMMEND_SEED,
+} from "@/lib/nfl/draft/engine-config";
+import {
   type CheckOutcome,
   type MockBoardRow,
   type MockDraftReplay,
@@ -26,12 +31,13 @@ import { slotsForTemplate } from "@/lib/nfl/roster";
  * cites as "07:00". The replay is deterministic, so the scoreboard is a property of the
  * code, not of a run.
  *
- * Five of the six checks are currently **documented expected failures**: `expected:
- * "fail"` in `lib/nfl/draft/mock.ts`, carrying the audit's observed numbers. Check (c)
- * is expected to pass — the audit's browser run observed it failing, the deterministic
- * replay measures it passing, and its definition records why the two disagree. The PR
- * that fixes a finding flips its expectation in the same commit (#91's table says which
- * PR owns which check). The exit code enforces the contract in both directions:
+ * Each check's `expected` in `lib/nfl/draft/mock.ts` records what the engine is measured
+ * to do on this fixture, with the audit's observed numbers alongside. Four are currently
+ * documented expected failures — (b), (c), (d), (e) — and two pass: (f) fixed by the
+ * paired tie ranking (PR 4 of #91), (a) measured passing since the same change and armed
+ * as a regression lock until PR 3's market gate lands. The PR that changes a check's
+ * status flips its expectation in the same commit (#91's table says which PR owns which
+ * check). The exit code enforces the contract in both directions:
  *
  *  - a check failing as expected is the documented state — exit 0;
  *  - a check *passing* while expected to fail means a fix landed without flipping its
@@ -59,10 +65,15 @@ const SEASON = 2026;
 const PLAYOFF_TEAMS = 6;
 const CHAMPIONSHIP_WEEK = 17;
 
-/** The page's own constants — see `app/(app)/draft/page.tsx`. */
-const SEED = 20260731;
-const SCENARIOS = 600;
-const CANDIDATES = 10;
+/**
+ * The page's own constants, imported rather than re-declared: PR #92 shipped these as
+ * copies and recorded the drift risk as its known limitation — a page-side change would
+ * not have failed the harness. `lib/nfl/draft/engine-config.ts` is now the single copy
+ * both read.
+ */
+const SEED = RECOMMEND_SEED;
+const SCENARIOS = RECOMMEND_SCENARIOS;
+const CANDIDATES = RECOMMEND_CANDIDATES;
 
 function positionSummary(rows: readonly MockBoardRow[]): string {
   const counts = new Map<string, number>();

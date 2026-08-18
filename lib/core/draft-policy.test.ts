@@ -227,16 +227,21 @@ describe("recommendByChampionship", () => {
     );
     expect(recs.length).toBeGreaterThan(0);
     for (const r of recs) expect(r.standardError).toBeGreaterThan(0);
-    // Checked against the condition, not against the ordering. `recs[0]` is the leader,
-    // whose difference from itself is zero, so it is flagged tied whenever the standard
-    // error is positive — which the line above already asserts. Testing that told us
-    // nothing and would have survived a mutant that set the flag unconditionally.
+    // Checked against the implemented rule, per entry. This used to assert the
+    // marginal-sum band — `best - p <= SE_leader + SE_r` — for *every* entry, which is a
+    // rule the implementation applies only to entries carrying no paired vector; the
+    // production path's flag comes from the paired interval, and the assertion held only
+    // because this fixture's two verdicts happen to coincide. A test that documents the
+    // wrong rule fails on an innocent reseed and then teaches its reader the old
+    // arithmetic, so it asserts the real one now.
     const best = Math.max(...recs.map((r) => r.championshipProbability));
-    const leader = recs.find((r) => r.championshipProbability === best)!;
+    const marked = recs.find((r) => r.vsLeader === null)!;
+    expect(marked.championshipProbability).toBe(best);
+    expect(marked.tiedWithLeader).toBe(true);
     for (const r of recs) {
-      expect(r.tiedWithLeader).toBe(
-        best - r.championshipProbability <= leader.standardError + r.standardError,
-      );
+      if (r.vsLeader === null) continue;
+      const separatesZero = r.vsLeader.interval[0] > 0 || r.vsLeader.interval[1] < 0;
+      expect(r.tiedWithLeader).toBe(!separatesZero);
     }
   });
 
@@ -299,10 +304,11 @@ describe("recommendByChampionship", () => {
   });
 
   it("puts the highest championship probability first", () => {
-    // The ranking used to sort with a "within noise, prefer playoff odds" comparator,
-    // which is not transitive: 12%, 14% and 16% at 600 scenarios give A~B, B~C, A<C — a
-    // cycle. `Array.prototype.sort` on a cycle may return anything, and it could place the
-    // 12% candidate above the 16% one. The leader is now established before sorting.
+    // This is literal now, and it is #88.2's contract: the ordering used to hand every
+    // candidate tied with the leader to a playoff-probability tiebreak, which put a lower
+    // title number in the top slot the audit's own capture shows — 14.5% wearing the
+    // leader label above 16.2%. The ranking descends by title odds throughout, so the
+    // whole list is monotone and the first entry is the maximum.
     const recs = recommendByChampionship(
       {
         teams: freshTeams(),
@@ -316,50 +322,22 @@ describe("recommendByChampionship", () => {
     );
     const best = Math.max(...recs.map((r) => r.championshipProbability));
 
-    // The contract is not "highest title probability first" — a candidate statistically
-    // level with the leader may outrank it on the smoother playoff signal, which is the
-    // documented behavior. What must hold is that the ordering is well-defined:
-    //
-    //  - whatever leads is within sampling noise of the true maximum;
-    //  - every tied candidate outranks every untied one;
-    //  - untied candidates descend by title probability.
-    // Against the implementation's own bound — the leader's standard error plus the
-    // entry's — not twice the first entry's. Those differ: `standardError` is
-    // sqrt(p(1-p)/n), so below a half the leader carries the larger one, and an entry the
-    // implementation correctly calls tied can exceed twice its own. That the doubled form
-    // passed was a fact about seed 21.
-    // No assertion that `recs[0]` is flagged tied: it cannot fail. Every tied candidate is
-    // ordered before every untied one and the leader is tied with itself whenever the
-    // standard error is positive, so the first entry carries the flag for any ranking this
-    // fixture can produce. What is checked instead is the *bound* — that the leader really
-    // is within sampling noise of the maximum, which is a fact about the numbers rather
-    // than about the ordering that put it first.
-    const leader = recs.find((r) => r.championshipProbability === best)!;
-    expect(best - recs[0].championshipProbability).toBeLessThanOrEqual(
-      leader.standardError + recs[0].standardError + 1e-9,
-    );
-
-    const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
-    if (firstUntied >= 0) {
-      for (let i = firstUntied; i < recs.length; i += 1) {
-        expect(recs[i].tiedWithLeader).toBe(false);
-      }
-      for (let i = firstUntied + 1; i < recs.length; i += 1) {
-        expect(recs[i - 1].championshipProbability).toBeGreaterThanOrEqual(
-          recs[i].championshipProbability,
-        );
-      }
+    expect(recs[0].championshipProbability).toBe(best);
+    for (let i = 1; i < recs.length; i += 1) {
+      expect(recs[i - 1].championshipProbability).toBeGreaterThanOrEqual(
+        recs[i].championshipProbability,
+      );
     }
 
     // And the flag itself is honest: tied means the paired interval on the difference with
     // the leader contains zero — these scenarios do not separate the two. It used to mean
     // "within the sum of the two marginal standard errors", which is not the standard error
     // of a difference between anything; see #40.
-    // Exactly one entry carries no paired comparison, and it is the one the ordering also
-    // treats as the leader. The two selections are made in different functions on the same
-    // rounded probability with the same id tiebreak; comparing raw in one and rounded in the
-    // other let two candidates 5e-5 apart disagree about who the leader was.
+    // Exactly one entry carries no paired comparison, and it is the entry the ordering puts
+    // first: the leader is selected on the raw probability with the ordering's own residual
+    // tiebreaks, so the two selections cannot disagree — see `recommendByChampionship`.
     expect(recs.filter((r) => r.vsLeader === null)).toHaveLength(1);
+    expect(recs[0].vsLeader).toBeNull();
     const marked = recs.find((r) => r.vsLeader === null)!;
     expect(marked.tiedWithLeader).toBe(true);
     expect(marked.championshipProbability).toBe(best);
@@ -1078,13 +1056,16 @@ describe("re-completing the opponent who held the candidate", () => {
  * The order the ranking comes back in.
  *
  * `recs[0]` is the headline "Take X" on the draft screen, so the comparator producing it
- * is as user-visible as any number in the product. Four mutants lived in it: dropping the
- * playoff tie-break, dropping expected points, inverting the tied/untied grouping, and
- * turning a difference into a sum so the comparator is inconsistent and the order becomes
- * whatever the engine's sort happens to do.
+ * is as user-visible as any number in the product. The mutants that live in it: dropping
+ * the paired-difference refinement, dropping playoff odds or expected points from the
+ * residual keys, swapping a key pair's order, and turning a difference into a sum so the
+ * comparator is inconsistent and the order becomes whatever the engine's sort happens to
+ * do.
  *
- * All four are caught by asserting the documented contract across the whole ranking rather
- * than checking one fixture's leader — a leader can come out right by luck.
+ * The key-by-key kills live in the `orderRecommendations` unit fixtures below, where
+ * every key can be set against its neighbor; what this block adds is the same contract
+ * asserted across a whole simulated ranking rather than one hand-built fixture — a
+ * leader can come out right by luck, and a property over every adjacent pair cannot.
  */
 describe("the ranking follows its documented order", () => {
   const riskyBoard = () =>
@@ -1102,28 +1083,35 @@ describe("the ranking follows its documented order", () => {
   // candidate, so recomputing them per test pushed the file past its budget.
   const rankings = [rankingOn(riskyBoard(), 7, 5), rankingOn(board(), 21, 5)];
 
-  it("puts every tied candidate above every untied one", () => {
+  it("descends by title odds with the leader first, tied or not", () => {
+    // The #88.2 contract: the tie flag labels, it does not reorder, so the displayed
+    // leader is never a lower number than a row beneath it.
     for (const recs of rankings) {
-      const firstUntied = recs.findIndex((r) => !r.tiedWithLeader);
-      if (firstUntied === -1) continue;
-      for (let i = firstUntied; i < recs.length; i += 1) {
-        expect(recs[i].tiedWithLeader).toBe(false);
+      expect(recs[0].vsLeader).toBeNull();
+      for (let i = 1; i < recs.length; i += 1) {
+        expect(recs[i - 1].championshipProbability).toBeGreaterThanOrEqual(
+          recs[i].championshipProbability,
+        );
       }
     }
   });
 
-  it("orders the tied group by playoff odds, then points, then id", () => {
+  it("refines equal displayed odds by the paired difference, then the residual keys", () => {
     for (const recs of rankings) {
-      const tied = recs.filter((r) => r.tiedWithLeader);
-      expect(tied.length).toBeGreaterThan(1);
-      for (let i = 1; i < tied.length; i += 1) {
-        const a = tied[i - 1];
-        const b = tied[i];
-        expect(a.playoffProbability).toBeGreaterThanOrEqual(b.playoffProbability);
-        if (a.playoffProbability === b.playoffProbability) {
-          expect(a.expectedPoints).toBeGreaterThanOrEqual(b.expectedPoints);
-          if (a.expectedPoints === b.expectedPoints) {
-            expect(a.player.id < b.player.id).toBe(true);
+      for (let i = 1; i < recs.length; i += 1) {
+        const a = recs[i - 1];
+        const b = recs[i];
+        if (a.championshipProbability !== b.championshipProbability) continue;
+        const aDiff = a.vsLeader?.meanDifference ?? 0;
+        const bDiff = b.vsLeader?.meanDifference ?? 0;
+        expect(aDiff).toBeGreaterThanOrEqual(bDiff);
+        if (aDiff === bDiff) {
+          expect(a.playoffProbability).toBeGreaterThanOrEqual(b.playoffProbability);
+          if (a.playoffProbability === b.playoffProbability) {
+            expect(a.expectedPoints).toBeGreaterThanOrEqual(b.expectedPoints);
+            if (a.expectedPoints === b.expectedPoints) {
+              expect(a.player.id < b.player.id).toBe(true);
+            }
           }
         }
       }
@@ -1157,6 +1145,11 @@ describe("the ranking follows its documented order", () => {
       3,
     );
     expect(recs.map((r) => r.player.id)).toEqual(["aa", "bb", "cc"]);
+    // The leader must also *be* the first row on an exact tie. Every sort key ties here
+    // down to the id, so this is the one fixture where the id arm of the leader
+    // selection's `leadsOver` decides — inverted, the output order would be unchanged
+    // but the top card would carry a vs-leader comparison against a row below it.
+    expect(recs[0].vsLeader).toBeNull();
   });
 });
 
@@ -1850,6 +1843,11 @@ describe("orderRecommendations", () => {
     standardError: number,
     playoffProbability = 0.5,
     expectedPoints = 100,
+    // Most fixtures here are hand-written numbers with no paired vector behind them,
+    // which is the case `orderRecommendations` documents a fallback for: it marks a tie
+    // from the sum of the two marginal standard errors, deliberately over-marking rather
+    // than under, and it refines equal displayed odds on the remaining keys alone.
+    vsLeader: ChampionshipRecommendation["vsLeader"] = null,
   ): ChampionshipRecommendation => ({
     player: player(id, "RB", 10),
     championshipProbability,
@@ -1857,12 +1855,37 @@ describe("orderRecommendations", () => {
     playoffProbability,
     expectedPoints,
     standardError,
-    // These fixtures are hand-written numbers with no paired vector behind them, which is
-    // the case `orderRecommendations` documents a fallback for: it marks a tie from the sum
-    // of the two marginal standard errors, deliberately over-marking rather than under.
-    vsLeader: null,
+    vsLeader,
     tiedWithLeader: false,
   });
+
+  /**
+   * A paired vector built from its counts, so the fixture is one `pairedOutcomeComparison`
+   * could actually produce rather than a mean difference floating free of them.
+   *
+   * `n` defaults to 100,000 — deliberately far above the page's 600. At 600, adjacent
+   * title rates differ by at least 1/600, so a displayed (4-decimal) tie is always an
+   * exact tie and the mean-difference sort key never separates anything; the key exists
+   * for scenario counts that outrun the display's rounding grain, and these fixtures are
+   * drawn from that regime.
+   */
+  const paired = (
+    candidateOnly: number,
+    baselineOnly: number,
+    n = 100_000,
+  ): ChampionshipRecommendation["vsLeader"] => {
+    const meanDifference = (candidateOnly - baselineOnly) / n;
+    return {
+      n,
+      candidateOnly,
+      baselineOnly,
+      agreed: n - candidateOnly - baselineOnly,
+      meanDifference,
+      standardError: 0.005,
+      interval: [meanDifference - 0.01, meanDifference + 0.01],
+      confidenceLevel: 95,
+    };
+  };
 
   it("returns an empty board unchanged", () => {
     expect(orderRecommendations([])).toEqual([]);
@@ -1876,36 +1899,76 @@ describe("orderRecommendations", () => {
     expect(only.tiedWithLeader).toBe(true);
   });
 
-  it("orders two candidates outside the noise band by title odds, not by playoff odds", () => {
-    // The branch that decides the untied group. `a || b` becoming `a && b` reads as
-    // "whenever the title odds differ, ignore them and use the smoother signal", which is
-    // the exact inverse of the rule; a sum in place of the difference is positive for every
-    // pair and makes the comparator inconsistent.
-    //
-    // Three candidates, because two is not enough: the leader is always tied with itself,
-    // so a board of two never has two untied entries to compare. Playoff odds are set
-    // against title odds so the two rules disagree.
-    // Given with the two untied candidates the wrong way round. A comparator that returns
-    // a positive number for every pair — which a sum in place of the difference does —
-    // never moves anything left, so an input that already reads correctly would pass.
+  it("orders candidates by title odds whether or not the playoff odds agree", () => {
+    // Playoff odds are set against title odds so a comparator consulting the wrong key
+    // shows itself; the input arrives in the wrong order so a comparator returning a
+    // positive number for every pair — which a sum in place of the difference does —
+    // cannot pass by leaving a stable sort alone.
     const ordered = orderRecommendations([
-      rec("leader", 0.5, 0.001, 0.99, 300),
       rec("worse", 0.1, 0.001, 0.9, 200),
       rec("better", 0.3, 0.001, 0.1, 100),
+      rec("leader", 0.5, 0.001, 0.99, 300),
     ]);
     expect(ordered.map((r) => r.player.id)).toEqual(["leader", "better", "worse"]);
     expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, false, false]);
   });
 
-  it("puts the tied group above the untied one whatever order they arrive in", () => {
-    // Given in the wrong order on purpose. A comparator that returns zero for a
-    // tied-versus-untied pair leaves a stable sort exactly as it found it, so a fixture
-    // that was already in the right order would pass against it.
+  it("never lets a tie promote a lower title number above the leader (#88.2)", () => {
+    // The audit's 2.06 capture, as numbers: the challenger is inside the noise band and
+    // carries the better playoff odds, which is exactly the shape the old tied-group
+    // reorder promoted into the leader card — 14.5% displayed above 16.2%. The tie is
+    // still flagged; it must no longer move the rows.
     const ordered = orderRecommendations([
-      rec("untied", 0.1, 0.001),
-      rec("tied", 0.5, 0.001),
+      rec("gainwell", 0.145, 0.014, 0.9, 120),
+      rec("barkley", 0.162, 0.015, 0.5, 100),
     ]);
-    expect(ordered.map((r) => r.player.id)).toEqual(["tied", "untied"]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["barkley", "gainwell"]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true]);
+  });
+
+  it("refines equal displayed odds by the paired mean difference", () => {
+    // Two runners-up whose displayed probabilities are identical after rounding: the
+    // paired comparison still separates them, and it — not the playoff odds, which are
+    // set against it — decides the order. The primary key cannot: it is equal.
+    const ordered = orderRecommendations([
+      rec("closer", 0.15, 0.014, 0.4, 100, paired(0, 2)),
+      rec("farther", 0.15, 0.014, 0.9, 200, paired(0, 4)),
+      rec("leader", 0.15, 0.014, 0.1, 50),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["leader", "closer", "farther"]);
+  });
+
+  it("counts a paired interval that only touches zero as tied, and one clear of it as not", () => {
+    // The flag's boundary sits at the interval's endpoints: [-0.02, 0] and [0, 0.02]
+    // still contain a zero difference, so the scenarios have not separated the pair and
+    // the doubtful case belongs inside the flag — the same judgement the marginal band's
+    // edge case makes. The strictly-positive interval pins the comparison's zero as a
+    // zero rather than a tolerance: a mutant widening either endpoint check flags
+    // "clear" tied or "touch-below"/"touch-above" untied.
+    const ordered = orderRecommendations([
+      rec("lead", 0.3, 0.01),
+      rec("touch-below", 0.29, 0.01, 0.5, 100, paired(0, 1000)),
+      rec("touch-above", 0.28, 0.01, 0.5, 100, paired(1000, 0)),
+      rec("clear", 0.27, 0.01, 0.5, 100, paired(2000, 0)),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual([
+      "lead",
+      "touch-below",
+      "touch-above",
+      "clear",
+    ]);
+    expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true, true, false]);
+  });
+
+  it("keeps the displayed odds primary over the paired difference", () => {
+    // Adversarial hand-built input: a paired vector arguing the opposite of the displayed
+    // numbers must lose, because the row order the user checks is the displayed one — a
+    // comparator with the keys swapped would print 0.15 above 0.16.
+    const ordered = orderRecommendations([
+      rec("lower", 0.15, 0.014, 0.5, 100, paired(50_000, 0)),
+      rec("higher", 0.16, 0.014, 0.5, 100, paired(0, 50_000)),
+    ]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["higher", "lower"]);
   });
 
   it("counts a candidate exactly on the edge of the band as tied", () => {
@@ -1924,15 +1987,22 @@ describe("orderRecommendations", () => {
     expect(ordered.map((r) => r.tiedWithLeader)).toEqual([true, true]);
   });
 
-  it("orders the tied group by playoff odds, then points, then id", () => {
-    // All three within one standard error of the leader, so every one of them is tied and
-    // the title odds are not consulted at all.
+  it("breaks exact title-odds ties by playoff odds, then points, then id", () => {
+    // All three displayed identically and carrying no paired vector, so only the residual
+    // keys can decide — the case where any deterministic order is as honest as any other
+    // and the likelier playoff team reads first.
+    //
+    // Each residual key is set *against* the one below it, because a fixture where the
+    // keys agree is a fixture that passes with any of them deleted: "y" leads on points
+    // but loses on playoff odds, and "a" beats "z" on id but loses on points. An earlier
+    // version aligned all three and a mutation run could drop the playoff key, drop the
+    // points key, or swap the pair without a single test noticing.
     const ordered = orderRecommendations([
-      rec("c", 0.2, 0.5, 0.4, 100),
-      rec("b", 0.2, 0.5, 0.6, 100),
-      rec("a", 0.2, 0.5, 0.6, 120),
+      rec("y", 0.2, 0.5, 0.4, 200),
+      rec("a", 0.2, 0.5, 0.6, 100),
+      rec("z", 0.2, 0.5, 0.6, 120),
     ]);
-    expect(ordered.map((r) => r.player.id)).toEqual(["a", "b", "c"]);
+    expect(ordered.map((r) => r.player.id)).toEqual(["z", "a", "y"]);
     expect(ordered.every((r) => r.tiedWithLeader)).toBe(true);
   });
 
