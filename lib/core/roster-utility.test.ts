@@ -443,6 +443,20 @@ describe("simulateAvailability", () => {
     for (const count of counts.values()) expect(count).toBeGreaterThanOrEqual(10);
   });
 
+  it("draws the assumed week from the candidate list, falling back to the span only when empty", () => {
+    // The candidate list is where a bye can legally fall (the season sim passes its
+    // regular-season weeks so the bracket is never charged); an empty list falls back to
+    // the whole span rather than yielding no bye — which would quietly resurrect the
+    // subsidy for a degenerate caller.
+    const ironman = player("p", "RB", 10, { availability: 1, byeWeek: null });
+    for (let seed = 1; seed <= 30; seed += 1) {
+      const constrained = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [2]);
+      expect(constrained).toEqual([true, false, true]);
+      const fallback = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), []);
+      expect(fallback.filter((ok) => !ok)).toHaveLength(1);
+    }
+  });
+
   it("charges the assumed week on top of the injury chain too", () => {
     // The fragile-player mirror of the known-bye subtraction above: an unknown bye costs
     // a fragile player the same expected week a known one does. The bounds are chosen to
