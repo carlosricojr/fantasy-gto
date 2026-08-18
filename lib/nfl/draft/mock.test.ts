@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { ChampionshipRecommendation } from "../../core/draft-policy";
+import {
+  type ChampionshipRecommendation,
+  MARKET_GATE_ROUNDS,
+} from "../../core/draft-policy";
 import type { PlayerRisk } from "../../core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "../../core/season-sim";
 import { slotsForTemplate } from "../roster";
@@ -764,18 +767,28 @@ describe("evaluateChecks", () => {
       "e",
       "f",
     ]);
-    // As measured on the merged engine — PR 2's bye charge plus PR 4's paired tie
-    // ranking. (f) is closed by the ranking by construction; (a) failed again once the
-    // two fixes merged (Parkinson leads 6.06 in both modes — PR 3's market gate, as
-    // #91 always assigned); (c) splits, churning on the frozen board's bye noise and
-    // passing once byes resolve from the schedule; (b), (d), (e) are the structural
-    // findings PR 5 owns. Each definition in `mock.ts` records its mechanism.
+    // As measured on the merged engine — PR 2's bye charge, PR 4's paired tie ranking,
+    // PR 3's market-discipline gate. (f) is closed by the ranking by construction; (a)
+    // is closed by the gate in both modes (no `adp: null` shortlist entry through round
+    // six, so the Parkinson-at-6.06 leader their merge had surfaced cannot recur); (c)
+    // passes in both modes on the gate-reshuffled ordering — a measurement, not a fix
+    // for its #89.A mechanism, which PR 5 still owns as a regression lock; (b), (d),
+    // (e) are the structural findings PR 5 owns. Each definition in `mock.ts` records
+    // its mechanism.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:fail", "b:fail", "c:fail", "d:fail", "e:fail", "f:pass"]);
+    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
-    ).toEqual(["a:fail", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
+    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
+  });
+
+  it("locks the gate's window to the window check (a) asserts", () => {
+    // (a) claims "no market-absent leader in rounds 1-6" and the market gate is what
+    // enforces it. A gate narrower than the check would leave (a) asserting rounds
+    // nothing enforces; wider is a policy choice this pin would surface for a deliberate
+    // flip rather than forbid.
+    expect(MARKET_GATE_ROUNDS).toBe(EARLY_ROUNDS);
   });
 
   it("states the protocol numbers in the titles it displays", () => {

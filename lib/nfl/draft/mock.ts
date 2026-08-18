@@ -34,6 +34,12 @@ import { perGameRate } from "./value";
  * schedule-byes mode measures it on the same board with only the byes a rebuilt board
  * would carry — every other column stays at the frozen build's values.
  *
+ * Since PR 3 the engine under test carries the market-discipline gate
+ * (`applyMarketGate`, `lib/core/draft-policy.ts`): through round `MARKET_GATE_ROUNDS`
+ * the panel does not offer a player the board prices at `adp: null`, which is what
+ * closed check (a) on the merged engine after two individually-green orderings had
+ * failed it — see the check's own definition for the history.
+ *
  * ## Where the replay and the audit's transcript agree, and where they cannot
  *
  * On the frozen board, the engine as PR 1 shipped it reproduced the audit's picks
@@ -459,7 +465,14 @@ export function replayAdpMockDraft(
 
 export type CheckId = "a" | "b" | "c" | "d" | "e" | "f";
 
-/** Rounds counted as "early" for the market-discipline check (a). */
+/**
+ * Rounds counted as "early" for the market-discipline check (a).
+ *
+ * The audited window, and since PR 3 also the gate's: `MARKET_GATE_ROUNDS` in
+ * `lib/core/draft-policy.ts` holds a market-absent player off the shortlist through
+ * exactly these rounds, and `mock.test.ts` pins the two constants to each other — a gate
+ * narrower than the check would leave (a) asserting rounds nothing enforces.
+ */
 export const EARLY_ROUNDS = 6;
 
 /** How many closing rounds a second kicker or defence is allowed to occupy (b). */
@@ -515,13 +528,20 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // missing-bye subsidy and the tie reorder together, and on the merged engine 2.06
     // takes Barkley, the very runner-up the audit displayed under him. But each PR's
     // all-clear was its own re-rolled ordering: merged, Colby Parkinson — no ADP, a
-    // real model value — leads 6.06 in BOTH modes, the audit's other (a) violation
+    // real model value — led 6.06 in BOTH modes, the audit's other (a) violation
     // reproduced verbatim. Which is the point the early flips missed: a market-absent
     // player whose model value is genuinely early-round-sized leads on model price
-    // alone, and no amount of noise reduction fixes that. Expected-fail in both
-    // columns until #91's PR 3 lands the market-discipline gate it always owned.
-    expected: "fail",
-    expectedWithScheduleByes: "fail",
+    // alone, and no amount of noise reduction fixes that.
+    //
+    // Flipped by PR 3's market-discipline gate — a structural exclusion, not another
+    // re-rolled ordering: `applyMarketGate` (`lib/core/draft-policy.ts`) keeps a player
+    // the board prices at `adp: null` off the recommendation shortlist through round
+    // `MARKET_GATE_ROUNDS`, which a test pins equal to this check's `EARLY_ROUNDS`, so
+    // inside the audited window the panel cannot offer a market-absent leader at all.
+    // Measured on the merged engine in both modes: no market-absent leader at any pick
+    // in rounds 1-6, Parkinson gone from 6.06, and 2.06 still goes to Barkley.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
     audit:
       "Kenneth Gainwell (no ADP) led 2.06 at 14.5%±1.4 over Saquon Barkley's 16.2%±1.5; " +
       "Colby Parkinson (no ADP, a TE) led 6.06",
@@ -552,9 +572,19 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // same shape: an interim draft drew the assumed bye across the playoff bracket and
     // that noise alone churned the frozen board.
     //
+    // PR 3's market gate flipped the frozen column back to pass, and the honest reading
+    // is the modest one: the gate reshapes the early picks (Pitts at 6.06 where
+    // Parkinson led), and on the reshuffled sequence the frozen board's bye-noise churn
+    // does not recross the threshold. That is a measurement of this ordering, not a fix
+    // for (c)'s mechanism — nothing yet charges the engine for buying a position it
+    // just filled (#89.A), which PR 5 still owns. What PR 5 inherits is a regression
+    // lock in both columns rather than a flip-back: if its cost model re-rolls this
+    // ordering and the churn returns, this expectation rings and the flip is documented
+    // there, per the same contract this comment is obeying.
+    //
     // The audit string below is only the browser run's observation; the replay never
     // reproduced the Goff-then-Nix pair (click timing, measured, per #91).
-    expected: "fail",
+    expected: "pass",
     expectedWithScheduleByes: "pass",
     audit:
       "the browser run took Goff 10.06 then Nix 11.05 — Nix starts, the round-10 pick " +

@@ -26,7 +26,18 @@ const DROPPED_SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
  * sources disagree about them constantly.
  */
 export function normalizeName(raw: string): string {
-  const words = raw
+  return normalizeWords(raw).join("");
+}
+
+/**
+ * The words of a normalized name, before they are joined into a key.
+ *
+ * Exported because two joins need the word structure `normalizeName` erases: the alias
+ * keys below swap the first word, and the market-awareness join falls back to the last
+ * one. Re-deriving the words from the joined key is impossible — the join point is gone.
+ */
+export function normalizeWords(raw: string): string[] {
+  return raw
     .toLowerCase()
     // Accents are folded, not stripped. Decomposing first turns "é" into "e" plus a
     // combining mark, so removing the marks leaves the letter — where the punctuation
@@ -38,7 +49,62 @@ export function normalizeName(raw: string): string {
     .replace(/[^a-z0-9\s]/g, "")
     .split(/\s+/)
     .filter((w) => w.length > 0 && !DROPPED_SUFFIXES.has(w));
-  return words.join("");
+}
+
+/**
+ * First names the sources genuinely publish both ways.
+ *
+ * Every pair here was measured, not imagined: joining the frozen 2026 board's
+ * market-absent rows onto Sleeper's players dump (2026-08-18) found exactly these eight
+ * disagreements — our board says "Kenneth Gainwell" where the dump says "Kenny", and so
+ * on. A speculative table of every English nickname would buy nothing and cost
+ * collisions: each entry widens what `aliasNameKeys` treats as the same person, so an
+ * entry earns its place with a measured miss, the same way the accent folding above
+ * earned its lines.
+ */
+const FIRST_NAME_ALIASES: ReadonlyArray<readonly [string, string]> = [
+  ["kenneth", "kenny"],
+  ["michael", "mike"],
+  ["mitchell", "mitch"],
+  ["joshua", "josh"],
+  ["nathan", "nate"],
+  ["andrew", "drew"],
+  ["scott", "scotty"],
+  ["irvin", "irv"],
+];
+
+/** Both directions of every measured pair, so neither source has to be the canonical one. */
+const ALIAS_BY_FIRST_WORD: ReadonlyMap<string, readonly string[]> = new Map(
+  FIRST_NAME_ALIASES.flatMap(([a, b]): Array<[string, readonly string[]]> => [
+    [a, [b]],
+    [b, [a]],
+  ]),
+);
+
+/**
+ * Every normalized key a name may be published under: its own, then one per first-name
+ * alias.
+ *
+ * The board's "Kenneth Gainwell" and the dump's "Kenny Gainwell" normalize to different
+ * keys, so an index built on `normalizeName` alone reports the player missing — the same
+ * failure mode the accent folding was added for, one level up from spelling. Only the
+ * first word is aliased: every measured disagreement is a first name, and aliasing
+ * surnames would collapse genuinely different players.
+ *
+ * The strict key always comes first, so a consumer that only wants it can take `[0]` and
+ * get exactly `normalizeName(raw)`.
+ */
+export function aliasNameKeys(raw: string): string[] {
+  const words = normalizeWords(raw);
+  if (words.length === 0) return [];
+  const keys = [words.join("")];
+  // `??` and `||` agree here, provably: the map's values are the non-empty alias arrays
+  // built above, so a hit is always truthy and the two operators differ on nothing the
+  // map can return — which is why a mutation run reports the `||` form as a survivor.
+  for (const variant of ALIAS_BY_FIRST_WORD.get(words[0]) ?? []) {
+    keys.push([variant, ...words.slice(1)].join(""));
+  }
+  return keys;
 }
 
 /** The two fields any market row must carry to be joinable to a roster row. */
@@ -258,6 +324,11 @@ export function matchName<T extends MatchCandidate>(
       continue;
     }
     const score = similarity(needle, name);
+    // Strict `>` on both comparisons below, though a mutation run reports `>=` as a
+    // survivor on each — and both are equivalences, not gaps. A candidate tying the best
+    // leaves `best` and `runnerUp` holding the same confidence whichever of the two
+    // wears the label, and the ambiguity margin then refuses the match either way; a
+    // candidate tying the runner-up changes a value to itself.
     if (best === null || score > best.confidence) {
       runnerUp = best?.confidence ?? 0;
       best = { candidate, confidence: score };

@@ -19,6 +19,11 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { num, parseCsv, str } from "@/lib/nfl/csv";
+import { MODELED_POSITIONS } from "@/lib/nfl/draft/config";
+import { joinMarketAwareness } from "@/lib/nfl/draft/market-awareness";
+import { parseBoardFixture } from "@/lib/nfl/draft/mock";
+import { adpUrl, parseAdp } from "@/lib/sources/adp";
+import { parsePlayersDump, playersUrl as sleeperPlayersUrl } from "@/lib/sources/sleeper";
 import { quantile } from "@/lib/core/stats";
 import { toRegularSeasonInjuries } from "@/lib/nfl/injuries";
 import { bridgeSnaps, toRegularSeasonSnaps } from "@/lib/nfl/snaps";
@@ -28,6 +33,17 @@ import { pfrBridge, toPlayerProfiles } from "@/lib/nfl/players";
 
 const RELEASE_BASE = "https://github.com/nflverse/nflverse-data/releases/download";
 const CACHE_DIR = join(process.cwd(), ".cache", "nflverse");
+const SLEEPER_CACHE_DIR = join(process.cwd(), ".cache", "sleeper");
+const ADP_CACHE_DIR = join(process.cwd(), ".cache", "adp");
+
+/** The league the awareness coverage is measured against — the frozen audit board's. */
+const AWARENESS_SEASON = 2026;
+const AWARENESS_SCORING = "half_ppr";
+const AWARENESS_TEAMS = 10;
+const AWARENESS_FIXTURE = join(
+  process.cwd(),
+  "tests/fixtures/draft_board_2026_half_ppr_10team.json",
+);
 
 /** Seasons the coverage table reports on, chosen to bracket the dead zone it documents. */
 const COVERAGE_SEASONS = [1999, 2004, 2006, 2008, 2009, 2012, 2016, 2021, 2024, 2025];
@@ -52,6 +68,132 @@ async function cached(url: string): Promise<string> {
   const text = await response.text();
   writeFileSync(file, text);
   return text;
+}
+
+/**
+ * Fetched every run, never served from disk — the opposite contract to `cached`.
+ *
+ * The nflverse releases above are published artifacts: last season's file is the same
+ * file today, so caching them makes a re-run fast and offline without making it stale.
+ * A search-relevance ordering is not that. Serving yesterday's copy would report
+ * yesterday's coverage under today's date, which is precisely the failure this script
+ * exists to prevent — and it would do it silently, since the figures look no different.
+ *
+ * The copy on disk is written for inspection after the fact and is never read back. A
+ * failed fetch therefore fails the check rather than falling back: this section measures
+ * a live feed and cannot be reproduced offline, which is a limitation worth stating
+ * loudly rather than papering over with a stale number.
+ */
+async function fetchedFresh(dir: string, name: string, url: string): Promise<string> {
+  mkdirSync(dir, { recursive: true });
+  process.stdout.write(`  fetching ${name} (live — never cached)...\n`);
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) throw new Error(`${url} responded ${response.status}`);
+  const text = await response.text();
+  writeFileSync(join(dir, name), text);
+  return text;
+}
+
+/**
+ * The Sleeper players dump's coverage, and how much of the frozen board it answers for.
+ *
+ * Every figure in the document's "Players dump — Sleeper" section, measured through the
+ * shipped parser and join rather than a side-channel script — which is the difference
+ * between a number the code produces and a number somebody once saw.
+ *
+ * **These figures drift daily and are expected to.** `search_rank` is a live
+ * search-relevance ordering, so a re-run days later legitimately reports different
+ * counts; the document stamps the date it was measured on, and this check is how a
+ * reader re-measures rather than trusts. What must not drift is the shape: a collapse in
+ * the join rate or a surge in ambiguities is a broken matcher, not a busy offseason.
+ */
+async function verifySleeperAwareness(): Promise<void> {
+  process.stdout.write(
+    `\n${"=".repeat(78)}\nSleeper players dump: market-awareness coverage\n${"=".repeat(78)}\n`,
+  );
+  const raw = await fetchedFresh(SLEEPER_CACHE_DIR, "players_nfl.json", sleeperPlayersUrl());
+  const payload: unknown = JSON.parse(raw);
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw new Error("the Sleeper players dump is not the object the parser expects");
+  }
+  const entries = Object.keys(payload as Record<string, unknown>).length;
+  const rows = parsePlayersDump(payload as Record<string, unknown>);
+  const skill = rows.filter((row) =>
+    (MODELED_POSITIONS as readonly string[]).includes(row.position),
+  );
+  const ranked = skill.filter((row) => row.searchRank !== null && row.team !== null);
+  const withDepth = ranked.filter((row) => row.depthChartOrder !== null);
+  process.stdout.write(
+    // `Buffer.byteLength`, not `raw.length`: the latter counts UTF-16 code units, and
+    // the dump carries accented names — so a string length labelled "bytes" understates
+    // the payload by however many non-ASCII characters it happens to hold.
+    `  payload ${Buffer.byteLength(raw, "utf8").toLocaleString()} bytes, ` +
+      `${entries.toLocaleString()} entries\n` +
+      `  parsed ${rows.length.toLocaleString()} rows ` +
+      `(${entries - rows.length} skipped for no usable name or position)\n` +
+      `  skill rows (QB/RB/WR/TE by fantasy position): ${skill.length}\n` +
+      `  ...with a meaningful search rank AND a team: ${ranked.length}\n` +
+      `  ...of those, carrying a depth-chart order: ${withDepth.length}\n` +
+      `  refused the unranked sentinel: ${skill.length - skill.filter((r) => r.searchRank !== null).length} ` +
+      `skill rows carry no usable rank\n`,
+  );
+
+  // The price feed, for the comparison the document draws: this is the coverage the
+  // board actually has today, not a historical figure.
+  const adpRaw = await fetchedFresh(
+    ADP_CACHE_DIR,
+    `${AWARENESS_SCORING}_${AWARENESS_TEAMS}_${AWARENESS_SEASON}.json`,
+    adpUrl(AWARENESS_SCORING, AWARENESS_TEAMS, AWARENESS_SEASON),
+  );
+  // `parseAdp` answers null for the error payload the feed serves with HTTP 200 — the
+  // hazard `lib/sources/adp.ts` documents. Refused rather than reported as zero coverage,
+  // which would read as a finding about the market rather than a failed download.
+  const adp = parseAdp(JSON.parse(adpRaw));
+  if (adp === null) {
+    throw new Error(
+      `the price feed served no ${AWARENESS_SEASON} ${AWARENESS_SCORING} board for ` +
+        `${AWARENESS_TEAMS} teams, so the coverage comparison has no denominator`,
+    );
+  }
+  const adpSkill = adp.filter((entry) =>
+    (MODELED_POSITIONS as readonly string[]).includes(entry.position.toUpperCase()),
+  );
+  process.stdout.write(
+    `  price feed the same day: ${adp.length} rows, ${adpSkill.length} of them skill\n`,
+  );
+
+  // The join, against the frozen audit board — the one place the gate's coverage claim
+  // can be checked against a board that does not move.
+  const fixture = parseBoardFixture(JSON.parse(readFileSync(AWARENESS_FIXTURE, "utf8")));
+  const board = fixture.rows.filter((row) =>
+    (MODELED_POSITIONS as readonly string[]).includes(row.position),
+  );
+  const unpriced = board.filter((row) => row.adp === null);
+  const { byPlayerId, ambiguities, unmatched } = joinMarketAwareness(board, skill);
+  const ranks = [...byPlayerId.values()].filter((a) => a.searchRank !== null).length;
+  const renamed = [...byPlayerId.entries()].filter(([id, awareness]) => {
+    const row = board.find((entry) => entry.playerId === id);
+    return row !== undefined && row.name !== awareness.sourceName;
+  }).length;
+  process.stdout.write(
+    `  frozen board: ${board.length} skill rows, ${unpriced.length} of them unpriced\n` +
+      `  joined: ${byPlayerId.size} (${ranks} with a meaningful rank, ` +
+      `${renamed} spelled differently by the two sources)\n` +
+      `  refused as ambiguous: ${ambiguities.length}` +
+      (ambiguities.length > 0 ? ` (${ambiguities.join(", ")})` : "") +
+      `\n  unmatched: ${unmatched.length}` +
+      (unmatched.length > 0 ? ` (${unmatched.join(", ")})` : "") +
+      `\n`,
+  );
+  // A structural floor rather than a pinned count, because the counts are supposed to
+  // move: the matcher answering for under half the unpriced board, or guessing its way
+  // past every ambiguity, is a defect whatever the day's ranks say.
+  if (byPlayerId.size < unpriced.length / 2) {
+    throw new Error(
+      `the awareness join answers for only ${byPlayerId.size} of ${unpriced.length} ` +
+        `unpriced rows — the matcher has broken, not the market`,
+    );
+  }
 }
 
 const statsUrl = (season: number) =>
@@ -339,6 +481,8 @@ async function main(): Promise<void> {
         `max ${lateness[lateness.length - 1].toFixed(1)}\n`,
     );
   }
+
+  await verifySleeperAwareness();
 
   process.stdout.write(
     "\nEvery figure above appears in docs/data-sources.md. If one has moved, update that\n" +

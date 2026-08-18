@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   SleeperDraftProvider,
+  SleeperPlayersProvider,
   draftPicksUrl,
   draftUrl,
   parsePicks,
+  parsePlayersDump,
   parseSettings,
 } from "./sleeper";
 
@@ -208,6 +210,19 @@ describe("parsePicks", () => {
     expect(parsePicks([])).toEqual([]);
   });
 
+  it("refuses settings missing only one of the two counts", () => {
+    // Each count is independently load-bearing: a null team count with a real round
+    // count (or the reverse) still cannot describe a draft, and letting it through
+    // hands `snakePicks` a null to divide by. The zero cases repeat the same point for
+    // the range guard: either count at zero must refuse on its own, with a valid draft
+    // type present so nothing else can mask the refusal.
+    const base = { type: "snake", status: "drafting" };
+    expect(parseSettings({ ...base, settings: { rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 0, rounds: 15 } })).toBeNull();
+    expect(parseSettings({ ...base, settings: { teams: 12, rounds: 0 } })).toBeNull();
+  });
+
   it("handles a single-name player", () => {
     const picks = parsePicks([
       { pick_no: 5, draft_slot: 3, metadata: { first_name: "", last_name: "Ogunbowale" } },
@@ -387,5 +402,153 @@ describe("a league too large to build pick numbers for", () => {
       teams: 32,
       rounds: 40,
     });
+  });
+});
+
+describe("parsePlayersDump", () => {
+  // Field values mirror rows observed in the live dump on 2026-08-18 — Gainwell is the
+  // measured "Kenny vs Kenneth" join case, Juszczyk the fullback whose roster position
+  // disagrees with his fantasy one, and the sentinel value is the one Sleeper actually
+  // publishes for players outside its search relevance.
+  const DUMP = {
+    "4029": {
+      full_name: "Kenny Gainwell",
+      first_name: "Kenny",
+      last_name: "Gainwell",
+      position: "RB",
+      fantasy_positions: ["RB"],
+      team: "TB",
+      search_rank: 86,
+      depth_chart_position: "RB",
+      depth_chart_order: 2,
+    },
+    "3634": {
+      full_name: "Kyle Juszczyk",
+      position: "FB",
+      fantasy_positions: ["RB"],
+      team: "SF",
+      search_rank: 410,
+      depth_chart_position: "RB",
+      depth_chart_order: 4,
+    },
+    "1234": {
+      full_name: "Deep Reserve",
+      position: "WR",
+      fantasy_positions: ["WR"],
+      team: null,
+      search_rank: 9999999,
+      depth_chart_position: null,
+      depth_chart_order: null,
+    },
+  };
+
+  it("keeps the dump key as the sleeper id and the dump's own spelling as the name", () => {
+    const rows = parsePlayersDump(DUMP);
+    const gainwell = rows.find((row) => row.sleeperId === "4029");
+    expect(gainwell?.name).toBe("Kenny Gainwell");
+    expect(gainwell?.searchRank).toBe(86);
+    expect(gainwell?.depthChartOrder).toBe(2);
+  });
+
+  it("reads the fantasy position where the roster position disagrees", () => {
+    // `position: "FB"` with `fantasy_positions: ["RB"]`. Reading the roster code dropped
+    // Kyle Juszczyk (search rank 410) from a skill-position join — measured 2026-08-18.
+    const juszczyk = parsePlayersDump(DUMP).find((row) => row.sleeperId === "3634");
+    expect(juszczyk?.position).toBe("RB");
+  });
+
+  it("parses the unranked sentinel to null rather than carrying it as a rank", () => {
+    // 9,999,999 is Sleeper's spelling of "no rank". As a number it would sort as the
+    // 9,999,999th most relevant player, which reads as information and is its absence.
+    const reserve = parsePlayersDump(DUMP).find((row) => row.sleeperId === "1234");
+    expect(reserve?.searchRank).toBeNull();
+    expect(reserve?.team).toBeNull();
+  });
+
+  it("keeps rank 1 — the most relevant player, not a boundary casualty", () => {
+    const rows = parsePlayersDump({
+      a: { full_name: "Top Rank", position: "RB", search_rank: 1 },
+    });
+    expect(rows[0].searchRank).toBe(1);
+  });
+
+  it("keeps the depth chart slot code and rejects a blank one", () => {
+    const rows = parsePlayersDump({
+      a: { full_name: "Slotted", position: "WR", depth_chart_position: "swr" },
+      b: { full_name: "Blank Slot", position: "WR", depth_chart_position: "  " },
+    });
+    expect(rows.find((row) => row.name === "Slotted")?.depthChartPosition).toBe("SWR");
+    expect(rows.find((row) => row.name === "Blank Slot")?.depthChartPosition).toBeNull();
+  });
+
+  it("skips junk inside fantasy_positions rather than crashing on it", () => {
+    // A payload drift that puts a number or an empty string ahead of the real position
+    // must not take the parser down — the fantasy position is the first usable string.
+    const rows = parsePlayersDump({
+      a: { full_name: "Messy Row", position: "FB", fantasy_positions: [42, "", "RB"] },
+    });
+    expect(rows[0].position).toBe("RB");
+  });
+
+  it("refuses a zero or negative search rank the way it refuses the sentinel", () => {
+    const rows = parsePlayersDump({
+      a: { full_name: "Zero Rank", position: "WR", search_rank: 0 },
+      b: { full_name: "Negative Rank", position: "WR", search_rank: -3 },
+      c: { full_name: "Fractional Rank", position: "WR", search_rank: 12.5 },
+    });
+    expect(rows.map((row) => row.searchRank)).toEqual([null, null, null]);
+  });
+
+  it("skips rows without a usable name or position rather than guessing", () => {
+    const rows = parsePlayersDump({
+      a: { position: "RB" },
+      b: { full_name: "No Position" },
+      c: null,
+      d: "not an object",
+      e: { first_name: "Built", last_name: "FromParts", position: "wr" },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: "Built FromParts", position: "WR" });
+  });
+
+  it("normalizes the team code and folds an unknown one to null", () => {
+    const rows = parsePlayersDump({
+      a: { full_name: "Known Team", position: "RB", team: "sf" },
+      b: { full_name: "Retired Code", position: "RB", team: "XX" },
+    });
+    expect(rows.find((row) => row.name === "Known Team")?.team).toBe("SF");
+    expect(rows.find((row) => row.name === "Retired Code")?.team).toBeNull();
+  });
+});
+
+describe("SleeperPlayersProvider", () => {
+  const provider = (body: string | Error) =>
+    new SleeperPlayersProvider(async () => {
+      if (body instanceof Error) throw body;
+      return body;
+    });
+
+  it("parses a dump into rows", async () => {
+    const result = await provider(
+      JSON.stringify({ "1": { full_name: "Some Player", position: "TE", team: "ATL" } }),
+    ).players();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toHaveLength(1);
+  });
+
+  it("fails rather than throwing when Sleeper is unreachable", async () => {
+    const result = await provider(new Error("offline")).players();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/Could not reach Sleeper/);
+  });
+
+  it("rejects a null body and a non-object payload instead of coercing them", async () => {
+    const empty = await provider("null").players();
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.reason).toMatch(/empty players dump/);
+
+    const wrongShape = await provider("[1,2,3]").players();
+    expect(wrongShape.ok).toBe(false);
+    if (!wrongShape.ok) expect(wrongShape.reason).toMatch(/unexpected shape/);
   });
 });

@@ -115,7 +115,17 @@ export interface ChampionshipRecommendation {
   player: PlayerRisk;
   /** Championship probability if this player is taken and the draft finishes normally. */
   championshipProbability: number;
-  /** Change against taking whatever the base policy would have taken. */
+  /**
+   * Change against taking whatever the base policy would have taken.
+   *
+   * With one deliberate exception, and it is the honest reading rather than a special
+   * case: where the market-discipline gate withheld a candidate, the comparison is
+   * against the best *offerable* player instead. The base policy is ungated, so it would
+   * happily take the market-absent player the panel is refusing to name — and a delta
+   * measured against him tells the user their recommendation is worse than something the
+   * panel will not show them and gives them no way to identify. See
+   * `recommendByChampionship`.
+   */
   deltaVsBaseline: number;
   playoffProbability: number;
   expectedPoints: number;
@@ -175,6 +185,85 @@ export interface ChampionshipRecommendation {
  * value estimate, not a guess — while keeping a decision inside the time a draft allows.
  */
 export const CHAMPIONSHIP_CANDIDATES = 10;
+
+/**
+ * Through which round the market-discipline gate holds.
+ *
+ * Inside it, a player the board prices at `adp: null` is not offered as a recommendation:
+ * his only price is the model's own projection, and the #88 audit measured what trusting
+ * that number alone at early-round confidence produces — Kenneth Gainwell recommended and
+ * taken at pick 2.06, Colby Parkinson at 6.06, both absent from the market's list, both
+ * starting a roster the audit called unusable. The model's measured skill does not
+ * support overruling the entire market by four-plus rounds on its own signal
+ * (`docs/draft-validation.md`: the market ranks players better than the model), so
+ * inside the window where that overruling is most expensive, a market-absent candidate
+ * needs a market to argue with before he can be advised.
+ *
+ * Six rounds because that is the span the audit measured the failure in and the span
+ * #91's check (a) locks; the harness's `EARLY_ROUNDS` asserts the same window and a test
+ * pins the two to each other. Past the gate the model's projection may lead again —
+ * pricing players the market has not is the model's documented reason to exist, and a
+ * late-round flier is exactly where that stands to gain more than it risks.
+ */
+export const MARKET_GATE_ROUNDS = 6;
+
+/**
+ * The shortlist entries the market-discipline gate leaves standing.
+ *
+ * Exported for tests; `recommendByChampionship` is the caller. Three deliberate edges:
+ *
+ *  - **The gate holds only when the round is known.** `currentRound` is `null` for a
+ *    state with no remaining picks, and a state that cannot say which round it is gets
+ *    the ungated list — the gate exists to stop a measured early-round failure, not to
+ *    filter states it cannot place.
+ *  - **`adp` missing entirely (`undefined`) gates like `null`.** Both mean "no market
+ *    price on record", and the difference between them is which caller built the object,
+ *    not anything about the player.
+ *  - **A gate that would empty the shortlist yields.** A panel with no recommendation at
+ *    all advises nothing — worse than advising with the documented caveat — so when every
+ *    candidate is market-absent the ungated list stands. On any real board the market has
+ *    priced hundreds of players and this never fires; it exists for hand-built states.
+ *
+ * Exclusion rather than demotion, and that is forced, not stylistic: the panel's display
+ * contract (#88.2, harness check (f)) is that the leader card carries the panel's highest
+ * title odds. A market-absent candidate *shown* below a leader with lower odds would
+ * break that contract; shown above, he is the leader and the gate did nothing. The only
+ * honest place for him inside the window is off the panel, with the board itself still
+ * showing his model price under its "no market price" label.
+ */
+export function applyMarketGate<T extends { player: PlayerRisk }>(
+  scored: readonly T[],
+  currentRound: number | null,
+): readonly T[] {
+  if (currentRound === null || currentRound > MARKET_GATE_ROUNDS) return scored;
+  const priced = scored.filter((entry) => entry.player.adp != null);
+  return priced.length > 0 ? priced : scored;
+}
+
+/**
+ * The 1-based round the advised team's next pick falls in, or `null` without one.
+ *
+ * `remainingPicks` is filtered from the current pick inclusive, so its first entry *is*
+ * the pick being advised — the same construction `stateAtPick` documents, and the reason
+ * the *first* entry is read rather than any other: a team holding picks 12 and 29 is on
+ * the clock at 12, and reading past it would gate by a round the draft has not reached.
+ * Rounds are overall picks divided among the league's teams, rounded up.
+ *
+ * Exported for tests, like `applyMarketGate` above. Every guard here is reachable only
+ * from a malformed state, and a guard no test can address is a guard nobody can check:
+ * `null` where the pick number is missing or unusable, because the alternative is a
+ * `NaN` round that compares false against every bound and silently gates a draft this
+ * function could not place.
+ */
+export function currentRoundOf(state: DraftPolicyState): number | null {
+  const next = state.teams[state.myTeamIndex]?.remainingPicks[0];
+  // `isInteger` rather than `isFinite`, and it subsumes it: a fractional pick number is
+  // not a pick that got rounded, it is a state this function does not understand — the
+  // same rule `lib/sources/sleeper.ts` applies to a fractional team count, and for the
+  // same reason. Rounding 1.5 up to round 1 would gate on a pick nobody holds.
+  if (next === undefined || !Number.isInteger(next) || next < 1) return null;
+  return Math.ceil(next / state.teams.length);
+}
 
 /**
  * The players a base-policy pick can possibly be.
@@ -785,9 +874,21 @@ export function recommendByChampionship(
   const leagueUnfilled = state.teams.flatMap((team) =>
     ownUnfilledSlots(team.roster, config.slots),
   );
-  const shortlist = scoreCandidates(me.roster, state.available, league, leagueUnfilled)
+  // The market-discipline gate stands between the scoring and the shortlist, and only
+  // here: the base policy, the opponent completions, and our own rollout all stay
+  // ungated. Gating them would change what every simulated roster looks like — a
+  // different measurement, not a discipline on the advice — and the base policy taking a
+  // market-absent player *later, at his value* is exactly the outcome the gate is
+  // steering toward. Filtered before the slice, so the gate promotes the next priced
+  // candidate into the field rather than shortening it.
+  const scored = scoreCandidates(me.roster, state.available, league, leagueUnfilled);
+  const gated = applyMarketGate(scored, currentRoundOf(state));
+  const shortlist = gated
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
+  // Whether the gate actually withheld anyone, which decides what "vs. best available"
+  // can honestly mean below.
+  const gateWithheld = gated.length !== scored.length;
 
   // Opponents are completed once. Their behavior changes by at most one player depending
   // on what we take, which cannot move a season simulation meaningfully, and recomputing
@@ -896,9 +997,25 @@ export function recommendByChampionship(
     return championshipScenarios(mine, scores, config);
   };
 
-  const baseline = evaluate(null);
-
   const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
+
+  // What `deltaVsBaseline` is measured against — and the gate moves it.
+  //
+  // `evaluate(null)` is the base policy left to its own devices, which is the right
+  // baseline while every candidate it might take is also a candidate we might recommend.
+  // Once the gate withholds someone, it stops being: the base policy still takes the
+  // market-absent player the panel refuses to name, so every displayed delta would be
+  // measured against a row the user cannot see, cannot take, and is not told about. The
+  // panel labels this figure "title odds vs. best available", and best available has to
+  // mean the best thing on offer.
+  //
+  // So where the gate withheld a candidate, the baseline is the best *offerable* one —
+  // `gated[0]`, the top of the prefilter's own ordering, which is exactly what the base
+  // policy would have taken had it been subject to the same discipline. That entry is
+  // already evaluated, so this costs no extra simulation. Nothing about the ordering
+  // changes either way: `orderRecommendations` never reads this field.
+  const baseline =
+    gateWithheld && evaluated.length > 0 ? evaluated[0] : evaluate(null);
 
   // The leader is the empirical maximum over these same scenarios. That is a choice made
   // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather

@@ -8,7 +8,9 @@ import {
   editDistance,
   findNamesInText,
   matchName,
+  aliasNameKeys,
   normalizeName,
+  normalizeWords,
   similarity,
 } from "./match";
 
@@ -565,5 +567,68 @@ describe("findNamesInText reads phrases of every length", () => {
     // than the length prune admits and matches nobody at the normal floor.
     const found = findNamesInText("A J Brown", UNIVERSE, 0.8);
     expect(found.map((m) => m.candidate.id)).toEqual(["2"]);
+  });
+});
+
+describe("aliasNameKeys", () => {
+  it("returns the strict key first, so [0] is exactly normalizeName", () => {
+    for (const raw of ["Kenneth Gainwell", "Ja'Marr Chase", "Kyle Pitts"]) {
+      expect(aliasNameKeys(raw)[0]).toBe(normalizeName(raw));
+    }
+  });
+
+  it("publishes both spellings of a measured first-name pair, in both directions", () => {
+    // The pair that led pick 2.06: our board says "Kenneth Gainwell", Sleeper's dump
+    // says "Kenny". Either side may be the one doing the lookup, so both must expand.
+    expect(aliasNameKeys("Kenneth Gainwell")).toContain("kennygainwell");
+    expect(aliasNameKeys("Kenny Gainwell")).toContain("kennethgainwell");
+  });
+
+  it("aliases only the first word, never a surname", () => {
+    // "Scott" the surname must not become "Scotty": aliasing surnames collapses
+    // genuinely different players, which is the collision the table's docstring bans.
+    expect(aliasNameKeys("Boston Scott")).toEqual(["bostonscott"]);
+  });
+
+  it("yields a single key for a name with no measured alias", () => {
+    expect(aliasNameKeys("Saquon Barkley")).toEqual(["saquonbarkley"]);
+  });
+
+  it("returns nothing for a name that normalizes to nothing", () => {
+    expect(aliasNameKeys("Jr.")).toEqual([]);
+  });
+
+  it("still aliases the first word behind leading whitespace", () => {
+    // Splitting "  Kenneth Gainwell" on whitespace yields an empty leading word; only
+    // the length filter keeps it from becoming words[0], where it would silently shut
+    // the alias table off for exactly the padded strings OCR produces.
+    expect(aliasNameKeys("  Kenneth Gainwell  ")).toEqual([
+      "kennethgainwell",
+      "kennygainwell",
+    ]);
+  });
+
+  it("carries the alias through the same folding the strict key gets", () => {
+    // Suffixes and punctuation are dropped before the first word is swapped, so an
+    // aliased key is a normalized key, not a raw one with the first word replaced.
+    expect(aliasNameKeys("Michael St. Brown Jr.")).toEqual([
+      "michaelstbrown",
+      "mikestbrown",
+    ]);
+  });
+});
+
+describe("normalizeWords", () => {
+  it("splits a name into the words the folding leaves standing", () => {
+    // Literal expectations rather than a round-trip against `normalizeName`: that
+    // function is *defined* as this one joined, so asserting the identity holds is a
+    // tautology no defect in the folding could fail.
+    expect(normalizeWords("A.J. Brown")).toEqual(["aj", "brown"]);
+    expect(normalizeWords("Amon-Ra St. Brown")).toEqual(["amonra", "st", "brown"]);
+    expect(normalizeWords("José Ramírez Jr.")).toEqual(["jose", "ramirez"]);
+  });
+
+  it("keeps the word boundaries the joined key erases", () => {
+    expect(normalizeWords("Kenneth Gainwell Jr.")).toEqual(["kenneth", "gainwell"]);
   });
 });
