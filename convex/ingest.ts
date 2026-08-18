@@ -44,6 +44,7 @@ import {
   fitAdpCurves,
   seasonProjection,
 } from "../lib/nfl/draft/value";
+import { teamByeWeeks } from "../lib/nfl/byes";
 import { weeksBetween } from "../lib/nfl/season";
 import { planDraftRefresh } from "../lib/nfl/draft/refresh-plan";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
@@ -782,8 +783,12 @@ export const buildDraftBoard = internalAction({
   handler: async (
     ctx,
     args,
-  ): Promise<{ players: number; withMarketPrice: number; unpriced: number }> =>
-    runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
+  ): Promise<{
+    players: number;
+    withMarketPrice: number;
+    unpriced: number;
+    byeMismatches: number;
+  }> => runBuildDraftBoard(ctx, args, new NflverseProvider(), new AdpProvider()),
 });
 
 export async function runBuildDraftBoard(
@@ -795,7 +800,17 @@ export async function runBuildDraftBoard(
   }: { season: number; scoringId?: string; teams?: number },
   provider: NflverseProvider,
   adpProvider: AdpProvider,
-): Promise<{ players: number; withMarketPrice: number; unpriced: number }> {
+): Promise<{
+  players: number;
+  withMarketPrice: number;
+  unpriced: number;
+  /**
+   * Rows whose market-published bye disagreed with the schedule's. The schedule won;
+   * this figure exists so a feed gone stale is visible rather than silently outvoted —
+   * `refreshDraftBoards` sums it across shapes into its own returned record.
+   */
+  byeMismatches: number;
+}> {
   const jobId = await ctx.runMutation(internal.jobs.start, {
     kind: boardJobKind(season, scoringId, teams),
     detail: `Building ${season} draft board (${scoringId}, ${teams}-team)`,
@@ -805,6 +820,52 @@ export async function runBuildDraftBoard(
     // Who is on a team this season. The only source that knows before a game is played.
     const rosterResult = await provider.seasonRoster(season);
     if (!rosterResult.ok) throw new Error(rosterResult.reason);
+
+    // Bye weeks, from the season's schedule. A bye is a property of the team, and the
+    // schedule is published complete months before anybody drafts — whereas the ADP feed
+    // only knows a bye for players it prices, which left every market-absent row at null
+    // and handed those rows a free week of simulated season value (#89.D, #90.1). The
+    // market's bye survives only as a fallback for a team the schedule cannot answer for,
+    // and as a cross-check: a disagreement is counted and the schedule wins.
+    const contestsResult = await provider.allContests();
+    if (!contestsResult.ok) throw new Error(contestsResult.reason);
+    const scheduleByes = teamByeWeeks(contestsResult.data, season);
+    // Loudly, because falling back to the market feed here would rebuild the exact
+    // coverage hole this derivation removes — and it would look like a healthy board.
+    // This catches only the wholly absent season (the annual window between the roster
+    // release and the schedule release, documented in docs/data-sources.md). A
+    // *truncated* season passes here and fails at the teamed-null guard below instead:
+    // its underivable teams need a market bye the truncated schedule can still
+    // corroborate as a bye week, which a bye past the truncation point never is — so a
+    // truncated release refuses to build, market feed or not, rather than shipping a
+    // board whose byes quietly mix a broken schedule with the demoted feed.
+    if (scheduleByes.size === 0) {
+      throw new Error(
+        `The schedule has no ${season} games, so no bye can be derived — the season is ` +
+          `not in the schedule release yet. A board built without byes overvalues every ` +
+          `row the market has not priced, so none was written.`,
+      );
+    }
+    // The weeks the schedule shows some team actually idle, for validating a market
+    // fallback. A feed bye outside this set would pass the teamed-null guard below and
+    // then be wrong in one of two ways, both silent: inert — a bye the league never
+    // simulates masks nothing, the #89.D subsidy wearing a number instead of a null —
+    // or charged in a week the schedule proves nobody sits out. Membership in the
+    // *played* weeks would be too weak for the first case (a stale feed's bye of 18 is
+    // a played week and still inert in every league), so the gate is the byes the
+    // schedule itself exhibits. An invalid fallback becomes null and the guard rejects
+    // the board loudly.
+    const observedByeWeeks = new Set(scheduleByes.values());
+    let byeMismatches = 0;
+    /** Schedule first, market bye as fallback; disagreements counted, schedule kept. */
+    const resolveBye = (team: string | null, marketBye: number | null): number | null => {
+      const scheduleBye = team === null ? null : (scheduleByes.get(team) ?? null);
+      if (scheduleBye !== null) {
+        if (marketBye !== null && marketBye !== scheduleBye) byeMismatches += 1;
+        return scheduleBye;
+      }
+      return marketBye !== null && observedByeWeeks.has(marketBye) ? marketBye : null;
+    };
 
     // Two prior seasons of production, matching the backtest's window.
     const priorSeasons: PlayerWeek[][] = [];
@@ -1054,7 +1115,7 @@ export async function runBuildDraftBoard(
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
-        byeWeek: market?.bye ?? null,
+        byeWeek: resolveBye(entry.team, market?.bye ?? null),
         availability: shrunkAvailability(
           priorGames.get(entry.playerId) ?? 0,
           history.length > 0,
@@ -1086,7 +1147,7 @@ export async function runBuildDraftBoard(
         blendedPoints: blendedSeasonValue(null, marketPoints),
         adp: scalePick(entry.adp, adpSource),
         adpStdev: scalePick(entry.stdev, adpSource),
-        byeWeek: entry.bye,
+        byeWeek: resolveBye(entry.team, entry.bye),
         // No games-played history exists for a defense; a team plays every week it is not
         // on bye, so availability is the bye alone.
         availability: 1,
@@ -1106,6 +1167,28 @@ export async function runBuildDraftBoard(
       // failure, so this needs no bookkeeping of its own.
       throw new Error(
         `No draftable players resolved for ${season}. Nothing was written.`,
+      );
+    }
+
+    // The acceptance criterion of the bye fix, enforced where it can fail: no *teamed*
+    // row may be written with a null bye. The size guard above cannot see a truncated
+    // schedule — a partial season derives byes for some teams and quietly leaves the
+    // rest to a market fallback that is null for exactly the market-absent rows #89.D
+    // is about. A teamless row may still carry null; the season simulation charges
+    // those an assumed week rather than a free one.
+    const teamsWithoutByes = [
+      ...new Set(
+        rows
+          .filter((row) => row.team !== null && row.byeWeek === null)
+          .map((row) => row.team as string),
+      ),
+    ].sort();
+    if (teamsWithoutByes.length > 0) {
+      throw new Error(
+        `No bye from any source for ${teamsWithoutByes.join(", ")} — the ${season} ` +
+          `schedule is truncated or lost its structure, and the market feed does not ` +
+          `price these rows. Writing them with null byes would re-open the missing-bye ` +
+          `subsidy, so nothing was written.`,
       );
     }
 
@@ -1151,6 +1234,7 @@ export async function runBuildDraftBoard(
       players: rows.length,
       withMarketPrice,
       unpriced: rows.length - withMarketPrice,
+      byeMismatches,
     };
   } catch (error) {
     await ctx.runMutation(internal.jobs.finish, {
@@ -1182,6 +1266,8 @@ export const refreshDraftBoards = internalAction({
     failed: string[];
     attempted?: number;
     skipped?: string;
+    /** Summed across shapes; nonzero means the market feed's byes have gone stale. */
+    byeMismatches?: number;
   }> => {
     const season = await ctx.runQuery(api.season.current, {});
     // The same season the draft page reads, from the same function, because these two
@@ -1211,6 +1297,7 @@ export const refreshDraftBoards = internalAction({
     const adpProvider = new AdpProvider();
 
     let rebuilt = 0;
+    let byeMismatches = 0;
     const failed: string[] = [];
     for (const scoringId of [...new Set(plan.shapes.map((s) => s.scoringId))]) {
       // The distinct published boards this scoring format's sizes need, warmed before the
@@ -1227,13 +1314,14 @@ export const refreshDraftBoards = internalAction({
         (shape) => shape.scoringId === scoringId,
       )) {
         try {
-          await runBuildDraftBoard(
+          const built = await runBuildDraftBoard(
             ctx,
             { season: target, scoringId, teams },
             provider,
             adpProvider,
           );
           rebuilt += 1;
+          byeMismatches += built.byeMismatches;
         } catch (error) {
           // One shape failing must not stop the rest: a market board can be missing for an
           // unusual league size while the common ones are fine. Each failure is already
@@ -1245,6 +1333,6 @@ export const refreshDraftBoards = internalAction({
         }
       }
     }
-    return { rebuilt, failed, attempted: plan.shapes.length };
+    return { rebuilt, failed, attempted: plan.shapes.length, byeMismatches };
   },
 });

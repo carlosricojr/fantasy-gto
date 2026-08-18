@@ -7,6 +7,9 @@ import type { PlayerRisk } from "../../core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "../../core/season-sim";
 import { slotsForTemplate } from "../roster";
 import { teamIndexForSeat } from "../../core/draft";
+import { teamByeWeeks } from "../byes";
+import { parseCsv } from "../csv";
+import { parseContests } from "../../sources/nflverse";
 import {
   CHECK_DEFINITIONS,
   EARLY_ROUNDS,
@@ -15,7 +18,9 @@ import {
   type MockDraftReplay,
   type MockDraftSetup,
   type MockPick,
+  applyTeamByes,
   evaluateChecks,
+  expectationFor,
   fixtureLeagueMismatch,
   parseBoardFixture,
   pickLabelFor,
@@ -29,6 +34,8 @@ const FIXTURE_PATH = join(
   __dirname,
   "../../../tests/fixtures/draft_board_2026_half_ppr_10team.json",
 );
+
+const SCHEDULE_FIXTURE_PATH = join(__dirname, "../../../tests/fixtures/games_2026.csv");
 
 function row(
   playerId: string,
@@ -404,6 +411,82 @@ describe("fixtureLeagueMismatch", () => {
   });
 });
 
+describe("applyTeamByes", () => {
+  const byes = new Map([
+    ["TB", 10],
+    ["SEA", 11],
+  ]);
+
+  it("fills a teamed row's null bye and leaves everything else of it alone", () => {
+    const before = row("g1", "RB", 180, null, { team: "TB", byeWeek: null });
+    const [after] = applyTeamByes([before], byes);
+    expect(after.byeWeek).toBe(10);
+    expect({ ...after, byeWeek: null }).toEqual(before);
+    // The input is data, not a workspace: the frozen fixture's rows pass through here.
+    expect(before.byeWeek).toBeNull();
+  });
+
+  it("resolves a disagreeing bye to the schedule's, as ingest now does", () => {
+    const [after] = applyTeamByes([row("g1", "RB", 180, 12, { team: "TB", byeWeek: 6 })], byes);
+    expect(after.byeWeek).toBe(10);
+  });
+
+  it("touches neither a teamless row nor a team the schedule cannot answer for", () => {
+    const teamless = row("f1", "RB", 100, null, { team: null, byeWeek: null });
+    const unanswered = row("f2", "WR", 90, 40, { team: "NYG", byeWeek: 11 });
+    expect(applyTeamByes([teamless, unanswered], byes)).toEqual([teamless, unanswered]);
+  });
+});
+
+describe("the frozen 2026 schedule fixture", () => {
+  const scheduleByes = teamByeWeeks(
+    parseContests(parseCsv(readFileSync(SCHEDULE_FIXTURE_PATH, "utf8"))),
+    2026,
+  );
+
+  it("derives one bye for each of the 32 teams", () => {
+    // The fixture's identity, like the board's `computedAt`: 272 regular-season games,
+    // verified against the live release on 2026-08-17, every team idle exactly once. A
+    // truncated or edited fixture derives fewer teams and `--schedule-byes` would
+    // quietly measure a partial fix.
+    expect(scheduleByes.size).toBe(32);
+    expect(scheduleByes.get("TB")).toBe(10);
+    expect(scheduleByes.get("SEA")).toBe(11);
+    expect(scheduleByes.get("DET")).toBe(6);
+  });
+
+  it("answers for every teamed row of the frozen board, and agrees with every market bye", () => {
+    // The measured shape of the `--schedule-byes` mode, pinned: 388 teamed rows fill from
+    // null, 21 teamless rows stay null, and not one of the 213 market-published byes
+    // disagrees with the schedule — so on this board the derivation only ever fills.
+    const fixture = parseBoardFixture(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
+    let filled = 0;
+    let agreeing = 0;
+    for (const entry of fixture.rows) {
+      if (entry.team === null) continue;
+      const scheduleBye = scheduleByes.get(entry.team);
+      expect(scheduleBye).toBeDefined();
+      if (entry.byeWeek === null) filled += 1;
+      else {
+        expect(entry.byeWeek).toBe(scheduleBye);
+        agreeing += 1;
+      }
+    }
+    expect(filled).toBe(388);
+    expect(agreeing).toBe(213);
+    expect(fixture.rows.filter((entry) => entry.team === null)).toHaveLength(21);
+
+    // Post-application residue: the 15 teamless rows with no market bye either — the
+    // population the simulation's assumed-week charge exists for. (The other 6 teamless
+    // rows carry a market-published bye and keep it.)
+    const applied = applyTeamByes(fixture.rows, scheduleByes);
+    expect(applied.filter((entry) => entry.byeWeek === null)).toHaveLength(15);
+    expect(
+      applied.filter((entry, i) => entry.byeWeek !== fixture.rows[i].byeWeek),
+    ).toHaveLength(388);
+  });
+});
+
 describe("unexpectedOutcomes", () => {
   it("rings only for a status that disagrees with its documented expectation", () => {
     const outcomes = CHECK_DEFINITIONS.map((definition) => ({
@@ -414,17 +497,49 @@ describe("unexpectedOutcomes", () => {
     expect(unexpectedOutcomes(outcomes)).toEqual([]);
 
     // Flip one check each way: an unexpected pass and an unexpected failure both ring.
-    // (b) is documented failing and (a) documented passing, so each flip disagrees with
-    // its expectation. These letters track the current expectation vector — the PR that
-    // flips (b) or (a) updates this fixture with it, as PR 4 did when it took over (a).
+    // The flipped checks are picked by their documented expectation rather than by id,
+    // so this test survives a fix PR flipping a particular check's column. Asserted
+    // before use so the protocol's end state — every check expected to pass — fails
+    // this test with an instruction to construct a synthetic definition, not with a
+    // TypeError.
+    const knownFail = CHECK_DEFINITIONS.find((d) => d.expected === "fail");
+    const knownPass = CHECK_DEFINITIONS.find((d) => d.expected === "pass");
+    expect(knownFail, "no expected-fail check left; flip one synthetically here").toBeDefined();
+    expect(knownPass, "no expected-pass check left; flip one synthetically here").toBeDefined();
+    if (knownFail === undefined || knownPass === undefined) return;
     const surprisePass = outcomes.map((outcome) =>
-      outcome.id === "b" ? { ...outcome, status: "pass" as const } : outcome,
+      outcome.id === knownFail.id ? { ...outcome, status: "pass" as const } : outcome,
     );
-    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual(["b"]);
+    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual([
+      knownFail.id,
+    ]);
     const regression = outcomes.map((outcome) =>
-      outcome.id === "a" ? { ...outcome, status: "fail" as const } : outcome,
+      outcome.id === knownPass.id ? { ...outcome, status: "fail" as const } : outcome,
     );
-    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual(["a"]);
+    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual([
+      knownPass.id,
+    ]);
+  });
+
+  it("enforces the expectation column of the mode it is given", () => {
+    // Constructed rather than read off CHECK_DEFINITIONS, so this holds whatever the
+    // measured expectations currently are: one outcome whose two columns disagree must
+    // ring in exactly one mode.
+    const split = {
+      ...CHECK_DEFINITIONS[0],
+      expected: "fail" as const,
+      expectedWithScheduleByes: "pass" as const,
+      status: "fail" as const,
+      violations: ["measured"],
+    };
+    expect(expectationFor(split, "frozen")).toBe("fail");
+    expect(expectationFor(split, "schedule-byes")).toBe("pass");
+    expect(unexpectedOutcomes([split], "frozen")).toEqual([]);
+    expect(unexpectedOutcomes([split], "schedule-byes").map((o) => o.id)).toEqual([
+      split.id,
+    ]);
+    // And the one-argument form is the frozen mode, because that is the default replay.
+    expect(unexpectedOutcomes([split])).toEqual([]);
   });
 });
 
@@ -640,9 +755,7 @@ describe("stateAtPick", () => {
 });
 
 describe("evaluateChecks", () => {
-  it("documents six checks with the expectations measured after the paired tie ranking", () => {
-    // (f) fixed and (a) measured passing since PR 4 of #91; (c) measured failing since
-    // the same change — the definitions in `mock.ts` record each mechanism.
+  it("documents six checks with the expectations both replay modes measured", () => {
     expect(CHECK_DEFINITIONS.map((entry) => entry.id)).toEqual([
       "a",
       "b",
@@ -651,9 +764,18 @@ describe("evaluateChecks", () => {
       "e",
       "f",
     ]);
+    // As measured on the merged engine — PR 2's bye charge plus PR 4's paired tie
+    // ranking. (f) is closed by the ranking by construction; (a) failed again once the
+    // two fixes merged (Parkinson leads 6.06 in both modes — PR 3's market gate, as
+    // #91 always assigned); (c) splits, churning on the frozen board's bye noise and
+    // passing once byes resolve from the schedule; (b), (d), (e) are the structural
+    // findings PR 5 owns. Each definition in `mock.ts` records its mechanism.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:pass", "b:fail", "c:fail", "d:fail", "e:fail", "f:pass"]);
+    ).toEqual(["a:fail", "b:fail", "c:fail", "d:fail", "e:fail", "f:pass"]);
+    expect(
+      CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
+    ).toEqual(["a:fail", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
   });
 
   it("states the protocol numbers in the titles it displays", () => {

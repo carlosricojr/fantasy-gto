@@ -33,6 +33,16 @@ const CONFIG: UtilityConfig = {
   meanAbsenceWeeks: 3,
 };
 
+/**
+ * A known bye outside every span these tests simulate.
+ *
+ * This is the "no bye in the simulated season" control. It used to be `null`, but null
+ * now means *unknown* and is charged an assumed week — reading it as "plays every week"
+ * was the #89.D subsidy — while a known bye in a week nobody simulates genuinely costs
+ * nothing and consumes no randomness, exactly as null used to.
+ */
+const BYE_OUTSIDE_SEASON = 18;
+
 function player(
   id: string,
   position: string,
@@ -46,11 +56,23 @@ function player(
     weeklyMean,
     p10: 0.269,
     p90: 1.901,
-    byeWeek: null,
+    byeWeek: BYE_OUTSIDE_SEASON,
     availability: 1,
     ...overrides,
   };
 }
+
+describe("the no-bye control", () => {
+  it("lies outside every span this file simulates", () => {
+    // Week 18 is a real NFL week that `PlayerRisk.byeWeek` legitimately carries, so the
+    // control is only sound while no fixture here simulates it. The longest span in this
+    // file is the seventeen-week SEASON of the availability tests; if a league ending in
+    // week 18 ever appears in these tests, this is the assertion that says the default
+    // bye silently moved in-season and every golden value below it moved too.
+    expect(WEEKS).not.toContain(BYE_OUTSIDE_SEASON);
+    expect(BYE_OUTSIDE_SEASON).toBeGreaterThan(17);
+  });
+});
 
 describe("fitLognormal", () => {
   it("reproduces the quantiles it was fitted to", () => {
@@ -299,7 +321,10 @@ describe("simulateAvailability", () => {
   const SEASON = Array.from({ length: 17 }, (_, i) => i + 1);
 
   /** Fraction of weeks actually played, pooled over many independent seasons. */
-  function realizedRate(availability: number, byeWeek: number | null = null): number {
+  function realizedRate(
+    availability: number,
+    byeWeek: number | null = BYE_OUTSIDE_SEASON,
+  ): number {
     let played = 0;
     let total = 0;
     for (let scenario = 0; scenario < 400; scenario += 1) {
@@ -373,6 +398,83 @@ describe("simulateAvailability", () => {
     const rate = realizedRate(0.8, 9);
     expect(rate).toBeLessThan(0.8);
     expect(rate).toBeCloseTo(0.8 * (16 / 17), 1);
+  });
+
+  it("charges an unknown bye as exactly one assumed week", () => {
+    // The #89.D subsidy, closed at the boundary: `byeWeek: null` used to mean "plays all
+    // seventeen weeks", which paid a free week to exactly the players whose data was
+    // worst. An ironman with an unknown bye now sits out one week per scenario — the
+    // same cost as a known bye, without pretending to know the week.
+    for (let scenario = 0; scenario < 50; scenario += 1) {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability: 1, byeWeek: null }),
+        SEASON,
+        3,
+        createRng(scenario + 1),
+      );
+      expect(weeks.filter((ok) => !ok)).toHaveLength(1);
+    }
+  });
+
+  it("spreads the assumed week across scenarios instead of electing one", () => {
+    // The whole point of a *probabilistic* absence: the week is unknown, so no single
+    // week may be charged systematically — that would misprice bench cover against
+    // players whose real bye is elsewhere. Over enough scenarios every week of the
+    // season is the assumed one at least once.
+    const missedWeek = (seed: number): number => {
+      const weeks = simulateAvailability(
+        player("p", "RB", 10, { availability: 1, byeWeek: null }),
+        SEASON,
+        3,
+        createRng(seed),
+      );
+      return SEASON[weeks.indexOf(false)];
+    };
+    const counts = new Map<number, number>();
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const week = missedWeek(seed);
+      counts.set(week, (counts.get(week) ?? 0) + 1);
+    }
+    // Every week drawn, and none starved: uniform over 17 weeks puts ~23.5 draws on each,
+    // and the measured minimum at these seeds is 17. A draw that merely *touched* every
+    // week while concentrating on one would pass a support check and still charge one
+    // week systematically — the floor is what rules that out.
+    expect(counts.size).toBe(SEASON.length);
+    for (const count of counts.values()) expect(count).toBeGreaterThanOrEqual(10);
+  });
+
+  it("draws the assumed week from the candidate list, falling back to the span only when empty", () => {
+    // The candidate list is where a bye can legally fall (the season sim passes its
+    // regular-season weeks so the bracket is never charged); an empty list falls back to
+    // the whole span rather than yielding no bye — which would quietly resurrect the
+    // subsidy for a degenerate caller.
+    const ironman = player("p", "RB", 10, { availability: 1, byeWeek: null });
+    for (let seed = 1; seed <= 30; seed += 1) {
+      const constrained = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [2]);
+      expect(constrained).toEqual([true, false, true]);
+      const fallback = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), []);
+      expect(fallback.filter((ok) => !ok)).toHaveLength(1);
+      // A list with no week in the span is the same degenerate case wearing numbers: an
+      // assumed bye at week 99 masks nothing, so it must fall back too, not charge zero.
+      const disjoint = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [99]);
+      expect(disjoint.filter((ok) => !ok)).toHaveLength(1);
+      // And a partially legal list is filtered, not discarded: with 99 dropped, week 2
+      // is the only candidate left and the bye lands there every time — where an
+      // unfiltered draw would have picked 99 half the time and charged nothing.
+      const partial = simulateAvailability(ironman, [1, 2, 3], 3, createRng(seed), [2, 99]);
+      expect(partial).toEqual([true, false, true]);
+    }
+  });
+
+  it("charges the assumed week on top of the injury chain too", () => {
+    // The fragile-player mirror of the known-bye subtraction above: an unknown bye costs
+    // a fragile player the same expected week a known one does. The bounds are chosen to
+    // discriminate: the target is 0.7529 (measured 0.7478 at these seeds), the unfixed
+    // rate is 0.8 with an estimator error under 0.009, and a `toBeCloseTo(…, 1)` band of
+    // ±0.05 would have accepted both.
+    const rate = realizedRate(0.8, null);
+    expect(rate).toBeLessThan(0.78);
+    expect(rate).toBeGreaterThan(0.72);
   });
 });
 
@@ -492,7 +594,12 @@ describe("the simulation is reproducible", () => {
  * bye and identical quantiles — so every number is exactly predictable.
  */
 describe("the totals are accumulated from zero", () => {
-  const CERTAIN: Partial<PlayerRisk> = { p10: 1, p90: 1, availability: 1, byeWeek: null };
+  const CERTAIN: Partial<PlayerRisk> = {
+    p10: 1,
+    p90: 1,
+    availability: 1,
+    byeWeek: BYE_OUTSIDE_SEASON,
+  };
   const flatConfig: UtilityConfig = { weeks: [1, 2, 3], scenarios: 4, meanAbsenceWeeks: 3 };
 
   it("totals exactly what a deterministic roster scores", () => {

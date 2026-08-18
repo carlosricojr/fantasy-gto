@@ -148,6 +148,35 @@ values `outdoors`, `dome`, `closed`, `open`, or empty.
 player stats file resolve to a row in `games.csv`. `game_id` is the join key between player
 production and game context.
 
+**Bye weeks are derived from this file, not from the ADP feed.** Verified 2026-08-17 by
+direct request: the 2026 regular season spans weeks 1–18, and each of the 32 teams is
+absent from exactly one week (byes fall in weeks 5–14), so `lib/nfl/byes.ts` can derive
+every team's bye as the single missing week. Cross-checked against the ADP feed's
+published byes on the frozen audit board: all 213 comparable rows agree, and the feed has
+no bye at all for the 388 teamed rows it does not price — which is why the feed's bye is
+demoted to a fallback (`convex/ingest.ts` counts any disagreement as `byeMismatches`).
+`tests/fixtures/games_2026.csv` freezes the 2026 regular-season rows (the ten columns
+`parseContests` reads) for the draft-mock harness's `--schedule-byes` mode.
+
+**Operator note — the annual roster-before-schedule window.** The draft-board build now
+*requires* a resolved bye on every teamed row: the schedule-derived bye is used wherever
+the schedule can answer for the team, the ADP feed's bye is used only where it cannot
+(and only when the feed's week is one the schedule shows some team idle), and a row
+neither source can answer for fails the build loudly rather than writing null. The two
+failure messages are distinguishable: "no games for the season" (the drafted season is
+not in the schedule release yet) and "no bye from any source for &lt;teams&gt;" (the
+release is truncated, or a team's idle week is ambiguous, and the market feed does not
+price — or misprices — the affected rows). The first is an expected
+annual state: `draftSeasonFor` flips to the next season as soon as the current one ends,
+while nflverse publishes the next `games.csv` rows only at the May schedule release — in
+that window every board shape fails to rebuild, by design, rather than shipping boards
+whose market-absent rows carry the #89.D null-bye subsidy. The previous board stays
+published throughout; `refreshDraftBoards` records the failure per shape. Its returned
+record also carries `byeMismatches` alongside `rebuilt`/`failed`/`attempted` — the count,
+summed across shapes, of rows whose feed-published bye disagreed with the schedule's
+(the schedule won). Zero is the healthy state; a nonzero value means the ADP feed's byes
+have gone stale and is worth a look even though no wrong bye reached a board.
+
 ### 1.2a Historical coverage — a present column is not a populated one
 
 Verified 2026-08-05 by direct request, parsed with this repository's own CSV reader.

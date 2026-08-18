@@ -18,27 +18,38 @@ import { perGameRate } from "./value";
  * as presented, and the roster that fell out started three players the market had never
  * ranked, benched a kicker drafted in round 9 behind another drafted in round 12, and
  * finished a half-PPR 2-FLEX draft with two wide receivers. Every one of those is a
- * property this module asserts. Each check's `expected` in `CHECK_DEFINITIONS` records
- * what the engine is *measured* to do on the frozen fixture — a `"fail"` is a documented
- * defect with an open PR slot in #91, a `"pass"` is either a landed fix or a regression
- * lock, and every definition says which it is and why. No fix ships without flipping its
- * check; no check flips without a measurement. See #91 for the sequence, #64 for why the
- * harness is policy-level.
+ * property this module asserts, as a **documented expectation per check** in
+ * `CHECK_DEFINITIONS`. The contract: an expectation flips only in the commit that
+ * changes the measured behavior, and the flip names its mechanism — and were a commit to
+ * *cause* a failure it could not fix, the honest flip is to "fail" with the PR that owns
+ * the fix named, not silence. What the contract rules out is a drive-by flip: an
+ * expectation edited to green without the behavior change and its cause on record in the
+ * same commit. See #91 for the sequence, #64 for why the harness is policy-level.
+ *
+ * Since PR 2 (byes from the schedule) the harness replays in two modes, each with its own
+ * expectation column: the frozen fixture verbatim, and `--schedule-byes` — the same rows
+ * with byes resolved from the schedule the way ingest now resolves them
+ * (`applyTeamByes`). The pair brackets the bye fix: the frozen mode measures the engine on
+ * the audit's data (403 null byes, now each charged as an assumed absent week), the
+ * schedule-byes mode measures it on the same board with only the byes a rebuilt board
+ * would carry — every other column stays at the frozen build's values.
  *
  * ## Where the replay and the audit's transcript agree, and where they cannot
  *
- * On the frozen board, the engine as PR #92 shipped it reproduced the audit's picks
+ * On the frozen board, the engine as PR 1 shipped it reproduced the audit's picks
  * 1.05 through 5.05 exactly — including the 2.06 capture verbatim: Gainwell leading at
  * 14.5%±1.4 with Barkley displayed at 16.2%±1.5. The fixture's `computedAt` is the build
  * #88 cites (07:01 US Eastern, which #88 rounds to "07:00"), and reproducing the
  * *displayed percentages* was strong evidence the board matches — a different board would
  * move them. Later PRs change the picks deliberately — the scoreboard is the contract,
- * not the pick list — and PR 4 (the paired tie ranking) did: 2.06 is now Barkley's
- * 16.2%, because Gainwell's lead *was* the tie reorder this harness exists to catch.
- * One discrepancy is on record rather than resolved: #89.E reports Kyle Pitts
- * absent from the market's list, while this board carries him at ADP 81.7 with a bye;
- * both cannot be literally true of the same build, and the reproduced figures argue the
- * board is right and #89.E's raw-list check missed him.
+ * not the pick list, and the audit-parity claim belongs to PR 1's commit, `b27faf6`.
+ * Both PR 2 (charging null byes) and PR 4 (ranking by the paired vs-leader comparison)
+ * measurably move 2.06 to Barkley on their own: Gainwell's lead needed the missing-bye
+ * subsidy *and* the tie reorder at once. One discrepancy is on record rather than
+ * resolved: #89.E reports Kyle Pitts absent from the market's list, while this board
+ * carries him at ADP 81.7 with a bye; both cannot be literally true of the same build,
+ * and the reproduced figures argue the board is right and #89.E's raw-list check missed
+ * him.
  *
  * The browser transcript and a replay also cannot agree pick-for-pick in the tail: the
  * live panel recomputes after every recorded pick, the audit's automation clicked
@@ -47,8 +58,7 @@ import { perGameRate } from "./value";
  * lagged the recorded picks. A replay cannot and should not reproduce click timing: #91
  * defines the harness as "same board → same draft", which is this function, not the
  * browser session. The audit's unfixed findings still reproduce here through their own
- * mechanisms — the roster below still buys two kickers and two defences early against
- * their market rounds and finishes with two wide receivers.
+ * mechanisms — see each check's definition for what the current engine measures.
  *
  * ## Why the opponents are strict-ADP
  *
@@ -140,6 +150,31 @@ export function pickLabelFor(overall: number, teams: number): string {
   const round = Math.ceil(overall / teams);
   const inRound = overall - (round - 1) * teams;
   return `${round}.${String(inRound).padStart(2, "0")}`;
+}
+
+/**
+ * The frozen fixture's rows with byes resolved the way `runBuildDraftBoard` now resolves
+ * them: the team's schedule bye first, the row's own (market-fed) bye as the fallback.
+ *
+ * This is the harness's `--schedule-byes` mode. The fixture is the audit's frozen record
+ * and is never regenerated — its `computedAt` and row count are pinned by tests — so the
+ * ingest fix's effect is measured by applying the same pure derivation to the frozen rows
+ * at load time and replaying. On this board the derivation only ever *fills*: every
+ * market-published bye agrees with the schedule (measured: 213 rows agree, 0 disagree,
+ * 388 teamed rows fill from null), so a row changes exactly when its bye was null and its
+ * team has a schedule bye. Teamless rows pass through untouched and keep null — those are
+ * the residue the simulation's assumed-bye charge exists for.
+ */
+export function applyTeamByes(
+  rows: readonly MockBoardRow[],
+  byes: ReadonlyMap<string, number>,
+): MockBoardRow[] {
+  return rows.map((row) => {
+    if (row.team === null) return row;
+    const bye = byes.get(row.team);
+    if (bye === undefined || bye === row.byeWeek) return row;
+    return { ...row, byeWeek: bye };
+  });
 }
 
 /** The board row → `PlayerRisk` conversion the draft page performs, verbatim. */
@@ -436,6 +471,12 @@ export const MARKET_ROUND_TOLERANCE = 2;
 /** The fewest wide receivers a half-PPR 2-FLEX roster can defend (e). */
 export const MIN_WIDE_RECEIVERS = 4;
 
+/**
+ * Which board the replay ran on: the frozen fixture verbatim, or the fixture with byes
+ * resolved from the schedule (`applyTeamByes`) — the measurement mode #91's PR 2 added.
+ */
+export type ReplayMode = "frozen" | "schedule-byes";
+
 export interface CheckDefinition {
   id: CheckId;
   title: string;
@@ -444,23 +485,43 @@ export interface CheckDefinition {
    * documented defect with an open PR slot in #91, not a tolerance.
    */
   expected: "pass" | "fail";
+  /**
+   * The status the current engine earns in `--schedule-byes` mode — the same frozen
+   * board with the ingest fix's bye derivation applied at load. Locked separately
+   * because the two modes are two measurements: a fix PR flips whichever of the two its
+   * change moves, in the same commit, and a divergence between them is itself evidence
+   * (it isolates how much of a finding was the missing-bye subsidy).
+   */
+  expectedWithScheduleByes: "pass" | "fail";
   /** What the #88/#89 audit observed — the numbers this check exists to pin. */
   audit: string;
+}
+
+/** The expectation the exit contract enforces for a given replay mode. */
+export function expectationFor(
+  definition: CheckDefinition,
+  mode: ReplayMode,
+): "pass" | "fail" {
+  return mode === "frozen" ? definition.expected : definition.expectedWithScheduleByes;
 }
 
 export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: "a",
     title: `no player absent from the market's list leads a pick in rounds 1-${EARLY_ROUNDS}`,
-    // Flipped by PR 4 (the paired tie ranking), not by #91's PR 3 — measured, not
-    // designed. Gainwell's 2.06 lead was the tie reorder itself: he sat inside the noise
-    // band with the better playoff odds, and the hidden key promoted him over Barkley's
-    // higher title number. Ranked by title odds, no market-absent player leads any pick
-    // in rounds 1-6 on this fixture. That is an observation about this board, not a
-    // structural guarantee — a no-ADP player whose raw title odds top the panel would
-    // still lead — so PR 3's market-awareness gate is still owed; until it lands, this
-    // check stands armed as a regression lock.
-    expected: "pass",
+    // The check with the most instructive history on file, every step a measurement.
+    // PR 2 alone (charging null byes) removed every market-absent early leader; PR 4
+    // alone (ranking by title odds) did too — Gainwell's 2.06 lead needed the
+    // missing-bye subsidy and the tie reorder together, and on the merged engine 2.06
+    // takes Barkley, the very runner-up the audit displayed under him. But each PR's
+    // all-clear was its own re-rolled ordering: merged, Colby Parkinson — no ADP, a
+    // real model value — leads 6.06 in BOTH modes, the audit's other (a) violation
+    // reproduced verbatim. Which is the point the early flips missed: a market-absent
+    // player whose model value is genuinely early-round-sized leads on model price
+    // alone, and no amount of noise reduction fixes that. Expected-fail in both
+    // columns until #91's PR 3 lands the market-discipline gate it always owned.
+    expected: "fail",
+    expectedWithScheduleByes: "fail",
     audit:
       "Kenneth Gainwell (no ADP) led 2.06 at 14.5%±1.4 over Saquon Barkley's 16.2%±1.5; " +
       "Colby Parkinson (no ADP, a TE) led 6.06",
@@ -471,25 +532,30 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
       `at most one K and one D/ST before the final ` +
       `${STREAMABLE_CLOSING_ROUNDS} rounds`,
     expected: "fail",
+    expectedWithScheduleByes: "fail",
     audit: "second kicker at 12.06 behind Dicker at 9.05; defences at 5.05 and 16.06",
   },
   {
     id: "c",
     title:
       "no same-position pick on consecutive own turns where the second outranks the first",
-    // PR 1 measured this passing on the pre-PR-4 engine — the audit's Goff→Nix pair was
-    // browser click timing, not the deterministic panel. #91's PR-4 row hedged "(c)
-    // expected to flip or shrink … measure, don't assume", and the measurement went the
-    // other way: ranked by title odds, the replay takes Fannin 7.05 then Pitts 8.06 and
-    // Mevis 9.05 then Myers 10.06, each second pick benching the first by the board's own
-    // ranking. Consistent with the playoff tiebreak having *masked* churn rather than
-    // caused it — the smoother key gave consecutive tied panels a stable hidden order,
-    // where the honest ranking re-rolls the sampling noise every turn — though the two
-    // replays diverge from 2.06, so that is an inference about the mechanism, not a
-    // same-roster measurement. What the fixture does establish: nothing charges the
-    // engine for buying a position it just filled, which is #89.A's finding, and #91
-    // puts it in PR 5 ("any residual (c)"), which owns flipping this back.
+    // The check that keeps changing hands, and each hand is a measurement. PR 1: pass
+    // (the audit's Goff-then-Nix pair was browser click timing, not the deterministic
+    // panel). PR 4, ranking by title odds: FAIL on its engine — the honest ranking
+    // re-rolls sampling noise every turn where the old hidden key had masked churn with
+    // a stable order, and nothing charges the engine for buying a position it just
+    // filled (#89.A); #91 hands the flip-back to PR 5. Measured on the merged engine,
+    // the two modes split: the frozen board (403 null byes, each an assumed-week draw)
+    // churns and fails; resolve the byes from the schedule and the churn disappears —
+    // the honest ranking plus bye noise crosses the churn threshold, the honest ranking
+    // alone on clean byes does not. PR 2 also contributes a recorded near-miss of the
+    // same shape: an interim draft drew the assumed bye across the playoff bracket and
+    // that noise alone churned the frozen board.
+    //
+    // The audit string below is only the browser run's observation; the replay never
+    // reproduced the Goff-then-Nix pair (click timing, measured, per #91).
     expected: "fail",
+    expectedWithScheduleByes: "pass",
     audit:
       "the browser run took Goff 10.06 then Nix 11.05 — Nix starts, the round-10 pick " +
       "benched",
@@ -503,6 +569,7 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
       `first K and first D/ST no more than ${MARKET_ROUND_TOLERANCE} rounds ` +
       `before their market round`,
     expected: "fail",
+    expectedWithScheduleByes: "fail",
     audit: "Seattle D/ST at 5.05 against a round-9 market (ADP 82.9); first K at 9.05 " +
       "against a round-15 market (ADP 143)",
   },
@@ -510,6 +577,7 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     id: "e",
     title: `at least ${MIN_WIDE_RECEIVERS} wide receivers on the final roster`,
     expected: "fail",
+    expectedWithScheduleByes: "fail",
     audit: "two WRs in sixteen rounds of a half-PPR 2-FLEX league, with 165 still available",
   },
   {
@@ -517,9 +585,11 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     title: "the displayed leader's championship odds are not below any runner-up's",
     // Flipped by PR 4: the panel now descends by title odds throughout — the paired
     // vs-leader comparison is the ranking instrument and the tie flag is a label, not a
-    // sort key — so the top card carries the panel's highest number by construction.
-    // Measured before the fix: inverted at 11 of 16 picks on this fixture.
+    // sort key — so the top card carries the panel's highest number by construction,
+    // whatever the board's byes say. Measured before the fix: inverted at 11 of 16
+    // picks on this fixture.
     expected: "pass",
+    expectedWithScheduleByes: "pass",
     audit: "leader shown at 14.5% with the #2 row at 16.2% — the tie reorder by playoff " +
       "probability promoted the lower title number",
   },
@@ -671,15 +741,19 @@ export function evaluateChecks(
 }
 
 /**
- * The outcomes that disagree with their documented expectation.
+ * The outcomes that disagree with their documented expectation for the given mode.
  *
  * This is the harness's alarm — an unexpected pass means a fix landed without flipping
  * its check, an unexpected failure is a regression — and the alarm's logic lives here
  * rather than in the script so a test can ring it. The script's only job is to print it
- * and set the exit code.
+ * and set the exit code. Both replay modes carry the same contract; they differ only in
+ * which expectation column is enforced.
  */
-export function unexpectedOutcomes(outcomes: readonly CheckOutcome[]): CheckOutcome[] {
-  return outcomes.filter((outcome) => outcome.status !== outcome.expected);
+export function unexpectedOutcomes(
+  outcomes: readonly CheckOutcome[],
+  mode: ReplayMode = "frozen",
+): CheckOutcome[] {
+  return outcomes.filter((outcome) => outcome.status !== expectationFor(outcome, mode));
 }
 
 /**

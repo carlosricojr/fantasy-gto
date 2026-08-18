@@ -37,11 +37,13 @@ export interface AdpEntry {
   /** How many drafts the mean was taken from, so a thin sample is visible. */
   timesDrafted: number | null;
   /**
-   * The week the player's team is idle.
+   * The week the player's team is idle, as the market feed publishes it.
    *
-   * Carried because a bye is a hard constraint on a roster, not a detail: two starters
-   * sharing one means a week fielding nobody in that slot. The endpoint publishes it, so
-   * there is no reason to derive it from the schedule separately.
+   * No longer the board's source of truth. This field only exists for players the feed
+   * prices, so every market-absent row carried `bye: null` — and the season simulation
+   * paid those rows a free week for it (#89.D). The board derives byes from the
+   * schedule per team (`lib/nfl/byes.ts`); this value survives as a cross-check and as
+   * the fallback for a team the schedule cannot answer for.
    */
   bye: number | null;
 }

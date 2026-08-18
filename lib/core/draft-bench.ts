@@ -45,12 +45,20 @@
  *
  * ## Byes are absences too
  *
- * A bye is a *certain* absence in one known week rather than a probable one in any week, so
- * it does not fold into an availability. The expectation is therefore taken per week: in a
- * week that is nobody's bye every player is present with his own availability, and in a
- * week that is somebody's bye that player is present with probability zero. Weeks that are
- * nobody's bye are identical to each other and are computed once, so a position holding four
- * players costs five evaluations rather than fourteen.
+ * A *known* bye is a *certain* absence in one known week rather than a probable one in any
+ * week, so it does not fold into an availability. The expectation is therefore taken per
+ * week: in a week that is nobody's bye every player is present with his own availability,
+ * and in a week that is somebody's bye that player is present with probability zero. Weeks
+ * that are nobody's bye are identical to each other and are computed once, so a position
+ * holding four players costs five evaluations rather than fourteen.
+ *
+ * An *unknown* bye (`byeWeek: null`) is not the absence of one — every team sits out a
+ * week — and treating it as "never idle" credited exactly the rows with the worst data a
+ * full season of cover, the same #89.D subsidy the season simulation used to pay. Because
+ * the week is unknown, it *does* fold into the availability, as the one uniform discount
+ * consistent with "his bye is equally likely to be any played week": presence in every
+ * week is scaled by `(weeks - 1) / weeks`, which prices the expected cost of one absent
+ * week without electing a week for it.
  *
  * This is not a refinement. Without it a sixth running back behind five is needed about once
  * in eight hundred weeks, which is less often than a backup kicker is needed — so a fifteenth
@@ -83,7 +91,14 @@ export interface DepthPlayer {
   readonly value: number;
   /** Probability he is fit in a given non-bye week. */
   readonly availability: number;
-  /** The week his team is idle, or `null` when the board does not say. */
+  /**
+   * The week his team is idle, or `null` when the board does not say.
+   *
+   * Null is *unknown*, not "no bye": it is charged as a uniform per-week discount (see
+   * the module docstring). A caller that genuinely means "no bye in any played week" —
+   * `coverValue`'s everybody-present baseline — says so with a week number outside the
+   * played set, never with null.
+   */
   readonly byeWeek: number | null;
 }
 
@@ -105,16 +120,30 @@ function expectedInOneWeek(
   slots: number,
   replacement: number,
   byeWeek: number | null,
+  /**
+   * Multiplier on a null-bye player's availability — `(weeks - 1) / weeks` from the
+   * caller. An unknown bye falls on *some* played week, so it discounts every week
+   * uniformly rather than zeroing a known one; without this, missing bye data read as a
+   * season of certain presence.
+   */
+  unknownByeDiscount: number,
 ): number {
   // `distribution[j]` — probability that exactly `j` of the players already walked past are
   // available. Starts as "none walked past, so zero are available, certainly".
+  //
+  // A mutation run reports the `total` initializer as a survivor, and it is equivalent
+  // through the exported surface rather than a gap: `coverValue` consumes this only inside
+  // two differences of two calls each, so a constant offset added to every call cancels
+  // exactly.
   let distribution = [1];
   let total = 0;
   for (const player of ordered) {
     const available =
-      player.byeWeek !== null && player.byeWeek === byeWeek
-        ? 0
-        : Math.min(Math.max(player.availability, 0), 1);
+      player.byeWeek === null
+        ? Math.min(Math.max(player.availability, 0), 1) * unknownByeDiscount
+        : player.byeWeek === byeWeek
+          ? 0
+          : Math.min(Math.max(player.availability, 0), 1);
     let room = 0;
     for (let j = 0; j < Math.min(slots, distribution.length); j += 1) {
       room += distribution[j];
@@ -137,9 +166,11 @@ function expectedInOneWeek(
  * The `slots * R` floor is left out because every caller subtracts two of these and it
  * cancels. What remains is the part that depends on who is actually rostered.
  *
- * Averaged over the season a week at a time, because a bye is a certain absence in one known
- * week. Weeks nobody on this list is idle are identical, so they are evaluated once and
- * weighted; only the distinct bye weeks cost an evaluation of their own.
+ * Averaged over the season a week at a time, because a known bye is a certain absence in
+ * one known week. Weeks nobody on this list is idle are identical, so they are evaluated
+ * once and weighted; only the distinct known bye weeks cost an evaluation of their own. An
+ * unknown bye has no week to evaluate — it rides through as the uniform availability
+ * discount `expectedInOneWeek` applies, identical in every week by construction.
  *
  * Availabilities are clamped into `[0, 1]`. This runs inside a rollout, and a board row
  * carrying `1.0000000001` out of a division is not a reason to fail a draft — but left
@@ -152,6 +183,10 @@ function expectedAboveReplacement(
   replacement: number,
   weeks: readonly number[],
 ): number {
+  // A mutation run reports this guard's `<=` (as `<`) and its `0` return (as `1`) as
+  // survivors; both are equivalent through `coverValue`, which guards `slots <= 0` itself
+  // before calling — the zero-slot walk below contributes nothing anyway, and a changed
+  // return for the empty-weeks case cancels in `coverValue`'s differences.
   if (slots <= 0 || weeks.length === 0) return 0;
   const ordered = [...players].sort((a, b) => b.value - a.value);
   const byes = new Set<number>();
@@ -176,9 +211,14 @@ function expectedAboveReplacement(
   const played = new Set(weeks);
   const inSeason = [...byes].filter((week) => played.has(week));
   const ordinary = weeks.length - inSeason.length;
-  let total = expectedInOneWeek(ordered, slots, replacement, null) * ordinary;
+  // The expected value of "his bye is one of these weeks, uniformly": present in any
+  // given week with `(n - 1) / n` of his availability. `weeks.length` is at least one
+  // here — the zero case returned above — so the discount is a probability, not NaN.
+  const unknownByeDiscount = (weeks.length - 1) / weeks.length;
+  let total =
+    expectedInOneWeek(ordered, slots, replacement, null, unknownByeDiscount) * ordinary;
   for (const week of inSeason) {
-    total += expectedInOneWeek(ordered, slots, replacement, week);
+    total += expectedInOneWeek(ordered, slots, replacement, week, unknownByeDiscount);
   }
   return total / weeks.length;
 }
@@ -209,17 +249,26 @@ export function coverValue(
    */
   weeks: readonly number[],
 ): number {
+  // `<` survives a mutation run here, and it is equivalent one mutant at a time: with
+  // this shortcut skipped at exactly zero slots, `expectedAboveReplacement`'s own
+  // `slots <= 0` guard returns zero for all four calls before anything is walked, and
+  // `Math.max(0 - 0, 0)` is the same zero this line returns. The two guards vouch for
+  // each other — which is fine under single-mutant testing and worth knowing if either
+  // is ever removed.
   if (slots <= 0) return 0;
   const withHim = [...rosterAtPosition, candidate];
   // "Certain" is the world the lineup solver already priced: everybody present, every week.
   // Byes go with the availabilities, because a bye is an absence and the solver does not
-  // know about it either.
+  // know about it either. "Present every week" is a *known* bye in a week no league plays
+  // — zero, which no `weeks` list contains — and deliberately not null: null now means
+  // "unknown" and is charged an expected absent week, which would smuggle the very
+  // absences this baseline exists to exclude back into it.
   const certain = (players: readonly DepthPlayer[]) =>
     expectedAboveReplacement(
       players.map((player) => ({
         value: player.value,
         availability: 1,
-        byeWeek: null,
+        byeWeek: 0,
       })),
       slots,
       replacement,
