@@ -50,11 +50,13 @@ import { parseContests } from "@/lib/sources/nflverse";
  *
  * Each check carries a **documented expectation per mode** in `lib/nfl/draft/mock.ts`,
  * with the audit's observed numbers alongside. As measured on the merged engine (PR 2's
- * bye charge + PR 4's paired tie ranking): (f) passes in both modes; (a) fails in both —
- * each PR alone had measured it passing, and the merged ordering surfaced Parkinson
- * leading 6.06, the audit's other market-absent leader, so the flip went back to PR 3's
- * market gate where #91 always put it; (c) splits, failing frozen and passing with
- * schedule byes; (b), (d), (e) remain the structural failures PR 5 owns. The PR that
+ * bye charge + PR 4's paired tie ranking + PR 3's market-discipline gate): (f) passes in
+ * both modes; (a) passes in both — after each of PR 2 and PR 4 alone measured it passing
+ * and their merge surfaced Parkinson leading 6.06, the gate closed it structurally by
+ * keeping `adp: null` players off the early-round shortlist; (c) passes in both on the
+ * gate-reshuffled ordering, a measurement rather than a fix for its #89.A mechanism,
+ * which PR 5 still owns; (b), (d), (e) remain the structural failures PR 5
+ * owns. The PR that
  * changes a check's status flips its expectation in the same commit. The exit code
  * enforces the contract in both directions:
  *

@@ -5,6 +5,9 @@ import { leagueUnfilledSlots, replacementLevels } from "./draft-replacement";
 import { type RosterSlot, solveLineup } from "./optimizer";
 import {
   CHAMPIONSHIP_CANDIDATES,
+  MARKET_GATE_ROUNDS,
+  applyMarketGate,
+  currentRoundOf,
   type ChampionshipRecommendation,
   type DraftPolicyState,
   type DraftTeam,
@@ -2300,5 +2303,155 @@ describe("the default candidate limit", () => {
     );
     expect(CHAMPIONSHIP_CANDIDATES).toBe(10);
     expect(recs).toHaveLength(CHAMPIONSHIP_CANDIDATES);
+  });
+});
+
+describe("the market-discipline gate", () => {
+  const scored = (entries: Array<[string, number | null | undefined]>) =>
+    entries.map(([id, adp]) => ({
+      player: player(id, "RB", 10, adp === undefined ? {} : { adp }),
+    }));
+
+  it("keeps a market-absent candidate out of the shortlist inside the gate window", () => {
+    const gated = applyMarketGate(
+      scored([
+        ["ghost", null],
+        ["priced", 12],
+      ]),
+      1,
+    );
+    expect(gated.map((entry) => entry.player.id)).toEqual(["priced"]);
+  });
+
+  it("treats an adp the caller never set exactly like a null one", () => {
+    // Both spell "no market price on record"; the difference is which caller built the
+    // object, not anything about the player.
+    const gated = applyMarketGate(scored([["unset", undefined], ["priced", 30]]), 1);
+    expect(gated.map((entry) => entry.player.id)).toEqual(["priced"]);
+  });
+
+  it("stands down past the gate window and without a known round", () => {
+    const entries = scored([
+      ["ghost", null],
+      ["priced", 12],
+    ]);
+    expect(applyMarketGate(entries, MARKET_GATE_ROUNDS + 1)).toEqual(entries);
+    expect(applyMarketGate(entries, null)).toEqual(entries);
+  });
+
+  it("holds through the whole audited window, boundary included", () => {
+    const entries = scored([["ghost", null], ["priced", 12]]);
+    expect(
+      applyMarketGate(entries, MARKET_GATE_ROUNDS).map((entry) => entry.player.id),
+    ).toEqual(["priced"]);
+  });
+
+  it("yields rather than empty the panel when every candidate is market-absent", () => {
+    // A panel with no recommendation at all advises nothing. On a real board the market
+    // has priced hundreds of players and this cannot fire; it exists for hand-built
+    // states, which is why every older fixture in this file still recommends.
+    const entries = scored([["ghost", null], ["other", null]]);
+    expect(applyMarketGate(entries, 1)).toEqual(entries);
+  });
+
+  it("reads the round off the pick on the clock, not a later one the team also holds", () => {
+    // `remainingPicks` is inclusive of the current pick, so its first entry is the one
+    // being advised. A team on the clock at 12 with a later pick at 29 is in round 2 of
+    // an eight-team league — reading past the first entry would report round 4 and gate
+    // by a round the draft has not reached.
+    expect(
+      currentRoundOf({
+        teams: [{ id: "t0", name: "You", roster: [], remainingPicks: [12, 29] }],
+        myTeamIndex: 0,
+        available: [],
+        rosterSize: ROUNDS,
+      }),
+    ).toBe(12);
+    expect(
+      currentRoundOf({
+        teams: freshTeams().map((team, index) =>
+          index === 0 ? { ...team, remainingPicks: [12, 29] } : team,
+        ),
+        myTeamIndex: 0,
+        available: [],
+        rosterSize: ROUNDS,
+      }),
+    ).toBe(2);
+  });
+
+  it("answers null for a state carrying no usable pick number", () => {
+    // Each of these is reachable only from a malformed state, and each must answer null
+    // rather than a NaN round: NaN compares false against every bound, so it would not
+    // stand the gate down — it would gate a state this function could not place.
+    const stateWith = (remainingPicks: number[]): DraftPolicyState => ({
+      teams: freshTeams().map((team, index) =>
+        index === 0 ? { ...team, remainingPicks } : team,
+      ),
+      myTeamIndex: 0,
+      available: [],
+      rosterSize: ROUNDS,
+    });
+    expect(currentRoundOf(stateWith([]))).toBeNull();
+    expect(currentRoundOf(stateWith([0]))).toBeNull();
+    expect(currentRoundOf(stateWith([-4]))).toBeNull();
+    expect(currentRoundOf(stateWith([Number.NaN]))).toBeNull();
+    expect(currentRoundOf(stateWith([Number.POSITIVE_INFINITY]))).toBeNull();
+  });
+
+  it("stands the gate down for a state whose round it cannot place", () => {
+    // End to end through the recommender: a team with no remaining picks has no round,
+    // and the market-absent candidate is offered rather than filtered — the gate refuses
+    // to act on a state it cannot place, which is what `currentRoundOf`'s null means.
+    const ghost = player("ghost", "RB", 25, { adp: null });
+    const recs = recommendByChampionship(
+      {
+        teams: freshTeams().map((team, index) =>
+          index === 0 ? { ...team, remainingPicks: [] } : team,
+        ),
+        myTeamIndex: 0,
+        available: [ghost, ...board().map((entry, index) => ({ ...entry, adp: index + 1 }))],
+        rosterSize: ROUNDS,
+      },
+      CONFIG,
+      7,
+      4,
+    );
+    expect(recs.some((entry) => entry.player.id === "ghost")).toBe(true);
+  });
+
+  it("keeps a market-absent player from leading an early round, and only an early round", () => {
+    // The #88 shape end to end: the best player on the board by the model's own numbers
+    // has no market price. Before the gate he led pick 2.06 (Gainwell) and 6.06
+    // (Parkinson) through this exact path; this test fails against that engine.
+    const pool = board().map((entry, index) => ({ ...entry, adp: index + 1 }));
+    const ghost = player("ghost", "RB", 25, { adp: null });
+    const available = [ghost, ...pool];
+
+    const stateAtRound = (round: number): DraftPolicyState => ({
+      teams: freshTeams().map((team) => ({
+        ...team,
+        remainingPicks: team.remainingPicks.filter(
+          (pick) => Math.ceil(pick / TEAMS) >= round,
+        ),
+      })),
+      myTeamIndex: 0,
+      available,
+      rosterSize: ROUNDS,
+    });
+
+    const early = recommendByChampionship(stateAtRound(1), CONFIG, 7, 4);
+    expect(early.length).toBeGreaterThan(0);
+    expect(early.some((entry) => entry.player.id === "ghost")).toBe(false);
+    expect(early.every((entry) => entry.player.adp != null)).toBe(true);
+
+    // Past the window the same player is not only eligible again — on these numbers he
+    // is the leader, which is what "take him at his value, not now" means.
+    const late = recommendByChampionship(
+      stateAtRound(MARKET_GATE_ROUNDS + 1),
+      CONFIG,
+      7,
+      4,
+    );
+    expect(late.some((entry) => entry.player.id === "ghost")).toBe(true);
   });
 });
