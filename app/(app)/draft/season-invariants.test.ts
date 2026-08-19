@@ -10,7 +10,7 @@ import {
 import { leagueFingerprint as memoFingerprint } from "@/lib/core/draft-memo";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { NFL_REGULAR_SEASON_WEEKS, isNflRegularSeasonWeek } from "@/lib/nfl/season";
-import { slotsForTemplate } from "@/lib/nfl/roster";
+import { WAIVER_WIRE_COVER, slotsForTemplate } from "@/lib/nfl/roster";
 
 import {
   CHAMPIONSHIP_WEEKS,
@@ -51,6 +51,9 @@ const SHAPES = CHAMPIONSHIP_WEEKS.flatMap((championshipWeek) =>
 
 const seasonFor = (championshipWeek: number, playoffTeams: number) =>
   fantasySeasonWeeks(championshipWeek, playoffTeams);
+
+/** The shipped waiver-wire cover; these invariants are about the product's league. */
+const WIRE_COVER = WAIVER_WIRE_COVER;
 
 describe("the offered set is the whole space, and it is not empty", () => {
   it("is every combination the two controls can produce", () => {
@@ -231,6 +234,7 @@ describe("what the screen says equals what was simulated", () => {
 
 describe("no two seasons can be mistaken for each other by a cache or a gate", () => {
   const configFor = (championshipWeek: number, playoffTeams: number): LeagueConfig => ({
+    wireCover: WIRE_COVER,
     slots: slotsForTemplate("standard"),
     ...seasonFor(championshipWeek, playoffTeams),
     playoffTeams,
@@ -320,6 +324,7 @@ describe("every league the product can express actually simulates", () => {
     "crowns a champion with a final in week $championshipWeek and $playoffTeams qualifiers",
     ({ championshipWeek, playoffTeams }) => {
       const config: LeagueConfig = {
+        wireCover: WIRE_COVER,
         slots,
         ...seasonFor(championshipWeek, playoffTeams),
         playoffTeams,

@@ -109,6 +109,24 @@ export interface PolicyLeague {
    * candidate that *does* reach it is then valued with that bye priced correctly.
    */
   weeks: readonly number[];
+  /**
+   * The share of an absence the waiver wire covers for free, by position — the depth
+   * model's `wireCover`, and the source of the streamable-position discipline below.
+   *
+   * Read twice, for two different purposes, and both readings come from this one number
+   * so they cannot disagree about which positions are streamable:
+   *
+   *  - **As a discount** on `coverValue`, at every position: the part of an absence the
+   *    wire covers is not something a drafted reserve sells you.
+   *  - **As a definition**, at a share of one: a position the wire supplies *entirely* is
+   *    what `applyStreamableDiscipline` means by streamable, and is subject to the
+   *    reserve cap and the market-round rule.
+   *
+   * A position absent from the map reads as zero — the wire covers nothing there — which
+   * is the behaviour every caller had before this existed. See `LeagueConfig.wireCover`
+   * for why the field is required upstream anyway.
+   */
+  wireCover: ReadonlyMap<string, number>;
 }
 
 export interface ChampionshipRecommendation {
@@ -119,12 +137,12 @@ export interface ChampionshipRecommendation {
    * Change against taking whatever the base policy would have taken.
    *
    * With one deliberate exception, and it is the honest reading rather than a special
-   * case: where the market-discipline gate withheld a candidate, the comparison is
-   * against the best *offerable* player instead. The base policy is ungated, so it would
-   * happily take the market-absent player the panel is refusing to name — and a delta
-   * measured against him tells the user their recommendation is worse than something the
-   * panel will not show them and gives them no way to identify. See
-   * `recommendByChampionship`.
+   * case: where a gate withheld a candidate — the market-discipline gate or the
+   * streamable-position discipline — the comparison is against the best *offerable*
+   * player instead. The base policy is ungated, so it would happily take the player the
+   * panel is refusing to name — and a delta measured against him tells the user their
+   * recommendation is worse than something the panel will not show them and gives them no
+   * way to identify. See `recommendByChampionship`.
    */
   deltaVsBaseline: number;
   playoffProbability: number;
@@ -238,6 +256,353 @@ export function applyMarketGate<T extends { player: PlayerRisk }>(
   if (currentRound === null || currentRound > MARKET_GATE_ROUNDS) return scored;
   const priced = scored.filter((entry) => entry.player.adp != null);
   return priced.length > 0 ? priced : scored;
+}
+
+/**
+ * How many rounds before its own market round a streamable position may be taken.
+ *
+ * **Zero: not before the market's own round.** For these two positions the model is
+ * silent — `docs/draft-validation.md` says so outright, their entire price is the
+ * market's, and their weekly spread is still the `placeholder` band rather than a
+ * measured one — so the engine holds no information the market does not, and every round
+ * of lead is a pick spent on a claim nothing is making. The audit's Seattle D/ST went at
+ * 5.05 against a round-nine market and its first kicker at 9.05 against a round-fifteen
+ * one: four and six rounds of lead, and the roster paid for both.
+ *
+ * Named rather than inlined as `- 0`, because the number is the whole stance and because
+ * it has to be *compared* with something: the harness's check (d) tolerates
+ * `MARKET_ROUND_TOLERANCE` rounds of lead, and `mock.test.ts` pins this at or below it —
+ * an inequality rather than the equality `MARKET_GATE_ROUNDS` and `EARLY_ROUNDS` carry.
+ * A policy stricter than its check still enforces it; a policy looser than its check
+ * leaves the check asserting a discipline nothing implements, which is the failure the
+ * pin exists to catch.
+ *
+ * The measured cost of the two rounds this used to allow, on the frozen fixture: at a
+ * lead of two the defence went at 7.05, the earliest round the rule permitted, and the
+ * pick came out of the receiver the roster finished three short of (harness check (e)).
+ * At a lead of zero it went at 16.06 and the receiver was taken.
+ */
+export const STREAMABLE_MARKET_LEAD_ROUNDS = 0;
+
+/**
+ * The closing rounds, in which the streamable discipline stands down entirely.
+ *
+ * A second defence in the last round costs nothing better — there is nothing better left
+ * to spend the pick on — so both rules below are lifted there. This is the same exemption
+ * the harness's check (b) grants, and `mock.test.ts` pins the two constants together.
+ */
+export const STREAMABLE_CLOSING_ROUNDS = 2;
+
+/**
+ * What the streamable discipline needs to know beyond the shortlist itself.
+ *
+ * One object because none of the five is meaningful without the others, and because a
+ * caller assembling them separately is a caller who can pass a round from one draft and a
+ * roster from another.
+ */
+export interface StreamableContext {
+  /** The 1-based round of the pick being advised, or `null` when the state cannot say. */
+  currentRound: number | null;
+  /** Teams in the league — what turns an overall market pick into a market round. */
+  teams: number;
+  /**
+   * Picks each team makes, which is the draft's last round.
+   *
+   * `DraftPolicyState.rosterSize` — the roster is filled by the draft, so its size is the
+   * round count. The two are supplied independently elsewhere in this module
+   * (`completeOwnRoster` bounds by both), and where they disagree this rule follows the
+   * roster, because "the closing rounds" means the end of *this team's* drafting.
+   */
+  rounds: number;
+  /** The advised team's roster as it stands, for the reserve cap. */
+  roster: readonly PlayerRisk[];
+  /** See `PolicyLeague.wireCover`. A share of one is what "streamable" means here. */
+  wireCover: ReadonlyMap<string, number>;
+}
+
+/**
+ * The market round a player is drafted in, or `null` where the board does not price him.
+ *
+ * Rounds are overall picks divided among the league's teams, rounded up, floored at one —
+ * the same arithmetic `currentRoundOf` applies to our own pick, so "his round" and "this
+ * round" are comparable numbers rather than two conventions. A non-finite or negative ADP
+ * is not a market round that got rounded; it is a board this function does not understand,
+ * and it reads as unpriced.
+ */
+function marketRoundOf(player: PlayerRisk, teams: number): number | null {
+  const adp = player.adp;
+  // Three mutants survive on this line and all three are equivalences at the exported
+  // surface, argued rather than papered over with fixtures nobody would draft in.
+  //
+  // `teams < 1` read as `teams <= 1` or as `teams < 0` changes only a one-team or
+  // zero-team league: at zero the division is `Infinity`, which no round ever reaches,
+  // and at one the market round is the ADP itself, which no draft this long reaches
+  // either — so the candidate is withheld outside the closing rounds under every
+  // variant. The guard is here to keep a division by zero from producing a *number*, not
+  // to price a league with one team in it.
+  //
+  // The first `||` read as `&&` is equivalent for both inputs it can see. A null ADP
+  // still returns null, because `Number.isFinite(null)` is false and the negation makes
+  // the conjunction true. A `NaN` ADP no longer returns null — and then produces a `NaN`
+  // market round, which fails the `>=` below, so the candidate is withheld exactly as
+  // the null answer would have withheld him. The explicit return is the readable form of
+  // an answer arithmetic would reach anyway.
+  if (adp == null || !Number.isFinite(adp) || adp < 0 || teams < 1) return null;
+  // The floor's `1` also survives, and equivalently: it can only bind for an ADP under
+  // one, whose unfloored round is zero or less, and `currentRound >= 0` is true at every
+  // round a draft has. It is here so the two sides of the comparison are the same kind
+  // of number — rounds are 1-based on our side of it — not to change an answer.
+  return Math.max(1, Math.ceil(adp / teams));
+}
+
+/**
+ * The shortlist entries the streamable-position discipline leaves standing.
+ *
+ * A **streamable** position is one the waiver wire supplies entirely — `wireCover` of one,
+ * which in the shipped NFL table is kicker and defence, and which is argued there rather
+ * than here (`lib/nfl/roster.ts`). The depth model already refuses to pay for a *reserve*
+ * at such a position, because its cover term is scaled to nothing; this adds the two
+ * things pricing alone cannot promise, and #91's ledger is explicit that a promise is what
+ * check (b) and check (d) need — PR 3's lesson was that a fix measured on one ordering is
+ * a re-roll, and only a structural exclusion is a result.
+ *
+ *  - **The reserve cap.** With one already on the roster, a second is withheld. Pricing
+ *    puts him at zero, which orders him last among candidates worth something and says
+ *    nothing at all about a late round where everything is worth zero and the residual
+ *    key is raw projection. The cap is what makes "at most one" true rather than likely.
+ *  - **The market-round rule.** A candidate is withheld until the draft is within
+ *    `STREAMABLE_MARKET_LEAD_ROUNDS` of *his own* market round. This is the half pricing
+ *    cannot reach at all: the first kicker is a starter, his starting gain is real, and
+ *    nothing in a myopic best-available prefilter knows that the same gain is available
+ *    six rounds later. The market knows, and for these two positions the market is the
+ *    only source there is — `docs/draft-validation.md`: the model does not project either,
+ *    their entire price is the market's, and their weekly spread is still a placeholder.
+ *    So a recommendation to take one six rounds early is the engine overruling the only
+ *    price it has, using no information of its own.
+ *
+ * Three edges, deliberately matching `applyMarketGate`'s so the two gates read alike:
+ *
+ *  - **A state that cannot say which round it is gets the ungated list.** Both rules are
+ *    about *when*, and there is no honest way to apply them to an unplaceable state.
+ *  - **A candidate the board does not price has no market round**, and is withheld until
+ *    the closing rounds. That is the same treatment the harness's check (d) gives an
+ *    unpriced pick — priced behind the whole draft — rather than a separate convention.
+ *  - **A discipline that would empty the shortlist yields.** A panel with no
+ *    recommendation advises nothing, which is worse than advising with the caveat. On a
+ *    real board hundreds of skill players are offerable and this never fires.
+ *
+ * Not applied to the base policy, the opponent completions, or our own rollout — the same
+ * boundary `applyMarketGate` draws, and for the same reason: the outcome being steered
+ * toward is the base policy taking the kicker *later*, at his market round, and a rollout
+ * that could not take one at all would be a different measurement rather than a
+ * discipline on the advice.
+ */
+export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
+  scored: readonly T[],
+  context: StreamableContext,
+): readonly T[] {
+  const { currentRound, teams, rounds, roster, wireCover } = context;
+  if (currentRound === null) return scored;
+  // The closing rounds are exempt outright, so the whole filter is skipped there rather
+  // than tested per candidate.
+  if (currentRound >= rounds - STREAMABLE_CLOSING_ROUNDS + 1) return scored;
+  const held = new Set(roster.map((player) => player.position));
+  const kept = scored.filter((entry) => {
+    const position = entry.player.position;
+    // `??` reads as `||` in a mutation report, correctly: the only falsy share is zero,
+    // which both forms send to zero. Kept as `??` so it stays right if the default ever
+    // stops being the falsy value.
+    if ((wireCover.get(position) ?? 0) < 1) return true;
+    if (held.has(position)) return false;
+    const marketRound = marketRoundOf(entry.player, teams);
+    if (marketRound === null) return false;
+    // The subtraction survives as an addition, and it is an equivalence *because the
+    // lead is currently zero* rather than because the arithmetic does not matter — the
+    // one kind of survivor worth naming, since it stops being equivalent the moment
+    // somebody edits the constant. `mock.test.ts` pins the constant's value, so that
+    // edit cannot land quietly.
+    return currentRound >= marketRound - STREAMABLE_MARKET_LEAD_ROUNDS;
+  });
+  return kept.length > 0 ? kept : scored;
+}
+
+/**
+ * The shortlist entries left standing once the engine is stopped from outbidding itself.
+ *
+ * #89.A, and the finding states its own remedy: "a recommendation whose player loses his
+ * starting job to the *next round's recommendation at the same position* is a wasted pick
+ * by the engine's own lineup solver". The audit's pair was Goff at 10.06 and Nix at
+ * 11.05; the deterministic replay produced Kraft then Kittle then Parkinson at tight end
+ * and Bryce Young then Brissett at quarterback. Every one of them is the same shape: the
+ * later pick is the better player at a position the earlier pick had just filled, so the
+ * earlier pick is spent and benched by the engine's own next recommendation.
+ *
+ * The rule: **a candidate is withheld while our roster holds a player at his position he
+ * outranks**, ranked on `marketValue` — points times availability, the key the lineup
+ * solver and the replacement model both rank by.
+ *
+ * ## Why this is not simply refusing a player who fell
+ *
+ * He is on the board now, and a draft only removes players from it, so he was on the
+ * board at every turn we have already taken — including the one where we took the lesser
+ * player at his own position. We had him in front of us and preferred the other one.
+ * Nothing since is information about *him*: the opponents' picks only shrink the board,
+ * and our own roster gained the player he is now redundant with, which lowers his
+ * marginal worth rather than raising it. So preferring him now is the estimator changing
+ * its mind rather than a fact arriving — and this fires exactly where #89.C measured the
+ * estimator to be saturated, with every candidate's title odds inside a standard error of
+ * every other's.
+ *
+ * ## What it costs, stated rather than implied
+ *
+ * The argument above is strong and is not a proof, in two places, and both are real:
+ *
+ *  - **Higher `marketValue` at a position does not provably mean the prefilter would have
+ *    ranked him higher.** `coverValue` reads availability and bye separately, so two
+ *    players with the same key are not interchangeable — `contendersFor` measured 20 of
+ *    1806 adjacent same-position pairs ranking the lower-key player higher. In those the
+ *    rule withholds a candidate we would not in fact have passed on, and the panel offers
+ *    the next one instead.
+ *  - **A roster we did not choose makes "we passed on him" false.** A user who overrules
+ *    the panel, or a draft joined in progress, leaves players on the roster the engine
+ *    never preferred anything to. The discipline still applies, because the alternative is
+ *    a rule that reads the panel's own history and cannot be computed from the state.
+ *
+ * The stand-down below bounds both: a discipline that would empty the shortlist yields.
+ *
+ * ## Where it switches on
+ *
+ * Only once we hold as many at the position as the league *dedicates* starting slots to
+ * it — two backs and two receivers in a two-flex league, one tight end, one quarterback,
+ * one kicker, one defence. Below that count the lineup still has a hole at the position
+ * and an upgrade is filling it, so the rule stays out of the way. At it and past it every
+ * further body is depth or a flex contest, and an upgrade to that is exactly the wasted
+ * pick #89.A names.
+ *
+ * Counted from the template, not from the lineup as it currently solves: the latter is
+ * `startingSlotsByPosition`, which measures how many slots a roster's *own* hoarding has
+ * already won at a position — so a rule against hoarding that read it would relax itself
+ * every time it was disobeyed.
+ *
+ * The threshold is load-bearing and both settings were measured. One higher — firing only
+ * once we hold *more* than the dedicated slots — the `--schedule-byes` replay took Josh
+ * Jacobs at 2.06 and Kyren Williams, the better back, at 3.05: two dedicated back slots,
+ * two backs held, and the rule silent for exactly the pair it exists to stop. At the
+ * threshold as written, the same pair is refused. What made the lower threshold look
+ * wrong first was a different case, and it has its own exemption below rather than a
+ * looser rule: the frozen replay refused Kenneth Gainwell at 7.05, whom the prefilter
+ * valued at eight times the rest of the board, and Gainwell is a player we had never been
+ * offered.
+ *
+ * ## The one candidate we provably did not decline
+ *
+ * The market-discipline gate holds an unpriced player off the panel through
+ * `MARKET_GATE_ROUNDS`, so for those rounds "he was in front of us and we took the other
+ * one" is simply false about him — and refusing him on that basis cost the frozen replay
+ * its best available candidate by a factor of eight. He is therefore exempt while the
+ * round is inside the gate's window *or the first round past it*, which is the first turn
+ * on which he could have been taken; from the turn after that we have declined him with
+ * him offerable, and the premise holds again.
+ *
+ * The bound is not decoration. Exempting him outright was measured too, and it reopened
+ * the very churn this rule exists to stop: the frozen replay took Hunter Henry at 11.05
+ * and Colby Parkinson — no ADP, four rounds after the gate lifted, and the better player
+ * — at 12.06.
+ *
+ * ## Order-free on purpose
+ *
+ * "The player we took last turn" would be the narrower rule and is not available:
+ * `canonicalizeState` sorts every roster by id before the policy sees it, so that two
+ * paths to the same roster share a memo entry, and the array's order is therefore not the
+ * draft's. This reads the roster as a set — which is exactly what canonicalization
+ * guarantees is stable — so the memo key needs nothing added to stay correct.
+ */
+export function applyOutbidDiscipline<T extends { player: PlayerRisk }>(
+  scored: readonly T[],
+  /** The advised team's roster, read as a set: the order it arrives in is not the draft's. */
+  roster: readonly PlayerRisk[],
+  /** The league's starting slots, for the dedicated-slot count the rule switches on. */
+  slots: readonly RosterSlot[],
+  /**
+   * The round being advised, for the market-absent exemption above. `null` — a state
+   * that cannot say which round it is — exempts, which is the same direction every other
+   * unplaceable case takes: refuse less.
+   */
+  currentRound: number | null,
+): readonly T[] {
+  if (roster.length === 0) return scored;
+  const dedicated = dedicatedSlotsByPosition(slots);
+  // Per position: how many we hold, and the weakest of them. The weakest is the bar,
+  // not the strongest — the strongest would refuse every upgrade at a position we hold
+  // anything at, which is a different and much blunter rule.
+  const count = new Map<string, number>();
+  const weakest = new Map<string, number>();
+  for (const player of roster) {
+    // Both accumulators report `??`-as-`||` survivors, and both are equivalences for the
+    // same reason as above: the falsy value is the default. The `<` here reports a `<=`
+    // survivor too, equivalently — keeping the later of two equal values stores the same
+    // number, and the bar is a number rather than a player.
+    count.set(player.position, (count.get(player.position) ?? 0) + 1);
+    const value = marketValue(player);
+    const held = weakest.get(player.position);
+    if (held === undefined || value < held) weakest.set(player.position, value);
+  }
+  const kept = scored.filter((entry) => {
+    const position = entry.player.position;
+    // The `?? 0` default survives as `|| 0` and as `?? 1`, both equivalently: this is
+    // read only for a position the roster holds somebody at — a position absent from the
+    // map has no bar below either, so the filter keeps the candidate whichever number
+    // the default is.
+    const held = count.get(position) ?? 0;
+    // Below what the position certainly starts, every body is still filling the lineup
+    // and an upgrade is filling it better, so the rule stays out of the way. A position
+    // with no dedicated slot at all — flex-only, in some templates — is therefore
+    // constrained from its first body, which is the same rule with the same count.
+    // The `?? 0` default here reports two survivors and both are equivalences: `|| 0`
+    // agrees because zero is the falsy value, and `?? 1` because this line is only
+    // reached with at least one held — a position absent from `count` has no bar below
+    // either — so `held < 0` and `held < 1` can only disagree at a count of zero that
+    // cannot occur here.
+    if (held < (dedicated.get(position) ?? 0)) return true;
+    // The one candidate we provably did *not* decline — see the docstring. `<=` on the
+    // round *after* the gate's last: that round is the first turn he could have been
+    // taken on, so declining him is only established from the turn after it.
+    if (
+      entry.player.adp == null &&
+      (currentRound === null || currentRound <= MARKET_GATE_ROUNDS + 1)
+    ) {
+      return true;
+    }
+    const bar = weakest.get(position);
+    // Strictly greater: an exact tie is not an upgrade, and refusing it would turn two
+    // interchangeable players into a rule about which arrived first.
+    return bar === undefined || marketValue(entry.player) <= bar;
+  });
+  // The same stand-down the other two gates apply: a panel with nothing on it advises
+  // nothing, which is worse than advising with the caveat.
+  return kept.length > 0 ? kept : scored;
+}
+
+/**
+ * How many starting slots at each position accept nothing else.
+ *
+ * The count of slots this position is *certainly* buying, as opposed to contesting: a
+ * two-flex league dedicates two slots to backs and one to tight ends, and the flexible
+ * slots belong to whoever wins them. Counted from the template rather than from the
+ * lineup as it currently solves, deliberately — `startingSlotsByPosition` measures what
+ * a roster's own hoarding has already achieved, and a rule against hoarding that reads
+ * it would widen every time it was disobeyed.
+ */
+function dedicatedSlotsByPosition(
+  slots: readonly RosterSlot[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const slot of slots) {
+    if (slot.eligiblePositions.length !== 1) continue;
+    const position = slot.eligiblePositions[0];
+    counts.set(position, (counts.get(position) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**
@@ -479,6 +844,12 @@ function prefilterValue(
     startingSlots.get(candidate.position) ?? 0,
     replacementValue,
     context.weeks,
+    // Absent reads as zero — the wire covers nothing at a position nobody described.
+    // `??` rather than `||`, and they differ on the value that matters most: a share of
+    // zero is "the wire covers nothing here", and `||` would send it to the same default
+    // an absent position gets, which happens to be zero today and would stop being the
+    // day the default changes.
+    context.wireCover.get(candidate.position) ?? 0,
   );
   // Added rather than chosen between. `coverValue` returns only the part of a player's worth
   // that exists because players miss weeks, and `startingGain` is the part the all-available
@@ -574,6 +945,8 @@ interface PrefilterContext {
    * wrong quietly.
    */
   weeks: readonly number[];
+  /** See `PolicyLeague.wireCover`. Threaded through so it is read once per pick. */
+  wireCover: ReadonlyMap<string, number>;
   /**
    * The value a candidate has to beat at each position to reach the starting lineup.
    *
@@ -590,7 +963,7 @@ function prefilterContext(
   league: PolicyLeague,
   replacement: ReadonlyMap<string, ReplacementLevel>,
 ): PrefilterContext {
-  const { slots, weeks } = league;
+  const { slots, weeks, wireCover } = league;
   const bench = replacementBench(slots, replacement);
   const baseline = solveLineup(slots, [...roster.map(toCompetitor), ...bench]);
   const startThreshold = new Map<string, number>();
@@ -614,6 +987,7 @@ function prefilterContext(
     baseline,
     startingSlots: startingSlotsByPosition(roster, slots, baseline),
     weeks,
+    wireCover,
     startThreshold,
   };
 }
@@ -870,19 +1244,42 @@ export function recommendByChampionship(
   //
   // Not the playoff weeks either, and that is a deliberate approximation rather than an
   // oversight — see `PolicyLeague.weeks`.
-  const league: PolicyLeague = { slots: config.slots, weeks: config.weeks };
+  const league: PolicyLeague = {
+    slots: config.slots,
+    weeks: config.weeks,
+    wireCover: config.wireCover,
+  };
   const leagueUnfilled = state.teams.flatMap((team) =>
     ownUnfilledSlots(team.roster, config.slots),
   );
-  // The market-discipline gate stands between the scoring and the shortlist, and only
-  // here: the base policy, the opponent completions, and our own rollout all stay
-  // ungated. Gating them would change what every simulated roster looks like — a
-  // different measurement, not a discipline on the advice — and the base policy taking a
-  // market-absent player *later, at his value* is exactly the outcome the gate is
-  // steering toward. Filtered before the slice, so the gate promotes the next priced
-  // candidate into the field rather than shortening it.
+  // Two gates stand between the scoring and the shortlist, and only here: the base
+  // policy, the opponent completions, and our own rollout all stay ungated. Gating them
+  // would change what every simulated roster looks like — a different measurement, not a
+  // discipline on the advice — and the base policy taking a withheld player *later, at
+  // his value* is exactly the outcome both gates steer toward. Filtered before the slice,
+  // so a gate promotes the next offerable candidate into the field rather than shortening
+  // it.
+  //
+  // Three of them, and the order does not change the result — they are filters over one
+  // list, and each yields whole rather than partially when it would empty the panel, so
+  // the only thing composition order could change is which one gets to stand down. They
+  // are written widest first: the market gate applies to every position inside the
+  // audited window, the streamable rules to the two positions the model does not project,
+  // and the outbid rule to one position at one turn.
   const scored = scoreCandidates(me.roster, state.available, league, leagueUnfilled);
-  const gated = applyMarketGate(scored, currentRoundOf(state));
+  const round = currentRoundOf(state);
+  const gated = applyOutbidDiscipline(
+    applyStreamableDiscipline(applyMarketGate(scored, round), {
+      currentRound: round,
+      teams: state.teams.length,
+      rounds: state.rosterSize,
+      roster: me.roster,
+      wireCover: config.wireCover,
+    }),
+    me.roster,
+    config.slots,
+    round,
+  );
   const shortlist = gated
     .slice(0, Math.max(candidateLimit, 1))
     .map((entry) => entry.player);
@@ -1003,13 +1400,13 @@ export function recommendByChampionship(
   //
   // `evaluate(null)` is the base policy left to its own devices, which is the right
   // baseline while every candidate it might take is also a candidate we might recommend.
-  // Once the gate withholds someone, it stops being: the base policy still takes the
-  // market-absent player the panel refuses to name, so every displayed delta would be
-  // measured against a row the user cannot see, cannot take, and is not told about. The
-  // panel labels this figure "title odds vs. best available", and best available has to
-  // mean the best thing on offer.
+  // Once a gate withholds someone, it stops being: the base policy still takes the player
+  // the panel refuses to name, so every displayed delta would be measured against a row
+  // the user cannot see, cannot take, and is not told about. The panel labels this figure
+  // "title odds vs. best available", and best available has to mean the best thing on
+  // offer.
   //
-  // So where the gate withheld a candidate, the baseline is the best *offerable* one —
+  // So where a gate withheld a candidate, the baseline is the best *offerable* one —
   // `gated[0]`, the top of the prefilter's own ordering, which is exactly what the base
   // policy would have taken had it been subject to the same discipline. That entry is
   // already evaluated, so this costs no extra simulation. Nothing about the ordering

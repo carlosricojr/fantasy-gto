@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type DepthPlayer, coverValue } from "./draft-bench";
+import { type DepthPlayer, coverValue as coverValueWithWire } from "./draft-bench";
 
 /**
  * What depth is worth.
@@ -30,6 +30,26 @@ const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
 // plays through, exactly what `coverValue`'s own baseline uses. It used to be `null`, but
 // null now means *unknown* and is charged an expected absent week, which would move every
 // hand-computed figure below.
+/**
+ * `coverValue` with no waiver wire, which is what every test written before the wire
+ * existed means and what its hand-computed figures are all against.
+ *
+ * A default rather than a sixth argument repeated forty times, and a *test* default
+ * rather than a production one: `coverValue` itself requires the share, because a
+ * caller who forgets it silently gets the pre-#88 pricing that drafted two kickers.
+ * The wire's own behaviour is tested through this wrapper by passing the share
+ * explicitly — see "the waiver wire discounts cover" below.
+ */
+const coverValue = (
+  rosterAtPosition: readonly DepthPlayer[],
+  candidate: DepthPlayer,
+  slots: number,
+  replacement: number,
+  weeks: readonly number[],
+  wireCover = 0,
+): number =>
+  coverValueWithWire(rosterAtPosition, candidate, slots, replacement, weeks, wireCover);
+
 const p = (
   value: number,
   availability: number,
@@ -235,5 +255,63 @@ describe("coverValue boundaries", () => {
       coverValue([...roster].reverse(), candidate, 2, 5, WEEKS),
       12,
     );
+  });
+});
+
+describe("the waiver wire discounts cover", () => {
+  const starter = p(20, 0.9);
+  const candidate = p(18, 0.9);
+  const cover = (wireCover: number) =>
+    coverValue([starter], candidate, 1, 10, WEEKS, wireCover);
+
+  it("is the whole cover at a share of zero and none of it at a share of one", () => {
+    // A share of one is the honest reading of "the wire supplies this position": a
+    // drafted reserve there sells nothing you could not have signed on the day you
+    // needed him. This is what stops the board wanting a second kicker.
+    expect(cover(0)).toBeGreaterThan(0);
+    expect(cover(1)).toBe(0);
+  });
+
+  it("scales the cover linearly by the share the wire does not supply", () => {
+    // Not a re-weighting inside the per-week expectation: the wire takes a share of a
+    // number the depth model has already computed, so the relationship is exact and a
+    // reader can check it by hand.
+    expect(cover(0.75)).toBeCloseTo(cover(0) * 0.25, 12);
+    expect(cover(0.5)).toBeCloseTo(cover(0) * 0.5, 12);
+  });
+
+  it("keeps the ordering within a position, so it diminishes rather than flattens", () => {
+    // Every cover at a position is scaled by the same share, so a better reserve stays a
+    // better reserve. A discount that reordered candidates would be a different model,
+    // not a cheaper wire.
+    const better = coverValue([starter], p(19, 0.9), 1, 10, WEEKS, 0.75);
+    const worse = coverValue([starter], p(12, 0.9), 1, 10, WEEKS, 0.75);
+    expect(better).toBeGreaterThan(worse);
+  });
+
+  it("clamps a share outside [0, 1] rather than paying or charging for it", () => {
+    // Above one would turn depth into a penalty and below zero would pay a bonus for it;
+    // neither is a stronger claim about the wire, it is a caller with a bug.
+    expect(cover(1.5)).toBe(0);
+    expect(cover(-1)).toBeCloseTo(cover(0), 12);
+  });
+
+  it("reads a share that is not a number as no wire at all", () => {
+    // Clamping does not reach `NaN` — `Math.min(Math.max(NaN, 0), 1)` is `NaN` — and a
+    // `NaN` cover compares false against every other value, so the candidate would be
+    // silently dropped from the shortlist rather than the caller being told. Zero is the
+    // same default an absent position gets, and the conservative direction: it charges
+    // the draft for depth instead of crediting it with free cover.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(Number.isFinite(cover(bad))).toBe(true);
+    }
+    // All three, not only `NaN`: an infinite share is not an emphatic one, it is the
+    // same caller bug, and one rule for "not a finite number" is easier to hold than a
+    // clamp for infinities beside a default for `NaN`. Note this makes a positive
+    // infinity *charge* for depth where 1.5 credits nothing — deliberate, and the same
+    // direction: a share nobody can have read is not read as a total one.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(cover(bad)).toBeCloseTo(cover(0), 12);
+    }
   });
 });

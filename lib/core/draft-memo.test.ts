@@ -35,7 +35,15 @@ const SLOTS = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 });
 const TEAMS = 6;
 const ROUNDS = 6;
 
+/**
+ * A waiver-wire cover with something in it, so the fingerprint test below is measuring a
+ * difference rather than two empty maps. The positions are this fixture's, not the
+ * product's — `lib/nfl/roster.ts` owns the shipped table.
+ */
+const WIRE_COVER = new Map<string, number>([["TE", 0.75]]);
+
 const CONFIG: LeagueConfig = {
+  wireCover: WIRE_COVER,
   slots: SLOTS,
   weeks: Array.from({ length: 12 }, (_, i) => i + 1),
   playoffWeeks: [13, 14],
@@ -132,6 +140,26 @@ describe("leagueFingerprint separates leagues that are genuinely different", () 
   it("separates different playoff shapes", () => {
     expect(leagueFingerprint({ ...CONFIG, playoffTeams: 6 }, 1)).not.toBe(base);
     expect(leagueFingerprint({ ...CONFIG, playoffWeeks: [13, 14, 15] }, 1)).not.toBe(base);
+    // The waiver-wire prior changes what a reserve is worth and which positions the
+    // streamable discipline withholds, so two leagues that disagree about it are two
+    // different problems and must not share an answer.
+    expect(
+      leagueFingerprint({ ...CONFIG, wireCover: new Map([["TE", 0.5]]) }, 1),
+    ).not.toBe(base);
+    expect(leagueFingerprint({ ...CONFIG, wireCover: new Map() }, 1)).not.toBe(base);
+    // And insertion order is not part of the league: two callers building the same table
+    // in a different order would otherwise miss each other's hits for nothing.
+    expect(
+      leagueFingerprint(
+        { ...CONFIG, wireCover: new Map([["K", 1], ["TE", 0.75]]) },
+        1,
+      ),
+    ).toBe(
+      leagueFingerprint(
+        { ...CONFIG, wireCover: new Map([["TE", 0.75], ["K", 1]]) },
+        1,
+      ),
+    );
   });
 
   it("separates different season lengths", () => {

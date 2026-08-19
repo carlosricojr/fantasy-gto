@@ -199,6 +199,56 @@ export const SHALLOW_BENCH_TEMPLATE: RosterTemplate = {
   rounds: 13,
 };
 
+/**
+ * How much of an absence the waiver wire covers for free, by position.
+ *
+ * The number `lib/core/draft-bench.ts` calls `wireCover`, and it lives here because the
+ * argument for it can only be made by naming positions, which `lib/core` may not do. One
+ * means the wire supplies the position entirely — a drafted reserve there sells you
+ * nothing you could not have signed on the day you needed him. Zero means the wire
+ * supplies nothing and depth has to be drafted.
+ *
+ * **Judgement, not measurement, and marked as such** — the same status
+ * `UtilityConfig.meanAbsenceWeeks` carries, and for the same reason: what would settle it
+ * is the weekly value of the best free agent at each position, which nothing in this repo
+ * measures. `docs/draft-validation.md` records what the absence of that term cost (#88's
+ * two kickers, two defences, five tight ends and two wide receivers) and what this
+ * replaces it with. The entries, and the argument for each:
+ *
+ *  - **K and D/ST — 1.** Both are already special in this codebase for a reason that
+ *    settles this: *the model does not project either*, and will not pretend to. Their
+ *    entire price is the market's, and their weekly spread is the `placeholder` band
+ *    rather than a measured one (#90.4). So there is no model claim that a particular
+ *    kicker's absence costs more than a freely available kicker's presence, and drafting
+ *    a second one buys a claim nothing in the system is making. Thirty-two NFL teams
+ *    supply a starting kicker and a starting defence; a ten-team league rosters ten.
+ *  - **TE — 0.75.** One tight-end slot, and the wire holds a starting NFL tight end in
+ *    every week of the season, so most of a reserve's cover is free. Not all of it: the
+ *    top of the position is separated from the wire by far more than the top kicker is,
+ *    which is why this diminishes cover rather than deleting it. This is the "TE cover
+ *    diminishing far faster" of #88's finding 3.
+ *  - **QB, RB, WR — 0.** Backs and receivers are the half of the note that says the best
+ *    undrafted back is nowhere near the best drafted one: a ten-team league with two
+ *    flexible slots rosters most of the startable supply at both. Quarterback is the
+ *    interesting exclusion — a one-quarterback league streams the position much like a
+ *    tight end, and #89.A's Goff-then-Nix pair is exactly that mistake — but this table
+ *    is one global judgement per position and a SUPERFLEX or 2QB league starts two, where
+ *    the same number would be plainly wrong. Deferred rather than guessed.
+ *
+ * **What this deliberately does not know: the league.** A sixteen-team league's wire is
+ * thinner than a ten-team league's, and a two-flex league's is thinner than a standard
+ * league's, and these constants are the same in all of them. Making them league-aware
+ * needs the measurement above, not a second constant.
+ */
+export const WAIVER_WIRE_COVER: ReadonlyMap<Position, number> = new Map([
+  ["QB", 0],
+  ["RB", 0],
+  ["WR", 0],
+  ["TE", 0.75],
+  ["K", 1],
+  ["DST", 1],
+]);
+
 export const ROSTER_TEMPLATES: readonly RosterTemplate[] = [
   STANDARD_TEMPLATE,
   TWO_FLEX_TEMPLATE,

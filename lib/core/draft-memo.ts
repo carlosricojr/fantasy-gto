@@ -24,7 +24,7 @@ import { canonicalizeState, stateSignature } from "./draft-speculation";
  * So the key is the league fingerprint *and* the state signature, and the fingerprint
  * covers every field of the configuration that can change a result: the starting slots and
  * their eligibility, the weeks played, the playoff shape, the scenario count, the injury
- * model, and the seed. Two leagues that differ in any of those are different problems, and
+ * model, the waiver-wire prior, and the seed. Two leagues that differ in any of those are different problems, and
  * a superflex league must never be served a single-quarterback answer.
  *
  * The state signature covers the rosters, the remaining picks, and a digest of the pool —
@@ -67,6 +67,15 @@ export function leagueFingerprint(
     `po=${config.playoffTeams}/${config.playoffWeeks.join("-")}`,
     `scen=${config.scenarios}`,
     `absence=${config.meanAbsenceWeeks}`,
+    // The waiver-wire prior changes what a reserve is worth and which positions the
+    // streamable discipline withholds, so two leagues that disagree about it are two
+    // different problems and must not share an answer. Sorted, because a map's insertion
+    // order is not part of the league — two callers building the same table in a
+    // different order would otherwise miss each other's hits for nothing.
+    `wire=${[...config.wireCover.entries()]
+      .map(([position, share]) => `${position}:${share}`)
+      .sort()
+      .join(",")}`,
     `seed=${seed}`,
     // The shortlist length changes both how many recommendations come back and which,
     // so an answer computed for three candidates must not be served to a request for ten.

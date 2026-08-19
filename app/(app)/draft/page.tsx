@@ -13,7 +13,11 @@ import type { DraftPolicyState, DraftTeam } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
-import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
+import {
+  ROSTER_TEMPLATES,
+  WAIVER_WIRE_COVER,
+  slotsForTemplate,
+} from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
 import {
   RECOMMEND_CANDIDATES,
@@ -484,6 +488,10 @@ export default function DraftPage() {
       playoffTeams,
       scenarios: SCENARIOS,
       meanAbsenceWeeks: 3,
+      // Constant, so it is outside the dependency list on purpose rather than by
+      // omission: the shipped table is a per-position judgement and does not vary with
+      // the league shape this memo keys on. See `WAIVER_WIRE_COVER`.
+      wireCover: WAIVER_WIRE_COVER,
     }),
     [starters, playoffTeams, championshipWeek],
   );
