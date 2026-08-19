@@ -331,14 +331,22 @@ export interface StreamableContext {
  */
 function marketRoundOf(player: PlayerRisk, teams: number): number | null {
   const adp = player.adp;
-  // Two mutants survive on this line and both are equivalences at the exported surface,
-  // argued rather than papered over with a fixture nobody would draft in. `teams < 1`
-  // read as `teams <= 1` or as `teams < 0` changes only a one-team or zero-team league:
-  // at zero the division is `Infinity`, which no round ever reaches, and at one the
-  // market round is the ADP itself, which no draft this long ever reaches either — so
-  // the candidate is withheld outside the closing rounds under every variant. The guard
-  // is there to keep a division by zero from producing a *number*, not to price a league
-  // with one team in it.
+  // Three mutants survive on this line and all three are equivalences at the exported
+  // surface, argued rather than papered over with fixtures nobody would draft in.
+  //
+  // `teams < 1` read as `teams <= 1` or as `teams < 0` changes only a one-team or
+  // zero-team league: at zero the division is `Infinity`, which no round ever reaches,
+  // and at one the market round is the ADP itself, which no draft this long reaches
+  // either — so the candidate is withheld outside the closing rounds under every
+  // variant. The guard is here to keep a division by zero from producing a *number*, not
+  // to price a league with one team in it.
+  //
+  // The first `||` read as `&&` is equivalent for both inputs it can see. A null ADP
+  // still returns null, because `Number.isFinite(null)` is false and the negation makes
+  // the conjunction true. A `NaN` ADP no longer returns null — and then produces a `NaN`
+  // market round, which fails the `>=` below, so the candidate is withheld exactly as
+  // the null answer would have withheld him. The explicit return is the readable form of
+  // an answer arithmetic would reach anyway.
   if (adp == null || !Number.isFinite(adp) || adp < 0 || teams < 1) return null;
   // The floor's `1` also survives, and equivalently: it can only bind for an ADP under
   // one, whose unfloored round is zero or less, and `currentRound >= 0` is true at every
@@ -550,6 +558,11 @@ export function applyOutbidDiscipline<T extends { player: PlayerRisk }>(
     // and an upgrade is filling it better, so the rule stays out of the way. A position
     // with no dedicated slot at all — flex-only, in some templates — is therefore
     // constrained from its first body, which is the same rule with the same count.
+    // The `?? 0` default here reports two survivors and both are equivalences: `|| 0`
+    // agrees because zero is the falsy value, and `?? 1` because this line is only
+    // reached with at least one held — a position absent from `count` has no bar below
+    // either — so `held < 0` and `held < 1` can only disagree at a count of zero that
+    // cannot occur here.
     if (held < (dedicated.get(position) ?? 0)) return true;
     // The one candidate we provably did *not* decline — see the docstring. `<=` on the
     // round *after* the gate's last: that round is the first turn he could have been
