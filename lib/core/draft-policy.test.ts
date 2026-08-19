@@ -2607,7 +2607,10 @@ describe("the streamable-position discipline", () => {
     // The falsy-zero collapse this codebase has shipped before. Round 1 either way here,
     // so what it separates is "no market round, wait for the closing rounds" from "his
     // round is the first one".
-    expect(gate([entry("early", "DST", 0)], 1)).toEqual(["early"]);
+    expect(gate([entry("early", "DST", 0), entry("back", "RB", 40)], 1)).toEqual([
+      "early",
+      "back",
+    ]);
   });
 
   it("reads a nonsense ADP as no market price rather than as a round", () => {
@@ -2668,7 +2671,9 @@ describe("the outbid discipline", () => {
   });
 
   it("lets the lesser man through, so consecutive turns at a position stay legal", () => {
-    expect(rule([entry("lesser", "TE", 6)], [held("mine", "TE", 8)])).toEqual(["lesser"]);
+    expect(
+      rule([entry("lesser", "TE", 6), entry("back", "RB", 9)], [held("mine", "TE", 8)]),
+    ).toEqual(["lesser", "back"]);
   });
 
   it("measures against the weakest held, not the strongest", () => {
@@ -2709,6 +2714,20 @@ describe("the outbid discipline", () => {
     expect(rule(ghost, roster, null)).toEqual(["ghost", "back"]);
   });
 
+  it("constrains a position with no dedicated slot from its first body", () => {
+    // A flex-only template: nothing dedicates a slot to a tight end, so the count the
+    // rule switches on is zero and every tight end past the first is depth. Reading an
+    // absent position as one dedicated slot instead would let the upgrade through.
+    const FLEX_ONLY = buildSlots({ QB: 1, FLEX: 2 });
+    const withHeld = applyOutbidDiscipline(
+      [entry("better", "TE", 12), entry("back", "RB", 9)],
+      [held("mine", "TE", 8)],
+      FLEX_ONLY,
+      MARKET_GATE_ROUNDS + 2,
+    ).map((kept) => kept.player.id);
+    expect(withHeld).toEqual(["back"]);
+  });
+
   it("says nothing about a position we hold nobody at, or an empty roster", () => {
     expect(rule([entry("any", "WR", 20)], [held("mine", "TE", 8)])).toEqual(["any"]);
     expect(rule([entry("any", "TE", 20)], [])).toEqual(["any"]);
@@ -2717,7 +2736,9 @@ describe("the outbid discipline", () => {
   it("treats an exact tie as no upgrade", () => {
     // Two interchangeable players; refusing the second would make the rule about which
     // of them happened to arrive first.
-    expect(rule([entry("twin", "TE", 8)], [held("mine", "TE", 8)])).toEqual(["twin"]);
+    expect(
+      rule([entry("twin", "TE", 8), entry("back", "RB", 9)], [held("mine", "TE", 8)]),
+    ).toEqual(["twin", "back"]);
   });
 
   it("yields rather than empty the panel", () => {

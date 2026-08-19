@@ -811,6 +811,12 @@ describe("evaluateChecks", () => {
     // chose the strict end. Looser would leave (d) asserting a discipline nothing
     // implements.
     expect(STREAMABLE_MARKET_LEAD_ROUNDS).toBeLessThanOrEqual(MARKET_ROUND_TOLERANCE);
+    // And pinned to its value, not only to the inequality, because the inequality has
+    // slack and the value is the argument: zero rounds of lead, because the model does
+    // not project these two positions at all and every round of lead is a pick spent
+    // overruling the only price there is. Moving it is a policy change and should have
+    // to edit this line and say why.
+    expect(STREAMABLE_MARKET_LEAD_ROUNDS).toBe(0);
   });
 
   it("locks the gate's window to the window check (a) asserts", () => {

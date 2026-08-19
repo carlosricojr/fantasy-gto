@@ -331,7 +331,19 @@ export interface StreamableContext {
  */
 function marketRoundOf(player: PlayerRisk, teams: number): number | null {
   const adp = player.adp;
+  // Two mutants survive on this line and both are equivalences at the exported surface,
+  // argued rather than papered over with a fixture nobody would draft in. `teams < 1`
+  // read as `teams <= 1` or as `teams < 0` changes only a one-team or zero-team league:
+  // at zero the division is `Infinity`, which no round ever reaches, and at one the
+  // market round is the ADP itself, which no draft this long ever reaches either — so
+  // the candidate is withheld outside the closing rounds under every variant. The guard
+  // is there to keep a division by zero from producing a *number*, not to price a league
+  // with one team in it.
   if (adp == null || !Number.isFinite(adp) || adp < 0 || teams < 1) return null;
+  // The floor's `1` also survives, and equivalently: it can only bind for an ADP under
+  // one, whose unfloored round is zero or less, and `currentRound >= 0` is true at every
+  // round a draft has. It is here so the two sides of the comparison are the same kind
+  // of number — rounds are 1-based on our side of it — not to change an answer.
   return Math.max(1, Math.ceil(adp / teams));
 }
 
@@ -389,10 +401,18 @@ export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
   const held = new Set(roster.map((player) => player.position));
   const kept = scored.filter((entry) => {
     const position = entry.player.position;
+    // `??` reads as `||` in a mutation report, correctly: the only falsy share is zero,
+    // which both forms send to zero. Kept as `??` so it stays right if the default ever
+    // stops being the falsy value.
     if ((wireCover.get(position) ?? 0) < 1) return true;
     if (held.has(position)) return false;
     const marketRound = marketRoundOf(entry.player, teams);
     if (marketRound === null) return false;
+    // The subtraction survives as an addition, and it is an equivalence *because the
+    // lead is currently zero* rather than because the arithmetic does not matter — the
+    // one kind of survivor worth naming, since it stops being equivalent the moment
+    // somebody edits the constant. `mock.test.ts` pins the constant's value, so that
+    // edit cannot land quietly.
     return currentRound >= marketRound - STREAMABLE_MARKET_LEAD_ROUNDS;
   });
   return kept.length > 0 ? kept : scored;
@@ -510,6 +530,10 @@ export function applyOutbidDiscipline<T extends { player: PlayerRisk }>(
   const count = new Map<string, number>();
   const weakest = new Map<string, number>();
   for (const player of roster) {
+    // Both accumulators report `??`-as-`||` survivors, and both are equivalences for the
+    // same reason as above: the falsy value is the default. The `<` here reports a `<=`
+    // survivor too, equivalently — keeping the later of two equal values stores the same
+    // number, and the bar is a number rather than a player.
     count.set(player.position, (count.get(player.position) ?? 0) + 1);
     const value = marketValue(player);
     const held = weakest.get(player.position);
@@ -517,6 +541,10 @@ export function applyOutbidDiscipline<T extends { player: PlayerRisk }>(
   }
   const kept = scored.filter((entry) => {
     const position = entry.player.position;
+    // The `?? 0` default survives as `|| 0` and as `?? 1`, both equivalently: this is
+    // read only for a position the roster holds somebody at — a position absent from the
+    // map has no bar below either, so the filter keeps the candidate whichever number
+    // the default is.
     const held = count.get(position) ?? 0;
     // Below what the position certainly starts, every body is still filling the lineup
     // and an upgrade is filling it better, so the rule stays out of the way. A position

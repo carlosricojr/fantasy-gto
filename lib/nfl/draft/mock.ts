@@ -553,16 +553,23 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
       `${STREAMABLE_CLOSING_ROUNDS} rounds`,
     // Flipped by PR 5's streamable-position discipline, and structurally rather than by
     // an ordering: `applyStreamableDiscipline` (`lib/core/draft-policy.ts`) keeps a
-    // second kicker or defence off the shortlist outright until the closing rounds, and
-    // `mock.test.ts` pins the policy's own closing-round count to this check's
-    // `STREAMABLE_CLOSING_ROUNDS`. Inside the window the panel cannot offer one at all.
+    // second kicker or defence off the recommendation shortlist until the closing
+    // rounds, and `mock.test.ts` pins the policy's own closing-round count to this
+    // check's `STREAMABLE_CLOSING_ROUNDS`.
     //
-    // The depth model was changed underneath it in the same PR and is the reason the cap
-    // is a lock rather than a fight: `coverValue` now takes a waiver-wire share, and at
-    // a share of one — kicker and defence, argued in `lib/nfl/roster.ts` — a reserve's
-    // cover term is scaled to nothing, so the base policy and every rollout stop wanting
-    // a second one too. The cap is what makes "at most one" true; the pricing is what
-    // stops it being a rule the rest of the engine argues with.
+    // Stated at the strength the code supports, which is the shortlist and one
+    // exception: like the market gate, the discipline stands down rather than return an
+    // empty panel, so a state whose *every* candidate is a withheld kicker or defence
+    // would still be offered one. On this board — 622 rows, of which 35 are streamable —
+    // that cannot fire, and it did not: the replay took one of each in both modes.
+    //
+    // The depth model was changed underneath it in the same PR, and what that buys is
+    // agreement rather than enforcement: `coverValue` now takes a waiver-wire share, and
+    // at a share of one — kicker and defence, argued in `lib/nfl/roster.ts` — a
+    // reserve's cover term is scaled to nothing, so the base policy and the rollouts,
+    // which are deliberately ungated, stop *wanting* a second one instead of being
+    // stopped from taking one. The cap is what makes "at most one" true of the advice;
+    // the pricing is what stops the cap being a rule the rest of the engine argues with.
     expected: "pass",
     expectedWithScheduleByes: "pass",
     audit: "second kicker at 12.06 behind Dicker at 9.05; defences at 5.05 and 16.06",
@@ -622,10 +629,12 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
       `before their market round`,
     // Flipped by PR 5, structurally, and by the stricter of the two available rules: the
     // policy's `STREAMABLE_MARKET_LEAD_ROUNDS` is zero, so a kicker or defence is not
-    // offered before his *own* market round at all, while this check tolerates
+    // offered before his *own* market round, while this check tolerates
     // `MARKET_ROUND_TOLERANCE` rounds of lead. `mock.test.ts` pins the policy at or below
     // the tolerance — an inequality, not the equality (a) carries, because a policy
-    // stricter than its check still enforces it.
+    // stricter than its check still enforces it. The same one exception applies as to
+    // (b): the discipline yields rather than empty the panel, which no board this size
+    // can produce and this one did not.
     //
     // The argument for zero is the one `docs/draft-validation.md` already makes about
     // these two positions and no others: the model does not project them, their entire
