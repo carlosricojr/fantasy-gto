@@ -22,7 +22,7 @@ import {
   replayAdpMockDraft,
   unexpectedOutcomes,
 } from "@/lib/nfl/draft/mock";
-import { slotsForTemplate } from "@/lib/nfl/roster";
+import { WAIVER_WIRE_COVER, slotsForTemplate } from "@/lib/nfl/roster";
 import { parseContests } from "@/lib/sources/nflverse";
 
 /**
@@ -317,6 +317,10 @@ function main(): void {
     playoffTeams: PLAYOFF_TEAMS,
     scenarios: SCENARIOS,
     meanAbsenceWeeks: 3,
+    // The product's own table, like every other engine setting this script imports
+    // rather than re-declares: a harness measuring a different waiver-wire prior than
+    // the page ships would be measuring a different engine.
+    wireCover: WAIVER_WIRE_COVER,
   };
 
   process.stdout.write(

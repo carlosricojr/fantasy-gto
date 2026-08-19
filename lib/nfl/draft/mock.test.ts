@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   type ChampionshipRecommendation,
   MARKET_GATE_ROUNDS,
+  STREAMABLE_CLOSING_ROUNDS as POLICY_STREAMABLE_CLOSING_ROUNDS,
+  STREAMABLE_MARKET_LEAD_ROUNDS,
 } from "../../core/draft-policy";
 import type { PlayerRisk } from "../../core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "../../core/season-sim";
-import { slotsForTemplate } from "../roster";
+import { WAIVER_WIRE_COVER, slotsForTemplate } from "../roster";
 import { teamIndexForSeat } from "../../core/draft";
 import { teamByeWeeks } from "../byes";
 import { parseCsv } from "../csv";
@@ -16,7 +18,9 @@ import { parseContests } from "../../sources/nflverse";
 import {
   CHECK_DEFINITIONS,
   EARLY_ROUNDS,
+  MARKET_ROUND_TOLERANCE,
   MIN_WIDE_RECEIVERS,
+  STREAMABLE_CLOSING_ROUNDS,
   type MockBoardRow,
   type MockDraftReplay,
   type MockDraftSetup,
@@ -32,6 +36,9 @@ import {
   toPlayerRisk,
   unexpectedOutcomes,
 } from "./mock";
+
+/** The shipped waiver-wire cover: this harness replays the product's own league. */
+const WIRE_COVER = WAIVER_WIRE_COVER;
 
 const FIXTURE_PATH = join(
   __dirname,
@@ -106,6 +113,7 @@ function syntheticBoard(): MockBoardRow[] {
 
 function smallSetup(): MockDraftSetup {
   const config: LeagueConfig = {
+    wireCover: WIRE_COVER,
     slots: slotsForTemplate("two_flex"),
     ...fantasySeasonWeeks(17, 4),
     playoffTeams: 4,
@@ -166,6 +174,7 @@ function replayFromOwnPicks(
 ): { replay: MockDraftReplay; board: MockBoardRow[] } {
   const slot = 5;
   const config: LeagueConfig = {
+    wireCover: WIRE_COVER,
     slots: slotsForTemplate("two_flex"),
     ...fantasySeasonWeeks(17, 6),
     playoffTeams: 6,
@@ -611,6 +620,7 @@ describe("replayAdpMockDraft", () => {
       (a, b) => b.blendedPoints - a.blendedPoints || (a.playerId < b.playerId ? -1 : 1),
     );
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: slotsForTemplate("two_flex"),
       ...fantasySeasonWeeks(17, 2),
       playoffTeams: 2,
@@ -681,6 +691,7 @@ describe("replayAdpMockDraft", () => {
 
   it("plays a single-round draft from the first seat: both boundaries are legal", () => {
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: slotsForTemplate("two_flex"),
       ...fantasySeasonWeeks(17, 2),
       playoffTeams: 2,
@@ -768,19 +779,38 @@ describe("evaluateChecks", () => {
       "f",
     ]);
     // As measured on the merged engine — PR 2's bye charge, PR 4's paired tie ranking,
-    // PR 3's market-discipline gate. (f) is closed by the ranking by construction; (a)
-    // is closed by the gate in both modes (no `adp: null` shortlist entry through round
-    // six, so the Parkinson-at-6.06 leader their merge had surfaced cannot recur); (c)
-    // passes in both modes on the gate-reshuffled ordering — a measurement, not a fix
-    // for its #89.A mechanism, which PR 5 still owns as a regression lock; (b), (d),
-    // (e) are the structural findings PR 5 owns. Each definition in `mock.ts` records
-    // its mechanism.
+    // PR 3's market-discipline gate, PR 5's streamable-position discipline. (f) is closed
+    // by the ranking by construction; (a) by the market gate in both modes; (b) and (d)
+    // by the streamable discipline, which cannot offer a second kicker or defence before
+    // the closing rounds nor a first one before its own market round; (c) by the outbid
+    // rule, the charge #89.A said was missing for buying a position already filled.
+    //
+    // (e) is the one PR 5 did not close, and its definition in `mock.ts` records why at
+    // length rather than leaving a bare "fail": with the league's receiver demand spent,
+    // every late receiver is worth exactly zero over a replacement who is by definition
+    // the best receiver still on the board, and a waiver-wire share scales cover rather
+    // than creating it. Each definition records its own mechanism; this pin exists so a
+    // silent edit to any of them fails here as well as in the harness.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
+    ).toEqual(["a:pass", "b:pass", "c:pass", "d:pass", "e:fail", "f:pass"]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
-    ).toEqual(["a:pass", "b:fail", "c:pass", "d:fail", "e:fail", "f:pass"]);
+    ).toEqual(["a:pass", "b:pass", "c:pass", "d:pass", "e:fail", "f:pass"]);
+  });
+
+  it("locks the streamable discipline's constants to the checks they satisfy", () => {
+    // (b) exempts the final `STREAMABLE_CLOSING_ROUNDS` rounds and the policy stands
+    // down over the same span, so the two counts are one decision and are pinned equal.
+    // A policy window shorter than the check's would let a second kicker in during a
+    // round the check still fails on.
+    expect(POLICY_STREAMABLE_CLOSING_ROUNDS).toBe(STREAMABLE_CLOSING_ROUNDS);
+    // (d) tolerates `MARKET_ROUND_TOLERANCE` rounds of lead; the policy permits
+    // `STREAMABLE_MARKET_LEAD_ROUNDS`. An inequality rather than the equality (a)
+    // carries: a policy stricter than its check still enforces it, and PR 5 deliberately
+    // chose the strict end. Looser would leave (d) asserting a discipline nothing
+    // implements.
+    expect(STREAMABLE_MARKET_LEAD_ROUNDS).toBeLessThanOrEqual(MARKET_ROUND_TOLERANCE);
   });
 
   it("locks the gate's window to the window check (a) asserts", () => {

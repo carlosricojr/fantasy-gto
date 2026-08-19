@@ -649,17 +649,84 @@ models and the base policy does not), cross-position cover in the depth model (a
 a FLEX a receiver vacates), and opponents who adapt their draft strategy rather than
 following the base policy.
 
-**Waiver-wire replacement level** is the one with a visible consequence. Depth you could
-stream is worth less than depth you must draft, and the gap is not the same at every
-position: a twelve-team league rosters twelve kickers and around sixty backs, so the best
-undrafted kicker is nearly as good as the best drafted one while the best undrafted back is
-nowhere near. Without that term the depth model overstates reserves at shallow, streamable
-positions. Measured on a synthetic twelve-team fixture: after fifteen rounds the best
-remaining kicker prices at 0.109 points a week against 0.022 for the best remaining skill
-reserve, so a sixteenth pick would go on a backup kicker. Fifteen rounds is what the target
-league drafts, and inside fifteen the completion takes exactly one kicker and one defense —
-but the ordering is wrong past that point and the reason is this missing term, not a
-tie-break.
+**Waiver-wire replacement level** used to be on that list and now has a crude term instead,
+because the consequence stopped being hypothetical. Depth you could stream is worth less
+than depth you must draft, and the gap is not the same at every position: a twelve-team
+league rosters twelve kickers and around sixty backs, so the best undrafted kicker is nearly
+as good as the best drafted one while the best undrafted back is nowhere near. Without that
+term the depth model overstated reserves at shallow, streamable positions. Measured on a
+synthetic twelve-team fixture: after fifteen rounds the best remaining kicker priced at
+0.109 points a week against 0.022 for the best remaining skill reserve, so a sixteenth pick
+would go on a backup kicker. The #88 audit then drafted two kickers, two defenses, five
+tight ends and two wide receivers over sixteen rounds.
+
+`coverValue` now takes a **waiver-wire share** per position — how much of an absence there
+the wire covers for free, and which a drafted reserve therefore does not sell you — and
+scales the cover term by what is left. The table is `WAIVER_WIRE_COVER` in
+`lib/nfl/roster.ts`, which is where it has to live: the argument for each entry names
+positions, and `lib/core` may not. Kicker and defense are one, tight end is three quarters,
+quarterback, back and receiver are zero.
+
+**This is judgement, not measurement, and is marked as such** — the same status
+`meanAbsenceWeeks` carries. What would settle it is the weekly value of the best free agent
+at each position, which nothing here measures; the K/D-ST weekly spread is still the
+`placeholder` band (#90.4). It is also not league-aware: a sixteen-team league's wire is
+thinner than a ten-team league's and these constants are the same in both.
+
+Two things the share deliberately does **not** touch. It does not move `replacement`, which
+is already the best player the league's remaining demand leaves behind — the wire's
+season-long level, priced correctly. And it does not touch what a player is worth in your
+starting lineup, which is the lineup solver's answer and not a depth question at all.
+
+### Streamable-position discipline
+
+A share of one — the wire supplies the position entirely — also defines *streamable*, and
+`applyStreamableDiscipline` (`lib/core/draft-policy.ts`) applies two rules to exactly those
+positions, on the recommendation shortlist only:
+
+- **Not before the market's own round.** The model does not project kickers or defenses;
+  their whole price is the market's and their spread is a placeholder, so an engine taking
+  one ahead of the market is overruling the only price it has using no signal of its own.
+  The permitted lead is zero rounds (`STREAMABLE_MARKET_LEAD_ROUNDS`), against a harness
+  check that tolerates two.
+- **Never a second before the closing rounds.** Pricing puts a second kicker at zero, which
+  orders him last among candidates worth something and says nothing about a late round where
+  everything is worth zero. The cap is what makes "at most one" true rather than likely.
+
+`applyOutbidDiscipline` is the third rule and answers a different finding (#89.A): past the
+starting slots a position dedicates, a candidate who outranks somebody already held there is
+withheld, because he was on the board at the turn the lesser player was taken and nothing
+since is information about him. A player the board does not price is exempt through the
+round after the market gate lifts — the gate is the reason he was never declined.
+
+All three filter the shortlist and nothing else. The base policy, the opponents' completions
+and our own rollout stay ungated, because the outcome being steered toward is the base policy
+taking the kicker *later*, at his market round.
+
+### What this did not fix: receiver depth
+
+The harness's check (e) — at least four receivers on a half-PPR 2-FLEX roster — still fails
+in both replay modes, and the reason is worth recording rather than leaving as a number.
+Replacement level is priced against the league's *remaining starting demand*, and opponents
+drafting strictly by ADP fill their receiver slots early; by round nine the league's unfilled
+receiver demand is zero, and at zero demand the replacement **is** the best receiver still on
+the board. No draftable receiver beats him, so every late receiver is worth exactly zero over
+replacement while a tight end or quarterback, at a position the league still demands, is
+worth a hair more than zero. Measured at pick 11.05 on the frozen board: every receiver at
+0.0000 points a week, the best quarterback at 0.0214, the best tight end at 0.0024.
+
+The waiver-wire share cannot reach this: it scales cover, and a cover term that is already
+exactly zero cannot be scaled below it. Nor is the arithmetic obviously wrong — "165
+receivers still available" is the audit's own evidence, and it is the same fact the model
+reads as "the wire is deep here". What the two readings disagree about is unmeasured.
+
+There is a real inconsistency behind it, stated here so it is a hypothesis rather than a
+mystery: the objective has no waiver wire at all. `drawWeek` fields the best legal lineup
+from the roster's *available* players and scores an unfillable slot at zero, while the
+prefilter's cover term prices the same absence against a replacement it assumes you can sign.
+Re-basing the depth model on the objective's own empty slot is a change to the valuation
+core, not to streamable-position discipline, and belongs in its own change with its own
+measurement.
 
 ## The part that is provable
 

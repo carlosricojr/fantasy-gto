@@ -28,7 +28,18 @@ const SLOTS: RosterSlot[] = [
   { id: "wr1", label: "WR", eligiblePositions: ["WR"] },
 ];
 
+/**
+ * The league's waiver-wire cover, empty.
+ *
+ * `LeagueConfig` carries it for the draft policy; nothing in `season-sim.ts` reads it —
+ * the simulation does not care how a roster was assembled or what could have replaced
+ * it. Empty is "the wire covers nothing", the neutral value for a file that never
+ * consults it, and it keeps these fixtures describing the season alone.
+ */
+const WIRE_COVER = new Map<string, number>();
+
 const CONFIG: LeagueConfig = {
+  wireCover: WIRE_COVER,
   slots: SLOTS,
   weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   playoffWeeks: [15, 16],
@@ -479,6 +490,7 @@ describe("team zero winning is not the same as nobody winning", () => {
     // place to leave a hazard whose whole nature is that zero is falsy. This pins it where
     // the sentinel lives.
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: SLOTS,
       ...fantasySeasonWeeks(16, 4),
       playoffTeams: 4,
@@ -542,6 +554,7 @@ describe("every league the product can express simulates coherently", () => {
     const held = cache.get(key);
     if (held !== undefined) return held;
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: SLOTS,
       ...fantasySeasonWeeks(championshipWeek, playoffTeams),
       playoffTeams,
@@ -642,6 +655,7 @@ describe("every league the product can express simulates coherently", () => {
     // blind to the bracket, the bye slice, the seeding and the scores. It says the boundary
     // is accepted and everyone qualifies, and nothing about how the bracket is then played.
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: SLOTS,
       ...fantasySeasonWeeks(15, TEAMS),
       playoffTeams: TEAMS,
@@ -671,6 +685,7 @@ describe("every league the product can express simulates coherently", () => {
  */
 describe("a bye after the final costs nothing at all", () => {
   const config: LeagueConfig = {
+    wireCover: WIRE_COVER,
     slots: SLOTS,
     ...fantasySeasonWeeks(15, 6),
     playoffTeams: 6,
@@ -735,6 +750,7 @@ describe("a bye after the final costs nothing at all", () => {
     };
     const soloSlots: RosterSlot[] = [{ id: "rb", label: "RB", eligiblePositions: ["RB"] }];
     const soloConfig: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: soloSlots,
       weeks: [1, 2, 3, 4, 5, 6, 7, 8],
       playoffWeeks: [9, 10],
@@ -808,6 +824,7 @@ describe("when the final is played changes what a bye is worth", () => {
   }
 
   const league = (championshipWeek: number, playoffTeams: number): LeagueConfig => ({
+    wireCover: WIRE_COVER,
     slots: SLOTS,
     ...fantasySeasonWeeks(championshipWeek, playoffTeams),
     playoffTeams,
@@ -864,6 +881,7 @@ describe("when the final is played changes what a bye is worth", () => {
 describe("ties and bracket sufficiency", () => {
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
   const cfg: LeagueConfig = {
+    wireCover: WIRE_COVER,
     slots: SLOTS,
     weeks,
     playoffWeeks: [15, 16],
@@ -1327,6 +1345,7 @@ describe("seeding reads records first, then points", () => {
 describe("league sizes at the boundary", () => {
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
   const cfg: LeagueConfig = {
+    wireCover: WIRE_COVER,
     slots: SLOTS,
     weeks,
     playoffWeeks: [15, 16],
@@ -1445,6 +1464,7 @@ describe("the tiebreak key is a fixed function, not just any function", () => {
     const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
     const tied = Array.from({ length: 8 }, () => [[...weeks, 15, 16].map(() => 0)]);
     const outcomes = simulateLeague(tied, {
+      wireCover: WIRE_COVER,
       slots: SLOTS,
       weeks,
       playoffWeeks: [15, 16],
@@ -1518,6 +1538,7 @@ describe("league-wide conservation", () => {
   for (const count of [6, 8, 10, 12]) {
     it(`adds up across ${count} teams`, () => {
       const config: LeagueConfig = {
+        wireCover: WIRE_COVER,
         slots: SLOTS,
         weeks: Array.from({ length: 14 }, (_, i) => i + 1),
         playoffWeeks: [15, 16, 17],
@@ -1555,6 +1576,7 @@ describe("league-wide conservation", () => {
     // The degenerate case the tiebreak was wrong for: our team is always index 0, and
     // breaking ties by position gave it a championship probability of exactly 1.
     const config: LeagueConfig = {
+      wireCover: WIRE_COVER,
       slots: SLOTS,
       weeks: Array.from({ length: 14 }, (_, i) => i + 1),
       playoffWeeks: [15, 16, 17],

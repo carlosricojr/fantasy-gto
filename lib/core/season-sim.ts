@@ -35,6 +35,26 @@ export interface LeagueConfig extends UtilityConfig {
   playoffTeams: number;
   /** Weeks the bracket is played over. One round per week. */
   playoffWeeks: readonly number[];
+  /**
+   * The share of an absence the waiver wire covers for free, by position. Absent
+   * positions are read as zero — the wire covers nothing there.
+   *
+   * **Nothing in this file reads it**, which is worth saying rather than leaving a
+   * reader to search: the season simulation does not care how a roster was assembled or
+   * what could have replaced it, and this is the draft policy's input
+   * (`lib/core/draft-bench.ts` and `lib/core/draft-policy.ts`). It lives here because
+   * this object is *the league*, the way `meanAbsenceWeeks` is an injury model the
+   * simulation uses and `scenarios` is an estimator setting — one object the draft page
+   * assembles once and passes everywhere, rather than a second league description that
+   * can disagree with this one quietly.
+   *
+   * Required rather than optional, deliberately. The default a missing field would carry
+   * is "the wire covers nothing", which is the pre-#88 behaviour that drafted two kickers
+   * and two defences — so a caller that forgets it would silently get the defect back.
+   * The sport layer supplies it: `WAIVER_WIRE_COVER` in `lib/nfl/roster.ts`, which is
+   * also where the argument for each entry is, since it has to name positions.
+   */
+  wireCover: ReadonlyMap<string, number>;
 }
 
 export interface TeamOutcome {

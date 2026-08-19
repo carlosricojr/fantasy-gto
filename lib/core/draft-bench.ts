@@ -74,12 +74,39 @@
  * - **Cross-position cover.** A back covers a FLEX a receiver vacates. Only same-position
  *   cover is counted, which understates depth at every flex-eligible position by the same
  *   kind of term.
- * - **The waiver wire.** Depth you could stream is worth less than depth you must draft, and
- *   the gap is not the same at every position: a league of twelve rosters twelve kickers and
- *   sixty backs, so the best undrafted kicker is nearly the best drafted one while the best
- *   undrafted back is nowhere near. `docs/draft-validation.md` records this as unmodeled and
- *   it still is. The effect is to overstate reserves at shallow, streamable positions —
- *   which is exactly where a second kicker comes from when one does.
+ *
+ * The third thing on that list used to be **the waiver wire**, and it is now here instead,
+ * because leaving it out had a measured consequence rather than a theoretical one.
+ *
+ * ## The waiver wire, priced as a share rather than measured
+ *
+ * Depth you could stream is worth less than depth you must draft, and the gap is not the
+ * same at every position: a league of twelve rosters twelve kickers and sixty backs, so the
+ * best undrafted kicker is nearly the best drafted one while the best undrafted back is
+ * nowhere near. The docstring that stood here recorded that as unmodeled, and predicted
+ * exactly what it would cost — "the effect is to overstate reserves at shallow, streamable
+ * positions, which is exactly where a second kicker comes from when one does". The #88
+ * audit then drafted two kickers, two defences, five tight ends and two wide receivers.
+ *
+ * So `coverValue` now takes `wireCover`: the share of an absence at this position that the
+ * waiver wire covers for free, and which a *drafted* reserve therefore does not sell you.
+ * One at a position the wire supplies entirely, zero at a position where it supplies
+ * nothing, and the cover term is scaled by what is left.
+ *
+ * **This is a policy prior, not a measurement, and the distinction matters more here than
+ * usual.** What would make it a measurement is the weekly value of the best free agent at
+ * each position — how much of a starter's production you can recover by streaming, week to
+ * week, on matchup. Nothing in this repo measures that; the K/D-ST weekly spreads are still
+ * the `placeholder` band (#90.4). What the caller supplies instead is a per-position number
+ * argued from roster arithmetic, and it lives in the sport layer (`lib/nfl/roster.ts`)
+ * where the argument can name positions. `docs/draft-validation.md` carries the argument
+ * and what it is worth.
+ *
+ * Note what this deliberately does **not** touch: `replacement`. The value a reserve is
+ * measured over is already the best player the league's demand leaves behind, which is the
+ * wire's *season-long* level and is priced correctly. `wireCover` is the separate claim
+ * that at some positions you can re-sign that player every week, on demand, at whatever
+ * absence arises — which is why it scales the cover term instead of moving the level.
  *
  * Each of those makes this an estimate used to *narrow* a field, which is what it is for. The
  * objective is the simulation.
@@ -248,6 +275,17 @@ export function coverValue(
    * makes a caller state which weeks it means rather than how many there are.
    */
   weeks: readonly number[],
+  /**
+   * The share of an absence at this position the waiver wire covers for free — see the
+   * module docstring. Clamped into `[0, 1]`: a share outside it is not a stronger claim,
+   * it is a caller with a bug, and left unclamped a value above one turns cover into a
+   * *penalty* for holding depth while a negative one pays a bonus for it.
+   *
+   * At one the cover term vanishes entirely, which is the honest reading of "the wire
+   * supplies this position": a drafted reserve there sells you nothing you could not
+   * have signed on the day you needed him.
+   */
+  wireCover: number,
 ): number {
   // `<` survives a mutation run here, and it is equivalent one mutant at a time: with
   // this shortcut skipped at exactly zero slots, `expectedAboveReplacement`'s own
@@ -278,5 +316,9 @@ export function coverValue(
     expectedAboveReplacement(withHim, slots, replacement, weeks) -
     expectedAboveReplacement(rosterAtPosition, slots, replacement, weeks);
   const certainGain = certain(withHim) - certain(rosterAtPosition);
-  return Math.max(stochasticGain - certainGain, 0);
+  // Scaled after the floor rather than before it, which is the same number for every
+  // legal share and says the order of operations out loud: the wire discounts cover that
+  // exists, and cannot manufacture a negative one.
+  const drafted = 1 - Math.min(Math.max(wireCover, 0), 1);
+  return Math.max(stochasticGain - certainGain, 0) * drafted;
 }

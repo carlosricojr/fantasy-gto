@@ -6,7 +6,11 @@ import { type RosterSlot, solveLineup } from "./optimizer";
 import {
   CHAMPIONSHIP_CANDIDATES,
   MARKET_GATE_ROUNDS,
+  STREAMABLE_CLOSING_ROUNDS,
+  STREAMABLE_MARKET_LEAD_ROUNDS,
   applyMarketGate,
+  applyOutbidDiscipline,
+  applyStreamableDiscipline,
   currentRoundOf,
   type ChampionshipRecommendation,
   type DraftPolicyState,
@@ -46,13 +50,26 @@ const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
  * fourteen-week list is one league's, not the product's: which weeks a league plays now
  * follows from its championship week.
  */
-const LEAGUE: PolicyLeague = { slots: SLOTS, weeks: WEEKS };
+/**
+ * The waiver-wire cover this file's league carries: none.
+ *
+ * `SLOTS` starts no kicker and no defence, so the shipped table's two streamable
+ * positions are not in this league at all, and an empty map is the honest description of
+ * it rather than a placeholder. The tests that exercise `wireCover` and the streamable
+ * discipline build their own league with their own map, so the fixtures below keep
+ * measuring what they measured before it existed.
+ */
+const WIRE_COVER = new Map<string, number>();
+
+const LEAGUE: PolicyLeague = { wireCover: WIRE_COVER, slots: SLOTS, weeks: WEEKS };
 const leagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({
+  wireCover: WIRE_COVER,
   slots,
   weeks: WEEKS,
 });
 
 const CONFIG: LeagueConfig = {
+  wireCover: WIRE_COVER,
   slots: SLOTS,
   weeks: Array.from({ length: 14 }, (_, i) => i + 1),
   playoffWeeks: [15, 16],
@@ -2498,5 +2515,214 @@ describe("the market-discipline gate", () => {
       4,
     );
     expect(late.some((entry) => entry.player.id === "ghost")).toBe(true);
+  });
+});
+
+describe("the streamable-position discipline", () => {
+  // A league that starts one of each streamable position, which is what makes the two
+  // rules mean anything: a template with no kicker slot prices a kicker at nothing
+  // already, and the discipline would have nothing to add.
+  const SHAPED = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
+  const WIRE = new Map<string, number>([["K", 1], ["DST", 1], ["TE", 0.75]]);
+  const TEAMS_IN_LEAGUE = 10;
+  const ROUNDS_IN_DRAFT = 16;
+
+  const entry = (id: string, position: string, adp: number | null) => ({
+    player: player(id, position, 8, { adp }),
+  });
+  const gate = (
+    scoredEntries: ReadonlyArray<{ player: PlayerRisk }>,
+    currentRound: number | null,
+    roster: readonly PlayerRisk[] = [],
+  ) =>
+    applyStreamableDiscipline(scoredEntries, {
+      currentRound,
+      teams: TEAMS_IN_LEAGUE,
+      rounds: ROUNDS_IN_DRAFT,
+      roster,
+      wireCover: WIRE,
+    }).map((kept) => kept.player.id);
+
+  it("withholds a streamable candidate before his own market round", () => {
+    // ADP 130 in a ten-team league is round 13, and the policy permits
+    // `STREAMABLE_MARKET_LEAD_ROUNDS` rounds of lead — zero as it stands.
+    const entries = [entry("kicker", "K", 130), entry("back", "RB", 40)];
+    expect(gate(entries, 13 - STREAMABLE_MARKET_LEAD_ROUNDS - 1)).toEqual(["back"]);
+    expect(gate(entries, 13 - STREAMABLE_MARKET_LEAD_ROUNDS)).toEqual(["kicker", "back"]);
+  });
+
+  it("leaves a position the wire does not fully supply alone, however early", () => {
+    // Tight end carries a share of 0.75 in this fixture — most of an absence, not all of
+    // it — so the depth model discounts his cover and the discipline says nothing about
+    // when he goes. Only a total share makes a position streamable here.
+    expect(gate([entry("end", "TE", 130)], 1)).toEqual(["end"]);
+  });
+
+  it("withholds a second one at a streamable position outright", () => {
+    // Not "prices him at zero": the reserve cap is what makes at most one true rather
+    // than likely, in a late round where every candidate is worth zero and the residual
+    // ordering is raw projection.
+    const held = [player("mine", "DST", 8, { adp: 90 })];
+    // Round 9 is his own market round, so nothing but the cap can be withholding him.
+    expect(gate([entry("second", "DST", 90), entry("back", "RB", 40)], 9, held)).toEqual([
+      "back",
+    ]);
+  });
+
+  it("stands down in the closing rounds, where a second one costs nothing better", () => {
+    const held = [player("mine", "DST", 8, { adp: 90 })];
+    // The back is here so the panel is never emptied — the stand-down for that would
+    // mask the boundary this test is about.
+    const entries = [entry("second", "DST", 90), entry("back", "RB", 40)];
+    const closingStart = ROUNDS_IN_DRAFT - STREAMABLE_CLOSING_ROUNDS + 1;
+    expect(gate(entries, closingStart - 1, held)).toEqual(["back"]);
+    expect(gate(entries, closingStart, held)).toEqual(["second", "back"]);
+  });
+
+  it("withholds an unpriced streamable candidate until the closing rounds", () => {
+    // He has no market round to be compared with, and the harness's own check prices an
+    // unranked pick behind the whole draft. Treated the same way rather than given a
+    // second convention.
+    const entries = [entry("ghost", "K", null), entry("back", "RB", 40)];
+    expect(gate(entries, ROUNDS_IN_DRAFT - STREAMABLE_CLOSING_ROUNDS)).toEqual(["back"]);
+    expect(gate(entries, ROUNDS_IN_DRAFT - STREAMABLE_CLOSING_ROUNDS + 1)).toEqual([
+      "ghost",
+      "back",
+    ]);
+  });
+
+  it("stands down for a state that cannot say which round it is", () => {
+    const entries = [entry("kicker", "K", 130)];
+    expect(gate(entries, null)).toEqual(["kicker"]);
+  });
+
+  it("yields rather than empty the panel", () => {
+    // Every candidate streamable and every one of them too early: a panel with nothing
+    // on it advises nothing, which is worse than advising with the caveat.
+    const entries = [entry("kicker", "K", 130), entry("other", "K", 140)];
+    expect(gate(entries, 1)).toEqual(["kicker", "other"]);
+  });
+
+  it("prices an ADP of zero as the market's first pick, not as a missing one", () => {
+    // The falsy-zero collapse this codebase has shipped before. Round 1 either way here,
+    // so what it separates is "no market round, wait for the closing rounds" from "his
+    // round is the first one".
+    expect(gate([entry("early", "DST", 0)], 1)).toEqual(["early"]);
+  });
+
+  it("reads a nonsense ADP as no market price rather than as a round", () => {
+    const back = entry("back", "RB", 40);
+    expect(gate([entry("broken", "K", Number.NaN), back], 1)).toEqual(["back"]);
+    expect(gate([entry("negative", "K", -5), back], 1)).toEqual(["back"]);
+  });
+
+  it("keeps a kicker off the recommendation panel before his market round", () => {
+    // The discipline through the function that ships it, not only in isolation: a board
+    // of one kicker and one back, our seat on the clock in round one.
+    const pool = [
+      player("kick", "K", 9, { adp: 150 }),
+      player("back", "RB", 18, { adp: 20 }),
+      player("back2", "RB", 17, { adp: 22 }),
+    ];
+    const recs = recommendByChampionship(
+      {
+        teams: [
+          { id: "t0", name: "You", roster: [], remainingPicks: [1, 20] },
+          { id: "t1", name: "Them", roster: [], remainingPicks: [2, 19] },
+        ],
+        myTeamIndex: 0,
+        available: pool,
+        // Six, not two: the discipline stands down in the closing rounds, and with a
+        // two-pick roster round one *is* a closing round.
+        rosterSize: 6,
+      },
+      { ...CONFIG, slots: SHAPED, scenarios: 20, playoffTeams: 2, wireCover: WIRE },
+      7,
+    );
+    expect(recs.map((rec) => rec.player.position)).not.toContain("K");
+  });
+});
+
+describe("the outbid discipline", () => {
+  const SHAPED = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
+  const entry = (id: string, position: string, weeklyMean: number, adp: number | null = 50) => ({
+    player: player(id, position, weeklyMean, { adp, availability: 1 }),
+  });
+  const held = (id: string, position: string, weeklyMean: number) =>
+    player(id, position, weeklyMean, { adp: 50, availability: 1 });
+  const rule = (
+    scoredEntries: ReadonlyArray<{ player: PlayerRisk }>,
+    roster: readonly PlayerRisk[],
+    currentRound: number | null = MARKET_GATE_ROUNDS + 2,
+  ) =>
+    applyOutbidDiscipline(scoredEntries, roster, SHAPED, currentRound).map(
+      (kept) => kept.player.id,
+    );
+
+  it("withholds a candidate who outranks somebody already held at his position", () => {
+    // One dedicated tight-end slot, one tight end held: the position is bought, and the
+    // better one arriving a turn later is the pick #89.A calls wasted.
+    expect(rule([entry("better", "TE", 12), entry("back", "RB", 9)], [held("mine", "TE", 8)])).toEqual([
+      "back",
+    ]);
+  });
+
+  it("lets the lesser man through, so consecutive turns at a position stay legal", () => {
+    expect(rule([entry("lesser", "TE", 6)], [held("mine", "TE", 8)])).toEqual(["lesser"]);
+  });
+
+  it("measures against the weakest held, not the strongest", () => {
+    // Two backs held, and a candidate between them. Barring only what beats the *best*
+    // would let him through and leave the weaker back benched by our own next pick;
+    // barring what beats the weakest is the rule that closes it.
+    const roster = [held("stud", "RB", 18), held("scrub", "RB", 8)];
+    expect(rule([entry("middle", "RB", 12), entry("end", "TE", 9)], roster)).toEqual([
+      "end",
+    ]);
+  });
+
+  it("stays out of the way until the position's dedicated slots are held", () => {
+    // Two dedicated back slots. With one back held the lineup still has a hole there and
+    // an upgrade is filling it; with two, every further body is depth.
+    const entries = [entry("better", "RB", 18), entry("end", "TE", 9)];
+    expect(rule(entries, [held("mine", "RB", 8)])).toEqual(["better", "end"]);
+    expect(rule(entries, [held("a", "RB", 8), held("b", "RB", 9)])).toEqual(["end"]);
+  });
+
+  it("counts dedicated slots from the template, not from the flexible ones", () => {
+    // A tight end can reach the FLEX, and counting that would let the rule relax exactly
+    // as a roster hoarded its way into flexible slots.
+    expect(
+      rule([entry("better", "TE", 12), entry("back", "RB", 9)], [held("mine", "TE", 8)]),
+    ).toEqual(["back"]);
+  });
+
+  it("exempts a candidate the market gate had been withholding, and only just past it", () => {
+    // An unpriced player was not offerable inside the gate's window, so "we saw him and
+    // took the other one" is false about him — through the first round he could have
+    // been taken on. After that we have declined him with him on the panel.
+    const roster = [held("mine", "TE", 8)];
+    const ghost = [entry("ghost", "TE", 12, null), entry("back", "RB", 9)];
+    expect(rule(ghost, roster, MARKET_GATE_ROUNDS)).toEqual(["ghost", "back"]);
+    expect(rule(ghost, roster, MARKET_GATE_ROUNDS + 1)).toEqual(["ghost", "back"]);
+    expect(rule(ghost, roster, MARKET_GATE_ROUNDS + 2)).toEqual(["back"]);
+    expect(rule(ghost, roster, null)).toEqual(["ghost", "back"]);
+  });
+
+  it("says nothing about a position we hold nobody at, or an empty roster", () => {
+    expect(rule([entry("any", "WR", 20)], [held("mine", "TE", 8)])).toEqual(["any"]);
+    expect(rule([entry("any", "TE", 20)], [])).toEqual(["any"]);
+  });
+
+  it("treats an exact tie as no upgrade", () => {
+    // Two interchangeable players; refusing the second would make the rule about which
+    // of them happened to arrive first.
+    expect(rule([entry("twin", "TE", 8)], [held("mine", "TE", 8)])).toEqual(["twin"]);
+  });
+
+  it("yields rather than empty the panel", () => {
+    const roster = [held("a", "RB", 8), held("b", "RB", 9)];
+    const entries = [entry("better", "RB", 18), entry("best", "RB", 20)];
+    expect(rule(entries, roster)).toEqual(["better", "best"]);
   });
 });

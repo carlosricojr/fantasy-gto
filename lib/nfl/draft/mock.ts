@@ -551,8 +551,20 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     title:
       `at most one K and one D/ST before the final ` +
       `${STREAMABLE_CLOSING_ROUNDS} rounds`,
-    expected: "fail",
-    expectedWithScheduleByes: "fail",
+    // Flipped by PR 5's streamable-position discipline, and structurally rather than by
+    // an ordering: `applyStreamableDiscipline` (`lib/core/draft-policy.ts`) keeps a
+    // second kicker or defence off the shortlist outright until the closing rounds, and
+    // `mock.test.ts` pins the policy's own closing-round count to this check's
+    // `STREAMABLE_CLOSING_ROUNDS`. Inside the window the panel cannot offer one at all.
+    //
+    // The depth model was changed underneath it in the same PR and is the reason the cap
+    // is a lock rather than a fight: `coverValue` now takes a waiver-wire share, and at
+    // a share of one — kicker and defence, argued in `lib/nfl/roster.ts` — a reserve's
+    // cover term is scaled to nothing, so the base policy and every rollout stop wanting
+    // a second one too. The cap is what makes "at most one" true; the pricing is what
+    // stops it being a rule the rest of the engine argues with.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
     audit: "second kicker at 12.06 behind Dicker at 9.05; defences at 5.05 and 16.06",
   },
   {
@@ -582,6 +594,16 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // ordering and the churn returns, this expectation rings and the flip is documented
     // there, per the same contract this comment is obeying.
     //
+    // PR 5 closed the mechanism rather than re-rolling past it, and the lock rang twice
+    // on the way — which is the whole point of arming it. Its streamable discipline
+    // reshuffled both replays and the churn came straight back: tight end at 9.05 then a
+    // better tight end at 10.06 in the frozen mode, back at 2.06 then the better back at
+    // 3.05 with the byes resolved. `applyOutbidDiscipline` is the charge #89.A said was
+    // missing — past the starting slots a position dedicates, a candidate who outranks
+    // somebody we already hold there is withheld, because he was on the board at the turn
+    // we took the lesser one and nothing since is information about him. Both columns
+    // pass on the merged engine with it, and neither passes without it.
+    //
     // The audit string below is only the browser run's observation; the replay never
     // reproduced the Goff-then-Nix pair (click timing, measured, per #91).
     expected: "pass",
@@ -598,14 +620,60 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     title:
       `first K and first D/ST no more than ${MARKET_ROUND_TOLERANCE} rounds ` +
       `before their market round`,
-    expected: "fail",
-    expectedWithScheduleByes: "fail",
+    // Flipped by PR 5, structurally, and by the stricter of the two available rules: the
+    // policy's `STREAMABLE_MARKET_LEAD_ROUNDS` is zero, so a kicker or defence is not
+    // offered before his *own* market round at all, while this check tolerates
+    // `MARKET_ROUND_TOLERANCE` rounds of lead. `mock.test.ts` pins the policy at or below
+    // the tolerance — an inequality, not the equality (a) carries, because a policy
+    // stricter than its check still enforces it.
+    //
+    // The argument for zero is the one `docs/draft-validation.md` already makes about
+    // these two positions and no others: the model does not project them, their entire
+    // price is the market's, and their weekly spread is still a placeholder. An engine
+    // taking one six rounds early is overruling the only price it has, on no signal of
+    // its own. Measured on the merged engine: the defence went 16.06 and 14.06 in the two
+    // modes against a market round of 13 and 14, the kicker 14.06 and 15.05 against 14
+    // and 15 — late, which this check deliberately does not penalise.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
     audit: "Seattle D/ST at 5.05 against a round-9 market (ADP 82.9); first K at 9.05 " +
       "against a round-15 market (ADP 143)",
   },
   {
     id: "e",
     title: `at least ${MIN_WIDE_RECEIVERS} wide receivers on the final roster`,
+    // **Still failing after PR 5, deliberately, with the mechanism measured.** The
+    // streamable discipline gave the replay back four picks — the two kickers and two
+    // defences it used to spend before the closing rounds — and none of them bought a
+    // receiver: frozen went from two to three, `--schedule-byes` stayed at two.
+    //
+    // Where the picks went is not an ordering accident, and the reason is worth writing
+    // down because it decides who owns this check. `replacementLevels` prices a candidate
+    // against the best player at his position the league's *remaining starting demand*
+    // leaves behind. Opponents drafting strictly by ADP fill their receiver slots early,
+    // so by round nine the league's unfilled WR demand is zero — and at zero demand the
+    // replacement is by definition the best receiver still on the board, which no
+    // draftable receiver beats. Every late receiver is therefore worth exactly zero over
+    // replacement, while a tight end or quarterback, at positions the league still
+    // demands, is worth a hair more than zero. Measured at pick 11.05 on the frozen
+    // board: every WR at 0.0000 points a week over replacement, the best QB at 0.0214,
+    // the best TE at 0.0024.
+    //
+    // No waiver-wire share fixes that, and PR 5 measured three of them rather than
+    // assuming: the discount scales *cover*, and a cover term that is already exactly
+    // zero cannot be discounted below it. Nor is the arithmetic obviously wrong — "165
+    // WRs still available" is the audit's own evidence, and it is the same fact the model
+    // reads as "the wire is deep here, so drafting one buys nothing".
+    //
+    // What the two readings disagree about is unmeasured: what a streamed receiver is
+    // actually worth week to week. Until something measures it, flipping this check means
+    // either a roster-shape floor — the check written into the policy, which is the one
+    // thing this harness exists to prevent — or re-basing the depth model's replacement
+    // on the objective's own empty slot, since `drawWeek` scores an unfillable slot at
+    // zero rather than at replacement. That second one is a real inconsistency and a real
+    // hypothesis; it is a change to the valuation core rather than to streamable-position
+    // discipline, and #91's sequencing rule says it lands on its own with its own
+    // measurement. Recorded on #91 as the residue PR 5 did not close.
     expected: "fail",
     expectedWithScheduleByes: "fail",
     audit: "two WRs in sixteen rounds of a half-PPR 2-FLEX league, with 165 still available",

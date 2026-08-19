@@ -14,6 +14,7 @@ import {
   THREE_WR_TEMPLATE,
   TWO_FLEX_TEMPLATE,
   TWO_QB_TEMPLATE,
+  WAIVER_WIRE_COVER,
   buildSlots,
   rosterTemplateById,
   slotSummary,
@@ -23,6 +24,7 @@ import {
 import { leagueUnfilledSlots, solveDemand } from "../core/draft-replacement";
 import { scoreCandidates, type PolicyLeague } from "../core/draft-policy";
 import type { PlayerRisk } from "../core/roster-utility";
+import { POSITIONS } from "./scoring/types";
 
 /**
  * Roster shapes.
@@ -394,7 +396,14 @@ describe("a template that starts no kicker", () => {
     ...Array.from({ length: 12 }, (_, i) => player(`dst${i}`, "DST", 8.5 - i * 0.06)),
   ];
 
+  /**
+   * The shipped waiver-wire cover, because this file's subject is the shipped templates.
+   * A kicker's cover is scaled to nothing here exactly as it is in the product.
+   */
+  const WIRE_COVER = WAIVER_WIRE_COVER;
+
   const league = (id: string): PolicyLeague => ({
+    wireCover: WIRE_COVER,
     slots: slotsForTemplate(id),
     weeks: Array.from({ length: 14 }, (_, i) => i + 1),
   });
@@ -510,5 +519,51 @@ describe("templateForRoster", () => {
     expect(templateForRoster(NO_K_TEMPLATE.counts, 15)).toBe(NO_K_TEMPLATE);
     expect(templateForRoster(NO_DST_TEMPLATE.counts, 15)).toBe(NO_DST_TEMPLATE);
     expect(templateForRoster(TWO_FLEX_TEMPLATE.counts, 15)).toBe(TWO_FLEX_TEMPLATE);
+  });
+});
+
+describe("the waiver-wire cover table", () => {
+  it("answers for every position the product scores, with no silent zero", () => {
+    // A position missing from the map reads as "the wire covers nothing", which is the
+    // pre-#88 pricing that drafted two kickers and two defences. That default is right
+    // for a caller who has no table; it is not right for the shipped one, so every
+    // position the product scores is stated, including the ones stated as zero.
+    expect([...WAIVER_WIRE_COVER.keys()].sort()).toEqual([...POSITIONS].sort());
+  });
+
+  it("keeps every share a share", () => {
+    for (const [position, share] of WAIVER_WIRE_COVER) {
+      expect(share, position).toBeGreaterThanOrEqual(0);
+      expect(share, position).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("supplies kicker and defence entirely, and nothing else does", () => {
+    // A share of one is what `applyStreamableDiscipline` reads as *streamable*, so this
+    // is not only a price — it decides which positions carry the reserve cap and the
+    // market-round rule. The two are exactly the positions the model does not project
+    // (`docs/draft-validation.md`), and a third one appearing here would silently widen
+    // a draft policy rather than adjust a valuation.
+    const total = [...WAIVER_WIRE_COVER.entries()]
+      .filter(([, share]) => share >= 1)
+      .map(([position]) => position)
+      .sort();
+    expect(total).toEqual(["DST", "K"]);
+  });
+
+  it("diminishes tight-end cover without deleting it", () => {
+    // #88's finding 3 asked for "TE cover diminishing far faster", not for a tight end
+    // priced like a kicker: one tight-end slot and a wire that always holds a startable
+    // one, against a position whose top is genuinely separated from that wire.
+    const te = WAIVER_WIRE_COVER.get("TE");
+    expect(te).toBeGreaterThan(0);
+    expect(te).toBeLessThan(1);
+  });
+
+  it("leaves backs and receivers to be drafted", () => {
+    // The other half of the note the table implements: the best undrafted back is
+    // nowhere near the best drafted one, so depth at those positions is not free.
+    expect(WAIVER_WIRE_COVER.get("RB")).toBe(0);
+    expect(WAIVER_WIRE_COVER.get("WR")).toBe(0);
   });
 });

@@ -16,7 +16,7 @@ import {
 import { createRng } from "@/lib/core/rng";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
-import { slotsForTemplate } from "@/lib/nfl/roster";
+import { WAIVER_WIRE_COVER, slotsForTemplate } from "@/lib/nfl/roster";
 
 /**
  * How long a recommendation takes, and therefore what a pick clock can afford.
@@ -243,6 +243,7 @@ function main(): void {
       playoffTeams: PLAYOFF_TEAMS,
       scenarios,
       meanAbsenceWeeks: 3,
+      wireCover: WAIVER_WIRE_COVER,
     };
 
     // A different position per sample, so nothing is accidentally served warm. Picks 1

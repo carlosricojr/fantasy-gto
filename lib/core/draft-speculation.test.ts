@@ -35,7 +35,11 @@ const SLOTS = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 });
 const TEAMS = 6;
 const ROUNDS = 8;
 
+/** The draft policy's waiver-wire cover. Nothing this file measures depends on it. */
+const WIRE_COVER = new Map<string, number>();
+
 const CONFIG: LeagueConfig = {
+  wireCover: WIRE_COVER,
   slots: SLOTS,
   weeks: Array.from({ length: 12 }, (_, i) => i + 1),
   playoffWeeks: [13, 14],
