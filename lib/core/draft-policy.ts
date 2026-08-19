@@ -1014,6 +1014,13 @@ export function recommendByChampionship(
   // policy would have taken had it been subject to the same discipline. That entry is
   // already evaluated, so this costs no extra simulation. Nothing about the ordering
   // changes either way: `orderRecommendations` never reads this field.
+  //
+  // The length test is defensive rather than load-bearing, and a mutation run reports
+  // `>= 0` as a survivor for exactly that reason: `state.available` is non-empty by the
+  // early return above, `scoreCandidates` scores every available player, and the slice
+  // keeps at least one — so `evaluated` provably cannot be empty here. Kept because the
+  // index below would otherwise be an unguarded read of a possibly-empty array, which is
+  // a worse thing to leave to a future edit than a branch no input reaches.
   const baseline =
     gateWithheld && evaluated.length > 0 ? evaluated[0] : evaluate(null);
 

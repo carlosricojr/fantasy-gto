@@ -2446,6 +2446,22 @@ describe("the market-discipline gate", () => {
     // measured against a player the panel withheld, which would show as every delta
     // sitting below zero with no zero among them.
     expect(recs.filter((entry) => entry.deltaVsBaseline === 0)).toHaveLength(1);
+    // And it is the *top offerable* candidate that anchors it, recomputed here through
+    // the same two exported functions the recommender uses rather than assumed from the
+    // displayed order — which is by title odds, not by the prefilter. Without this the
+    // assertion above passes for any baseline index, so the documented choice of
+    // `gated[0]` would be unpinned: a mutant swapping it for the runner-up survives.
+    const gatedTop = applyMarketGate(
+      scoreCandidates(
+        [],
+        [ghost, ...pool],
+        LEAGUE,
+        demandFor(freshTeams().map((team) => team.roster)),
+      ),
+      1,
+    )[0].player.id;
+    expect(gatedTop).not.toBe("ghost");
+    expect(recs.find((entry) => entry.player.id === gatedTop)?.deltaVsBaseline).toBe(0);
   });
 
   it("keeps a market-absent player from leading an early round, and only an early round", () => {
