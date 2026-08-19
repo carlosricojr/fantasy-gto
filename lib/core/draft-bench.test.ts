@@ -295,4 +295,23 @@ describe("the waiver wire discounts cover", () => {
     expect(cover(1.5)).toBe(0);
     expect(cover(-1)).toBeCloseTo(cover(0), 12);
   });
+
+  it("reads a share that is not a number as no wire at all", () => {
+    // Clamping does not reach `NaN` — `Math.min(Math.max(NaN, 0), 1)` is `NaN` — and a
+    // `NaN` cover compares false against every other value, so the candidate would be
+    // silently dropped from the shortlist rather than the caller being told. Zero is the
+    // same default an absent position gets, and the conservative direction: it charges
+    // the draft for depth instead of crediting it with free cover.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(Number.isFinite(cover(bad))).toBe(true);
+    }
+    // All three, not only `NaN`: an infinite share is not an emphatic one, it is the
+    // same caller bug, and one rule for "not a finite number" is easier to hold than a
+    // clamp for infinities beside a default for `NaN`. Note this makes a positive
+    // infinity *charge* for depth where 1.5 credits nothing — deliberate, and the same
+    // direction: a share nobody can have read is not read as a total one.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(cover(bad)).toBeCloseTo(cover(0), 12);
+    }
+  });
 });

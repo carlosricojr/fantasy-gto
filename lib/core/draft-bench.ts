@@ -279,7 +279,9 @@ export function coverValue(
    * The share of an absence at this position the waiver wire covers for free — see the
    * module docstring. Clamped into `[0, 1]`: a share outside it is not a stronger claim,
    * it is a caller with a bug, and left unclamped a value above one turns cover into a
-   * *penalty* for holding depth while a negative one pays a bonus for it.
+   * *penalty* for holding depth while a negative one pays a bonus for it. A share that
+   * is not a number at all reads as zero, because clamping cannot reach `NaN` and a
+   * `NaN` cover would drop the candidate instead of failing.
    *
    * At one the cover term vanishes entirely, which is the honest reading of "the wire
    * supplies this position": a drafted reserve there sells you nothing you could not
@@ -319,6 +321,14 @@ export function coverValue(
   // Scaled after the floor rather than before it, which is the same number for every
   // legal share and says the order of operations out loud: the wire discounts cover that
   // exists, and cannot manufacture a negative one.
-  const drafted = 1 - Math.min(Math.max(wireCover, 0), 1);
+  //
+  // A non-finite share reads as zero rather than clamping, because clamping does not
+  // reach it: `Math.min(Math.max(NaN, 0), 1)` is `NaN`, and a `NaN` cover propagates
+  // through the prefilter as a value that compares false against every other, which
+  // silently drops the candidate rather than failing. Zero is the same default an absent
+  // position gets — the wire covers nothing here — and it is the conservative one, since
+  // it charges the draft for depth rather than crediting it for free cover.
+  const share = Number.isFinite(wireCover) ? wireCover : 0;
+  const drafted = 1 - Math.min(Math.max(share, 0), 1);
   return Math.max(stochasticGain - certainGain, 0) * drafted;
 }
