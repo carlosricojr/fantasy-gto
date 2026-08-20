@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
 
   // Experimental features for Next.js 15
   experimental: {
+    // React Compiler (automatic memoization). Experimental on Next 15 — the flag
+    // moved to top-level `reactCompiler` in Next 16; hoist it when upgrading.
+    // The compiler skips any component it cannot prove safe to memoize.
+    reactCompiler: true,
+
     // Optimize package imports for better tree-shaking
     optimizePackageImports: [
       "@clerk/nextjs",
