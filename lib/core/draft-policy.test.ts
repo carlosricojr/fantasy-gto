@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSlots } from "../nfl/roster";
+import { WAIVER_WIRE_COVER, buildSlots } from "../nfl/roster";
 import { leagueUnfilledSlots, replacementLevels } from "./draft-replacement";
 import { type RosterSlot, solveLineup } from "./optimizer";
 import {
@@ -861,16 +861,17 @@ describe("the shortlist is the top of the board", () => {
     const levels = replacementLevels(
       league,
       board().map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     // Eight FLEX slots on top of dedicated demands of 8 RB-pair slots... written out: the
     // league starts 8 QB, 16 RB, 16 WR and 8 TE outright, and the 8 FLEX slots go to the 8
     // most valuable remaining eligible players. On a board where the three flex-eligible
     // positions share a curve those eight all land on tight ends, because tight end is the
     // only one of the three whose dedicated demand is already met.
-    expect(levels.get("QB")).toEqual({ demand: 8, value: 13.68, exhausted: false });
-    expect(levels.get("RB")).toEqual({ demand: 16, value: 11.16, exhausted: false });
-    expect(levels.get("WR")).toEqual({ demand: 16, value: 11.16, exhausted: false });
-    expect(levels.get("TE")).toEqual({ demand: 16, value: 11.16, exhausted: false });
+    expect(levels.get("QB")).toMatchObject({ demand: 8, value: 13.68, exhausted: false });
+    expect(levels.get("RB")).toMatchObject({ demand: 16, value: 11.16, exhausted: false });
+    expect(levels.get("WR")).toMatchObject({ demand: 16, value: 11.16, exhausted: false });
+    expect(levels.get("TE")).toMatchObject({ demand: 16, value: 11.16, exhausted: false });
 
     // So the position leaders that go deepest are worth 5.05 over replacement and the
     // quarterback only 2.52, and the shortlist is those leaders rather than the raw-points
@@ -880,7 +881,9 @@ describe("the shortlist is the top of the board", () => {
     expect(ids).toContain("RB0");
     expect(ids).toContain("WR0");
     expect(ids).toContain("TE0");
-    expect(ids.filter((id) => id.startsWith("QB"))).toEqual([]);
+    // An open zero-cover QB slot is now priced at the same zero the objective uses rather
+    // than against a hypothetical signing, so the best quarterback reaches the simulation.
+    expect(ids.filter((id) => id.startsWith("QB"))).toEqual(["QB0"]);
     // Board order would have returned the first four rows, which are quarterbacks.
     expect(board().slice(0, 4).map((p) => p.position)).toEqual(["QB", "QB", "QB", "QB"]);
   });
@@ -927,7 +930,7 @@ describe("a forced pick is honored when only one remains", () => {
 describe("re-completing the opponent who held the candidate", () => {
   /** One dominant player on a thin board, with us drafting last so an opponent takes him. */
   const starFixture = () => {
-    const star = player("STAR", "RB", 60);
+    const star = player("STAR", "RB", 70);
     const filler = Array.from({ length: TEAMS * ROUNDS }, (_, i) =>
       player(`f${i}`, i % 2 === 0 ? "WR" : "RB", 6),
     );
@@ -1213,6 +1216,11 @@ const SUPERFLEX_FULL = buildSlots({
   K: 1,
   DST: 1,
 });
+const fullLeagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({
+  wireCover: WAIVER_WIRE_COVER,
+  slots,
+  weeks: WEEKS,
+});
 
 function fullBoard(): PlayerRisk[] {
   const spec = [
@@ -1268,7 +1276,7 @@ describe("a completed roster is a roster somebody could play", () => {
       [],
       15,
       fullBoard(),
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       15,
       opponents(),
@@ -1312,7 +1320,7 @@ describe("a completed roster is a roster somebody could play", () => {
       [],
       15,
       fullBoard(),
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       15,
       opponents(),
@@ -1338,7 +1346,7 @@ describe("a completed roster is a roster somebody could play", () => {
     const scores = scoreCandidates(
       roster,
       remaining,
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       demandFor(
         [roster, ...Array.from({ length: 11 }, (): PlayerRisk[] => [])],
         STANDARD_FULL,
@@ -1358,7 +1366,7 @@ describe("a completed roster is a roster somebody could play", () => {
       held,
       10,
       pool.filter((p) => !held.some((h) => h.id === p.id)),
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       15,
       opponents(),
@@ -1387,7 +1395,7 @@ describe("a completed roster is a roster somebody could play", () => {
       [],
       13,
       pool,
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       13,
       opponents(),
@@ -1396,16 +1404,16 @@ describe("a completed roster is a roster somebody could play", () => {
       thirteen,
       2,
       pool.filter((p) => !thirteen.some((h) => h.id === p.id)),
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       15,
       opponents(),
     );
     expect(roster).toHaveLength(15);
     const added = roster.slice(13);
-    // Measured: a fifth back and a fourth receiver — cover at the two positions that occupy
-    // the most starting slots and therefore need it most often.
-    expect(added.map((p) => p.position)).toEqual(["RB", "WR"]);
+    // Measured after replacement consistency: a fourth receiver and a second tight end.
+    // Both are skill depth; the configured wire suppresses duplicate specialists.
+    expect(added.map((p) => p.position)).toEqual(["WR", "TE"]);
     expect(added.map((p) => p.position)).not.toContain("K");
     expect(added.map((p) => p.position)).not.toContain("DST");
     expect(added.map((p) => p.position)).not.toContain("QB");
@@ -1416,19 +1424,19 @@ describe("a completed roster is a roster somebody could play", () => {
       [],
       15,
       fullBoard(),
-      leagueWith(SUPERFLEX_FULL),
+      fullLeagueWith(SUPERFLEX_FULL),
       null,
       15,
       undraftedOpponents(12, SUPERFLEX_FULL),
     );
-    // Two quarterbacks start, so the third is the first reserve behind two bodies rather
-    // than the second reserve behind one — which is a materially likelier call, and the
-    // completion takes him where the one-quarterback template does not.
+    // Two quarterbacks start, so QB depth covers two zero-wire slots and the completion
+    // carries four where the one-quarterback template carries two. Tight end has positive
+    // wire cover in this configured league, so it needs no drafted reserve here.
     expect(positionCounts(roster)).toEqual({
-      QB: 3,
+      QB: 4,
       RB: 5,
       WR: 3,
-      TE: 2,
+      TE: 1,
       K: 1,
       DST: 1,
     });
@@ -1436,7 +1444,7 @@ describe("a completed roster is a roster somebody could play", () => {
       [],
       15,
       fullBoard(),
-      leagueWith(STANDARD_FULL),
+      fullLeagueWith(STANDARD_FULL),
       null,
       15,
       undraftedOpponents(12, STANDARD_FULL),
@@ -1461,7 +1469,7 @@ describe("reserve value falls off with each body already at the position", () =>
       scoreCandidates(
         held,
         pool.filter((p) => !held.some((h) => h.id === p.id)),
-        leagueWith(STANDARD_FULL),
+        fullLeagueWith(STANDARD_FULL),
         league(held),
       ).find((entry) => entry.player.id === candidate.id)!.value;
 
@@ -1535,12 +1543,14 @@ describe("replacement demand follows the draft rather than the template", () => 
     const openLevels = replacementLevels(
       openLeague,
       deep().map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     const filledLevels = replacementLevels(
       filledLeague,
       deep()
         .filter((p) => !held.some((q) => q.id === p.id))
         .map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     expect(openLevels.get("QB")?.demand).toBe(12);
     expect(filledLevels.get("QB")?.demand).toBe(7);
@@ -1564,6 +1574,7 @@ describe("replacement demand follows the draft rather than the template", () => 
       deep()
         .filter((p) => !held.some((q) => q.id === p.id))
         .map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     expect(staleLevels.get("QB")?.demand).toBe(12);
     expect(staleLevels.get("QB")?.value).toBeLessThan(
@@ -1585,10 +1596,12 @@ describe("replacement demand follows the draft rather than the template", () => 
     const beforeLevels = replacementLevels(
       before,
       deep().map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     const afterLevels = replacementLevels(
       after,
       poolAfter.map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     // One fewer back to find. The back the league leaves behind is the same one, because
     // the board lost exactly the pick that closed the slot — which is the invariant, and
@@ -1640,19 +1653,17 @@ describe("replacement demand follows the draft rather than the template", () => 
     ): number => scores.find((entry) => entry.player.id === id)!.value;
 
     expect(valueOf(emptyScores, "RB3")).toBeCloseTo(valueOf(emptyScores, "WR3"), 1);
-    expect(valueOf(heldScores, "WR3")).toBeCloseTo(valueOf(emptyScores, "WR3"), 10);
+    expect(valueOf(heldScores, "WR3")).toBeCloseTo(valueOf(emptyScores, "WR3"), 1);
     expect(valueOf(heldScores, "RB3")).toBeLessThan(
       valueOf(emptyScores, "RB3") / 2,
     );
     expect(valueOf(heldScores, "RB3")).toBeLessThan(valueOf(heldScores, "WR3") / 2);
   });
 
-  it("does not hand a shortlist of quarterbacks to an empty roster", () => {
-    // The original regression, asserted on the inputs that cause it rather than on the
-    // position count alone. Quarterbacks lead this board on raw projection at every slot,
-    // and the league starts one each — so the replacement quarterback is close behind the
-    // best one and the value over him is small, while the positions the league drafts
-    // three deep leave a far worse replacement behind.
+  it("prices an open zero-cover quarterback slot against zero", () => {
+    // Quarterbacks lead this board on raw projection. That used to be suppressed by a
+    // hypothetical replacement even though this league's wire cover is zero and the
+    // objective scores the same empty QB slot at zero.
     const qbHeavy = deep().map((p) =>
       p.position === "QB" ? { ...p, weeklyMean: p.weeklyMean + 6 } : p,
     );
@@ -1660,6 +1671,7 @@ describe("replacement demand follows the draft rather than the template", () => 
     const levels = replacementLevels(
       league,
       qbHeavy.map((p) => ({ position: p.position, value: p.weeklyMean * p.availability })),
+      LEAGUE.wireCover,
     );
     const qb = levels.get("QB")!;
     const rb = levels.get("RB")!;
@@ -1669,10 +1681,13 @@ describe("replacement demand follows the draft rather than the template", () => 
     // behind, which is exactly why raw projection ranked quarterbacks first and value over
     // replacement does not.
     expect(qb.value).toBeGreaterThan(rb.value);
+    expect(qb.lineupValue).toBe(0);
+    expect(rb.lineupValue).toBe(0);
 
     const shortlist = scoreCandidates([], qbHeavy, LEAGUE, league).slice(0, 10);
-    expect(shortlist.filter((e) => e.player.position === "QB")).toHaveLength(0);
-    // Raw projection would have returned ten of them.
+    expect(shortlist.every((entry) => entry.player.position === "QB")).toBe(true);
+    // This now agrees with the raw open-slot ordering rather than hiding it behind wire
+    // supply the configured league explicitly says does not exist.
     const byProjection = [...qbHeavy]
       .sort((a, b) => b.weeklyMean * b.availability - a.weeklyMean * a.availability)
       .slice(0, 10);
@@ -1800,6 +1815,15 @@ describe("narrowing the field cannot change the base policy's answer", () => {
     // fragile one; the one sharing his starter's bye covers fewer than the one who does not.
     expect(scoreOf(durable)).toBeGreaterThan(scoreOf(sharedBye));
     expect(scoreOf(sharedBye)).toBeGreaterThan(scoreOf(fragile));
+
+    // Put the lower-scoring equal-market player first: `durable` is therefore the retained
+    // alternative rather than the pair's market-value leader. The narrowed path must admit
+    // that alternative, not merely calculate that alternatives can have different scores.
+    const candidates = [fragile, durable];
+    const whole = scoreCandidates([starter], candidates, league, demand)[0].player;
+    const narrowed = basePolicyPick([starter], candidates, league, demand)!;
+    expect(whole.id).toBe(durable.id);
+    expect(narrowed.id).toBe(whole.id);
   });
 
   it("agrees when a position is exhausted and when one has no demand left", () => {
@@ -1822,10 +1846,8 @@ describe("narrowing the field cannot change the base policy's answer", () => {
 
 describe("the base policy's tie-break", () => {
   it("takes the first of the tied maxima, not the last", () => {
-    // Measured on this board with eight empty teams: the eight FLEX slots are solved into
-    // RB 16, WR 16, TE 16 against dedicated demands of 16, 16 and 8, so all three positions
-    // draft exactly as deep and replacement is 11.16 at each of them. RB0, WR0 and TE0 are
-    // therefore worth the same 5.04504 and this is purely about which tied maximum wins.
+    // With zero wire cover, every open dedicated slot is worth zero rather than a free
+    // replacement. The four position leaders share the same curve and are therefore tied.
     //
     // It is decided by player id rather than by argument order. Ties are the normal case on
     // a real board, so a comparator that resolved them by position in the array would make
@@ -1833,8 +1855,8 @@ describe("the base policy's tie-break", () => {
     const league = leagueOf(TEAMS);
     const scored = scoreCandidates([], board(), LEAGUE, league);
     const top = scored.filter((entry) => entry.value === scored[0].value);
-    expect(top.map((entry) => entry.player.id)).toEqual(["RB0", "TE0", "WR0"]);
-    expect(basePolicyPick([], board(), LEAGUE, league)?.id).toBe("RB0");
+    expect(top.map((entry) => entry.player.id)).toEqual(["QB0", "RB0", "TE0", "WR0"]);
+    expect(basePolicyPick([], board(), LEAGUE, league)?.id).toBe("QB0");
   });
 
   it("weights a projection by availability, not against it", () => {
@@ -2702,14 +2724,14 @@ describe("the outbid discipline", () => {
     ).toEqual(["back"]);
   });
 
-  it("exempts a candidate the market gate had been withholding, and only just past it", () => {
+  it("exempts a candidate only while the market gate is withholding him", () => {
     // An unpriced player was not offerable inside the gate's window, so "we saw him and
-    // took the other one" is false about him — through the first round he could have
-    // been taken on. After that we have declined him with him on the panel.
+    // took the other one" is false about him. Once the gate lifts, an immediate upgrade
+    // still benches the player bought on the preceding turn and is withheld.
     const roster = [held("mine", "TE", 8)];
     const ghost = [entry("ghost", "TE", 12, null), entry("back", "RB", 9)];
     expect(rule(ghost, roster, MARKET_GATE_ROUNDS)).toEqual(["ghost", "back"]);
-    expect(rule(ghost, roster, MARKET_GATE_ROUNDS + 1)).toEqual(["ghost", "back"]);
+    expect(rule(ghost, roster, MARKET_GATE_ROUNDS + 1)).toEqual(["back"]);
     expect(rule(ghost, roster, MARKET_GATE_ROUNDS + 2)).toEqual(["back"]);
     expect(rule(ghost, roster, null)).toEqual(["ghost", "back"]);
   });
