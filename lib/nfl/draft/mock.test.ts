@@ -1109,6 +1109,16 @@ describe("evaluateChecks", () => {
       "week 1: cannot fill TE",
     );
 
+    // Non-finite cover is invalid in replacementLevels and cannot make the harness more
+    // permissive than the valuation baseline. Infinity therefore behaves like zero.
+    wireCovered.replay.setup.config.wireCover = new Map([
+      ...WAIVER_WIRE_COVER,
+      ["TE", Infinity],
+    ]);
+    expect(outcome(wireCovered.replay, wireCovered.board, "g").violations).toContain(
+      "week 1: cannot fill TE",
+    );
+
     // Replace the second quarterback with excess tight-end depth. The roster is full,
     // but the configured wire covers no QB, so the exact matcher leaves QB empty on bye.
     const unplayableRows = playableRows.map((entry, i) =>

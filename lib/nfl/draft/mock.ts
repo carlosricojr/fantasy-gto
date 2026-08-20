@@ -838,17 +838,22 @@ export function evaluateChecks(
   ].sort((a, b) => a - b);
   const finalRoster = mine.map((pick) => rowFor(pick.playerId));
   const wirePlayers = [...replay.setup.config.wireCover.entries()].flatMap(
-    ([position, share]) => share > 0
-      ? replay.setup.config.slots
-          .filter((slot) => slot.eligiblePositions.includes(position))
-          .map((_, index) => ({
-            id: `__wire__${position}__${index}`,
-            name: `waiver ${position}`,
-            position,
-            projectedPoints: Number.EPSILON,
-            availability: "active" as const,
-          }))
-      : [],
+    ([position, share]) => {
+      // Match replacementLevels: malformed coverage cannot create a waiver player that the
+      // valuation baseline itself refuses to count, and finite coverage stays in [0, 1].
+      const normalized = Number.isFinite(share) ? Math.max(0, Math.min(1, share)) : 0;
+      return normalized > 0
+        ? replay.setup.config.slots
+            .filter((slot) => slot.eligiblePositions.includes(position))
+            .map((_, index) => ({
+              id: `__wire__${position}__${index}`,
+              name: `waiver ${position}`,
+              position,
+              projectedPoints: Number.EPSILON,
+              availability: "active" as const,
+            }))
+        : [];
+    },
   );
   for (const week of seasonWeeks) {
     const lineup = solveLineup(replay.setup.config.slots, [
