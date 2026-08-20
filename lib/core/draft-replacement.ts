@@ -42,6 +42,18 @@ export interface ReplacementCandidate {
 /** What the league still demands at one position, and what is left after it is met. */
 export interface ReplacementLevel {
   /**
+   * The part of `value` an empty lineup slot may actually receive from the waiver wire.
+   *
+   * `value` still describes the best player left after the league's remaining demand is
+   * met, because the depth model needs that raw comparison. But merely remaining on the
+   * board does not make that player freely available in every week: `wireCover` is the
+   * existing policy prior for how much of him the wire can supply on demand. Keeping this
+   * second number prevents the prefilter from seating a full hypothetical replacement at
+   * a position whose wire coverage is zero while the season objective scores the same
+   * unfilled slot at zero.
+   */
+  readonly lineupValue: number;
+  /**
    * How many players at this position the league's remaining starting slots will consume.
    *
    * Zero means no starting slot anywhere in the league can still take one. That is a real
@@ -51,8 +63,9 @@ export interface ReplacementLevel {
    */
   readonly demand: number;
   /**
-   * The value of the best player at this position who is still there once that demand is
-   * met, which is what a pick at this position is worth *over*.
+   * The raw value of the best player at this position who is still there once that demand
+   * is met. `lineupValue` says how much of this raw level is actually obtainable from the
+   * wire and therefore what a drafted pick is worth over.
    */
   readonly value: number;
   /**
@@ -225,9 +238,9 @@ export function solveDemand(
  * `d` — the best player still available once the demand is met. Three boundaries and what
  * each does:
  *
- *  - **Demand 0.** No starting slot in the league can take one. The replacement is the best
- *    player at the position, because that is what is freely available, and a pick there is
- *    therefore worth nothing over it as a starter. It is bench value or it is nothing.
+ *  - **Demand 0.** No remaining league starting slot will consume one. The raw replacement
+ *    is the best player at the position, but the lineup may credit only the configured wire
+ *    share of him. With zero cover he is still on the board, not freely signable.
  *  - **Demand at or past the end of the board.** There is no replacement. The value is 0
  *    and `exhausted` says so, which makes the last player at a scarce position worth his
  *    whole contribution — the honest reading, and distinguishable from a replacement who
@@ -238,6 +251,7 @@ export function solveDemand(
 export function replacementLevels(
   unfilled: readonly RosterSlot[],
   available: readonly ReplacementCandidate[],
+  wireCover: ReadonlyMap<string, number>,
 ): Map<string, ReplacementLevel> {
   const byPosition = new Map<string, number[]>();
   for (const player of available) {
@@ -252,9 +266,20 @@ export function replacementLevels(
     values.sort((a, b) => b - a);
     const needed = demand.get(position) ?? 0;
     const replacement = values[needed];
+    // The same defensive semantics as `coverValue`: a non-finite or absent share means
+    // the wire covers nothing, and legal shares are clamped. Without the finite guard,
+    // `NaN` would propagate into the lineup matcher and silently make comparisons false.
+    const configuredShare = wireCover.get(position);
+    const share = Number.isFinite(configuredShare) ? configuredShare! : 0;
+    const coveredShare = Math.min(Math.max(share, 0), 1);
+    // `??` → `||` survives mutation equivalently: the only falsy numeric replacement is
+    // zero, which is exactly the fallback. Kept as nullish because the branch means
+    // "board exhausted", not "replacement has a falsy score".
+    const value = replacement ?? 0;
     levels.set(position, {
       demand: needed,
-      value: replacement ?? 0,
+      value,
+      lineupValue: value * coveredShare,
       exhausted: replacement === undefined,
     });
   }

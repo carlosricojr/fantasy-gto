@@ -660,9 +660,11 @@ synthetic twelve-team fixture: after fifteen rounds the best remaining kicker pr
 would go on a backup kicker. The #88 audit then drafted two kickers, two defenses, five
 tight ends and two wide receivers over sixteen rounds.
 
-`coverValue` now takes a **waiver-wire share** per position — how much of an absence there
-the wire covers for free, and which a drafted reserve therefore does not sell you — and
-scales the cover term by what is left. The table is `WAIVER_WIRE_COVER` in
+The existing **waiver-wire share** now governs both sides of the prefilter. In
+`draft-replacement.ts`, the raw replacement remains the best player left after league demand,
+but the hypothetical player seated into an otherwise-empty slot is worth only that raw value
+times `wireCover`. `coverValue` uses the same covered level for an absent starter and scales
+the drafted cover term by what remains. The table is `WAIVER_WIRE_COVER` in
 `lib/nfl/roster.ts`, which is where it has to live: the argument for each entry names
 positions, and `lib/core` may not. Kicker and defense are one, tight end is three quarters,
 quarterback, back and receiver are zero.
@@ -673,10 +675,12 @@ at each position, which nothing here measures; the K/D-ST weekly spread is still
 `placeholder` band (#90.4). It is also not league-aware: a sixteen-team league's wire is
 thinner than a ten-team league's and these constants are the same in both.
 
-Two things the share deliberately does **not** touch. It does not move `replacement`, which
-is already the best player the league's remaining demand leaves behind — the wire's
-season-long level, priced correctly. And it does not touch what a player is worth in your
-starting lineup, which is the lineup solver's answer and not a depth question at all.
+The distinction between raw and covered replacement matters. League demand is still solved
+against the real board, so the same players are consumed by FLEX and dedicated slots. What
+changes is what can be obtained for free after that demand: at WR, RB, and QB the covered
+level is zero, matching the season objective's value for an unfilled slot; at K and D/ST it
+is the whole raw level; at TE it is three quarters. A drafted player's own starting value is
+still the lineup solver's answer.
 
 ### Streamable-position discipline
 
@@ -696,37 +700,36 @@ positions, on the recommendation shortlist only:
 `applyOutbidDiscipline` is the third rule and answers a different finding (#89.A): past the
 starting slots a position dedicates, a candidate who outranks somebody already held there is
 withheld, because he was on the board at the turn the lesser player was taken and nothing
-since is information about him. A player the board does not price is exempt through the
-round after the market gate lifts — the gate is the reason he was never declined.
+since is information about him. A player the board does not price is exempt while the market
+gate itself withholds him. The exemption ends when the gate lifts: otherwise the first
+newly-offerable upgrade can immediately bench the position bought one turn earlier, which
+the replacement-consistency replay exposed as Pollard 6.06 → Gainwell 7.05.
 
 All three filter the shortlist and nothing else. The base policy, the opponents' completions
 and our own rollout stay ungated, because the outcome being steered toward is the base policy
 taking the kicker *later*, at his market round.
 
-### What this did not fix: receiver depth
+### Replacement consistency and playable rosters
 
-The harness's check (e) — at least four receivers on a half-PPR 2-FLEX roster — still fails
-in both replay modes, and the reason is worth recording rather than leaving as a number.
-Replacement level is priced against the league's *remaining starting demand*, and opponents
-drafting strictly by ADP fill their receiver slots early; by round nine the league's unfilled
-receiver demand is zero, and at zero demand the replacement **is** the best receiver still on
-the board. No draftable receiver beats him, so every late receiver is worth exactly zero over
-replacement while a tight end or quarterback, at a position the league still demands, is
-worth a hair more than zero. Measured at pick 11.05 on the frozen board: every receiver at
-0.0000 points a week, the best quarterback at 0.0214, the best tight end at 0.0024.
+PR #97 left a measured inconsistency: the objective scores an unfillable slot at zero, while
+the prefilter seated the full best remaining player at every position even where
+`WAIVER_WIRE_COVER` was zero. Once opponents had spent the league's receiver demand, that
+made every late WR worth exactly zero over the best WR still on the board. Frozen mode ended
+with three receivers and four quarterbacks; schedule-byes ended with two receivers and six
+tight ends.
 
-The waiver-wire share cannot reach this: it scales cover, and a cover term that is already
-exactly zero cannot be scaled below it. Nor is the arithmetic obviously wrong — "165
-receivers still available" is the audit's own evidence, and it is the same fact the model
-reads as "the wire is deep here". What the two readings disagree about is unmeasured.
+The reconciled prefilter uses the covered replacement described above in both its starting
+lineup and absence terms. No roster-shape floor and no new parameter was added. Measured in
+both harness modes, check (e) now passes with four receivers, while checks (a)–(d) and (f)
+remain green.
 
-There is a real inconsistency behind it, stated here so it is a hypothesis rather than a
-mystery: the objective has no waiver wire at all. `drawWeek` fields the best legal lineup
-from the roster's *available* players and scores an unfillable slot at zero, while the
-prefilter's cover term prices the same absence against a replacement it assumes you can sign.
-Re-basing the depth model on the objective's own empty slot is a change to the valuation
-core, not to streamable-position discipline, and belongs in its own change with its own
-measurement.
+The harness also carries the stronger check (g): for every configured regular-season and
+playoff week, players on bye are removed and `solveLineup` must fill every starting slot.
+The check adds hypothetical waiver players only at positions whose existing wire share is
+positive; a zero-cover WR, RB, or QB hole cannot be hidden. This is the same exact matching
+the objective uses and catches excess-at-one-position rosters that a WR count cannot,
+including the four-QB and six-TE finishes above. Both replay modes pass. Check (e) is retained
+as the narrower historical regression lock rather than retired.
 
 ## The part that is provable
 

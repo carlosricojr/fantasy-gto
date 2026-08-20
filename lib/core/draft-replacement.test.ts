@@ -21,6 +21,9 @@ import {
 const STANDARD = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 });
 const TWO_FLEX = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 2 });
 const SUPERFLEX = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, SUPERFLEX: 1 });
+const FULL_WIRE_COVER: ReadonlyMap<string, number> = new Map([
+  ["QB", 1], ["RB", 1], ["WR", 1], ["TE", 1], ["K", 1],
+]);
 
 /** A board with an explicit, readable curve per position. */
 function curve(
@@ -266,15 +269,19 @@ describe("replacementLevels", () => {
     // Ten unfilled quarterback slots and a board of twenty. The league takes QB0..QB9, so
     // replacement is QB10 — value 20 - 10 = 10.
     const slots = buildSlots({ QB: 10 });
-    const levels = replacementLevels(slots, curve("QB", 20, 20, 1));
-    expect(levels.get("QB")).toEqual({ demand: 10, value: 10, exhausted: false });
+    const levels = replacementLevels(slots, curve("QB", 20, 20, 1), FULL_WIRE_COVER);
+    expect(levels.get("QB")).toEqual({
+      demand: 10, value: 10, lineupValue: 10, exhausted: false,
+    });
   });
 
   it("has no replacement when the demand outruns the board", () => {
     const slots = buildSlots({ QB: 10 });
-    const levels = replacementLevels(slots, curve("QB", 10, 20, 1));
+    const levels = replacementLevels(slots, curve("QB", 10, 20, 1), FULL_WIRE_COVER);
     // Exactly ten quarterbacks for ten slots: the league takes all of them.
-    expect(levels.get("QB")).toEqual({ demand: 10, value: 0, exhausted: true });
+    expect(levels.get("QB")).toEqual({
+      demand: 10, value: 0, lineupValue: 0, exhausted: true,
+    });
   });
 
   it("prices a position with no remaining demand against the best of it", () => {
@@ -282,15 +289,18 @@ describe("replacementLevels", () => {
     // kicker who is freely available, which is the best one — not zero, which would make
     // scarcity out of a position nobody can start.
     const slots = buildSlots({ QB: 1 });
-    const levels = replacementLevels(slots, [
-      ...curve("QB", 5, 20, 1),
-      ...curve("K", 5, 9, 0.1),
-    ]);
-    expect(levels.get("K")).toEqual({ demand: 0, value: 9, exhausted: false });
+    const levels = replacementLevels(
+      slots,
+      [...curve("QB", 5, 20, 1), ...curve("K", 5, 9, 0.1)],
+      FULL_WIRE_COVER,
+    );
+    expect(levels.get("K")).toEqual({
+      demand: 0, value: 9, lineupValue: 9, exhausted: false,
+    });
   });
 
   it("says nothing about a position with no players on the board", () => {
-    const levels = replacementLevels(STANDARD, curve("RB", 5, 20, 1));
+    const levels = replacementLevels(STANDARD, curve("RB", 5, 20, 1), FULL_WIRE_COVER);
     expect(levels.get("QB")).toBeUndefined();
   });
 
@@ -302,6 +312,7 @@ describe("replacementLevels", () => {
     const empty = replacementLevels(
       leagueUnfilledSlots(Array.from({ length: 12 }, () => []), buildSlots({ QB: 1 })),
       board,
+      FULL_WIRE_COVER,
     );
     const mostlyFilled = replacementLevels(
       leagueUnfilledSlots(
@@ -309,8 +320,43 @@ describe("replacementLevels", () => {
         buildSlots({ QB: 1 }),
       ),
       board,
+      FULL_WIRE_COVER,
     );
-    expect(empty.get("QB")).toEqual({ demand: 12, value: 8, exhausted: false });
-    expect(mostlyFilled.get("QB")).toEqual({ demand: 1, value: 19, exhausted: false });
+    expect(empty.get("QB")).toEqual({
+      demand: 12, value: 8, lineupValue: 8, exhausted: false,
+    });
+    expect(mostlyFilled.get("QB")).toEqual({
+      demand: 1, value: 19, lineupValue: 19, exhausted: false,
+    });
+  });
+
+  it("credits an empty slot only with the share the wire can supply", () => {
+    const levels = replacementLevels(
+      buildSlots({ QB: 1, WR: 1, TE: 1 }),
+      [
+        ...curve("QB", 3, 20, 1),
+        ...curve("WR", 3, 18, 1),
+        ...curve("TE", 3, 16, 1),
+      ],
+      new Map([["QB", 1], ["WR", 0], ["TE", 0.75]]),
+    );
+    expect(levels.get("QB")).toMatchObject({ value: 19, lineupValue: 19 });
+    expect(levels.get("WR")).toMatchObject({ value: 17, lineupValue: 0 });
+    expect(levels.get("TE")).toMatchObject({ value: 15, lineupValue: 11.25 });
+  });
+
+  it("treats absent, non-finite and out-of-range cover defensively", () => {
+    const levels = replacementLevels(
+      buildSlots({ QB: 1, RB: 1, WR: 1, TE: 1 }),
+      [
+        ...curve("QB", 2, 10, 1), ...curve("RB", 2, 10, 1),
+        ...curve("WR", 2, 10, 1), ...curve("TE", 2, 10, 1),
+      ],
+      new Map([["RB", Number.NaN], ["WR", -1], ["TE", 2]]),
+    );
+    expect(levels.get("QB")?.lineupValue).toBe(0);
+    expect(levels.get("RB")?.lineupValue).toBe(0);
+    expect(levels.get("WR")?.lineupValue).toBe(0);
+    expect(levels.get("TE")?.lineupValue).toBe(9);
   });
 });

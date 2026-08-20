@@ -508,29 +508,21 @@ describe("unexpectedOutcomes", () => {
     }));
     expect(unexpectedOutcomes(outcomes)).toEqual([]);
 
-    // Flip one check each way: an unexpected pass and an unexpected failure both ring.
-    // The flipped checks are picked by their documented expectation rather than by id,
-    // so this test survives a fix PR flipping a particular check's column. Asserted
-    // before use so the protocol's end state — every check expected to pass — fails
-    // this test with an instruction to construct a synthetic definition, not with a
-    // TypeError.
-    const knownFail = CHECK_DEFINITIONS.find((d) => d.expected === "fail");
-    const knownPass = CHECK_DEFINITIONS.find((d) => d.expected === "pass");
-    expect(knownFail, "no expected-fail check left; flip one synthetically here").toBeDefined();
-    expect(knownPass, "no expected-pass check left; flip one synthetically here").toBeDefined();
-    if (knownFail === undefined || knownPass === undefined) return;
-    const surprisePass = outcomes.map((outcome) =>
-      outcome.id === knownFail.id ? { ...outcome, status: "pass" as const } : outcome,
-    );
-    expect(unexpectedOutcomes(surprisePass).map((outcome) => outcome.id)).toEqual([
-      knownFail.id,
+    // Construct both alarm directions explicitly now that every real check expects pass.
+    const first = CHECK_DEFINITIONS[0];
+    const surprisePass = {
+      ...first,
+      expected: "fail" as const,
+      status: "pass" as const,
+      violations: [],
+    };
+    expect(unexpectedOutcomes([surprisePass]).map((outcome) => outcome.id)).toEqual([
+      first.id,
     ]);
     const regression = outcomes.map((outcome) =>
-      outcome.id === knownPass.id ? { ...outcome, status: "fail" as const } : outcome,
+      outcome.id === first.id ? { ...outcome, status: "fail" as const } : outcome,
     );
-    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual([
-      knownPass.id,
-    ]);
+    expect(unexpectedOutcomes(regression).map((outcome) => outcome.id)).toEqual([first.id]);
   });
 
   it("enforces the expectation column of the mode it is given", () => {
@@ -769,7 +761,7 @@ describe("stateAtPick", () => {
 });
 
 describe("evaluateChecks", () => {
-  it("documents six checks with the expectations both replay modes measured", () => {
+  it("documents seven checks with the expectations both replay modes measured", () => {
     expect(CHECK_DEFINITIONS.map((entry) => entry.id)).toEqual([
       "a",
       "b",
@@ -777,6 +769,7 @@ describe("evaluateChecks", () => {
       "d",
       "e",
       "f",
+      "g",
     ]);
     // As measured on the merged engine — PR 2's bye charge, PR 4's paired tie ranking,
     // PR 3's market-discipline gate, PR 5's streamable-position discipline. (f) is closed
@@ -785,18 +778,19 @@ describe("evaluateChecks", () => {
     // the closing rounds nor a first one before its own market round; (c) by the outbid
     // rule, the charge #89.A said was missing for buying a position already filled.
     //
-    // (e) is the one PR 5 did not close, and its definition in `mock.ts` records why at
-    // length rather than leaving a bare "fail": with the league's receiver demand spent,
-    // every late receiver is worth exactly zero over a replacement who is by definition
-    // the best receiver still on the board, and a waiver-wire share scales cover rather
-    // than creating it. Each definition records its own mechanism; this pin exists so a
-    // silent edit to any of them fails here as well as in the harness.
+    // Replacement consistency closes (e) in both modes and (g) generalizes it: only
+    // positions the configured wire supplies may contribute hypothetical waiver bodies.
+    // Each definition records its mechanism; this pin catches a silent expectation edit.
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
-    ).toEqual(["a:pass", "b:pass", "c:pass", "d:pass", "e:fail", "f:pass"]);
+    ).toEqual([
+      "a:pass", "b:pass", "c:pass", "d:pass", "e:pass", "f:pass", "g:pass",
+    ]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
-    ).toEqual(["a:pass", "b:pass", "c:pass", "d:pass", "e:fail", "f:pass"]);
+    ).toEqual([
+      "a:pass", "b:pass", "c:pass", "d:pass", "e:pass", "f:pass", "g:pass",
+    ]);
   });
 
   it("locks the streamable discipline's constants to the checks they satisfy", () => {
@@ -840,6 +834,9 @@ describe("evaluateChecks", () => {
       "first K and first D/ST no more than 2 rounds before their market round",
     );
     expect(titles.get("e")).toBe("at least 4 wide receivers on the final roster");
+    expect(titles.get("g")).toBe(
+      "the completed roster can field a legal starting lineup in every season week",
+    );
   });
 
   it("(a) flags a market-absent leader inside the early rounds and not after", () => {
@@ -1080,6 +1077,57 @@ describe("evaluateChecks", () => {
     expect(outcome(one.replay, one.board, "e").violations).toEqual([
       "1 WR drafted in 16 rounds (Player wr0 at 1.05)",
     ]);
+  });
+
+  it("(g) solves the legal lineup in every week, including byes", () => {
+    const positions = [
+      "QB", "QB", "RB", "RB", "RB", "RB", "WR", "WR",
+      "WR", "WR", "TE", "TE", "K", "K", "DST", "DST",
+    ];
+    const playableRows = positions.map((position, i) =>
+      row(`p${i}`, position, 200 - i, i + 1, { byeWeek: i + 1 }),
+    );
+    const ownPicks = positions.map((_, i) => ({ round: i + 1, playerId: `p${i}` }));
+    const playable = replayFromOwnPicks(playableRows, ownPicks);
+    expect(outcome(playable.replay, playable.board, "g")).toMatchObject({
+      status: "pass",
+      violations: [],
+    });
+
+    // No drafted TE: the shipped fractional TE share still supplies a legal waiver body.
+    // Turning that positive share into zero must make the fixed TE slot unplayable.
+    const wireCoveredRows = playableRows.map((entry) =>
+      entry.position === "TE" ? { ...entry, position: "RB" } : { ...entry },
+    );
+    const wireCovered = replayFromOwnPicks(wireCoveredRows, ownPicks);
+    expect(outcome(wireCovered.replay, wireCovered.board, "g").status).toBe("pass");
+    wireCovered.replay.setup.config.wireCover = new Map([
+      ...WAIVER_WIRE_COVER,
+      ["TE", 0],
+    ]);
+    expect(outcome(wireCovered.replay, wireCovered.board, "g").violations).toContain(
+      "week 1: cannot fill TE",
+    );
+
+    // Non-finite cover is invalid in replacementLevels and cannot make the harness more
+    // permissive than the valuation baseline. Infinity therefore behaves like zero.
+    wireCovered.replay.setup.config.wireCover = new Map([
+      ...WAIVER_WIRE_COVER,
+      ["TE", Infinity],
+    ]);
+    expect(outcome(wireCovered.replay, wireCovered.board, "g").violations).toContain(
+      "week 1: cannot fill TE",
+    );
+
+    // Replace the second quarterback with excess tight-end depth. The roster is full,
+    // but the configured wire covers no QB, so the exact matcher leaves QB empty on bye.
+    const unplayableRows = playableRows.map((entry, i) =>
+      i === 1 ? { ...entry, position: "TE" } : { ...entry },
+    );
+    const unplayable = replayFromOwnPicks(unplayableRows, ownPicks);
+    const flagged = outcome(unplayable.replay, unplayable.board, "g");
+    expect(flagged.status).toBe("fail");
+    expect(flagged.violations).toContain("week 1: cannot fill QB");
   });
 
   it("(f) flags a leader displayed below a runner-up's championship odds", () => {

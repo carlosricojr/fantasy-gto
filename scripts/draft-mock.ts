@@ -55,8 +55,8 @@ import { parseContests } from "@/lib/sources/nflverse";
  * and their merge surfaced Parkinson leading 6.06, the gate closed it structurally by
  * keeping `adp: null` players off the early-round shortlist; (c) passes in both on the
  * gate-reshuffled ordering, a measurement rather than a fix for its #89.A mechanism,
- * which PR 5 still owns; (b), (d), (e) remain the structural failures PR 5
- * owns. The PR that
+ * which PR 5 closed; replacement consistency later closed (e) and added the general
+ * every-week playability check (g). The PR that
  * changes a check's status flips its expectation in the same commit. The exit code
  * enforces the contract in both directions:
  *

@@ -102,11 +102,11 @@
  * where the argument can name positions. `docs/draft-validation.md` carries the argument
  * and what it is worth.
  *
- * Note what this deliberately does **not** touch: `replacement`. The value a reserve is
- * measured over is already the best player the league's demand leaves behind, which is the
- * wire's *season-long* level and is priced correctly. `wireCover` is the separate claim
- * that at some positions you can re-sign that player every week, on demand, at whatever
- * absence arises — which is why it scales the cover term instead of moving the level.
+ * `replacement` is the part of the best player left after league demand that the same wire
+ * share can actually supply. `draft-replacement.ts` keeps the raw level beside that covered
+ * value: demand still follows the real board, while an absence at a zero-cover position is
+ * compared with zero, exactly as the season objective scores an unfilled slot. `wireCover`
+ * also scales the resulting cover gain by the share that still has to be drafted.
  *
  * Each of those makes this an estimate used to *narrow* a field, which is what it is for. The
  * objective is the simulation.

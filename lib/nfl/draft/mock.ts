@@ -1,5 +1,6 @@
 import { pickOwnership, seatForTeamIndex, UNRANKED_ADP_PADDING } from "../../core/draft";
 import { LruMemoStore, recommendMemoized } from "../../core/draft-memo";
+import { solveLineup } from "../../core/optimizer";
 import type {
   ChampionshipRecommendation,
   DraftPolicyState,
@@ -463,7 +464,7 @@ export function replayAdpMockDraft(
 // measured to do today, and the PR that fixes the finding flips it. #91 is the ledger.
 // ---------------------------------------------------------------------------------------
 
-export type CheckId = "a" | "b" | "c" | "d" | "e" | "f";
+export type CheckId = "a" | "b" | "c" | "d" | "e" | "f" | "g";
 
 /**
  * Rounds counted as "early" for the market-discipline check (a).
@@ -651,40 +652,13 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: "e",
     title: `at least ${MIN_WIDE_RECEIVERS} wide receivers on the final roster`,
-    // **Still failing after PR 5, deliberately, with the mechanism measured.** The
-    // streamable discipline gave the replay back four picks — the two kickers and two
-    // defences it used to spend before the closing rounds — and none of them bought a
-    // receiver: frozen went from two to three, `--schedule-byes` stayed at two.
-    //
-    // Where the picks went is not an ordering accident, and the reason is worth writing
-    // down because it decides who owns this check. `replacementLevels` prices a candidate
-    // against the best player at his position the league's *remaining starting demand*
-    // leaves behind. Opponents drafting strictly by ADP fill their receiver slots early,
-    // so by round nine the league's unfilled WR demand is zero — and at zero demand the
-    // replacement is by definition the best receiver still on the board, which no
-    // draftable receiver beats. Every late receiver is therefore worth exactly zero over
-    // replacement, while a tight end or quarterback, at positions the league still
-    // demands, is worth a hair more than zero. Measured at pick 11.05 on the frozen
-    // board: every WR at 0.0000 points a week over replacement, the best QB at 0.0214,
-    // the best TE at 0.0024.
-    //
-    // No waiver-wire share fixes that, and PR 5 measured three of them rather than
-    // assuming: the discount scales *cover*, and a cover term that is already exactly
-    // zero cannot be discounted below it. Nor is the arithmetic obviously wrong — "165
-    // WRs still available" is the audit's own evidence, and it is the same fact the model
-    // reads as "the wire is deep here, so drafting one buys nothing".
-    //
-    // What the two readings disagree about is unmeasured: what a streamed receiver is
-    // actually worth week to week. Until something measures it, flipping this check means
-    // either a roster-shape floor — the check written into the policy, which is the one
-    // thing this harness exists to prevent — or re-basing the depth model's replacement
-    // on the objective's own empty slot, since `drawWeek` scores an unfillable slot at
-    // zero rather than at replacement. That second one is a real inconsistency and a real
-    // hypothesis; it is a change to the valuation core rather than to streamable-position
-    // discipline, and #91's sequencing rule says it lands on its own with its own
-    // measurement. Recorded on #91 as the residue PR 5 did not close.
-    expected: "fail",
-    expectedWithScheduleByes: "fail",
+    // PR 5 left this failing because the prefilter gave a full hypothetical replacement
+    // to an empty slot even where `wireCover` was zero. Flipped by replacement consistency:
+    // both the starting and absence terms now credit only the covered share, so WR holes
+    // match the objective's zero and both replays draft four receivers. Kept as the
+    // narrower historical lock; (g) is the general property.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
     audit: "two WRs in sixteen rounds of a half-PPR 2-FLEX league, with 165 still available",
   },
   {
@@ -699,6 +673,19 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     expectedWithScheduleByes: "pass",
     audit: "leader shown at 14.5% with the #2 row at 16.2% — the tie reorder by playoff " +
       "probability promoted the lower title number",
+  },
+  {
+    id: "g",
+    title: "the completed roster can field a legal starting lineup in every season week",
+    // #88 finding 3 was about an unusable roster, not a receiver count in isolation.
+    // In every configured week, remove players on bye and run the same exact matching the
+    // objective uses. A hypothetical waiver body is available only where the existing wire
+    // share is positive; zero-cover positions must be filled by the drafted roster.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
+    audit:
+      "the replay finished with four QBs in frozen mode and six TEs with schedule byes, " +
+      "while its starting lineup could not be covered through every bye week",
   },
 ];
 
@@ -734,7 +721,9 @@ export function evaluateChecks(
   const rowFor = (playerId: string): MockBoardRow =>
     rowById.get(playerId) ?? fail(`replay picked ${playerId}, which is not on the board`);
   const mine = replay.picks.filter((pick) => pick.mine);
-  const violations: Record<CheckId, string[]> = { a: [], b: [], c: [], d: [], e: [], f: [] };
+  const violations: Record<CheckId, string[]> = {
+    a: [], b: [], c: [], d: [], e: [], f: [], g: [],
+  };
 
   // (a) A row the market has not ranked must not lead an early-round panel. The leader is
   // checked rather than the pick taken, because the finding is about what the panel says —
@@ -837,6 +826,51 @@ export function evaluateChecks(
         );
         break;
       }
+    }
+  }
+
+  // (g) Unit points make this an eligibility question only. A positive eligible player
+  // always beats the solver's empty dummy column, independent of projections or ordering.
+  const seasonWeeks = [
+    ...new Set([...replay.setup.config.weeks, ...replay.setup.config.playoffWeeks]),
+    // `a - b` → `a + b` survives equivalently: every week is checked independently and
+    // the final status depends only on whether any violation exists, never their order.
+  ].sort((a, b) => a - b);
+  const finalRoster = mine.map((pick) => rowFor(pick.playerId));
+  const wirePlayers = [...replay.setup.config.wireCover.entries()].flatMap(
+    ([position, share]) => {
+      // Match replacementLevels: malformed coverage cannot create a waiver player that the
+      // valuation baseline itself refuses to count, and finite coverage stays in [0, 1].
+      const normalized = Number.isFinite(share) ? Math.max(0, Math.min(1, share)) : 0;
+      return normalized > 0
+        ? replay.setup.config.slots
+            .filter((slot) => slot.eligiblePositions.includes(position))
+            .map((_, index) => ({
+              id: `__wire__${position}__${index}`,
+              name: `waiver ${position}`,
+              position,
+              projectedPoints: Number.EPSILON,
+              availability: "active" as const,
+            }))
+        : [];
+    },
+  );
+  for (const week of seasonWeeks) {
+    const lineup = solveLineup(replay.setup.config.slots, [
+      ...finalRoster.map((player) => ({
+        id: player.playerId,
+        name: player.name,
+        position: player.position,
+        projectedPoints: Number.EPSILON,
+        availability: player.byeWeek === week ? "bye" as const : "active" as const,
+      })),
+      ...wirePlayers,
+    ]);
+    const empty = lineup.assignments.filter((assignment) => assignment.competitorId === null);
+    if (empty.length > 0) {
+      violations.g.push(
+        `week ${week}: cannot fill ${empty.map((assignment) => assignment.slotLabel).join(", ")}`,
+      );
     }
   }
 

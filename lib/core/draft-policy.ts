@@ -113,9 +113,11 @@ export interface PolicyLeague {
    * The share of an absence the waiver wire covers for free, by position — the depth
    * model's `wireCover`, and the source of the streamable-position discipline below.
    *
-   * Read twice, for two different purposes, and both readings come from this one number
+   * Read three times, for related purposes, and every reading comes from this one number
    * so they cannot disagree about which positions are streamable:
    *
+   *  - **As the value of a hypothetical signing** in the replacement baseline: an empty
+   *    slot receives only the share the wire can actually supply.
    *  - **As a discount** on `coverValue`, at every position: the part of an absence the
    *    wire covers is not something a drafted reserve sells you.
    *  - **As a definition**, at a share of one: a position the wire supplies *entirely* is
@@ -498,11 +500,10 @@ export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
  *
  * The market-discipline gate holds an unpriced player off the panel through
  * `MARKET_GATE_ROUNDS`, so for those rounds "he was in front of us and we took the other
- * one" is simply false about him — and refusing him on that basis cost the frozen replay
- * its best available candidate by a factor of eight. He is therefore exempt while the
- * round is inside the gate's window *or the first round past it*, which is the first turn
- * on which he could have been taken; from the turn after that we have declined him with
- * him offerable, and the premise holds again.
+ * one" is simply false about him. He is exempt inside that window. On the first turn past
+ * it the gate no longer withholds him, but an upgrade that immediately benches the player
+ * just drafted is still the exact waste this rule prevents; the replacement-consistency
+ * replay exposed that boundary as Pollard 6.06 then Gainwell 7.05.
  *
  * The bound is not decoration. Exempting him outright was measured too, and it reopened
  * the very churn this rule exists to stop: the frozen replay took Hunter Henry at 11.05
@@ -564,12 +565,12 @@ export function applyOutbidDiscipline<T extends { player: PlayerRisk }>(
     // either — so `held < 0` and `held < 1` can only disagree at a count of zero that
     // cannot occur here.
     if (held < (dedicated.get(position) ?? 0)) return true;
-    // The one candidate we provably did *not* decline — see the docstring. `<=` on the
-    // round *after* the gate's last: that round is the first turn he could have been
-    // taken on, so declining him is only established from the turn after it.
+    // The candidate the gate is still withholding — see the docstring. The exemption ends
+    // with the gate because the first newly-offerable upgrade can already bench the
+    // position bought on the preceding turn.
     if (
       entry.player.adp == null &&
-      (currentRound === null || currentRound <= MARKET_GATE_ROUNDS + 1)
+      (currentRound === null || currentRound <= MARKET_GATE_ROUNDS)
     ) {
       return true;
     }
@@ -641,7 +642,7 @@ export function currentRoundOf(state: DraftPolicyState): number | null {
  * remaining picks on bench backs and started the season with the quarterback slot empty.
  * That is the baseline every improvement in this module is quoted against.
  *
- * **Two per position, not one — and this is a heuristic, not a proof.**
+ * **Two per position in each regime, not one — and this is a heuristic, not a proof.**
  *
  * It used to be a proof. `toCompetitor` valued a player at `weeklyMean * availability` and
  * nothing else, so two players at one position differed to the solver in that number alone
@@ -692,25 +693,40 @@ function contendersFor(
   available: readonly PlayerRisk[],
   startThreshold: ReadonlyMap<string, number>,
 ): PlayerRisk[] {
-  const bestStarter = new Map<string, PlayerRisk>();
-  const bestReserve = new Map<string, PlayerRisk>();
+  type ContenderPair = { best: PlayerRisk; alternative: PlayerRisk | null };
+  const bestStarters = new Map<string, ContenderPair>();
+  const bestReserves = new Map<string, ContenderPair>();
   for (const candidate of available) {
     // A position with no threshold has no slot anybody could take, so every candidate at it
     // is a reserve. `Infinity` says that without a special case.
     const threshold = startThreshold.get(candidate.position) ?? Infinity;
-    const bucket =
-      marketValue(candidate) > threshold ? bestStarter : bestReserve;
+    const bucket = marketValue(candidate) > threshold ? bestStarters : bestReserves;
     const held = bucket.get(candidate.position);
-    // Strictly greater, so the first of several tied bests at a position is the one kept —
-    // which is what evaluating the whole board in order would also have done.
-    if (held === undefined || marketValue(candidate) > marketValue(held)) {
-      bucket.set(candidate.position, candidate);
+    // The documented pair used to arise accidentally as one starter and one reserve. At
+    // a zero-cover position with an open slot every candidate is a starter, which collapsed
+    // the pair to one and discarded the durability/bye alternative it exists to preserve.
+    if (held === undefined) {
+      bucket.set(candidate.position, { best: candidate, alternative: null });
+    } else if (marketValue(candidate) > marketValue(held.best)) {
+      bucket.set(candidate.position, { best: candidate, alternative: held.best });
+    } else if (
+      held.alternative === null ||
+      marketValue(candidate) > marketValue(held.alternative)
+    ) {
+      bucket.set(candidate.position, { best: held.best, alternative: candidate });
     }
   }
   return available.filter(
-    (candidate) =>
-      bestStarter.get(candidate.position) === candidate ||
-      bestReserve.get(candidate.position) === candidate,
+    (candidate) => {
+      const starters = bestStarters.get(candidate.position);
+      const reserves = bestReserves.get(candidate.position);
+      return (
+        starters?.best === candidate ||
+        starters?.alternative === candidate ||
+        reserves?.best === candidate ||
+        reserves?.alternative === candidate
+      );
+    },
   );
 }
 
@@ -742,11 +758,11 @@ function toCompetitor(p: PlayerRisk) {
  * offer — that is what `exhausted` means — and the empty slot it leaves is exactly the point:
  * the last player at a position the league cannot satisfy is worth his whole contribution.
  *
- * They all carry the same value, which is an approximation and a deliberate one. Taking one
- * replacement-level player leaves the next one very slightly worse, and modelling that would
- * make replacement a curve rather than a level. A level is what "value over replacement"
- * means everywhere else, and the difference is far below the noise the objective is measured
- * against.
+ * They all carry the same wire-covered value, which is an approximation and a deliberate
+ * one. Taking one replacement-level player leaves the next one very slightly worse, and
+ * modelling that would make replacement a curve rather than a level. The covered value is
+ * the raw level times the league's existing wire share: zero-cover positions leave a real
+ * empty slot, matching the objective, while fully streamable positions keep full replacement.
  */
 function replacementBench(
   slots: readonly RosterSlot[],
@@ -763,7 +779,10 @@ function replacementBench(
         id: `${REPLACEMENT_PREFIX}${position}${REPLACEMENT_SEPARATOR}${i}`,
         name: `replacement ${position}`,
         position,
-        projectedPoints: level.value,
+        // A remaining player is not automatically a free weekly signing. The raw level
+        // still prices depth; only the share the wire can actually supply may occupy an
+        // otherwise-empty slot in this baseline.
+        projectedPoints: level.lineupValue,
         availability: "active" as const,
       });
     }
@@ -821,7 +840,14 @@ function prefilterValue(
   context: PrefilterContext,
 ): number {
   const { slots, replacement, bench, baseline, startingSlots } = context;
-  const replacementValue = replacement.get(candidate.position)?.value ?? 0;
+  // The same baseline must govern an open starter and an absent starter. Using the raw
+  // best-remaining value here would restore the inconsistency the lineup baseline just
+  // removed: at wire cover zero a WR hole would be worth zero in `startingGain`, but a WR
+  // absence would still be backfilled by the whole hypothetical replacement.
+  // `replacement` is built from this same available board, so every candidate has an entry;
+  // the fallback only keeps the helper total for defensive callers. Its only falsy value is
+  // zero, making `??` and `||` deliberately equivalent here.
+  const replacementValue = replacement.get(candidate.position)?.lineupValue ?? 0;
   const after = solveLineup(slots, [
     ...roster.map(toCompetitor),
     toCompetitor(candidate),
@@ -913,6 +939,7 @@ function startingSlotsByPosition(
 function replacementFor(
   available: readonly PlayerRisk[],
   leagueUnfilledSlots: readonly RosterSlot[],
+  wireCover: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, ReplacementLevel> {
   return replacementLevels(
     leagueUnfilledSlots,
@@ -920,6 +947,7 @@ function replacementFor(
       position: player.position,
       value: marketValue(player),
     })),
+    wireCover,
   );
 }
 
@@ -1032,7 +1060,7 @@ export function scoreCandidates(
   league: PolicyLeague,
   leagueUnfilledSlots: readonly RosterSlot[],
 ): Array<{ player: PlayerRisk; value: number }> {
-  const replacement = replacementFor(available, leagueUnfilledSlots);
+  const replacement = replacementFor(available, leagueUnfilledSlots, league.wireCover);
   return scoreAgainst(roster, available, prefilterContext(roster, league, replacement));
 }
 
@@ -1058,7 +1086,7 @@ export function basePolicyPick(
   // evaluated. Without this the completion solves a lineup for every one of several hundred
   // players at each of a hundred-odd remaining picks, for every candidate — which was the
   // whole cost of a recommendation.
-  const replacement = replacementFor(available, leagueUnfilledSlots);
+  const replacement = replacementFor(available, leagueUnfilledSlots, league.wireCover);
   const context = prefilterContext(roster, league, replacement);
   const contenders = contendersFor(available, context.startThreshold);
   if (contenders.length === 0) return null;
