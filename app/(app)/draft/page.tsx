@@ -15,8 +15,9 @@ import { type LeagueConfig, fantasySeasonWeeks } from "@/lib/core/season-sim";
 import { cn } from "@/lib/utils";
 import {
   ROSTER_TEMPLATES,
-  WAIVER_WIRE_COVER,
+  UNPROJECTED_POSITIONS,
   slotsForTemplate,
+  waiverWireCover,
 } from "@/lib/nfl/roster";
 import { draftSeasonFor } from "@/lib/nfl/season";
 import {
@@ -488,12 +489,10 @@ export default function DraftPage() {
       playoffTeams,
       scenarios: SCENARIOS,
       meanAbsenceWeeks: 3,
-      // Constant, so it is outside the dependency list on purpose rather than by
-      // omission: the shipped table is a per-position judgement and does not vary with
-      // the league shape this memo keys on. See `WAIVER_WIRE_COVER`.
-      wireCover: WAIVER_WIRE_COVER,
+      wireCover: waiverWireCover(setup.teams, starters),
+      unprojectedPositions: UNPROJECTED_POSITIONS,
     }),
-    [starters, playoffTeams, championshipWeek],
+    [starters, playoffTeams, championshipWeek, setup.teams],
   );
 
   // Before anything is requested, and whether or not anything can be. Changing the scoring

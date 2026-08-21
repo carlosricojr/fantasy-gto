@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { WAIVER_WIRE_COVER, buildSlots } from "../nfl/roster";
+import { buildSlots, waiverWireCover } from "../nfl/roster";
 import { leagueUnfilledSlots, replacementLevels } from "./draft-replacement";
 import { type RosterSlot, solveLineup } from "./optimizer";
 import {
@@ -53,13 +53,14 @@ const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1);
 /**
  * The waiver-wire cover this file's league carries: none.
  *
- * `SLOTS` starts no kicker and no defence, so the shipped table's two streamable
+ * `SLOTS` starts no kicker and no defence, so the shipped adapter's two unprojected
  * positions are not in this league at all, and an empty map is the honest description of
  * it rather than a placeholder. The tests that exercise `wireCover` and the streamable
  * discipline build their own league with their own map, so the fixtures below keep
  * measuring what they measured before it existed.
  */
 const WIRE_COVER = new Map<string, number>();
+const UNPROJECTED = new Set<string>(["K", "DST"]);
 
 const LEAGUE: PolicyLeague = { wireCover: WIRE_COVER, slots: SLOTS, weeks: WEEKS };
 const leagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({
@@ -70,6 +71,7 @@ const leagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({
 
 const CONFIG: LeagueConfig = {
   wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
   slots: SLOTS,
   weeks: Array.from({ length: 14 }, (_, i) => i + 1),
   playoffWeeks: [15, 16],
@@ -1216,8 +1218,9 @@ const SUPERFLEX_FULL = buildSlots({
   K: 1,
   DST: 1,
 });
-const fullLeagueWith = (slots: readonly RosterSlot[]): PolicyLeague => ({
-  wireCover: WAIVER_WIRE_COVER,
+const TWO_QB_FULL = buildSlots({ QB: 2, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
+const fullLeagueWith = (slots: readonly RosterSlot[], teams = 12): PolicyLeague => ({
+  wireCover: waiverWireCover(teams, slots),
   slots,
   weeks: WEEKS,
 });
@@ -1271,7 +1274,7 @@ function undraftedOpponents(teams: number, slots: readonly RosterSlot[]): Roster
 describe("a completed roster is a roster somebody could play", () => {
   const opponents = () => undraftedOpponents(12, STANDARD_FULL);
 
-  it("fills every starting slot and stops at two quarterbacks", () => {
+  it("fills every starting slot and stops at one fully wire-covered quarterback", () => {
     const roster = completeOwnRoster(
       [],
       15,
@@ -1282,17 +1285,16 @@ describe("a completed roster is a roster somebody could play", () => {
       opponents(),
     );
     expect(roster).toHaveLength(15);
-    // Measured: QB 2, RB 5, WR 4, TE 2, K 1, DST 1. On `main` and on the first revision of
-    // this branch the same call returned seven quarterbacks.
+    // Measured after league-aware coverage: one QB, six RB, four WR, two TE, one K/DST.
     expect(positionCounts(roster)).toEqual({
-      QB: 2,
-      RB: 5,
+      QB: 1,
+      RB: 6,
       WR: 4,
       TE: 2,
       K: 1,
       DST: 1,
     });
-    expect(positionCounts(roster).QB).toBeLessThanOrEqual(2);
+    expect(positionCounts(roster).QB).toBe(1);
 
     // Every starting slot filled, and the FLEX filled by somebody eligible for it — asserted
     // through the optimizer rather than by counting positions, because which slot a player
@@ -1413,13 +1415,13 @@ describe("a completed roster is a roster somebody could play", () => {
     const added = roster.slice(13);
     // Measured after replacement consistency: a fourth receiver and a second tight end.
     // Both are skill depth; the configured wire suppresses duplicate specialists.
-    expect(added.map((p) => p.position)).toEqual(["WR", "TE"]);
+    expect(added.map((p) => p.position)).toEqual(["TE", "RB"]);
     expect(added.map((p) => p.position)).not.toContain("K");
     expect(added.map((p) => p.position)).not.toContain("DST");
     expect(added.map((p) => p.position)).not.toContain("QB");
   });
 
-  it("values a third quarterback in a SUPERFLEX league and says why", () => {
+  it("keeps quarterback depth in a SUPERFLEX league and says why", () => {
     const roster = completeOwnRoster(
       [],
       15,
@@ -1433,9 +1435,9 @@ describe("a completed roster is a roster somebody could play", () => {
     // carries four where the one-quarterback template carries two. Tight end has positive
     // wire cover in this configured league, so it needs no drafted reserve here.
     expect(positionCounts(roster)).toEqual({
-      QB: 4,
+      QB: 3,
       RB: 5,
-      WR: 3,
+      WR: 4,
       TE: 1,
       K: 1,
       DST: 1,
@@ -1449,12 +1451,29 @@ describe("a completed roster is a roster somebody could play", () => {
       15,
       undraftedOpponents(12, STANDARD_FULL),
     );
-    expect(positionCounts(standard).QB).toBe(2);
+    expect(positionCounts(standard).QB).toBe(1);
+  });
+
+  it("drafts both required quarterbacks in SUPERFLEX and 2QB", () => {
+    for (const slots of [SUPERFLEX_FULL, TWO_QB_FULL]) {
+      const roster = completeOwnRoster(
+        [], 16, fullBoard(), fullLeagueWith(slots, 10), null, 16,
+        undraftedOpponents(10, slots),
+      );
+      expect(positionCounts(roster).QB).toBeGreaterThanOrEqual(2);
+      const lineup = solveLineup(slots, roster.map((p) => ({
+        id: p.id, name: p.name, position: p.position,
+        projectedPoints: p.weeklyMean * p.availability, availability: "active" as const,
+      })));
+      expect(lineup.assignments.filter((assignment) =>
+        roster.find((p) => p.id === assignment.competitorId)?.position === "QB",
+      )).toHaveLength(2);
+    }
   });
 });
 
 describe("reserve value falls off with each body already at the position", () => {
-  it("prices the third quarterback below the second in a one-quarterback league", () => {
+  it("makes reserve quarterbacks worthless when the wire fully covers the position", () => {
     // The explicit fixture #39 asks for. The same candidate, the same board, the same
     // league — the only difference is how many quarterbacks are already held.
     const pool = fullBoard();
@@ -1484,10 +1503,9 @@ describe("reserve value falls off with each body already at the position", () =>
     // Measured: 0.29441 as the second quarterback, 0.01825 as the third, 0.00103 as the
     // fourth. Each further body ahead of him has to be out too, so it falls by more than an
     // order of magnitude a time rather than gently.
-    expect(asSecond).toBeGreaterThan(asThird);
-    expect(asThird).toBeGreaterThan(asFourth);
-    expect(asThird).toBeLessThan(asSecond / 10);
-    expect(asFourth).toBeLessThan(asThird / 10);
+    expect(asSecond).toBe(0);
+    expect(asThird).toBe(0);
+    expect(asFourth).toBe(0);
   });
 
   it("keeps valuing quarterbacks where two of them start", () => {
@@ -2545,7 +2563,7 @@ describe("the streamable-position discipline", () => {
   // rules mean anything: a template with no kicker slot prices a kicker at nothing
   // already, and the discipline would have nothing to add.
   const SHAPED = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
-  const WIRE = new Map<string, number>([["K", 1], ["DST", 1], ["TE", 0.75]]);
+  const WIRE = new Map<string, number>([["QB", 1], ["K", 1], ["DST", 1], ["TE", 0.75]]);
   const TEAMS_IN_LEAGUE = 10;
   const ROUNDS_IN_DRAFT = 16;
 
@@ -2562,7 +2580,7 @@ describe("the streamable-position discipline", () => {
       teams: TEAMS_IN_LEAGUE,
       rounds: ROUNDS_IN_DRAFT,
       roster,
-      wireCover: WIRE,
+      unprojectedPositions: UNPROJECTED,
     }).map((kept) => kept.player.id);
 
   it("withholds a streamable candidate before his own market round", () => {
@@ -2573,11 +2591,16 @@ describe("the streamable-position discipline", () => {
     expect(gate(entries, 13 - STREAMABLE_MARKET_LEAD_ROUNDS)).toEqual(["kicker", "back"]);
   });
 
-  it("leaves a position the wire does not fully supply alone, however early", () => {
-    // Tight end carries a share of 0.75 in this fixture — most of an absence, not all of
-    // it — so the depth model discounts his cover and the discipline says nothing about
-    // when he goes. Only a total share makes a position streamable here.
+  it("leaves a projected position alone, however early", () => {
+    // Tight end is projected, so the discipline says nothing about when it goes. Its
+    // fractional wire cover affects valuation separately.
     expect(gate([entry("end", "TE", 130)], 1)).toEqual(["end"]);
+  });
+
+  it("does not apply K/D-ST discipline to a projected position with total cover", () => {
+    expect(gate([entry("quarterback", "QB", 130), entry("back", "RB", 40)], 1)).toEqual([
+      "quarterback", "back",
+    ]);
   });
 
   it("withholds a second one at a streamable position outright", () => {

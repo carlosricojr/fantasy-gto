@@ -14,12 +14,14 @@ import {
   THREE_WR_TEMPLATE,
   TWO_FLEX_TEMPLATE,
   TWO_QB_TEMPLATE,
+  UNPROJECTED_POSITIONS,
   WAIVER_WIRE_COVER,
   buildSlots,
   rosterTemplateById,
   slotSummary,
   slotsForTemplate,
   templateForRoster,
+  waiverWireCover,
 } from "./roster";
 import { leagueUnfilledSlots, solveDemand } from "../core/draft-replacement";
 import { scoreCandidates, type PolicyLeague } from "../core/draft-policy";
@@ -538,12 +540,9 @@ describe("the waiver-wire cover table", () => {
     }
   });
 
-  it("supplies kicker and defence entirely, and nothing else does", () => {
-    // A share of one is what `applyStreamableDiscipline` reads as *streamable*, so this
-    // is not only a price — it decides which positions carry the reserve cap and the
-    // market-round rule. The two are exactly the positions the model does not project
-    // (`docs/draft-validation.md`), and a third one appearing here would silently widen
-    // a draft policy rather than adjust a valuation.
+  it("supplies kicker and defence entirely in the base prior", () => {
+    // This assertion owns valuation only. Projection provenance — and therefore the
+    // market-only discipline — is locked independently below.
     const total = [...WAIVER_WIRE_COVER.entries()]
       .filter(([, share]) => share >= 1)
       .map(([position]) => position)
@@ -565,5 +564,34 @@ describe("the waiver-wire cover table", () => {
     // nowhere near the best drafted one, so depth at those positions is not free.
     expect(WAIVER_WIRE_COVER.get("RB")).toBe(0);
     expect(WAIVER_WIRE_COVER.get("WR")).toBe(0);
+  });
+
+  it("derives quarterback cover from league demand and current startable supply", () => {
+    expect(waiverWireCover(10, slotsForTemplate("standard")).get("QB")).toBe(1);
+    expect(waiverWireCover(10, slotsForTemplate("superflex")).get("QB")).toBeCloseTo(0.6);
+    expect(waiverWireCover(10, slotsForTemplate("two_qb")).get("QB")).toBeCloseTo(0.6);
+  });
+
+  it("responds monotonically as QB demand consumes supply", () => {
+    const slots = slotsForTemplate("standard");
+    expect(waiverWireCover(16, slots).get("QB")).toBe(1);
+    expect(waiverWireCover(24, slots).get("QB")).toBeCloseTo(1 / 3);
+    expect(waiverWireCover(32, slots).get("QB")).toBe(0);
+    expect(waiverWireCover(40, slots).get("QB")).toBe(0);
+  });
+
+  it("keeps projection provenance separate from total QB coverage", () => {
+    expect(waiverWireCover(10, slotsForTemplate("standard")).get("QB")).toBe(1);
+    expect([...UNPROJECTED_POSITIONS].sort()).toEqual(["DST", "K"]);
+  });
+
+  it("keeps non-QB priors and handles no valid QB demand", () => {
+    const derived = waiverWireCover(10, slotsForTemplate("two_flex"));
+    for (const position of POSITIONS.filter((position) => position !== "QB")) {
+      expect(derived.get(position)).toBe(WAIVER_WIRE_COVER.get(position));
+    }
+    expect(waiverWireCover(10, buildSlots({ RB: 2 })).get("QB")).toBe(0);
+    expect(waiverWireCover(0, slotsForTemplate("standard")).get("QB")).toBe(0);
+    expect(waiverWireCover(10.5, slotsForTemplate("standard")).get("QB")).toBe(0);
   });
 });

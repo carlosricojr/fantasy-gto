@@ -111,19 +111,14 @@ export interface PolicyLeague {
   weeks: readonly number[];
   /**
    * The share of an absence the waiver wire covers for free, by position — the depth
-   * model's `wireCover`, and the source of the streamable-position discipline below.
+   * model's `wireCover`.
    *
-   * Read three times, for related purposes, and every reading comes from this one number
-   * so they cannot disagree about which positions are streamable:
+   * Read twice, for related valuation purposes:
    *
    *  - **As the value of a hypothetical signing** in the replacement baseline: an empty
    *    slot receives only the share the wire can actually supply.
    *  - **As a discount** on `coverValue`, at every position: the part of an absence the
    *    wire covers is not something a drafted reserve sells you.
-   *  - **As a definition**, at a share of one: a position the wire supplies *entirely* is
-   *    what `applyStreamableDiscipline` means by streamable, and is subject to the
-   *    reserve cap and the market-round rule.
-   *
    * A position absent from the map reads as zero — the wire covers nothing there — which
    * is the behaviour every caller had before this existed. See `LeagueConfig.wireCover`
    * for why the field is required upstream anyway.
@@ -318,8 +313,8 @@ export interface StreamableContext {
   rounds: number;
   /** The advised team's roster as it stands, for the reserve cap. */
   roster: readonly PlayerRisk[];
-  /** See `PolicyLeague.wireCover`. A share of one is what "streamable" means here. */
-  wireCover: ReadonlyMap<string, number>;
+  /** Positions whose weekly output the model does not project. */
+  unprojectedPositions: ReadonlySet<string>;
 }
 
 /**
@@ -360,13 +355,10 @@ function marketRoundOf(player: PlayerRisk, teams: number): number | null {
 /**
  * The shortlist entries the streamable-position discipline leaves standing.
  *
- * A **streamable** position is one the waiver wire supplies entirely — `wireCover` of one,
- * which in the shipped NFL table is kicker and defence, and which is argued there rather
- * than here (`lib/nfl/roster.ts`). The depth model already refuses to pay for a *reserve*
- * at such a position, because its cover term is scaled to nothing; this adds the two
- * things pricing alone cannot promise, and #91's ledger is explicit that a promise is what
- * check (b) and check (d) need — PR 3's lesson was that a fix measured on one ordering is
- * a re-roll, and only a structural exclusion is a result.
+ * The NFL adapter applies this to positions the weekly model does not project: kicker and
+ * defence. This is deliberately separate from `wireCover`. League-aware coverage can reach
+ * one for quarterback in a shallow 1-QB league, but the model still projects quarterbacks;
+ * extending K/D-ST discipline to them would conflate valuation with projection provenance.
  *
  *  - **The reserve cap.** With one already on the roster, a second is withheld. Pricing
  *    puts him at zero, which orders him last among candidates worth something and says
@@ -403,7 +395,7 @@ export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
   scored: readonly T[],
   context: StreamableContext,
 ): readonly T[] {
-  const { currentRound, teams, rounds, roster, wireCover } = context;
+  const { currentRound, teams, rounds, roster, unprojectedPositions } = context;
   if (currentRound === null) return scored;
   // The closing rounds are exempt outright, so the whole filter is skipped there rather
   // than tested per candidate.
@@ -411,10 +403,7 @@ export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
   const held = new Set(roster.map((player) => player.position));
   const kept = scored.filter((entry) => {
     const position = entry.player.position;
-    // `??` reads as `||` in a mutation report, correctly: the only falsy share is zero,
-    // which both forms send to zero. Kept as `??` so it stays right if the default ever
-    // stops being the falsy value.
-    if ((wireCover.get(position) ?? 0) < 1) return true;
+    if (!unprojectedPositions.has(position)) return true;
     if (held.has(position)) return false;
     const marketRound = marketRoundOf(entry.player, teams);
     if (marketRound === null) return false;
@@ -1302,7 +1291,7 @@ export function recommendByChampionship(
       teams: state.teams.length,
       rounds: state.rosterSize,
       roster: me.roster,
-      wireCover: config.wireCover,
+      unprojectedPositions: config.unprojectedPositions,
     }),
     me.roster,
     config.slots,

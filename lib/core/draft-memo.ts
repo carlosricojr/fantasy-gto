@@ -76,6 +76,7 @@ export function leagueFingerprint(
       .map(([position, share]) => `${position}:${share}`)
       .sort()
       .join(",")}`,
+    `unprojected=${[...config.unprojectedPositions].sort().join(",")}`,
     `seed=${seed}`,
     // The shortlist length changes both how many recommendations come back and which,
     // so an answer computed for three candidates must not be served to a request for ten.

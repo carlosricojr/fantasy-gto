@@ -22,7 +22,7 @@ import {
   replayAdpMockDraft,
   unexpectedOutcomes,
 } from "@/lib/nfl/draft/mock";
-import { WAIVER_WIRE_COVER, slotsForTemplate } from "@/lib/nfl/roster";
+import { UNPROJECTED_POSITIONS, slotsForTemplate, waiverWireCover } from "@/lib/nfl/roster";
 import { parseContests } from "@/lib/sources/nflverse";
 
 /**
@@ -56,7 +56,9 @@ import { parseContests } from "@/lib/sources/nflverse";
  * keeping `adp: null` players off the early-round shortlist; (c) passes in both on the
  * gate-reshuffled ordering, a measurement rather than a fix for its #89.A mechanism,
  * which PR 5 closed; replacement consistency later closed (e) and added the general
- * every-week playability check (g). The PR that
+ * every-week playability check (g). League-aware QB coverage adds market-lead check (h)
+ * and positional-cap check (i), closing the blind spot that let 7/7 pass with three QBs.
+ * The PR that
  * changes a check's status flips its expectation in the same commit. The exit code
  * enforces the contract in both directions:
  *
@@ -317,10 +319,8 @@ function main(): void {
     playoffTeams: PLAYOFF_TEAMS,
     scenarios: SCENARIOS,
     meanAbsenceWeeks: 3,
-    // The product's own table, like every other engine setting this script imports
-    // rather than re-declares: a harness measuring a different waiver-wire prior than
-    // the page ships would be measuring a different engine.
-    wireCover: WAIVER_WIRE_COVER,
+    wireCover: waiverWireCover(TEAMS, slots),
+    unprojectedPositions: UNPROJECTED_POSITIONS,
   };
 
   process.stdout.write(
