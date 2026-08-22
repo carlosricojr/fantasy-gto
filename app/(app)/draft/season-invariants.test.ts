@@ -326,7 +326,7 @@ describe("every league the product can express actually simulates", () => {
     ({ championshipWeek, playoffTeams }) => {
       const config: LeagueConfig = {
         wireCover: WIRE_COVER,
-    unprojectedPositions: UNPROJECTED_POSITIONS,
+        unprojectedPositions: UNPROJECTED_POSITIONS,
         slots,
         ...seasonFor(championshipWeek, playoffTeams),
         playoffTeams,

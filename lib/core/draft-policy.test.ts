@@ -1454,7 +1454,7 @@ describe("a completed roster is a roster somebody could play", () => {
     expect(positionCounts(standard).QB).toBe(1);
   });
 
-  it("drafts both required quarterbacks in SUPERFLEX and 2QB", () => {
+  it("starts two quarterbacks in SUPERFLEX and 2QB", () => {
     for (const slots of [SUPERFLEX_FULL, TWO_QB_FULL]) {
       const roster = completeOwnRoster(
         [], 16, fullBoard(), fullLeagueWith(slots, 10), null, 16,
