@@ -51,10 +51,12 @@ export interface LeagueConfig extends UtilityConfig {
    * Required rather than optional, deliberately. The default a missing field would carry
    * is "the wire covers nothing", which is the pre-#88 behaviour that drafted two kickers
    * and two defences — so a caller that forgets it would silently get the defect back.
-   * The sport layer supplies it: `WAIVER_WIRE_COVER` in `lib/nfl/roster.ts`, which is
-   * also where the argument for each entry is, since it has to name positions.
+   * The sport layer supplies it: `waiverWireCover` in `lib/nfl/roster.ts`, which derives
+   * league-aware QB coverage over the fail-closed position prior.
    */
   wireCover: ReadonlyMap<string, number>;
+  /** Positions whose draft price is market-only because the weekly model does not project them. */
+  unprojectedPositions: ReadonlySet<string>;
 }
 
 export interface TeamOutcome {

@@ -464,7 +464,7 @@ export function replayAdpMockDraft(
 // measured to do today, and the PR that fixes the finding flips it. #91 is the ledger.
 // ---------------------------------------------------------------------------------------
 
-export type CheckId = "a" | "b" | "c" | "d" | "e" | "f" | "g";
+export type CheckId = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i";
 
 /**
  * Rounds counted as "early" for the market-discipline check (a).
@@ -484,6 +484,9 @@ export const MARKET_ROUND_TOLERANCE = 2;
 
 /** The fewest wide receivers a half-PPR 2-FLEX roster can defend (e). */
 export const MIN_WIDE_RECEIVERS = 4;
+
+/** Smallest whole-round bound that accepts both corrected replays (five frozen, six scheduled). */
+export const SKILL_MARKET_LEAD_ROUNDS = 6;
 
 /**
  * Which board the replay ran on: the frozen fixture verbatim, or the fixture with byes
@@ -687,6 +690,25 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
       "the replay finished with four QBs in frozen mode and six TEs with schedule byes, " +
       "while its starting lineup could not be covered through every bye week",
   },
+  {
+    id: "h",
+    title: `no market-priced skill player is taken more than ${SKILL_MARKET_LEAD_ROUNDS} rounds before his market round`,
+    // Before league-aware QB cover, schedule-byes took Caleb Williams seven rounds early.
+    // Six is measured, not chosen: it is the smallest bound both corrected modes pass.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
+    audit: "the frozen replay took Stafford six rounds early; schedule-byes took Caleb Williams seven rounds early",
+  },
+  {
+    id: "i",
+    title: "no position exceeds its startable slots plus its measured reserve allowance",
+    // One reserve per dedicated modeled starter, plus one shared reserve for a position
+    // eligible at FLEX. Schedule-byes measures the latter: seven RBs against four starts.
+    // Market-only K/D-ST get no reserve. Three QBs exceed one start plus one reserve.
+    expected: "pass",
+    expectedWithScheduleByes: "pass",
+    audit: "all prior seven checks passed while both replay modes carried three QBs in a 1-QB league",
+  },
 ];
 
 export interface CheckOutcome extends CheckDefinition {
@@ -722,7 +744,7 @@ export function evaluateChecks(
     rowById.get(playerId) ?? fail(`replay picked ${playerId}, which is not on the board`);
   const mine = replay.picks.filter((pick) => pick.mine);
   const violations: Record<CheckId, string[]> = {
-    a: [], b: [], c: [], d: [], e: [], f: [], g: [],
+    a: [], b: [], c: [], d: [], e: [], f: [], g: [], h: [], i: [],
   };
 
   // (a) A row the market has not ranked must not lead an early-round panel. The leader is
@@ -870,6 +892,47 @@ export function evaluateChecks(
     if (empty.length > 0) {
       violations.g.push(
         `week ${week}: cannot fill ${empty.map((assignment) => assignment.slotLabel).join(", ")}`,
+      );
+    }
+  }
+
+  // (h) Unpriced rows are owned by check (a)'s explicit window, not assigned a fake round.
+  const skillPositions = new Set(["QB", "RB", "WR", "TE"]);
+  for (const pick of mine) {
+    const row = rowFor(pick.playerId);
+    if (!skillPositions.has(row.position) || row.adp === null) continue;
+    const marketRound = Math.ceil(row.adp / teams);
+    const lead = marketRound - pick.round;
+    if (lead > SKILL_MARKET_LEAD_ROUNDS) {
+      violations.h.push(
+        `${row.position} ${row.name} at ${pick.label}, ${lead} rounds ahead of its ` +
+          `round-${marketRound} market (ADP ${row.adp.toFixed(1)})`,
+      );
+    }
+  }
+
+  // (i) FLEX creates one shared reserve allowance, not one per flexible slot.
+  const rosterCounts = new Map<string, number>();
+  for (const player of finalRoster) {
+    // `?? 0` and `|| 0` are equivalent here: counts are positive once present, and the
+    // only falsy numeric value is the fallback itself.
+    rosterCounts.set(player.position, (rosterCounts.get(player.position) ?? 0) + 1);
+  }
+  for (const [position, count] of rosterCounts) {
+    const startable = replay.setup.config.slots.filter((slot) =>
+      slot.eligiblePositions.includes(position)).length;
+    const dedicated = replay.setup.config.slots.filter((slot) =>
+      slot.eligiblePositions.length === 1 && slot.eligiblePositions[0] === position).length;
+    const flexReserve = replay.setup.config.slots.some((slot) =>
+      slot.eligiblePositions.length > 1 && slot.eligiblePositions.includes(position)) ? 1 : 0;
+    const reserve = replay.setup.config.unprojectedPositions.has(position)
+      ? 0
+      : dedicated + flexReserve;
+    const limit = startable + reserve;
+    if (count > limit) {
+      violations.i.push(
+        `${count} ${position === "DST" ? "D/ST" : position} drafted; ${startable} ` +
+          `startable slot${startable === 1 ? "" : "s"} + ${reserve} reserve allowance permits ${limit}`,
       );
     }
   }

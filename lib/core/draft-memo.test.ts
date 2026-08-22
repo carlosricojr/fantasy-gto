@@ -41,9 +41,11 @@ const ROUNDS = 6;
  * product's — `lib/nfl/roster.ts` owns the shipped table.
  */
 const WIRE_COVER = new Map<string, number>([["TE", 0.75]]);
+const UNPROJECTED = new Set<string>();
 
 const CONFIG: LeagueConfig = {
   wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
   slots: SLOTS,
   weeks: Array.from({ length: 12 }, (_, i) => i + 1),
   playoffWeeks: [13, 14],
@@ -166,6 +168,13 @@ describe("leagueFingerprint separates leagues that are genuinely different", () 
     expect(
       leagueFingerprint({ ...CONFIG, weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }, 1),
     ).not.toBe(base);
+  });
+
+  it("separates projection provenance and ignores set insertion order", () => {
+    const a = { ...CONFIG, unprojectedPositions: new Set(["K", "DST"]) };
+    const b = { ...CONFIG, unprojectedPositions: new Set(["DST", "K"]) };
+    expect(leagueFingerprint(a, 1)).not.toBe(base);
+    expect(leagueFingerprint(a, 1)).toBe(leagueFingerprint(b, 1));
   });
 
   it("separates different simulation settings", () => {

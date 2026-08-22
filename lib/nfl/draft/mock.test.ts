@@ -10,7 +10,7 @@ import {
 } from "../../core/draft-policy";
 import type { PlayerRisk } from "../../core/roster-utility";
 import { type LeagueConfig, fantasySeasonWeeks } from "../../core/season-sim";
-import { WAIVER_WIRE_COVER, slotsForTemplate } from "../roster";
+import { UNPROJECTED_POSITIONS, WAIVER_WIRE_COVER, slotsForTemplate } from "../roster";
 import { teamIndexForSeat } from "../../core/draft";
 import { teamByeWeeks } from "../byes";
 import { parseCsv } from "../csv";
@@ -20,6 +20,7 @@ import {
   EARLY_ROUNDS,
   MARKET_ROUND_TOLERANCE,
   MIN_WIDE_RECEIVERS,
+  SKILL_MARKET_LEAD_ROUNDS,
   STREAMABLE_CLOSING_ROUNDS,
   type MockBoardRow,
   type MockDraftReplay,
@@ -114,6 +115,7 @@ function syntheticBoard(): MockBoardRow[] {
 function smallSetup(): MockDraftSetup {
   const config: LeagueConfig = {
     wireCover: WIRE_COVER,
+    unprojectedPositions: UNPROJECTED_POSITIONS,
     slots: slotsForTemplate("two_flex"),
     ...fantasySeasonWeeks(17, 4),
     playoffTeams: 4,
@@ -175,6 +177,7 @@ function replayFromOwnPicks(
   const slot = 5;
   const config: LeagueConfig = {
     wireCover: WIRE_COVER,
+    unprojectedPositions: UNPROJECTED_POSITIONS,
     slots: slotsForTemplate("two_flex"),
     ...fantasySeasonWeeks(17, 6),
     playoffTeams: 6,
@@ -613,6 +616,7 @@ describe("replayAdpMockDraft", () => {
     );
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+      unprojectedPositions: UNPROJECTED_POSITIONS,
       slots: slotsForTemplate("two_flex"),
       ...fantasySeasonWeeks(17, 2),
       playoffTeams: 2,
@@ -684,6 +688,7 @@ describe("replayAdpMockDraft", () => {
   it("plays a single-round draft from the first seat: both boundaries are legal", () => {
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+      unprojectedPositions: UNPROJECTED_POSITIONS,
       slots: slotsForTemplate("two_flex"),
       ...fantasySeasonWeeks(17, 2),
       playoffTeams: 2,
@@ -761,7 +766,7 @@ describe("stateAtPick", () => {
 });
 
 describe("evaluateChecks", () => {
-  it("documents seven checks with the expectations both replay modes measured", () => {
+  it("documents nine checks with the expectations both replay modes measured", () => {
     expect(CHECK_DEFINITIONS.map((entry) => entry.id)).toEqual([
       "a",
       "b",
@@ -770,6 +775,8 @@ describe("evaluateChecks", () => {
       "e",
       "f",
       "g",
+      "h",
+      "i",
     ]);
     // As measured on the merged engine — PR 2's bye charge, PR 4's paired tie ranking,
     // PR 3's market-discipline gate, PR 5's streamable-position discipline. (f) is closed
@@ -785,11 +792,13 @@ describe("evaluateChecks", () => {
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expected}`),
     ).toEqual([
       "a:pass", "b:pass", "c:pass", "d:pass", "e:pass", "f:pass", "g:pass",
+      "h:pass", "i:pass",
     ]);
     expect(
       CHECK_DEFINITIONS.map((entry) => `${entry.id}:${entry.expectedWithScheduleByes}`),
     ).toEqual([
       "a:pass", "b:pass", "c:pass", "d:pass", "e:pass", "f:pass", "g:pass",
+      "h:pass", "i:pass",
     ]);
   });
 
@@ -1128,6 +1137,55 @@ describe("evaluateChecks", () => {
     const flagged = outcome(unplayable.replay, unplayable.board, "g");
     expect(flagged.status).toBe("fail");
     expect(flagged.violations).toContain("week 1: cannot fill QB");
+  });
+
+  it("(h) enforces the measured skill-position market lead", () => {
+    const qb = row("qb", "QB", 250, 81); // round-9 market in ten teams
+    // The first filler is deliberately a round-16 D/ST at round 1: check (h) must ignore
+    // it because K/D-ST market timing belongs to check (d), not the skill-position bound.
+    const fillers = Array.from({ length: 15 }, (_, i) =>
+      row(`h${i}`, i === 0 ? "DST" : "WR", 200 - i, i === 0 ? 160 : i + 1));
+    const replayAt = (round: number) => replayFromOwnPicks(
+      [qb, ...fillers.map((entry) => ({ ...entry }))],
+      Array.from({ length: 16 }, (_, i) => ({
+        round: i + 1,
+        playerId: i === round - 1 ? "qb" : `h${i - (i > round - 1 ? 1 : 0)}`,
+      })),
+    );
+    expect(SKILL_MARKET_LEAD_ROUNDS).toBe(6);
+    const tooEarly = replayAt(2);
+    const boundary = replayAt(3);
+    expect(outcome(tooEarly.replay, tooEarly.board, "h").status).toBe("fail");
+    expect(outcome(tooEarly.replay, tooEarly.board, "h").violations.join("\n"))
+      .toContain("ADP 81.0)");
+    expect(outcome(boundary.replay, boundary.board, "h").status).toBe("pass");
+  });
+
+  it("(i) caps QB and FLEX-position depth at their measured allowances", () => {
+    const resultFor = (positions: string[]) => {
+      const rows = positions.map((position, i) => row(`i${i}`, position, 200 - i, i + 1));
+      return outcome(
+        replayFromOwnPicks(rows, positions.map((_, i) => ({ round: i + 1, playerId: `i${i}` }))).replay,
+        rows,
+        "i",
+      );
+    };
+    expect(resultFor([
+      "QB", "QB", "QB", "RB", "RB", "RB", "RB", "WR",
+      "WR", "WR", "WR", "TE", "TE", "K", "DST", "RB",
+    ]).violations).toContain("3 QB drafted; 1 startable slot + 1 reserve allowance permits 2");
+    expect(resultFor([
+      "QB", "QB", "RB", "RB", "RB", "RB", "RB", "RB",
+      "RB", "RB", "WR", "WR", "WR", "TE", "K", "DST",
+    ]).violations).toContain("8 RB drafted; 4 startable slots + 3 reserve allowance permits 7");
+    expect(resultFor([
+      "QB", "RB", "RB", "RB", "RB", "RB", "RB", "WR",
+      "WR", "WR", "WR", "TE", "TE", "K", "K", "DST",
+    ]).violations).toContain("2 K drafted; 1 startable slot + 0 reserve allowance permits 1");
+    expect(resultFor([
+      "QB", "QB", "RB", "RB", "RB", "RB", "RB", "RB",
+      "RB", "WR", "WR", "WR", "WR", "TE", "K", "DST",
+    ]).status).toBe("pass");
   });
 
   it("(f) flags a leader displayed below a runner-up's championship odds", () => {

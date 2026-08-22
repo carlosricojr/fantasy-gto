@@ -37,9 +37,11 @@ const SLOTS: RosterSlot[] = [
  * consults it, and it keeps these fixtures describing the season alone.
  */
 const WIRE_COVER = new Map<string, number>();
+const UNPROJECTED = new Set<string>();
 
 const CONFIG: LeagueConfig = {
   wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
   slots: SLOTS,
   weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   playoffWeeks: [15, 16],
@@ -491,6 +493,7 @@ describe("team zero winning is not the same as nobody winning", () => {
     // the sentinel lives.
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: SLOTS,
       ...fantasySeasonWeeks(16, 4),
       playoffTeams: 4,
@@ -555,6 +558,7 @@ describe("every league the product can express simulates coherently", () => {
     if (held !== undefined) return held;
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: SLOTS,
       ...fantasySeasonWeeks(championshipWeek, playoffTeams),
       playoffTeams,
@@ -656,6 +660,7 @@ describe("every league the product can express simulates coherently", () => {
     // is accepted and everyone qualifies, and nothing about how the bracket is then played.
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: SLOTS,
       ...fantasySeasonWeeks(15, TEAMS),
       playoffTeams: TEAMS,
@@ -686,6 +691,7 @@ describe("every league the product can express simulates coherently", () => {
 describe("a bye after the final costs nothing at all", () => {
   const config: LeagueConfig = {
     wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
     slots: SLOTS,
     ...fantasySeasonWeeks(15, 6),
     playoffTeams: 6,
@@ -751,6 +757,7 @@ describe("a bye after the final costs nothing at all", () => {
     const soloSlots: RosterSlot[] = [{ id: "rb", label: "RB", eligiblePositions: ["RB"] }];
     const soloConfig: LeagueConfig = {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: soloSlots,
       weeks: [1, 2, 3, 4, 5, 6, 7, 8],
       playoffWeeks: [9, 10],
@@ -825,6 +832,7 @@ describe("when the final is played changes what a bye is worth", () => {
 
   const league = (championshipWeek: number, playoffTeams: number): LeagueConfig => ({
     wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
     slots: SLOTS,
     ...fantasySeasonWeeks(championshipWeek, playoffTeams),
     playoffTeams,
@@ -882,6 +890,7 @@ describe("ties and bracket sufficiency", () => {
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
   const cfg: LeagueConfig = {
     wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
     slots: SLOTS,
     weeks,
     playoffWeeks: [15, 16],
@@ -1346,6 +1355,7 @@ describe("league sizes at the boundary", () => {
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
   const cfg: LeagueConfig = {
     wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
     slots: SLOTS,
     weeks,
     playoffWeeks: [15, 16],
@@ -1465,6 +1475,7 @@ describe("the tiebreak key is a fixed function, not just any function", () => {
     const tied = Array.from({ length: 8 }, () => [[...weeks, 15, 16].map(() => 0)]);
     const outcomes = simulateLeague(tied, {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: SLOTS,
       weeks,
       playoffWeeks: [15, 16],
@@ -1539,6 +1550,7 @@ describe("league-wide conservation", () => {
     it(`adds up across ${count} teams`, () => {
       const config: LeagueConfig = {
         wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
         slots: SLOTS,
         weeks: Array.from({ length: 14 }, (_, i) => i + 1),
         playoffWeeks: [15, 16, 17],
@@ -1577,6 +1589,7 @@ describe("league-wide conservation", () => {
     // breaking ties by position gave it a championship probability of exactly 1.
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
       slots: SLOTS,
       weeks: Array.from({ length: 14 }, (_, i) => i + 1),
       playoffWeeks: [15, 16, 17],

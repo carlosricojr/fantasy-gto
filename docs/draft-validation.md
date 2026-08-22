@@ -667,26 +667,34 @@ times `wireCover`. `coverValue` uses the same covered level for an absent starte
 the drafted cover term by what remains. The table is `WAIVER_WIRE_COVER` in
 `lib/nfl/roster.ts`, which is where it has to live: the argument for each entry names
 positions, and `lib/core` may not. Kicker and defense are one, tight end is three quarters,
-quarterback, back and receiver are zero.
+and back and receiver are zero. Quarterback's zero is fail-closed: product callers replace
+it with `waiverWireCover`'s league-aware result.
 
 **This is judgement, not measurement, and is marked as such** — the same status
 `meanAbsenceWeeks` carries. What would settle it is the weekly value of the best free agent
 at each position, which nothing here measures; the K/D-ST weekly spread is still the
-`placeholder` band (#90.4). It is also not league-aware: a sixteen-team league's wire is
-thinner than a ten-team league's and these constants are the same in both.
+`placeholder` band (#90.4). Quarterback is the structurally derived exception: one startable
+QB per current NFL team, against demand from the fantasy league's actual QB-eligible slots.
+Coverage is `min(1, (32 - demand) / demand)` — free startable bodies per demanded starter.
+A 10-team 1-QB league derives **1.00**; a 10-team SUPERFLEX/2QB league derives **0.60**.
+A 12-team two-QB shape instead derives `8 / 24`, or **0.33**. All three producers call the
+same function, and `wireCover` remains in the memo fingerprint. It is a static pre-draft
+estimate and deliberately does not claim to observe the live wire after benches fill.
 
 The distinction between raw and covered replacement matters. League demand is still solved
 against the real board, so the same players are consumed by FLEX and dedicated slots. What
-changes is what can be obtained for free after that demand: at WR, RB, and QB the covered
-level is zero, matching the season objective's value for an unfilled slot; at K and D/ST it
-is the whole raw level; at TE it is three quarters. A drafted player's own starting value is
-still the lineup solver's answer.
+changes is what can be obtained for free after that demand: at WR/RB the covered level is
+zero, at K/D-ST it is the whole raw level, at TE it is three quarters, and at QB it is the
+league-derived share. A drafted player's own starting value is still the lineup solver's
+answer.
 
 ### Streamable-position discipline
 
-A share of one — the wire supplies the position entirely — also defines *streamable*, and
-`applyStreamableDiscipline` (`lib/core/draft-policy.ts`) applies two rules to exactly those
-positions, on the recommendation shortlist only:
+`applyStreamableDiscipline` is keyed separately to positions the weekly model does not
+project — K and D/ST — and applies two rules on the recommendation shortlist only. It does
+not infer this policy from cover: a 1-QB league now has full QB cover while QB remains a
+modeled position, so applying K/D-ST discipline there would conflate valuation with
+projection provenance.
 
 - **Not before the market's own round.** The model does not project kickers or defenses;
   their whole price is the market's and their spread is a placeholder, so an engine taking
@@ -730,6 +738,24 @@ positive; a zero-cover WR, RB, or QB hole cannot be hidden. This is the same exa
 the objective uses and catches excess-at-one-position rosters that a WR count cannot,
 including the four-QB and six-TE finishes above. Both replay modes pass. Check (e) is retained
 as the narrower historical regression lock rather than retired.
+
+### League-aware QB replacement
+
+The seven-check harness still allowed three QBs in a 1-QB roster. With QB cover at zero,
+replacement `lineupValue` was zero, so the prefilter compared QBs at roughly 255 raw points
+against RB/WR replacement deltas around 170. At 2.06 its top eight candidates were QBs.
+
+After the 1.00 derivation, frozen carries exactly one QB (Justin Herbert, 11.05, market round
+11) and schedule-byes carries one (Bo Nix, 12.06, market round 12). Frozen changes from
+`3 QB / 6 RB / 4 WR / 1 TE / 1 K / 1 D/ST` to `1 / 6 / 4 / 3 / 1 / 1`; schedule-byes
+changes from `3 / 5 / 4 / 2 / 1 / 1` to `1 / 7 / 5 / 1 / 1 / 1`.
+
+Checks (h) and (i) close the blind spot. (h) rejects a priced skill player more than six
+rounds early: six is the smallest bound both corrected modes pass, while the old scheduled
+replay failed at seven. (i) caps a position at its startable slots plus one reserve per
+dedicated modeled starter and one shared reserve if it participates in FLEX. The latter is
+measured by scheduled mode's seven RBs against four RB/FLEX starts; market-only K/D/ST get
+no reserve. The former three-QB roster exceeds one QB start plus one reserve.
 
 ## The part that is provable
 

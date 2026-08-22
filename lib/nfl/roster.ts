@@ -1,6 +1,7 @@
 import type { RosterSlot } from "../core/optimizer";
 
 import type { Position } from "./scoring/types";
+import { CURRENT_TEAMS } from "./teams";
 
 /**
  * Roster shapes.
@@ -227,18 +228,13 @@ export const SHALLOW_BENCH_TEMPLATE: RosterTemplate = {
  *    top of the position is separated from the wire by far more than the top kicker is,
  *    which is why this diminishes cover rather than deleting it. This is the "TE cover
  *    diminishing far faster" of #88's finding 3.
- *  - **QB, RB, WR — 0.** Backs and receivers are the half of the note that says the best
- *    undrafted back is nowhere near the best drafted one: a ten-team league with two
- *    flexible slots rosters most of the startable supply at both. Quarterback is the
- *    interesting exclusion — a one-quarterback league streams the position much like a
- *    tight end, and #89.A's Goff-then-Nix pair is exactly that mistake — but this table
- *    is one global judgement per position and a SUPERFLEX or 2QB league starts two, where
- *    the same number would be plainly wrong. Deferred rather than guessed.
- *
- * **What this deliberately does not know: the league.** A sixteen-team league's wire is
- * thinner than a ten-team league's, and a two-flex league's is thinner than a standard
- * league's, and these constants are the same in all of them. Making them league-aware
- * needs the measurement above, not a second constant.
+ *  - **RB and WR — 0.** The best undrafted back is nowhere near the best drafted one: a
+ *    ten-team league with two flexible slots rosters most of the startable supply at both.
+ *  - **QB — 0 only as the fail-closed base.** A one-quarterback league streams the
+ *    position while SUPERFLEX/2QB does not. Every product producer calls
+ *    `waiverWireCover`, below, which replaces this zero with a league-aware measurement
+ *    from demand versus the 32 current NFL starters. Keeping the base at zero means a new
+ *    caller that forgets the derivation cannot silently claim free QB coverage.
  */
 export const WAIVER_WIRE_COVER: ReadonlyMap<Position, number> = new Map([
   ["QB", 0],
@@ -248,6 +244,32 @@ export const WAIVER_WIRE_COVER: ReadonlyMap<Position, number> = new Map([
   ["K", 1],
   ["DST", 1],
 ]);
+
+/** Positions whose draft rows are priced entirely by the market, not by the weekly model. */
+export const UNPROJECTED_POSITIONS: ReadonlySet<Position> = new Set(["K", "DST"]);
+
+/**
+ * Derives QB waiver coverage from league demand against current startable supply.
+ *
+ * Coverage is free startable quarterbacks per demanded starter, capped to a share. A
+ * ten-team 1-QB league derives `(32 - 10) / 10`, capped to 1; SUPERFLEX/2QB derives
+ * `(32 - 20) / 20 = 0.6`. Both inputs are measured data already owned here — current NFL
+ * teams and slot eligibility — rather than a second QB constant chosen to fit one mock.
+ */
+export function waiverWireCover(
+  fantasyTeams: number,
+  slots: readonly RosterSlot[],
+): ReadonlyMap<Position, number> {
+  const cover = new Map(WAIVER_WIRE_COVER);
+  // `> 0` becoming `>= 0` is equivalent because zero still produces zero demand and the
+  // conditional below refuses to divide by it. The strict form states the valid input.
+  const teams = Number.isInteger(fantasyTeams) && fantasyTeams > 0 ? fantasyTeams : 0;
+  const qbSlots = slots.filter((slot) => slot.eligiblePositions.includes("QB")).length;
+  const demand = teams * qbSlots;
+  const freeStartable = Math.max(CURRENT_TEAMS.length - demand, 0);
+  cover.set("QB", demand > 0 ? Math.min(freeStartable / demand, 1) : 0);
+  return cover;
+}
 
 export const ROSTER_TEMPLATES: readonly RosterTemplate[] = [
   STANDARD_TEMPLATE,

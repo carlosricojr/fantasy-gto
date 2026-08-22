@@ -37,9 +37,11 @@ const ROUNDS = 8;
 
 /** The draft policy's waiver-wire cover. Nothing this file measures depends on it. */
 const WIRE_COVER = new Map<string, number>();
+const UNPROJECTED = new Set<string>();
 
 const CONFIG: LeagueConfig = {
   wireCover: WIRE_COVER,
+  unprojectedPositions: UNPROJECTED,
   slots: SLOTS,
   weeks: Array.from({ length: 12 }, (_, i) => i + 1),
   playoffWeeks: [13, 14],
