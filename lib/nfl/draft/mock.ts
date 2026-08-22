@@ -914,6 +914,8 @@ export function evaluateChecks(
   // (i) FLEX creates one shared reserve allowance, not one per flexible slot.
   const rosterCounts = new Map<string, number>();
   for (const player of finalRoster) {
+    // `?? 0` and `|| 0` are equivalent here: counts are positive once present, and the
+    // only falsy numeric value is the fallback itself.
     rosterCounts.set(player.position, (rosterCounts.get(player.position) ?? 0) + 1);
   }
   for (const [position, count] of rosterCounts) {

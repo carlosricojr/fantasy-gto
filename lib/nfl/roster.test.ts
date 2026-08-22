@@ -507,6 +507,9 @@ describe("templateForRoster", () => {
     expect(
       templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 2 }, 15),
     ).toBeNull();
+    expect(
+      templateForRoster({ ...STANDARD_TEMPLATE.counts, IDP: 1 }, 15),
+    ).toBeNull();
     // ...but the same kind at zero is absent rather than an extra slot, which is the
     // documented equivalence and the shape a provider that enumerates every kind it knows
     // about actually sends. Without this, narrowing the guard from `(count ?? 0) > 0` to a
@@ -574,6 +577,7 @@ describe("the waiver-wire cover table", () => {
 
   it("responds monotonically as QB demand consumes supply", () => {
     const slots = slotsForTemplate("standard");
+    expect(waiverWireCover(1, slots).get("QB")).toBe(1);
     expect(waiverWireCover(16, slots).get("QB")).toBe(1);
     expect(waiverWireCover(24, slots).get("QB")).toBeCloseTo(1 / 3);
     expect(waiverWireCover(32, slots).get("QB")).toBe(0);

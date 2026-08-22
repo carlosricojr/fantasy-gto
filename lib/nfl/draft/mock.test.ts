@@ -1141,7 +1141,10 @@ describe("evaluateChecks", () => {
 
   it("(h) enforces the measured skill-position market lead", () => {
     const qb = row("qb", "QB", 250, 81); // round-9 market in ten teams
-    const fillers = Array.from({ length: 15 }, (_, i) => row(`h${i}`, "WR", 200 - i, i + 1));
+    // The first filler is deliberately a round-16 D/ST at round 1: check (h) must ignore
+    // it because K/D-ST market timing belongs to check (d), not the skill-position bound.
+    const fillers = Array.from({ length: 15 }, (_, i) =>
+      row(`h${i}`, i === 0 ? "DST" : "WR", 200 - i, i === 0 ? 160 : i + 1));
     const replayAt = (round: number) => replayFromOwnPicks(
       [qb, ...fillers.map((entry) => ({ ...entry }))],
       Array.from({ length: 16 }, (_, i) => ({
@@ -1153,6 +1156,8 @@ describe("evaluateChecks", () => {
     const tooEarly = replayAt(2);
     const boundary = replayAt(3);
     expect(outcome(tooEarly.replay, tooEarly.board, "h").status).toBe("fail");
+    expect(outcome(tooEarly.replay, tooEarly.board, "h").violations.join("\n"))
+      .toContain("ADP 81.0)");
     expect(outcome(boundary.replay, boundary.board, "h").status).toBe("pass");
   });
 
@@ -1173,6 +1178,14 @@ describe("evaluateChecks", () => {
       "QB", "QB", "RB", "RB", "RB", "RB", "RB", "RB",
       "RB", "RB", "WR", "WR", "WR", "TE", "K", "DST",
     ]).violations).toContain("8 RB drafted; 4 startable slots + 3 reserve allowance permits 7");
+    expect(resultFor([
+      "QB", "RB", "RB", "RB", "RB", "RB", "RB", "WR",
+      "WR", "WR", "WR", "TE", "TE", "K", "K", "DST",
+    ]).violations).toContain("2 K drafted; 1 startable slot + 0 reserve allowance permits 1");
+    expect(resultFor([
+      "QB", "QB", "RB", "RB", "RB", "RB", "RB", "RB",
+      "RB", "WR", "WR", "WR", "WR", "TE", "K", "DST",
+    ]).status).toBe("pass");
   });
 
   it("(f) flags a leader displayed below a runner-up's championship odds", () => {

@@ -261,6 +261,8 @@ export function waiverWireCover(
   slots: readonly RosterSlot[],
 ): ReadonlyMap<Position, number> {
   const cover = new Map(WAIVER_WIRE_COVER);
+  // `> 0` becoming `>= 0` is equivalent because zero still produces zero demand and the
+  // conditional below refuses to divide by it. The strict form states the valid input.
   const teams = Number.isInteger(fantasyTeams) && fantasyTeams > 0 ? fantasyTeams : 0;
   const qbSlots = slots.filter((slot) => slot.eligiblePositions.includes("QB")).length;
   const demand = teams * qbSlots;
