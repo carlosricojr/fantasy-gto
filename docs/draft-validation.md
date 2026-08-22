@@ -676,9 +676,10 @@ at each position, which nothing here measures; the K/D-ST weekly spread is still
 `placeholder` band (#90.4). Quarterback is the structurally derived exception: one startable
 QB per current NFL team, against demand from the fantasy league's actual QB-eligible slots.
 Coverage is `min(1, (32 - demand) / demand)` — free startable bodies per demanded starter.
-A 10-team 1-QB league derives **1.00**; SUPERFLEX/2QB derives **0.60**. All three producers
-call the same function, and `wireCover` remains in the memo fingerprint. It is a static
-pre-draft estimate and deliberately does not claim to observe the live wire after benches fill.
+A 10-team 1-QB league derives **1.00**; a 10-team SUPERFLEX/2QB league derives **0.60**.
+A 12-team two-QB shape instead derives `8 / 24`, or **0.33**. All three producers call the
+same function, and `wireCover` remains in the memo fingerprint. It is a static pre-draft
+estimate and deliberately does not claim to observe the live wire after benches fill.
 
 The distinction between raw and covered replacement matters. League demand is still solved
 against the real board, so the same players are consumed by FLEX and dedicated slots. What
