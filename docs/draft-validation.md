@@ -139,9 +139,9 @@ handicapping the baseline.**
   the tool unusable for any league that starts one.
 - **2025 and 2026 are not evaluated in the published ranking table.** The evaluation was
   frozen on 2024 before its result was read. Fantasy Football Calculator has since
-  published a 2025 board, which production uses as already-played training data for a 2026
-  curve; scoring 2025 now as a replacement evaluation would discard the held-out protocol
-  rather than extend it.
+  published a 2025 board, which production uses as training data from the completed 2025
+  season for a 2026 curve; scoring 2025 now as a replacement evaluation would discard the
+  held-out protocol rather than extend it.
 
 ### The market curve is monotone by construction
 
