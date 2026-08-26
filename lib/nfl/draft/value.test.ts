@@ -12,7 +12,13 @@ import {
   perGameRate,
   seasonProjection,
 } from "./value";
-import { AVAILABILITY_FLOOR, GAMES_IN_SEASON, MODEL_BLEND_WEIGHT } from "./config";
+import {
+  AVAILABILITY_FLOOR,
+  DRAFTABLE_POSITIONS,
+  GAMES_IN_SEASON,
+  MODELED_POSITIONS,
+  MODEL_BLEND_WEIGHT,
+} from "./config";
 import { rosterUtility } from "../../core/roster-utility";
 
 /**
@@ -339,6 +345,40 @@ describe("fitAdpCurves, per position", () => {
       adpImpliedPoints(9, "TE", oneShort)!,
       1,
     );
+  });
+
+  it("makes every displayed position non-increasing in ADP", () => {
+    // Actual season totals can rise with ADP when early picks miss time. Both fitted
+    // positions deliberately do that here, which also makes the pooled fallback rise
+    // before the shape constraint is applied. The invariant belongs at the public pricing
+    // boundary: every position the board can display, including thin K/DST fallbacks.
+    const rising = (position: string, base: number) =>
+      [2, 5, 12, 24, 50, 80, 140, 200].map((adp) => ({
+        adp,
+        actualSeasonPoints: base + 20 * Math.log(adp),
+        position,
+      }));
+    const curves = fitAdpCurves(
+      MODELED_POSITIONS.flatMap((position, index) => rising(position, 150 + index * 25)),
+      2025,
+    );
+    const adps = [1, 5, 31, 80, 174.8, 200];
+
+    for (const position of DRAFTABLE_POSITIONS) {
+      const prices = adps.map((adp) => adpImpliedPoints(adp, position, curves)!);
+      for (let i = 1; i < prices.length; i += 1) {
+        expect(prices[i]).toBeLessThanOrEqual(prices[i - 1]);
+      }
+    }
+
+    // The production regression in concrete terms: Josh Allen's ADP was 31 and Jacoby
+    // Brissett's 174.8. A noisy positive fit may tie them, but can never value Brissett
+    // above Allen again.
+    expect(adpImpliedPoints(31, "QB", curves)!).toBeGreaterThanOrEqual(
+      adpImpliedPoints(174.8, "QB", curves)!,
+    );
+    expect(curves.byPosition.QB.slope).toBe(0);
+    expect(curves.pooled!.slope).toBe(0);
   });
 });
 

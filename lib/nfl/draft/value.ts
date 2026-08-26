@@ -123,12 +123,23 @@ export interface AdpCurveSet {
 export const MIN_CURVE_SAMPLES = 8;
 
 /**
- * Fits the ADP-to-points curve by least squares on log(ADP).
+ * Fits the ADP-to-points curve by least squares on log(ADP), constrained to a
+ * non-positive slope.
  *
  * Must be fitted on a season that has already been played, and never on the season being
  * projected — the whole point is to learn what a given draft slot has historically been
  * worth, then apply it to this year's slots. Fitting on the target season would be
  * reading the answers.
+ *
+ * The constraint is part of the model, not a cleanup applied while displaying it. A later
+ * draft slot cannot imply more market value than an earlier one. On a thin position,
+ * however, fitting actual season totals transfers injuries into the samples: the 2025
+ * Half-PPR quarterbacks produced a +10.82 unconstrained slope after several early picks
+ * missed time while late picks played full seasons. For a positive unconstrained slope,
+ * the least-squares solution under `slope <= 0` is the boundary slope of zero and an
+ * intercept at the sample mean. That keeps the position-specific level — pooled is
+ * measurably wrong for quarterbacks — while honestly admitting that this season supplied
+ * no usable within-position ordering.
  */
 export function fitAdpCurve(
   samples: readonly AdpCurveSample[],
@@ -161,7 +172,10 @@ export function fitAdpCurve(
   }
   if (variance === 0) return null;
 
-  const slope = covariance / variance;
+  // This is the closed-form constrained least-squares solution. When the unconstrained
+  // optimum is positive, the closest permitted optimum is the boundary at zero; refitting
+  // the intercept below then makes the flat curve the mean of the observed season totals.
+  const slope = Math.min(0, covariance / variance);
   return {
     slope,
     intercept: meanY - slope * meanX,

@@ -98,7 +98,10 @@ handicapping the baseline.**
 - **The market.** ADP converted to implied points by a least-squares fit on log(ADP),
   **one curve per position**, fitted on a season already finished — 2022 for the tuning
   run, 2023 for the evaluation run. Fitting on the season being projected would be reading
-  the answers. Positions with fewer than 8 players fall back to a pooled curve.
+  the answers. The fit is shape-constrained to a non-positive slope: when a noisy played
+  season says later picks were worth more, the constrained least-squares solution is flat
+  at that position's mean rather than an inverted ordering. Positions with fewer than 8
+  players fall back to the likewise constrained pooled curve.
 - **Metric.** Spearman rank correlation against actual season PPR points, plus mean actual
   points of each method's top 24 and 48. Rank correlation is right for a draft: nobody
   cares whether a projection said 240 or 260, they care who to take first.
@@ -134,8 +137,46 @@ handicapping the baseline.**
   alone rather than a fabricated number. They *are* on the board and draftable — see
   "League rules" below. Leaving them off entirely was the previous behavior and it made
   the tool unusable for any league that starts one.
-- **2025 and 2026 are not evaluated.** Fantasy Football Calculator publishes no 2025 board,
-  so 2024 is the most recent season with both a market price and a finished result.
+- **2025 and 2026 are not evaluated in the published ranking table.** The evaluation was
+  frozen on 2024 before its result was read. Fantasy Football Calculator has since
+  published a 2025 board, which production uses as already-played training data for a 2026
+  curve; scoring 2025 now as a replacement evaluation would discard the held-out protocol
+  rather than extend it.
+
+### The market curve is monotone by construction
+
+The frozen 2026 production board exposed a failure the held-out 2024 table did not: its
+Half-PPR quarterback curve was `points = intercept + 10.82 · log(ADP)`. Josh Allen at ADP
+31 therefore displayed 234.8 market points while Jacoby Brissett at 174.8 displayed 253.5.
+All 25 adjacent quarterback pairs were inverted. `marketPoints` lay exactly on that curve,
+so this was the fit itself rather than blending or rendering.
+
+The suspected single-season mechanism was reproduced through the production provider,
+scorer, player matcher, and fit. `buildDraftBoard` tries the immediately prior played season
+first and stops as soon as it can fit a pooled curve. On the 2025 Half-PPR samples,
+early-drafted Joe Burrow and Jayden Daniels played 8 and 7 games, while several late-drafted
+quarterbacks played the full season. Least squares on actual season totals therefore
+attributed injury luck to draft slot. The same provider and 2025 results produced negative
+quarterback slopes under PPR and Standard scoring, and the prior 2024 Half-PPR season also
+produced a negative one; the positive slope was a noisy position/scoring-season fit, not
+evidence that later quarterback picks carry more market value.
+
+The remedy is constrained least squares with `slope <= 0`. A fit whose unconstrained slope
+is already negative is unchanged. A positive fit lands at slope zero and an intercept equal
+to the position mean (about 247 points on the frozen board). This is preferable to the
+pooled fallback because pooling previously reduced held-out market Spearman from 0.5459 to
+0.4455 by erasing the quarterback position level. It is also preferable here to fitting
+per-game points, which would remove real availability from a season-total target, or adding
+a multi-season weighting rule that the validation pipeline has not selected.
+
+Re-running `pnpm draft-backtest` before and after the constraint left every published 2024
+figure unchanged: market Spearman **0.5403 -> 0.5403**, model **0.4433 -> 0.4433**, and
+blend **0.5364 -> 0.5364**, with 151 players. That evaluation fits on 2023, whose position
+slopes were already negative, so an unchanged result is the expected evidence that the
+constraint fixes only invalid shapes and does not perturb valid fits. The generated
+`published-draft-metrics.json` is byte-identical. A general property test now walks fitted
+positions and pooled fallbacks and requires displayed market points to be monotone
+non-increasing in ADP.
 
 ### The rank correlation was order-dependent until 2026-08-02
 
