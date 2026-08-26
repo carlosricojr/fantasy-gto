@@ -325,6 +325,7 @@ interface BoardRow {
   modelPoints: number | null;
   blendedPoints: number;
   marketPoints: number | null;
+  marketValueBasis: string | null;
   adp: number | null;
   byeWeek: number | null;
   p10: number;
@@ -337,13 +338,17 @@ const boardRows = (calls: Recorded[]): BoardRow[] =>
     .filter((c) => c.fn === "draft:upsertBoardBatch")
     .flatMap((c) => c.args.rows as BoardRow[]);
 
-async function build(adpRows: Array<Record<string, unknown>>, games?: string) {
+async function build(
+  adpRows: Array<Record<string, unknown>>,
+  games?: string,
+  perSeason: Record<number, Array<Record<string, unknown>>> = {},
+) {
   const { ctx, calls } = recordingCtx();
   const result = await runBuildDraftBoard(
     ctx,
     { season: SEASON, scoringId: "ppr", teams: 12 },
     nflverse(games),
-    adp(adpRows),
+    adp(adpRows, perSeason),
   );
   return { result, calls, rows: boardRows(calls) };
 }
@@ -355,6 +360,23 @@ const ONE_ROW_EACH = [
 ];
 
 describe("runBuildDraftBoard", () => {
+  it("stores that a constrained-flat position curve contributes only its mean", async () => {
+    const reversedPriorBoard = ONE_ROW_EACH.map((entry) => ({
+      ...entry,
+      adp: 500 - Number(entry.adp),
+    }));
+    const { rows } = await build(ONE_ROW_EACH, undefined, {
+      [SEASON - 1]: reversedPriorBoard,
+    });
+
+    const quarterbacks = rows.filter((row) => row.position === "QB");
+    expect(quarterbacks).toHaveLength(PER_POSITION.QB);
+    for (const quarterback of quarterbacks) {
+      expect(quarterback.marketPoints).not.toBeNull();
+      expect(quarterback.marketValueBasis).toBe("position-mean");
+    }
+  });
+
   it("counts a defense once when the feed lists it twice", async () => {
     // Defenses bypass `buildMarketIndex` — they are not on a roster file, so there is
     // nothing to join them to — and that is the one join on this path with no

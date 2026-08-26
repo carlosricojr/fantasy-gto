@@ -42,6 +42,7 @@ import {
   adpImpliedPoints,
   blendedSeasonValue,
   fitAdpCurves,
+  marketValueBasis,
   seasonProjection,
 } from "../lib/nfl/draft/value";
 import { teamByeWeeks } from "../lib/nfl/byes";
@@ -1100,6 +1101,8 @@ export async function runBuildDraftBoard(
             });
       const marketPoints =
         market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
+      const marketBasis =
+        marketPoints === null ? null : marketValueBasis(entry.position, curve);
       if (marketPoints !== null) withMarketPrice += 1;
 
       const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
@@ -1112,6 +1115,7 @@ export async function runBuildDraftBoard(
         team: entry.team,
         modelPoints,
         marketPoints,
+        marketValueBasis: marketBasis,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
@@ -1135,6 +1139,7 @@ export async function runBuildDraftBoard(
     for (const entry of marketDefenses) {
       const marketPoints = adpImpliedPoints(entry.adp, "DST", curve);
       if (marketPoints === null) continue;
+      const marketBasis = marketValueBasis("DST", curve);
       const band = OUTCOME_QUANTILES.DST;
       withMarketPrice += 1;
       rows.push({
@@ -1144,6 +1149,7 @@ export async function runBuildDraftBoard(
         team: entry.team,
         modelPoints: null,
         marketPoints,
+        marketValueBasis: marketBasis,
         blendedPoints: blendedSeasonValue(null, marketPoints),
         adp: scalePick(entry.adp, adpSource),
         adpStdev: scalePick(entry.stdev, adpSource),

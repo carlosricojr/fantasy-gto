@@ -156,6 +156,21 @@ export default defineSchema({
     modelPoints: v.union(v.number(), v.null()),
     /** The market's implied points for this draft slot, or null if it has no opinion. */
     marketPoints: v.union(v.number(), v.null()),
+    /**
+     * Whether that market number preserves ADP ordering or is a constrained curve's mean.
+     *
+     * Optional only for boards written before this provenance existed. Readers treat an
+     * absent value as unknown rather than guessing from rounded player values; every new
+     * board row writes one of the three named states, or `null` with no market price.
+     */
+    marketValueBasis: v.optional(
+      v.union(
+        v.literal("adp-ordered"),
+        v.literal("position-mean"),
+        v.literal("pooled-mean"),
+        v.null(),
+      ),
+    ),
     /** What the board ranks on. */
     blendedPoints: v.number(),
     adp: v.union(v.number(), v.null()),

@@ -1,4 +1,5 @@
 import { MODELED_POSITIONS } from "./config";
+import type { MarketValueBasis } from "./value";
 
 /**
  * Where a board row's number came from, at the point somebody reads it.
@@ -36,8 +37,31 @@ export type ValueBasis =
    * now, and will not next season. Distinct from the case above for exactly that reason.
    */
   | "market-only-history"
+  /** A blend whose market half is a flat position curve and therefore only a mean. */
+  | "blend-position-mean"
+  /** A blend whose market half is a flat pooled fallback and therefore only a mean. */
+  | "blend-pooled-mean"
+  /** No model history, and the market contributes a position mean without ADP ordering. */
+  | "market-only-history-position-mean"
+  /** No model history, and the market contributes a pooled mean without ADP ordering. */
+  | "market-only-history-pooled-mean"
+  /** An unmodeled position priced by a flat position curve. */
+  | "market-only-position-position-mean"
+  /** An unmodeled position priced by a flat pooled fallback. */
+  | "market-only-position-pooled-mean"
   /** Neither side priced him. `convex/ingest.ts` keeps these off the board. */
   | "unpriced";
+
+type PricedValueBasis = "blend" | "market-only-history" | "market-only-position";
+
+function withMarketBasis(
+  basis: PricedValueBasis,
+  marketBasis: MarketValueBasis | null | undefined,
+): ValueBasis {
+  if (marketBasis === "position-mean") return `${basis}-position-mean`;
+  if (marketBasis === "pooled-mean") return `${basis}-pooled-mean`;
+  return basis;
+}
 
 /** Whether the weekly model projects this position at all. */
 export function isModeledPosition(position: string): boolean {
@@ -57,19 +81,26 @@ export function valueBasis(row: {
   position: string;
   modelPoints: number | null;
   marketPoints: number | null;
+  marketValueBasis?: MarketValueBasis | null;
 }): ValueBasis {
   if (!isModeledPosition(row.position)) {
-    return row.marketPoints === null ? "unpriced" : "market-only-position";
+    return row.marketPoints === null
+      ? "unpriced"
+      : withMarketBasis("market-only-position", row.marketValueBasis);
   }
   if (row.modelPoints === null) {
-    return row.marketPoints === null ? "unpriced" : "market-only-history";
+    return row.marketPoints === null
+      ? "unpriced"
+      : withMarketBasis("market-only-history", row.marketValueBasis);
   }
-  return row.marketPoints === null ? "model-only" : "blend";
+  return row.marketPoints === null
+    ? "model-only"
+    : withMarketBasis("blend", row.marketValueBasis);
 }
 
 /** True when the row's number rests on the market alone. */
 export function isMarketOnly(basis: ValueBasis): boolean {
-  return basis === "market-only-position" || basis === "market-only-history";
+  return basis.startsWith("market-only-");
 }
 
 /**
@@ -91,7 +122,34 @@ export function basisBadge(basis: ValueBasis): string | null {
       return "unpriced";
     case "blend":
       return null;
+    case "blend-position-mean":
+    case "market-only-history-position-mean":
+    case "market-only-position-position-mean":
+      return "position mean";
+    case "blend-pooled-mean":
+    case "market-only-history-pooled-mean":
+    case "market-only-position-pooled-mean":
+      return "pooled mean";
   }
+}
+
+/** The disclosure attached directly to the market estimate. */
+export function marketEstimateExplanation(
+  basis: MarketValueBasis | null | undefined,
+): string {
+  if (basis === "position-mean") {
+    return (
+      "The fitted market curve was constrained flat, so this is the position’s historical " +
+      "mean and carries no within-position ADP ordering."
+    );
+  }
+  if (basis === "pooled-mean") {
+    return (
+      "The fitted fallback curve was constrained flat, so this is the pooled historical " +
+      "mean and carries no within-position ADP ordering."
+    );
+  }
+  return "What this player’s average draft position has historically been worth, fitted per position.";
 }
 
 /**
@@ -121,6 +179,36 @@ export function basisExplanation(basis: ValueBasis): string {
       return "Neither the model nor the market has priced this player.";
     case "blend":
       return "The model's projection blended with the market's price.";
+    case "blend-position-mean":
+      return (
+        "The model's projection blended with the market's position mean. The market half " +
+        "carries no within-position ADP ordering."
+      );
+    case "blend-pooled-mean":
+      return (
+        "The model's projection blended with the market's pooled mean. The market half " +
+        "carries no within-position ADP ordering."
+      );
+    case "market-only-history-position-mean":
+      return (
+        "No prior games, so the projection model has no opinion. The market contributes " +
+        "only the position mean, with no within-position ADP ordering."
+      );
+    case "market-only-history-pooled-mean":
+      return (
+        "No prior games, so the projection model has no opinion. The market contributes " +
+        "only the pooled mean, with no within-position ADP ordering."
+      );
+    case "market-only-position-position-mean":
+      return (
+        "The projection model does not cover this position. The market contributes only " +
+        "the position mean, with no within-position ADP ordering."
+      );
+    case "market-only-position-pooled-mean":
+      return (
+        "The projection model does not cover this position. The market contributes only " +
+        "the pooled mean, with no within-position ADP ordering."
+      );
   }
 }
 

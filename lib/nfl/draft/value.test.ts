@@ -9,6 +9,7 @@ import {
   fitAdpCurves,
   blendedSeasonValue,
   expectedGames,
+  marketValueBasis,
   perGameRate,
   seasonProjection,
 } from "./value";
@@ -379,6 +380,21 @@ describe("fitAdpCurves, per position", () => {
     );
     expect(curves.byPosition.QB.slope).toBe(0);
     expect(curves.pooled!.slope).toBe(0);
+    expect(marketValueBasis("QB", curves)).toBe("position-mean");
+    expect(marketValueBasis("K", curves)).toBe("pooled-mean");
+  });
+
+  it("does not call a legitimately near-flat curve a mean", () => {
+    const nearFlat = {
+      byPosition: {
+        QB: { intercept: 247, slope: -Number.EPSILON, sampleSize: 26, season: 2025 },
+      },
+      pooled: null,
+      season: 2025,
+    };
+
+    expect(marketValueBasis("QB", nearFlat)).toBe("adp-ordered");
+    expect(marketValueBasis("WR", nearFlat)).toBeNull();
   });
 });
 

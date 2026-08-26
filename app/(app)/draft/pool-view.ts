@@ -16,6 +16,7 @@ import type { PlayerRisk } from "@/lib/core/roster-utility";
 import { UNRANKED_ADP_PADDING } from "@/lib/core/draft";
 import { matchName } from "@/lib/nfl/draft/match";
 import type { ValueBasis } from "@/lib/nfl/draft/provenance";
+import type { MarketValueBasis } from "@/lib/nfl/draft/value";
 
 /** A player as the pool presents them, board facts and draft state together. */
 export interface PoolPlayer {
@@ -30,6 +31,8 @@ export interface PoolPlayer {
   modelPoints: number | null;
   /** What the market's price implies, absent when the market has no opinion. */
   marketPoints: number | null;
+  /** Whether that price preserves ADP ordering or is a fitted curve's mean. */
+  marketValueBasis: MarketValueBasis | null;
   adp: number | null;
   adpStdev: number | null;
   /** Modelled share of weeks fit, shrunk toward the league rate. */

@@ -113,6 +113,15 @@ export interface AdpCurveSet {
   season: number;
 }
 
+/** What information the selected market curve contributes within a position. */
+export type MarketValueBasis =
+  /** A negative slope preserves the market's within-position ADP ordering. */
+  | "adp-ordered"
+  /** An exact-zero position curve contributes its observed position mean, not ordering. */
+  | "position-mean"
+  /** An exact-zero fallback contributes the pooled mean, not ordering. */
+  | "pooled-mean";
+
 /**
  * Fewest players a position needs before it gets its own curve.
  *
@@ -232,6 +241,26 @@ export function adpImpliedPoints(
   const curve = curves.byPosition[position.toUpperCase()] ?? curves.pooled;
   if (curve === undefined || curve === null) return null;
   return round2(Math.max(0, curve.intercept + curve.slope * Math.log(adp)));
+}
+
+/**
+ * Describes the curve `adpImpliedPoints` selects for a position.
+ *
+ * Exact zero is intentional. The constrained least-squares fit writes zero when a rising
+ * unconstrained fit lands on the boundary, and that curve carries no within-position ADP
+ * ordering. A small negative slope still carries ordering and must not be relabelled by an
+ * arbitrary tolerance as a mean-only estimate.
+ */
+export function marketValueBasis(
+  position: string,
+  curves: AdpCurveSet,
+): MarketValueBasis | null {
+  const positionCurve = curves.byPosition[position.toUpperCase()];
+  if (positionCurve !== undefined) {
+    return positionCurve.slope === 0 ? "position-mean" : "adp-ordered";
+  }
+  if (curves.pooled === null) return null;
+  return curves.pooled.slope === 0 ? "pooled-mean" : "adp-ordered";
 }
 
 /**
