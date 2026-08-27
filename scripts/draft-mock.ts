@@ -234,8 +234,15 @@ function withCurrentBands(rows: readonly MockBoardRow[]): MockBoardRow[] {
  */
 function rebanded(rows: readonly MockBoardRow[]): number {
   const current = withCurrentBands(rows);
+  // Provenance counts as a change. `withCurrentBands` rewrites it alongside the two
+  // numbers, so comparing the numbers alone would report a row unchanged when its label
+  // had moved from `placeholder` to `measured` — which is the whole subject of #90.4, and
+  // the one difference a band whose values happened to match would still carry.
   return rows.filter(
-    (row, index) => row.p10 !== current[index].p10 || row.p90 !== current[index].p90,
+    (row, index) =>
+      row.p10 !== current[index].p10 ||
+      row.p90 !== current[index].p90 ||
+      row.quantileProvenance !== current[index].quantileProvenance,
   ).length;
 }
 
