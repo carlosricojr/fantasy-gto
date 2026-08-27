@@ -257,12 +257,15 @@ silently disables any feature built on it.
 {base}/stats_team/stats_team_week_{SEASON}.csv
 ```
 
-Verified by direct request 2026-08-26 for every season 2012–2024: HTTP 200, one row per
-team-game, 512–544 regular-season rows a season, 32 distinct teams throughout.
+Verified by direct request 2026-08-26 for every season 2012–2024, and counted by
+`pnpm verify-sources` on every run since: one row per team-game, **512–544** regular-season
+rows a season, **32** distinct teams in every season.
 
-**`stats_player_week` carries no D/ST row at all.** The position never appears in it —
-checked on 2024, where `DST`, `DEF` and `D` are all absent — because a team defense is not
-a player. That is why this release exists in the repo: it is the only nflverse file from
+**`stats_player_week` carries no D/ST row at all**, because a team defense is not a player.
+Measured rather than asserted: the script collects every position code the player release
+uses across the whole window — 26 of them — and **throws** if `DST`, `DEF` or `D` is ever
+among them, since that would mean this whole section is working around a problem upstream
+has stopped having. That is why this release exists in the repo: it is the only nflverse file from
 which a defense's week can be assembled.
 
 Columns the parser reads, and their exact spellings: `def_sacks`, `def_interceptions`,
@@ -298,18 +301,19 @@ Measured over **6,782 team-games**, 2012–2024:
 | `def_sacks` | 8 |
 | `def_safeties` | 131 |
 
-**The comparison is asserted, not merely printed.** The four fields that agree exactly are
-required to keep agreeing exactly — any disagreement there is an upstream contract change,
-and `verify-sources` refuses rather than fitting the band on a quantity that has quietly
-become a different one. Sacks and safeties are bounded instead, at 10% of team-games against
-the 0.12% and 1.93% they measure today, because their difference is attribution rather than
-fact.
+**The comparison is asserted, not merely printed**, and it has a floor of its own — every
+check counts *disagreements*, so a key that stopped matching would read exactly like two
+releases in perfect accord. The four fields that agree exactly are required to keep agreeing
+exactly: any disagreement there is an upstream contract change, and `verify-sources` refuses
+rather than fitting the band on a quantity that has quietly become a different one.
 
 Safeties are the one real disagreement, and the team release is taken as authoritative for
-them. It changes nothing that matters: refitting the whole D/ST band on player-aggregated
-safeties instead moves the dispersion from 0.9050 to 0.9045 and the band from 0.208/2.118
-to 0.208/2.117. Recorded because a 131-row discrepancy that turns out not to matter is
-worth measuring once rather than worrying about repeatedly.
+them. It changes nothing that matters, and the script proves that on every run rather than
+asking to be believed: it refits the entire D/ST band with safeties taken from the player
+release instead and prints both side by side — dispersion **0.9045 against 0.9050**, band
+**0.208/2.117 against 0.208/2.118**. That is why sacks and safeties are bounded loosely
+(10% of team-games, against the 0.12% and 1.93% they measure today) rather than pinned:
+what matters is not the count but that the band cannot feel it.
 
 ### 1.2b-2 Measured K and D/ST outcome bands
 
@@ -317,12 +321,14 @@ worth measuring once rather than worrying about repeatedly.
 kicker and defense, because `pnpm backtest` fits a band from the model's own predictions and
 the model projects neither position. Both are now measured here instead, and
 `pnpm verify-sources` prints them beside the checked-in constants and **fails if the two
-disagree** — the same contract the backtest's own quantiles carry.
+disagree**. That is a stronger contract than the skill bands carry: `pnpm backtest` prints
+its measured quantiles but does not compare them against `config.ts`, so those four are
+checked by eye and these two are not.
 
 **Construction.** For each season 2013–2024, each week's actual fantasy points divided by
 that entity's *prior*-season points per game, requiring at least eight prior games behind the
-denominator. 2012 supplies denominators and is never scored; **no 2025 row is read**, because
-2025 is the holdout and a band fitted here is not the pre-registered decision `CLAUDE.md`
+denominator. 2012 supplies denominators and is never scored; **nothing from 2025 enters either band**,
+because 2025 is the holdout and a band fitted here is not the pre-registered decision `CLAUDE.md`
 reserves it for. The denominator is deliberately a forecast rather than a same-season mean:
 the skill bands are actual-over-*predicted* and carry the forecast's error, and a band built
 on a level nobody knows until the season is over would be a narrower, differently-defined
@@ -344,7 +350,7 @@ not PPR-specific.
 **The kicker band is the empirical deciles**, taken exactly as the four skill bands are:
 `0.271 / 1.864`, against a placeholder of `0.25 / 1.85` — the placeholder was within 4% on
 dispersion. It is flat in the prior-games threshold (4 → `0.267/1.875`, 12 → `0.276/1.859`)
-and leave-one-season-out moves its dispersion only within [0.617, 0.634].
+and dropping any one scored season moves its dispersion only within [0.620, 0.632].
 
 **The defense band cannot be the empirical deciles.** Under the conventional points-allowed
 ladder an eighth of team-weeks score nothing or less, so the empirical tenth percentile is
@@ -358,21 +364,51 @@ So the defense is fitted by matching the expectation of a weekly maximum, which 
 whatever the lower tail does and is the only functional the season simulation consumes: a
 roster scores the best legal lineup it can field each week. That gives σ = 0.905 and a band
 of `0.208 / 2.118`, against a placeholder of `0.2 / 2.0` — within 1% on dispersion.
-Leave-one-season-out moves it only within [0.890, 0.918].
+Dropping any one scored season moves it only within [0.897, 0.913]. Note that the
+prior-games threshold is *not* a sensitivity check here and the run says so: a team plays at
+least fifteen regular-season games, so all three thresholds admit the identical sample and
+print the identical band. Three identical rows are not agreement.
 
-**Why the substitute is licensed rather than convenient.** Applying one construction to all
-six positions, the incumbent log-range rule sits 8–18% above the expected-max fit for
-QB/RB/WR/TE/K, and 43% above for D/ST alone — because an atom at zero is the one thing a log
-range cannot read. The rule is therefore "use the incumbent rule wherever it is defined, and
-where it is not, use the fit that agrees with it everywhere else".
+**Why the substitute is licensed — and how far that licence actually reaches.**
+`verify-sources` fits both rules for all six positions under one construction and prints
+them, so this can be read rather than taken on trust. The four projected positions appear
+there **only as a yardstick**; their shipped bands come from the backtest against the
+model's own predictions and nothing here touches them.
+
+| | n | σ from p10/p90 | σ from E[max] | gap | sd = a + b·mean |
+|---|---|---|---|---|---|
+| QB | 4,650 | 0.610 | 0.584 | +4.5% | 4.55 + 0.17·mean |
+| RB | 12,503 | **undefined** | 1.286 | — | 2.25 + 0.39·mean |
+| WR | 18,308 | **undefined** | 1.158 | — | 2.24 + 0.42·mean |
+| TE | 8,942 | **undefined** | 1.074 | — | 1.69 + 0.48·mean |
+| K | 4,866 | 0.752 | 0.624 | +20.5% | 2.45 + 0.24·mean |
+| D/ST | 6,270 | **undefined** | 0.905 | — | 2.92 + 0.40·mean |
+
+The honest reading is narrower than the one this document first carried. A zero-valued tenth
+percentile is **not** a D/ST peculiarity: under a prior-season denominator taken over a whole
+release it happens at four of the six positions, because plenty of players have scoreless
+weeks. And where both rules are defined they differ by 4.5% and 20.5% — close, but not the
+tight agreement that would let one stand in for the other on that basis alone.
+
+So the argument for the substitute is not that it reproduces the incumbent. It is that the
+incumbent does not exist for D/ST, the substitute does exist everywhere, and the substitute
+matches the functional the season simulation actually leans on. The incumbent is kept
+wherever it works, for continuity with the four bands the backtest produces. Note also that
+the skill rows above are the whole release rather than a draftable subset, which is why
+their dispersions run so high — they are a yardstick for the *rules*, not an estimate of
+anything.
 
 **Two limits worth stating.** A measured band is not a projection: nothing has started
 estimating what a kicker will score, only how far a week strays from an estimate somebody
 else supplies, so `MODELED_POSITIONS` is unchanged and every market-only label still fires.
-And the multiplicative form is an approximation at *every* position — regressing each
-entity-season's weekly standard deviation on its mean gives a large positive intercept
-(2.3–4.4 points) and a shallow slope (0.17–0.44) at all six, meaning weekly spread is mostly
-additive. Measuring a band does not fix that.
+
+And the multiplicative form is an approximation at *every* position. The last column of the
+table above is each entity-season's weekly standard deviation regressed on its own mean; a
+pure scale family would put the intercept at zero. It sits between **1.69 and 4.55 points**
+with a slope between **0.17 and 0.48**, which says weekly spread is mostly additive, so a
+multiplicative band under-disperses strong players and over-disperses weak ones at every
+position. Measuring a band does not fix that, and this row is here so nobody reads the
+measurement as having done so.
 
 ### 1.2c Player directory — age, experience, and the identifier bridge
 

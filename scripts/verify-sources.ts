@@ -27,8 +27,14 @@ import {
   fitOutcomeBand,
   priorSeasonRatios,
 } from "@/lib/nfl/model/outcome-band";
-import { toDefenseStatLine, toKickerStatLine, toTeamWeek } from "@/lib/nfl/stats/parse";
-import { scoreDefense, scoreKicker } from "@/lib/nfl/scoring/score";
+import {
+  toDefenseStatLine,
+  toKickerStatLine,
+  toPosition,
+  toStatLine,
+  toTeamWeek,
+} from "@/lib/nfl/stats/parse";
+import { scoreDefense, scoreKicker, scoreOffense } from "@/lib/nfl/scoring/score";
 import { PPR } from "@/lib/nfl/scoring/presets";
 import { parseContests, teamWeeklyStatsUrl } from "@/lib/sources/nflverse";
 import { joinMarketAwareness } from "@/lib/nfl/draft/market-awareness";
@@ -228,8 +234,10 @@ const BAND_FIRST_SCORED = BAND_SEASONS[0] + 1;
  * Prior-season games a kicker or defense needs before his mean is used as a denominator.
  *
  * Half a season. Below that the denominator is noise and the ratio describes it rather than
- * the outcome; the figures printed at 4 and 12 games are how a reader checks that the band
- * does not hinge on the number.
+ * the outcome. The figures printed at 4 and 12 games are how a reader checks that the band
+ * does not hinge on the number — for kickers. For defenses the threshold cannot bind at
+ * all, since a team plays at least fifteen regular-season games, and the run says so rather
+ * than letting three identical rows read as agreement.
  */
 const BAND_MIN_PRIOR_GAMES = 8;
 
@@ -254,6 +262,22 @@ async function verifyOutcomeBands(): Promise<void> {
 
   const kickerSeasons: EntitySeason[] = [];
   const defenseSeasons: EntitySeason[] = [];
+  /**
+   * The four projected positions, measured the same way K and D/ST are.
+   *
+   * Not to produce their bands — those come from the backtest, against the model's own
+   * predictions, and nothing here touches them. This is the cross-position check that says
+   * whether the substitute fit used for D/ST agrees with the incumbent log-range rule
+   * wherever the incumbent is defined. That argument was previously prose; it is a
+   * measurement now, under one construction for all six.
+   */
+  const skillSeasons = new Map<string, EntitySeason[]>();
+  /** Team-week rows per season and the teams they name, so the release's shape is counted. */
+  const teamShape: { season: number; rows: number; teams: number }[] = [];
+  /** Every position code the player release uses, to check a negative result rather than assert it. */
+  const playerPositions = new Set<string>();
+  /** D/ST weeks re-scored with safeties taken from the player release instead. */
+  const defenseSeasonsPlayerSafeties: EntitySeason[] = [];
 
   // Points allowed is the *other* team's final score, so it comes from the schedule
   // through the shipped parser rather than from a column of the statistics release, which
@@ -291,6 +315,7 @@ async function verifyOutcomeBands(): Promise<void> {
 
   for (const season of BAND_SEASONS) {
     const kickerWeeks = new Map<string, number[]>();
+    const skillWeeks = new Map<string, Map<string, number[]>>();
     const playerRows = parseCsv(await cached(statsUrl(season)));
     // Defensive counts aggregated from the player release, purely to cross-check the team
     // release against an independent upstream file. Nothing downstream reads them.
@@ -316,23 +341,48 @@ async function verifyOutcomeBands(): Promise<void> {
         bucket.returnTds += num(row, "special_teams_tds");
         playerAggregate.set(key, bucket);
       }
-      if (str(row, "position").toUpperCase() !== "K") continue;
+      playerPositions.add(str(row, "position").toUpperCase());
       const id = str(row, "player_id");
       if (id === "") continue;
-      const bucket = kickerWeeks.get(id) ?? [];
-      bucket.push(scoreKicker(toKickerStatLine(row), PPR).total);
-      kickerWeeks.set(id, bucket);
+      const position = toPosition(str(row, "position"));
+      if (position === null) continue;
+      if (position === "K") {
+        const bucket = kickerWeeks.get(id) ?? [];
+        bucket.push(scoreKicker(toKickerStatLine(row), PPR).total);
+        kickerWeeks.set(id, bucket);
+        continue;
+      }
+      const key = `${position}|${season}`;
+      let byId = skillWeeks.get(key);
+      if (byId === undefined) {
+        byId = new Map<string, number[]>();
+        skillWeeks.set(key, byId);
+      }
+      const bucket = byId.get(id) ?? [];
+      bucket.push(scoreOffense(toStatLine(row), PPR).total);
+      byId.set(id, bucket);
     }
     for (const [id, weeklyPoints] of kickerWeeks) {
       kickerSeasons.push({ id, season, weeklyPoints });
     }
+    for (const [key, byId] of skillWeeks) {
+      const position = key.split("|")[0];
+      const bucket = skillSeasons.get(position) ?? [];
+      for (const [id, weeklyPoints] of byId) bucket.push({ id, season, weeklyPoints });
+      skillSeasons.set(position, bucket);
+    }
 
     const defenseWeeks = new Map<string, number[]>();
+    const defenseWeeksPlayerSafeties = new Map<string, number[]>();
+    const seasonTeams = new Set<string>();
+    let seasonTeamRows = 0;
     for (const row of parseCsv(await cached(teamWeeklyStatsUrl(season)))) {
       if (str(row, "season_type") !== "REG") continue;
       const identity = toTeamWeek(row);
       if (identity === null) continue;
       teamGames += 1;
+      seasonTeamRows += 1;
+      seasonTeams.add(identity.team);
       const pointsAllowed = conceded.get(
         `${identity.team}|${identity.period.season}|${identity.period.index}`,
       );
@@ -357,20 +407,39 @@ async function verifyOutcomeBands(): Promise<void> {
         if (Math.abs(aggregate.returnTds - num(row, "special_teams_tds")) > 1e-9)
           crossCheck.returnTds += 1;
       }
+      const line = toDefenseStatLine(row, pointsAllowed);
       const bucket = defenseWeeks.get(identity.team) ?? [];
-      bucket.push(scoreDefense(toDefenseStatLine(row, pointsAllowed), PPR).total);
+      bucket.push(scoreDefense(line, PPR).total);
       defenseWeeks.set(identity.team, bucket);
+      // The same week scored with safeties taken from the player release instead, which is
+      // the only field the two sources meaningfully disagree on. Refitting the whole band
+      // on it is how the `ATTRIBUTION_BOUND` below earns its number.
+      const alternate = defenseWeeksPlayerSafeties.get(identity.team) ?? [];
+      alternate.push(
+        scoreDefense({ ...line, safeties: aggregate?.safeties ?? line.safeties }, PPR).total,
+      );
+      defenseWeeksPlayerSafeties.set(identity.team, alternate);
     }
+    teamShape.push({ season, rows: seasonTeamRows, teams: seasonTeams.size });
     for (const [id, weeklyPoints] of defenseWeeks) {
       defenseSeasons.push({ id, season, weeklyPoints });
     }
+    for (const [id, weeklyPoints] of defenseWeeksPlayerSafeties) {
+      defenseSeasonsPlayerSafeties.push({ id, season, weeklyPoints });
+    }
   }
 
+  const teamRows = teamShape.map((entry) => entry.rows);
+  const distinctTeams = [...new Set(teamShape.map((entry) => entry.teams))];
   process.stdout.write(
     `  seasons ${BAND_FIRST_SCORED}-${BAND_SEASONS[BAND_SEASONS.length - 1]} scored, ` +
-      `${BAND_SEASONS[0]} supplying denominators only; 2025 not read\n` +
+      `${BAND_SEASONS[0]} supplying denominators only; nothing from 2025 enters a band\n` +
       `  kicker seasons ${kickerSeasons.length}, defense seasons ${defenseSeasons.length}, ` +
       `team-games ${teamGames}\n` +
+      `  team-week rows per season ${Math.min(...teamRows)}-${Math.max(...teamRows)}, ` +
+      `distinct teams per season ${distinctTeams.sort((a, b) => a - b).join("/")}\n` +
+      `  position codes in the player release: ${playerPositions.size}, ` +
+      `D/ST among them: ${["DST", "DEF", "D"].some((code) => playerPositions.has(code))}\n` +
       `  points allowed unresolved from the schedule: ${unresolvedPointsAllowed}\n` +
       `  team release vs aggregating the player release over ${crossCheck.compared} team-games:\n` +
       `    sacks ${crossCheck.sacks}, interceptions ${crossCheck.interceptions}, ` +
@@ -384,6 +453,17 @@ async function verifyOutcomeBands(): Promise<void> {
         `so the defense band would be fitted on whichever weeks happened to join`,
     );
   }
+  // The negative result the whole team release exists to work around, checked rather than
+  // asserted: if a D/ST row ever appears in the player release, this section is solving a
+  // problem upstream has stopped having and `docs/data-sources.md` is out of date.
+  for (const code of ["DST", "DEF", "D"]) {
+    if (playerPositions.has(code)) {
+      throw new Error(
+        `the player release now carries a "${code}" position, so a team defense is no ` +
+          `longer absent from it and the team release may no longer be the only source`,
+      );
+    }
+  }
 
   /**
    * The cross-check, asserted rather than merely printed.
@@ -394,12 +474,12 @@ async function verifyOutcomeBands(): Promise<void> {
    * Four of the six agree **exactly** across every team-game measured, so any disagreement
    * at all is an upstream contract change and is refused. Sacks and safeties do not, and
    * the difference is attribution rather than fact — a safety credited to the team but to
-   * no individual, or the reverse. Those two are bounded instead, at roughly five times what
-   * they measure today, because what matters is that they stay a rounding error: refitting
-   * the whole D/ST band on player-aggregated safeties moves its dispersion from 0.9050 to
-   * 0.9045, which `docs/data-sources.md` records. A structural bound rather than a pinned
-   * count, for the same reason the Sleeper join's is one — the counts are allowed to move,
-   * the shape is not.
+   * no individual, or the reverse. Those two are bounded well above what they measure today,
+   * because what matters is not the count but that the band cannot feel it: the whole D/ST
+   * band refitted on player-aggregated safeties is printed below, beside the shipped one,
+   * so the bound's premise is measured rather than recalled. A structural bound rather than
+   * a pinned count, for the same reason the Sleeper join's is one — the counts are allowed
+   * to move, the shape is not.
    */
   // A floor on the comparison itself, before anything is concluded from it. Every check
   // below counts *disagreements*, so an empty comparison satisfies all of them — a key
@@ -457,22 +537,44 @@ async function verifyOutcomeBands(): Promise<void> {
     ["DST", defenseSeasons],
   ] as const) {
     process.stdout.write(`\n  ${position}\n`);
+    const bySample = new Set<number>();
     for (const minPriorGames of [4, BAND_MIN_PRIOR_GAMES, 12]) {
-      report(
-        `prior games >= ${minPriorGames}`,
-        fitOutcomeBand(priorSeasonRatios(seasons, minPriorGames)),
+      const fit = fitOutcomeBand(priorSeasonRatios(seasons, minPriorGames));
+      bySample.add(fit.sampleSize);
+      report(`prior games >= ${minPriorGames}`, fit);
+    }
+    // Said out loud where it is true. A team plays at least fifteen regular-season games,
+    // so for D/ST every threshold admits the identical sample and the three rows above are
+    // one row printed three times. Presenting that as evidence the band does not hinge on
+    // the threshold would be presenting a tautology as a robustness check.
+    if (bySample.size === 1) {
+      process.stdout.write(
+        `  (the threshold cannot bind at this position — all three rows are the same ` +
+          `sample, so they are not evidence of anything)\n`,
       );
     }
     // Leave-one-season-out, so a band that rests on one unusual year is visible as one.
+    //
+    // One *scored* season at a time. Dropping the `EntitySeason` outright would also strip
+    // the denominators it supplies to the following season, which removes two seasons of
+    // ratios and quietly reports a wider interval than the label claims. Each season's own
+    // ratios are rebuilt from itself plus its predecessor, then all but one are pooled.
+    const ratiosBySeason = new Map<number, number[]>(
+      BAND_SEASONS.slice(1).map((scored) => [
+        scored,
+        priorSeasonRatios(
+          seasons.filter((entry) => entry.season === scored || entry.season === scored - 1),
+          BAND_MIN_PRIOR_GAMES,
+        ),
+      ]),
+    );
     let lowest = Number.POSITIVE_INFINITY;
     let highest = Number.NEGATIVE_INFINITY;
     for (const dropped of BAND_SEASONS.slice(1)) {
-      const fit = fitOutcomeBand(
-        priorSeasonRatios(
-          seasons.filter((entry) => entry.season !== dropped),
-          BAND_MIN_PRIOR_GAMES,
-        ),
-      );
+      const pooled = [...ratiosBySeason]
+        .filter(([scored]) => scored !== dropped)
+        .flatMap(([, values]) => values);
+      const fit = fitOutcomeBand(pooled);
       lowest = Math.min(lowest, fit.sigmaFromExpectedMax);
       highest = Math.max(highest, fit.sigmaFromExpectedMax);
     }
@@ -496,6 +598,96 @@ async function verifyOutcomeBands(): Promise<void> {
       throw new Error(`OUTCOME_QUANTILES.${position} is measured but marked ${shipped.provenance}`);
     }
   }
+
+  // How much the one field the two releases disagree on can move the band it feeds. This
+  // is the premise `ATTRIBUTION_BOUND` rests on, so it is measured here rather than
+  // recalled from a note.
+  const alternate = fitOutcomeBand(
+    priorSeasonRatios(defenseSeasonsPlayerSafeties, BAND_MIN_PRIOR_GAMES),
+  );
+  const shippedDefense = fitOutcomeBand(priorSeasonRatios(defenseSeasons, BAND_MIN_PRIOR_GAMES));
+  process.stdout.write(
+    `\n  D/ST refitted with safeties from the player release instead:\n` +
+      `    sigma(E[max]) ${alternate.sigmaFromExpectedMax.toFixed(4)} against ` +
+      `${shippedDefense.sigmaFromExpectedMax.toFixed(4)}, ` +
+      `band ${alternate.band.p10}/${alternate.band.p90} against ` +
+      `${shippedDefense.band.p10}/${shippedDefense.band.p90}\n`,
+  );
+
+  /**
+   * The cross-position check that licenses the substitute fit.
+   *
+   * The kicker band is the empirical deciles and the defense band is not, because a
+   * defense's empirical tenth percentile is zero and the log range it feeds does not exist.
+   * The substitute — matching the expectation of a weekly maximum — is only defensible if
+   * it agrees with the incumbent rule *where the incumbent rule is defined*, and that was
+   * an assertion in prose until this block. It is a measurement now: one construction, all
+   * six positions, the two dispersions side by side.
+   *
+   * The four projected positions appear here **only** as a yardstick. Their shipped bands
+   * come from the backtest against the model's own predictions and are not touched by any
+   * of this; the ratios below use the same prior-season denominator K and D/ST use, so the
+   * comparison is like-for-like with the thing being licensed rather than with the thing
+   * being shipped.
+   */
+  process.stdout.write(
+    `\n  the two fitting rules, one construction, all six positions\n` +
+      `  ${"position".padEnd(10)}${"n".padStart(7)}${"sig(10/90)".padStart(12)}` +
+      `${"sig(E[max])".padStart(13)}${"ratio".padStart(9)}` +
+      `${"sd = a + b*mean".padStart(24)}\n`,
+  );
+  const ratioSpread: number[] = [];
+  for (const [position, seasons] of [
+    ["QB", skillSeasons.get("QB") ?? []],
+    ["RB", skillSeasons.get("RB") ?? []],
+    ["WR", skillSeasons.get("WR") ?? []],
+    ["TE", skillSeasons.get("TE") ?? []],
+    ["K", kickerSeasons],
+    ["DST", defenseSeasons],
+  ] as const) {
+    const fit = fitOutcomeBand(priorSeasonRatios(seasons, BAND_MIN_PRIOR_GAMES));
+    const ratio =
+      fit.sigmaFromRange === null ? null : fit.sigmaFromRange / fit.sigmaFromExpectedMax;
+    if (ratio !== null) ratioSpread.push(ratio);
+    // Whether a multiplicative band is the right *form* at all: regressing each
+    // entity-season's weekly standard deviation on its own mean. A pure scale family would
+    // put the intercept at zero and the slope at the coefficient of variation.
+    const means: number[] = [];
+    const sds: number[] = [];
+    for (const entry of seasons) {
+      if (entry.weeklyPoints.length < BAND_MIN_PRIOR_GAMES) continue;
+      const mean =
+        entry.weeklyPoints.reduce((sum, points) => sum + points, 0) / entry.weeklyPoints.length;
+      const variance =
+        entry.weeklyPoints.reduce((sum, points) => sum + (points - mean) ** 2, 0) /
+        (entry.weeklyPoints.length - 1);
+      means.push(mean);
+      sds.push(Math.sqrt(variance));
+    }
+    const meanOfMeans = means.reduce((sum, value) => sum + value, 0) / means.length;
+    const meanOfSds = sds.reduce((sum, value) => sum + value, 0) / sds.length;
+    let covariance = 0;
+    let spread = 0;
+    for (let i = 0; i < means.length; i += 1) {
+      covariance += (means[i] - meanOfMeans) * (sds[i] - meanOfSds);
+      spread += (means[i] - meanOfMeans) ** 2;
+    }
+    const slope = covariance / spread;
+    const intercept = meanOfSds - slope * meanOfMeans;
+    process.stdout.write(
+      `  ${position.padEnd(10)}${String(fit.sampleSize).padStart(7)}` +
+        `${(fit.sigmaFromRange === null ? "undefined" : fit.sigmaFromRange.toFixed(3)).padStart(12)}` +
+        `${fit.sigmaFromExpectedMax.toFixed(3).padStart(13)}` +
+        `${(ratio === null ? "n/a" : `${((ratio - 1) * 100).toFixed(1)}%`).padStart(9)}` +
+        `${`${intercept.toFixed(2)} + ${slope.toFixed(2)}x`.padStart(24)}\n`,
+    );
+  }
+  process.stdout.write(
+    `  the log-range rule runs ` +
+      `${((Math.min(...ratioSpread) - 1) * 100).toFixed(1)}-` +
+      `${((Math.max(...ratioSpread) - 1) * 100).toFixed(1)}% above the expected-max fit ` +
+      `wherever it is defined; for D/ST it is not defined at all\n`,
+  );
 }
 const snapsUrl = (season: number) =>
   `${RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;

@@ -22,9 +22,9 @@
  * and had no callers left on the old path.
  */
 
-/** The market's view of a player: when he goes, and how sure the market is. */
 import { normalCdf } from "./stats";
 
+/** The market's view of a player: when he goes, and how sure the market is. */
 export interface MarketPlayer {
   /**
    * Average draft position, in overall picks. `null` when the market has no opinion —

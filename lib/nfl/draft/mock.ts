@@ -116,13 +116,15 @@ export interface MockBoardRow {
    * one.
    *
    * The shipped bands are `0.271/1.864` and `0.208/2.118`, so the harness and the product
-   * do differ here, and the difference was measured rather than assumed away. Replaying
-   * both modes with the rows re-banded the way `runBuildDraftBoard` writes them today
-   * changes twelve of sixteen of our picks in each mode and lands both on the same roster
-   * shape (1 QB, 5 RB, 6 WR, 2 TE, 1 K, 1 D/ST) — **and all nine checks still pass in both
-   * modes**. The churn is the tie saturation #89.C documented, not the band: mid-draft
-   * candidates sit inside each other's error bars, so any perturbation reorders them. The
-   * nine properties are what this harness locks, and they held.
+   * do differ here. How much is not left to a note: `pnpm draft-mock -- --current-bands`
+   * replays the same two modes with every row re-banded from `OUTCOME_QUANTILES` and
+   * enforces the same nine checks, so the drift is a command anybody can run rather than a
+   * figure somebody once recorded. Measured that way, both modes finish 9/9 on a roster of
+   * 1 QB, 5 RB, 6 WR, 2 TE, 1 K and 1 D/ST — a different sixteen players from the default
+   * run, on the same nine properties. The churn is the tie saturation #89.C documented, not
+   * the band: mid-draft candidates sit inside each other's error bars, so any perturbation
+   * reorders them. The nine properties are what this harness locks, and they hold either
+   * way.
    */
   quantileProvenance: "measured" | "placeholder";
 }

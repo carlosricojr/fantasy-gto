@@ -555,6 +555,11 @@ valuation input, not the measurement basis. See `docs/data-sources.md`. So the b
 the range around the value and never the value itself, which on a K or D/ST row is still
 the market's alone.
 
+The frozen harness fixture predates that measurement and is deliberately not regenerated,
+so `pnpm draft-mock` replays the August-2026 bands. `pnpm draft-mock -- --current-bands`
+replays the same two modes with every row re-banded from `OUTCOME_QUANTILES` and enforces
+the same nine checks: both finish 9/9, on a different sixteen players.
+
 **Not handled: custom scoring.** Only PPR, half-PPR, and standard are supported. This is a
 harder limit than it looks, because it binds on both halves of the valuation at once — the
 projection would need re-scoring, and the market half simply does not exist, since ADP is
@@ -723,9 +728,9 @@ at each position, which nothing here measures — and the measured K/D-ST outcom
 would have sold you instead. It did remove a leg the K/D-ST entry of one used to rest on, and the
 entry survives on the other two — the model projects neither, and thirty-two NFL teams
 supply a starter at each against ten rostered. The measurement even points the other way at
-first glance, since a defense turns out to be the most dispersed of the six positions and
-dispersion is what makes a reserve worth holding; it cancels here, because a cover of one
-asserts the wire's body is drawn from the same distribution as the drafted one. Quarterback is the structurally derived exception: one startable
+first glance, since a defense's band is a wide one and dispersion is what makes a reserve
+worth holding; it cancels here, because a cover of one asserts the wire's body is drawn from
+the same distribution as the drafted one. Quarterback is the structurally derived exception: one startable
 QB per current NFL team, against demand from the fantasy league's actual QB-eligible slots.
 Coverage is `min(1, (32 - demand) / demand)` — free startable bodies per demanded starter.
 A 10-team 1-QB league derives **1.00**; a 10-team SUPERFLEX/2QB league derives **0.60**.

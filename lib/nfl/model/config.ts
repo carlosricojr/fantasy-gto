@@ -7,11 +7,18 @@ import type { Position } from "../scoring/types";
  * `USAGE_WEIGHT_CAP`, `DVP_WEIGHT`, `VEGAS_WEIGHT`, and the calibration toggle — were
  * selected by sweeping on the 2024 season and then evaluated once, unchanged, on 2025.
  * `CALIBRATION`, `OUTCOME_QUANTILES`, and `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` are measured
- * rather than swept, and each is printed beside its checked-in value by the program that
- * produces it. `pnpm backtest` produces all three — every entry of the first and the third,
- * and the QB/RB/WR/TE entries of the second. `pnpm verify-sources` produces what is left:
- * the K and DST entries of `OUTCOME_QUANTILES`, which the backtest cannot, since the model
- * does not project either position.
+ * rather than swept, and each is printed by the program that produces it. `pnpm backtest`
+ * produces all three — every entry of the first and the third, and the QB/RB/WR/TE entries
+ * of the second. `pnpm verify-sources` produces what is left: the K and DST entries of
+ * `OUTCOME_QUANTILES`, which the backtest cannot, since the model does not project either
+ * position.
+ *
+ * They are not all checked to the same standard, and it is worth knowing which is which.
+ * `pnpm verify-sources` prints the two bands it produces *beside* the values below and
+ * throws if they disagree. `pnpm backtest` prints `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` beside
+ * its constant and prints the rest bare, so the other four bands and the calibration
+ * factors are compared by eye. Everything here is reproducible; only some of it is
+ * enforced.
  *
  * The remaining constants — the clamp bounds, the shrinkage strengths, and
  * `EFFICIENCY_PRIOR` — are judgement, not measurement. They are documented individually as

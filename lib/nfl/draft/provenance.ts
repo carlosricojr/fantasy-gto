@@ -10,9 +10,15 @@ import type { MarketValueBasis } from "./value";
  * it was visible on the row.
  *
  * A general caveat elsewhere on the page is not the same thing. A user comparing a kicker's
- * championship probability with a running back's is comparing a number nothing of ours
- * contributed to against one the model helped produce, and the page said so in a paragraph
- * they had already scrolled past. The limitation has to be attached to the number it limits.
+ * championship probability with a running back's is comparing a number the model had no
+ * hand in against one it helped produce, and the page said so in a paragraph they had
+ * already scrolled past. The limitation has to be attached to the number it limits.
+ *
+ * Note what "no hand in" does and does not mean. The market half of a row is our own
+ * per-position fit of historical points on log(ADP) (`lib/nfl/draft/value.ts`), so it is
+ * not somebody else's number handed through untouched — `marketEstimateExplanation` says
+ * as much on the same panel. What the model contributes nothing to is the *projection*,
+ * and that is the claim these labels make.
  *
  * One clause this module used to carry is gone, because it stopped being true: the weekly
  * spread behind a kicker or a defense is now measured, against the entity's own
@@ -195,10 +201,10 @@ export function basisExplanation(basis: ValueBasis): string {
   switch (basis) {
     case "market-only-position":
       return (
-        "Market price only. The projection model does not cover this position, so nothing " +
-        "of ours went into this number — it is what the market charges. The weekly spread " +
-        "applied to it is measured, from years of actual scoring at the position rather " +
-        "than from any projection of this player."
+        "Market price only. The projection model does not cover this position, so there " +
+        "is no model estimate here — the number is what this player's draft position has " +
+        "historically been worth. The weekly spread applied to it is measured, from years " +
+        "of actual scoring at the position rather than from any projection of this player."
       );
     case "market-only-history":
       return (

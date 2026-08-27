@@ -28,10 +28,13 @@ import type { QuantileBand } from "./config";
  *
  *     sigma = ln(p90 / p10) / (2 * Z_90)
  *
- * and the only functional of the fitted distribution the objective consumes is a maximum:
- * a roster scores the best legal lineup it can field each week, so shape matters through
- * `E[max]` and through nothing else. A lone starter contributes his mean whatever the
- * shape is.
+ * and the dominant functional of the fitted distribution is a maximum: a roster scores the
+ * best legal lineup it can field each week. A lone starter contributes his mean whatever
+ * the shape is, so shape earns its keep at the slots where two players compete — which is
+ * where depth is priced, and where the audit found the defect. It is not *only* `E[max]`:
+ * the championship comparison is between season totals, whose spread depends on the shape
+ * too. Matching `E[max]` is the criterion because it is the one the objective leans on
+ * hardest, not because nothing else moves.
  *
  * ## Why defenses need a different fit from everybody else
  *
@@ -45,21 +48,25 @@ import type { QuantileBand } from "./config";
  * mock-draft audit found.
  *
  * So a defense is fitted by matching `E[max]` of two independent draws instead, which is
- * defined whatever the lower tail does. That substitute is not chosen for convenience: on
- * the five positions where both rules *are* defined, the incumbent log-range rule and the
- * expected-max fit agree to within 8-18%, and they disagree by 43% for D/ST alone —
- * because an atom at zero is the one thing a log range cannot read. The rule below is
- * therefore "use the incumbent rule wherever it is defined, and where it is not, use the
- * fit that agrees with it everywhere else". `docs/data-sources.md` records both figures
- * for both positions so the choice is visible rather than asserted.
+ * defined whatever the lower tail does. `pnpm verify-sources` prints both dispersions for
+ * all six positions under one construction, which is what makes the substitute checkable
+ * rather than asserted, and the honest reading of that table is narrower than it might be:
+ * the log range is undefined for four of the six, because a prior-season denominator over a
+ * whole release includes plenty of players with scoreless weeks. Where both rules are
+ * defined they land within a fifth of each other. So the argument for the substitute is not
+ * that it reproduces the incumbent — on two positions it is 4-21% below it — but that it is
+ * the only one of the two that is defined everywhere, and that it matches the functional
+ * the objective actually consumes. The incumbent is kept wherever it works, for continuity
+ * with the four bands the backtest produces.
  *
  * ## What this module does not claim
  *
  * The multiplicative form is an approximation for *every* position, not just these two.
- * Regressing each entity-season's weekly standard deviation on its mean gives a large
- * positive intercept and a shallow slope at all six positions, meaning weekly spread is
- * mostly additive: the model under-disperses strong players and over-disperses weak ones.
- * Measuring a band does not fix that, and nothing here pretends it does. Nor does a
+ * `pnpm verify-sources` regresses each entity-season's weekly standard deviation on its own
+ * mean and prints the fit: a large positive intercept and a shallow slope at all six, which
+ * says weekly spread is mostly additive and a scale family therefore under-disperses strong
+ * players and over-disperses weak ones. Measuring a band does not fix that, and nothing
+ * here pretends it does. Nor does a
  * measured band make a kicker projectable — it describes the spread around a mean the
  * model still does not produce, which is why `MODELED_POSITIONS` is untouched.
  */

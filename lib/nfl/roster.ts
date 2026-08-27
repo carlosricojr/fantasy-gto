@@ -226,10 +226,10 @@ export const SHALLOW_BENCH_TEMPLATE: RosterTemplate = {
  *    This entry used to rest on a third leg — that their weekly spread was an assumed
  *    placeholder — and that leg is gone: #90.4 measured both bands. The value is
  *    unchanged, and the reason is worth writing down rather than assuming, because the
- *    measurement points the other way at first glance. A defence turns out to be the most
- *    dispersed of the six positions, and dispersion is exactly what makes a *reserve*
- *    worth something, since a roster scores the better of the two each week. It does not
- *    make one worth something here. The wire's kicker and the wire's defence are drawn
+ *    measurement points the other way at first glance. A defence's band is a wide one —
+ *    wider than the kicker's, and among the wider half of the six — and dispersion is
+ *    exactly what makes a *reserve* worth something, since a roster scores the better of
+ *    the two each week. It does not make one worth something here. The wire's kicker and the wire's defence are drawn
  *    from the same distribution as the drafted ones — that is what a cover of one asserts
  *    — so the spread appears on both sides of the comparison and cancels. Dispersion buys
  *    depth only where the depth is scarce, and at these two positions it is not.

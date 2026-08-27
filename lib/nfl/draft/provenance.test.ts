@@ -220,6 +220,18 @@ describe("the weekly spread behind a row", () => {
     expect(hasMeasuredSpread("LS")).toBe(false);
   });
 
+  it("gives every draftable position a band, so the fail-closed default stays unreached", () => {
+    // `basisExplanation` tells a reader the spread is measured, unconditionally, on the
+    // branch every unprojected position takes. That sentence is only true while every
+    // draftable position has an entry in `OUTCOME_QUANTILES` — a new one added without a
+    // band would fall to `PLACEHOLDER_QUANTILES` and be described as measured anyway. The
+    // guard is structural rather than a caveat in the copy.
+    for (const position of DRAFTABLE_POSITIONS) {
+      expect(Object.keys(OUTCOME_QUANTILES)).toContain(position);
+      expect(hasMeasuredSpread(position)).toBe(true);
+    }
+  });
+
   it("is not the same question as whether the model projects the position", () => {
     // The discriminating case, and the reason this function may not answer
     // `isModeledPosition`: both bands are measured, neither position is projected. Keying
