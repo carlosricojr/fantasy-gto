@@ -9,6 +9,7 @@ import {
   hasMeasuredSpread,
   isMarketOnly,
   isModeledPosition,
+  marketEstimateExplanation,
   recommendationCaveat,
   valueBasis,
 } from "./provenance";
@@ -26,7 +27,8 @@ const row = (
   position: string,
   modelPoints: number | null,
   marketPoints: number | null,
-) => ({ position, modelPoints, marketPoints });
+  marketValueBasis?: "adp-ordered" | "position-mean" | "pooled-mean" | null,
+) => ({ position, modelPoints, marketPoints, marketValueBasis });
 
 describe("isModeledPosition", () => {
   it("is exactly the positions the weekly model projects", () => {
@@ -81,7 +83,20 @@ describe("valueBasis", () => {
 
   it("names the ordinary case a blend and the marketless one model-only", () => {
     expect(valueBasis(row("WR", 180, 200))).toBe("blend");
+    expect(valueBasis(row("WR", 180, 200, "adp-ordered"))).toBe("blend");
     expect(valueBasis(row("WR", 180, null))).toBe("model-only");
+  });
+
+  it("distinguishes an exact flat market curve from an ADP-ordered blend", () => {
+    expect(valueBasis(row("QB", 240, 247, "position-mean"))).toBe(
+      "blend-position-mean",
+    );
+    expect(valueBasis(row("QB", 240, 247, "pooled-mean"))).toBe(
+      "blend-pooled-mean",
+    );
+    expect(valueBasis(row("QB", null, 247, "position-mean"))).toBe(
+      "market-only-history-position-mean",
+    );
   });
 
   it("names a row neither side priced", () => {
@@ -104,6 +119,12 @@ describe("the labels themselves", () => {
       "model-only",
       "market-only-position",
       "market-only-history",
+      "blend-position-mean",
+      "blend-pooled-mean",
+      "market-only-history-position-mean",
+      "market-only-history-pooled-mean",
+      "market-only-position-position-mean",
+      "market-only-position-pooled-mean",
       "unpriced",
     ];
     for (const basis of bases) {
@@ -133,9 +154,39 @@ describe("the labels themselves", () => {
   it("classifies market-only correctly and nothing else", () => {
     expect(isMarketOnly("market-only-position")).toBe(true);
     expect(isMarketOnly("market-only-history")).toBe(true);
+    expect(isMarketOnly("market-only-history-position-mean")).toBe(true);
+    expect(isMarketOnly("market-only-position-pooled-mean")).toBe(true);
     expect(isMarketOnly("blend")).toBe(false);
     expect(isMarketOnly("model-only")).toBe(false);
     expect(isMarketOnly("unpriced")).toBe(false);
+  });
+});
+
+describe("the market estimate disclosure", () => {
+  it("says explicitly when the selected curve carries no ADP ordering", () => {
+    expect(marketEstimateExplanation(247, "position-mean")).toContain(
+      "carries no within-position ADP ordering",
+    );
+    expect(marketEstimateExplanation(247, "position-mean")).toContain(
+      "position’s historical mean",
+    );
+    expect(marketEstimateExplanation(247, "pooled-mean")).toContain(
+      "pooled historical mean",
+    );
+    expect(marketEstimateExplanation(247, "position-mean")).not.toContain("constrained");
+  });
+
+  it("does not apply the flat-curve disclosure to ordered or legacy rows", () => {
+    for (const basis of ["adp-ordered", null, undefined] as const) {
+      expect(marketEstimateExplanation(247, basis)).not.toContain("carries no");
+      expect(marketEstimateExplanation(247, basis)).toContain("average draft position");
+    }
+  });
+
+  it("does not describe an ADP fit when no market estimate exists", () => {
+    const explanation = marketEstimateExplanation(null, null);
+    expect(explanation).toContain("no market estimate is available");
+    expect(explanation).not.toContain("average draft position");
   });
 });
 

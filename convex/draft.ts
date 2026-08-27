@@ -20,6 +20,12 @@ const boardRowValidator = v.object({
   team: v.union(v.string(), v.null()),
   modelPoints: v.union(v.number(), v.null()),
   marketPoints: v.union(v.number(), v.null()),
+  marketValueBasis: v.union(
+    v.literal("adp-ordered"),
+    v.literal("position-mean"),
+    v.literal("pooled-mean"),
+    v.null(),
+  ),
   blendedPoints: v.number(),
   adp: v.union(v.number(), v.null()),
   adpStdev: v.union(v.number(), v.null()),
@@ -76,6 +82,9 @@ export const board = query({
       team: row.team,
       modelPoints: row.modelPoints,
       marketPoints: row.marketPoints,
+      // Older published runs predate this field. `null` means the client knows no basis;
+      // it must not infer one from equal, rounded player values.
+      marketValueBasis: row.marketValueBasis ?? null,
       blendedPoints: row.blendedPoints,
       adp: row.adp,
       adpStdev: row.adpStdev,

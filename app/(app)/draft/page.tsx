@@ -114,6 +114,7 @@ interface BoardPlayer {
   modelPoints: number | null;
   blendedPoints: number;
   marketPoints: number | null;
+  marketValueBasis: "adp-ordered" | "position-mean" | "pooled-mean" | null;
   adp: number | null;
   adpStdev: number | null;
   byeWeek: number | null;
@@ -406,6 +407,7 @@ export default function DraftPage() {
           seasonPoints: row.blendedPoints,
           modelPoints: row.modelPoints,
           marketPoints: row.marketPoints,
+          marketValueBasis: row.marketValueBasis,
           adp: row.adp,
           adpStdev: row.adpStdev,
           availability: row.availability,

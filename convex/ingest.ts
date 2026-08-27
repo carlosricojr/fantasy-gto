@@ -42,6 +42,7 @@ import {
   adpImpliedPoints,
   blendedSeasonValue,
   fitAdpCurves,
+  marketValueBasis,
   seasonProjection,
 } from "../lib/nfl/draft/value";
 import { teamByeWeeks } from "../lib/nfl/byes";
@@ -918,12 +919,12 @@ export async function runBuildDraftBoard(
     // already finished — never on the one being drafted, which would be reading the
     // answers.
     //
-    // Which season that is cannot be assumed to be the previous one. A curve needs *both*
-    // a published ADP board and a finished result, and those do not always coincide:
-    // there is no 2025 board at all, so a 2026 draft has to reach back to 2024. Trying
-    // only `season - 1` silently produced a board with no market component whatsoever —
-    // which is not a degraded version of this product, it is the pure-model board that
-    // measurement says is the *worse* of the two signals.
+    // Which season that is cannot be hardcoded. A curve needs *both* a published ADP board
+    // and a finished result, and provider availability changes over time: early 2026 builds
+    // had to reach back to 2024, while the provider now publishes the completed 2025 board.
+    // Trying only one fixed season can silently produce a board with no market component
+    // whatsoever — which is not a degraded version of this product, it is the pure-model
+    // board that measurement says is the *worse* of the two signals.
     const seasonTotals = (weeks: readonly PlayerWeek[]) => {
       const totals = new Map<string, number>();
       const byId = new Map<string, { name: string; position: string }>();
@@ -1100,6 +1101,8 @@ export async function runBuildDraftBoard(
             });
       const marketPoints =
         market === null ? null : adpImpliedPoints(market.adp, entry.position, curve);
+      const marketBasis =
+        marketPoints === null ? null : marketValueBasis(entry.position, curve);
       if (marketPoints !== null) withMarketPrice += 1;
 
       const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
@@ -1112,6 +1115,7 @@ export async function runBuildDraftBoard(
         team: entry.team,
         modelPoints,
         marketPoints,
+        marketValueBasis: marketBasis,
         blendedPoints: blendedSeasonValue(modelPoints, marketPoints),
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
@@ -1135,6 +1139,7 @@ export async function runBuildDraftBoard(
     for (const entry of marketDefenses) {
       const marketPoints = adpImpliedPoints(entry.adp, "DST", curve);
       if (marketPoints === null) continue;
+      const marketBasis = marketValueBasis("DST", curve);
       const band = OUTCOME_QUANTILES.DST;
       withMarketPrice += 1;
       rows.push({
@@ -1144,6 +1149,7 @@ export async function runBuildDraftBoard(
         team: entry.team,
         modelPoints: null,
         marketPoints,
+        marketValueBasis: marketBasis,
         blendedPoints: blendedSeasonValue(null, marketPoints),
         adp: scalePick(entry.adp, adpSource),
         adpStdev: scalePick(entry.stdev, adpSource),

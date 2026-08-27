@@ -37,6 +37,7 @@ function row(playerId: string, blendedPoints: number) {
     team: "SF",
     modelPoints: null,
     marketPoints: blendedPoints,
+    marketValueBasis: "adp-ordered" as const,
     blendedPoints,
     adp: 10,
     adpStdev: 5,
@@ -133,6 +134,31 @@ describe("draft board publishing", () => {
     const byId = new Map(served.map((r) => [r.playerId, r.quantileProvenance]));
     expect(byId.get("measured-player")).toBe("measured");
     expect(byId.get("placeholder-player")).toBe("placeholder");
+  });
+
+  it("does not invent a curve basis for a board row that predates the field", async () => {
+    const t = convexTest(schema, modules);
+    const { marketValueBasis: omittedBasis, ...legacy } = row("legacy-player", 200);
+    // Prove the fixture normally carries the field; the rest spread below deliberately
+    // omits it to reproduce a row from before this provenance existed.
+    expect(omittedBasis).toBe("adp-ordered");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("draftBoard", {
+        sport: "nfl",
+        ...shape,
+        ...legacy,
+        computedAt: 1_000,
+      });
+    });
+    await t.mutation(internal.draft.publishBoard, {
+      ...shape,
+      computedAt: 1_000,
+      adpSourceTeams: 12,
+    });
+
+    const [served] = await t.query(api.draft.board, shape);
+    expect(served.marketPoints).toBe(200);
+    expect(served.marketValueBasis).toBeNull();
   });
 
   it("does not let a stale run that finishes late take the current board with it", async () => {

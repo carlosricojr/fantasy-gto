@@ -10,7 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { survivalProbability } from "@/lib/core/draft";
 import { cn } from "@/lib/utils";
-import { basisExplanation } from "@/lib/nfl/draft/provenance";
+import {
+  basisExplanation,
+  marketEstimateExplanation,
+} from "@/lib/nfl/draft/provenance";
 import { pickLabel } from "./board-view";
 import type { PoolPlayer } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
@@ -100,7 +103,10 @@ export function PlayerDetail({
               <dl className="mt-3 space-y-2">
                 <Estimate
                   term="Market"
-                  detail="What this player's average draft position has historically been worth, fitted per position."
+                  detail={marketEstimateExplanation(
+                    player.marketPoints,
+                    player.marketValueBasis,
+                  )}
                   value={player.marketPoints}
                 />
                 <Estimate

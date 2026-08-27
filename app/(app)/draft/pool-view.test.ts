@@ -32,6 +32,7 @@ function player(overrides: Partial<PoolPlayer> & { id: string }): PoolPlayer {
     seasonPoints: 200,
     modelPoints: 190,
     marketPoints: 210,
+    marketValueBasis: "adp-ordered",
     adp: 10,
     adpStdev: 8,
     availability: 0.9,
