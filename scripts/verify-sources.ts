@@ -664,6 +664,15 @@ async function verifyOutcomeBands(): Promise<void> {
       means.push(mean);
       sds.push(Math.sqrt(variance));
     }
+    // Refused, not rendered — the same choice the injury section makes for an empty join.
+    // An empty sample gives `NaN` for both means and `NaN + NaNx` for the fit, which reads
+    // as a measurement that came out strange rather than as one that never happened.
+    if (means.length === 0) {
+      throw new Error(
+        `no ${position} entity-season has ${BAND_MIN_PRIOR_GAMES} games, so the ` +
+          `scale-family check for it would print NaN rather than say it did not run`,
+      );
+    }
     const meanOfMeans = means.reduce((sum, value) => sum + value, 0) / means.length;
     const meanOfSds = sds.reduce((sum, value) => sum + value, 0) / sds.length;
     let covariance = 0;
@@ -680,6 +689,15 @@ async function verifyOutcomeBands(): Promise<void> {
         `${fit.sigmaFromExpectedMax.toFixed(3).padStart(13)}` +
         `${(ratio === null ? "n/a" : `${((ratio - 1) * 100).toFixed(1)}%`).padStart(9)}` +
         `${`${intercept.toFixed(2)} + ${slope.toFixed(2)}x`.padStart(24)}\n`,
+    );
+  }
+  // Same refusal. `Math.min()` of nothing is `Infinity`, so an empty set would publish
+  // "the rule runs Infinity--Infinity% above" — a sentence with the shape of a measurement
+  // and none of the content.
+  if (ratioSpread.length === 0) {
+    throw new Error(
+      `the log range was undefined at every position, so there is no comparison between ` +
+        `the two rules to report and the substitute has nothing to be licensed against`,
     );
   }
   process.stdout.write(
