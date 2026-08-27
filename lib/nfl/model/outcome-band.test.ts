@@ -209,7 +209,16 @@ describe("fitting a band", () => {
     expect(() => fitOutcomeBand([])).toThrow(/empty sample/);
     expect(() => fitOutcomeBand([0, 0, 0])).toThrow(/nothing here to renormalize/);
     expect(() => fitOutcomeBand([-1, -2])).toThrow(/nothing here to renormalize/);
-    expect(() => fitOutcomeBand([Number.NaN, 1])).toThrow(/nothing here to renormalize/);
+    // Non-finite ratios are named rather than diagnosed as something else: `NaN` would
+    // otherwise reach the mean guard and `Infinity` would survive it and be reported as a
+    // sample too dispersed to describe, which is a wrong answer to a reader's question.
+    expect(() => fitOutcomeBand([Number.NaN, 1])).toThrow(/is NaN, which is not a finite/);
+    expect(() => fitOutcomeBand([Number.POSITIVE_INFINITY, 1])).toThrow(
+      /is Infinity, which is not a finite/,
+    );
+    expect(() => fitOutcomeBand([1, 2, Number.NEGATIVE_INFINITY])).toThrow(
+      /ratio 2 of 3 is -Infinity/,
+    );
     // And the boundary beside them still fits: one positive ratio among zeros is a sample.
     expect(fitOutcomeBand([0, 0, 3]).band.provenance).toBe("measured");
   });

@@ -223,6 +223,22 @@ function withCurrentBands(rows: readonly MockBoardRow[]): MockBoardRow[] {
   });
 }
 
+/**
+ * How many rows the re-banding actually moves.
+ *
+ * Counted rather than named, because `withCurrentBands` rewrites *every* position and the
+ * banner would otherwise claim it touched K and D/ST alone. It happens to be true today
+ * that only those rows differ — the fixture's four skill bands already equal the shipped
+ * ones — but that is a fact about this fixture, not about the code, and it stops being true
+ * the moment a skill band is re-measured.
+ */
+function rebanded(rows: readonly MockBoardRow[]): number {
+  const current = withCurrentBands(rows);
+  return rows.filter(
+    (row, index) => row.p10 !== current[index].p10 || row.p90 !== current[index].p90,
+  ).length;
+}
+
 /** Replays one mode, prints its section, and returns the outcomes that ring the alarm. */
 function runMode(
   mode: ReplayMode,
@@ -368,8 +384,10 @@ function main(): void {
       `we take the panel's #1\n` +
       `  modes  ${modes.join(", ")}\n` +
       (currentBands
-        ? `  bands  --current-bands: each row re-banded from OUTCOME_QUANTILES, so the\n` +
-          `         K and D/ST rows carry the measured bands rather than the fixture's\n\n`
+        ? `  bands  --current-bands: every row re-banded from OUTCOME_QUANTILES; ` +
+          `${rebanded(fixture.rows)} of ${fixture.rows.length} actually differ from the\n` +
+          `         fixture's, which is the drift between the audit board and the one\n` +
+          `         production builds today\n\n`
         : `\n`),
   );
 

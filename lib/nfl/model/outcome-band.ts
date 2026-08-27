@@ -187,6 +187,18 @@ export function fitOutcomeBand(ratios: readonly number[]): OutcomeBandFit {
   if (ratios.length === 0) {
     throw new Error("an outcome band cannot be fitted from an empty sample");
   }
+  // Refused by name rather than by accident. A `NaN` reaches the mean guard below and an
+  // `Infinity` survives it — `Infinity > 0` is perfectly true — and is caught two dozen
+  // lines later by the rounding guard, which then reports a sample too dispersed to
+  // describe. That diagnosis would be wrong and would send a reader looking at the data
+  // instead of at the one ratio that is not a number.
+  const nonFinite = ratios.findIndex((ratio) => !Number.isFinite(ratio));
+  if (nonFinite !== -1) {
+    throw new Error(
+      `ratio ${nonFinite} of ${ratios.length} is ${ratios[nonFinite]}, which is not a ` +
+        `finite number — a band fitted around it would describe nothing`,
+    );
+  }
   const clamped = ratios.map((ratio) => Math.max(0, ratio));
   const mean = clamped.reduce((sum, value) => sum + value, 0) / clamped.length;
   // `!(mean > 0)` rather than `mean <= 0`, so a `NaN` from a non-finite ratio is refused
