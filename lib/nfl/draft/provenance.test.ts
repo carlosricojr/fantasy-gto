@@ -164,18 +164,29 @@ describe("the labels themselves", () => {
 
 describe("the market estimate disclosure", () => {
   it("says explicitly when the selected curve carries no ADP ordering", () => {
-    expect(marketEstimateExplanation("position-mean")).toContain(
+    expect(marketEstimateExplanation(247, "position-mean")).toContain(
       "carries no within-position ADP ordering",
     );
-    expect(marketEstimateExplanation("position-mean")).toContain("position’s historical mean");
-    expect(marketEstimateExplanation("pooled-mean")).toContain("pooled historical mean");
+    expect(marketEstimateExplanation(247, "position-mean")).toContain(
+      "position’s historical mean",
+    );
+    expect(marketEstimateExplanation(247, "pooled-mean")).toContain(
+      "pooled historical mean",
+    );
+    expect(marketEstimateExplanation(247, "position-mean")).not.toContain("constrained");
   });
 
   it("does not apply the flat-curve disclosure to ordered or legacy rows", () => {
     for (const basis of ["adp-ordered", null, undefined] as const) {
-      expect(marketEstimateExplanation(basis)).not.toContain("carries no");
-      expect(marketEstimateExplanation(basis)).toContain("average draft position");
+      expect(marketEstimateExplanation(247, basis)).not.toContain("carries no");
+      expect(marketEstimateExplanation(247, basis)).toContain("average draft position");
     }
+  });
+
+  it("does not describe an ADP fit when no market estimate exists", () => {
+    const explanation = marketEstimateExplanation(null, null);
+    expect(explanation).toContain("no market estimate is available");
+    expect(explanation).not.toContain("average draft position");
   });
 });
 

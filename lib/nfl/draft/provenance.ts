@@ -135,17 +135,21 @@ export function basisBadge(basis: ValueBasis): string | null {
 
 /** The disclosure attached directly to the market estimate. */
 export function marketEstimateExplanation(
+  marketPoints: number | null,
   basis: MarketValueBasis | null | undefined,
 ): string {
+  if (marketPoints === null) {
+    return "No published draft position, so no market estimate is available.";
+  }
   if (basis === "position-mean") {
     return (
-      "The fitted market curve was constrained flat, so this is the position’s historical " +
+      "The fitted market curve is flat, so this is the position’s historical " +
       "mean and carries no within-position ADP ordering."
     );
   }
   if (basis === "pooled-mean") {
     return (
-      "The fitted fallback curve was constrained flat, so this is the pooled historical " +
+      "The fitted fallback curve is flat, so this is the pooled historical " +
       "mean and carries no within-position ADP ordering."
     );
   }

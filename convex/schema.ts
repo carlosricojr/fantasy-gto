@@ -157,7 +157,7 @@ export default defineSchema({
     /** The market's implied points for this draft slot, or null if it has no opinion. */
     marketPoints: v.union(v.number(), v.null()),
     /**
-     * Whether that market number preserves ADP ordering or is a constrained curve's mean.
+     * Whether that market number preserves ADP ordering or is a flat curve's mean.
      *
      * Optional only for boards written before this provenance existed. Readers treat an
      * absent value as unknown rather than guessing from rounded player values; every new

@@ -103,7 +103,10 @@ export function PlayerDetail({
               <dl className="mt-3 space-y-2">
                 <Estimate
                   term="Market"
-                  detail={marketEstimateExplanation(player.marketValueBasis)}
+                  detail={marketEstimateExplanation(
+                    player.marketPoints,
+                    player.marketValueBasis,
+                  )}
                   value={player.marketPoints}
                 />
                 <Estimate
