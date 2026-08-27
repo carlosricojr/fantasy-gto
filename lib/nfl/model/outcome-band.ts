@@ -166,10 +166,31 @@ const round3 = (value: number) => Math.round(value * 1000) / 1000;
  * distribution it must reproduce is the clamped one, and `E[max]` is measured on that.
  * The *deciles* are reported raw, because those are the empirical quantiles of the thing
  * measured and clamping them would quietly move a published number.
+ *
+ * **Throws on a sample it cannot fit, rather than returning one.** Without the two guards
+ * below an empty sample produces `NaN` for the mean and the expected maximum, `NaN` fails
+ * every comparison on the way down, and the function returns a band of exactly `1/1`
+ * stamped `provenance: "measured"` — a perfectly plausible-looking pair, describing a
+ * distribution with no spread at all, produced from no data. A sample whose every ratio
+ * clamps to zero does the same by a different route. That is the failure mode this whole
+ * repository has one rule about, so it is refused loudly at the only place it can arise
+ * instead of being left for a caller to notice.
  */
 export function fitOutcomeBand(ratios: readonly number[]): OutcomeBandFit {
+  if (ratios.length === 0) {
+    throw new Error("an outcome band cannot be fitted from an empty sample");
+  }
   const clamped = ratios.map((ratio) => Math.max(0, ratio));
   const mean = clamped.reduce((sum, value) => sum + value, 0) / clamped.length;
+  // `!(mean > 0)` rather than `mean <= 0`, so a `NaN` from a non-finite ratio is refused
+  // here too instead of falling through every later comparison unnoticed.
+  if (!(mean > 0)) {
+    throw new Error(
+      `an outcome band cannot be fitted from ${ratios.length} ratios whose clamped mean ` +
+        `is ${mean}: the ratio distribution has to be renormalized to a mean of one, and ` +
+        `there is nothing here to renormalize`,
+    );
+  }
   const expectedMaxRatio = expectedMaxOfTwo(clamped) / mean;
   const sigmaFromExpectedMax = lognormalSigmaFromExpectedMax(expectedMaxRatio);
 

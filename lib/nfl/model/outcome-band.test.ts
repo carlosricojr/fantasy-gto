@@ -202,6 +202,18 @@ describe("fitting a band", () => {
     expect(fit.rule).toBe("expected-max");
   });
 
+  it("refuses a sample it cannot fit rather than returning a band of one", () => {
+    // Both routes to the same trap. Left unguarded, each produces `p10 = p90 = 1` with
+    // `provenance: "measured"` — a band asserting no spread at all, from no data, wearing
+    // the label that means a program derived it.
+    expect(() => fitOutcomeBand([])).toThrow(/empty sample/);
+    expect(() => fitOutcomeBand([0, 0, 0])).toThrow(/nothing here to renormalize/);
+    expect(() => fitOutcomeBand([-1, -2])).toThrow(/nothing here to renormalize/);
+    expect(() => fitOutcomeBand([Number.NaN, 1])).toThrow(/nothing here to renormalize/);
+    // And the boundary beside them still fits: one positive ratio among zeros is a sample.
+    expect(fitOutcomeBand([0, 0, 3]).band.provenance).toBe("measured");
+  });
+
   it("marks what it produced as measured, whichever rule produced it", () => {
     for (const ratios of [lognormalSample(0.5, 500, 1), [0, 0, 1, 2, 3, 4]]) {
       expect(fitOutcomeBand(ratios).band.provenance).toBe("measured");

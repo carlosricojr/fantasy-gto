@@ -215,9 +215,9 @@ const statsUrl = (season: number) =>
  *
  * 2013 through 2024, and the choice is forced twice over. The floor is the earliest season
  * with a usable prior: 2012 supplies the denominators and is not itself scored. The ceiling
- * is the holdout rule in `CLAUDE.md` — 2025 is evaluated once, by `pnpm backtest --
- * holdout`, at a decision point written down in advance, and a band fitted here is not that
- * decision. Nothing in this section reads a 2025 row.
+ * is the holdout rule in `CLAUDE.md` — 2025 is evaluated once, by
+ * `pnpm backtest -- --holdout`, at a decision point written down in advance, and a band
+ * fitted here is not that decision. Nothing in this section reads a 2025 row.
  */
 const BAND_SEASONS: readonly number[] = Array.from({ length: 13 }, (_, i) => 2012 + i);
 
