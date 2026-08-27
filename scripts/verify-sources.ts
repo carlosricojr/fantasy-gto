@@ -385,6 +385,51 @@ async function verifyOutcomeBands(): Promise<void> {
     );
   }
 
+  /**
+   * The cross-check, asserted rather than merely printed.
+   *
+   * Split, because the two releases do not agree equally on everything and pretending
+   * otherwise would give a check that either fails on every run or never fails at all.
+   *
+   * Four of the six agree **exactly** across every team-game measured, so any disagreement
+   * at all is an upstream contract change and is refused. Sacks and safeties do not, and
+   * the difference is attribution rather than fact — a safety credited to the team but to
+   * no individual, or the reverse. Those two are bounded instead, at roughly five times what
+   * they measure today, because what matters is that they stay a rounding error: refitting
+   * the whole D/ST band on player-aggregated safeties moves its dispersion from 0.9050 to
+   * 0.9045, which `docs/data-sources.md` records. A structural bound rather than a pinned
+   * count, for the same reason the Sleeper join's is one — the counts are allowed to move,
+   * the shape is not.
+   */
+  const exact: [string, number][] = [
+    ["interceptions", crossCheck.interceptions],
+    ["defensive touchdowns", crossCheck.tds],
+    ["return touchdowns", crossCheck.returnTds],
+    ["fumble recoveries", crossCheck.recoveries],
+  ];
+  const broken = exact.filter(([, count]) => count > 0);
+  if (broken.length > 0) {
+    throw new Error(
+      `the two releases disagree on ${broken.map(([f, c]) => `${f} (${c})`).join(", ")} ` +
+        `across ${crossCheck.compared} team-games, and these fields have always agreed ` +
+        `exactly — one of the two has changed what it counts, so the D/ST band is being ` +
+        `fitted on a different quantity than the one measured`,
+    );
+  }
+  const ATTRIBUTION_BOUND = 0.1;
+  for (const [field, count] of [
+    ["sacks", crossCheck.sacks],
+    ["safeties", crossCheck.safeties],
+  ] as [string, number][]) {
+    if (count > crossCheck.compared * ATTRIBUTION_BOUND) {
+      throw new Error(
+        `the two releases disagree on ${field} in ${count} of ${crossCheck.compared} ` +
+          `team-games, past the ${ATTRIBUTION_BOUND * 100}% this tolerates as attribution ` +
+          `noise — at that rate it is no longer a rounding error on the D/ST band`,
+      );
+    }
+  }
+
   const report = (label: string, fit: OutcomeBandFit) => {
     process.stdout.write(
       `  ${label.padEnd(22)} n=${String(fit.sampleSize).padStart(5)}  ` +

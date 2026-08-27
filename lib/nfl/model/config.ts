@@ -8,9 +8,10 @@ import type { Position } from "../scoring/types";
  * selected by sweeping on the 2024 season and then evaluated once, unchanged, on 2025.
  * `CALIBRATION`, `OUTCOME_QUANTILES`, and `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` are measured
  * rather than swept, and each is printed beside its checked-in value by the program that
- * produces it: `pnpm backtest` for all three, and `pnpm verify-sources` additionally for
- * the two `OUTCOME_QUANTILES` entries the backtest cannot produce, since the model does
- * not project kickers or defenses.
+ * produces it. `pnpm backtest` produces all three — every entry of the first and the third,
+ * and the QB/RB/WR/TE entries of the second. `pnpm verify-sources` produces what is left:
+ * the K and DST entries of `OUTCOME_QUANTILES`, which the backtest cannot, since the model
+ * does not project either position.
  *
  * The remaining constants — the clamp bounds, the shrinkage strengths, and
  * `EFFICIENCY_PRIOR` — are judgement, not measurement. They are documented individually as

@@ -15,10 +15,13 @@ import type { MarketValueBasis } from "./value";
  * they had already scrolled past. The limitation has to be attached to the number it limits.
  *
  * One clause this module used to carry is gone, because it stopped being true: the weekly
- * spread behind a kicker or a defense is now measured, from historical scoring against the
- * estimate a drafter actually holds (`lib/nfl/model/outcome-band.ts`). Measuring a spread is
- * not projecting a player, so the labels below still fire — what they say is that the value
- * is the market's, not that the range around it was invented.
+ * spread behind a kicker or a defense is now measured, against the entity's own
+ * prior-season points per game (`lib/nfl/model/outcome-band.ts`). Note what that denominator
+ * is *not* — the market's price plays no part in the measurement, which is worth keeping
+ * straight because the market's price is exactly what the band is later applied to. What
+ * was measured and what it multiplies are two different quantities. Measuring a spread is
+ * also not projecting a player, so the labels below still fire — what they say is that the
+ * value is the market's, not that the range around it was invented.
  *
  * **This module labels. It does not estimate.** Nothing here invents a projection, a spread,
  * or a confidence for a position the model does not cover; a future kicker model is a
@@ -194,8 +197,8 @@ export function basisExplanation(basis: ValueBasis): string {
       return (
         "Market price only. The projection model does not cover this position, so nothing " +
         "of ours went into this number — it is what the market charges. The weekly spread " +
-        "around it is measured from historical scoring at the position, not from a " +
-        "projection of this player."
+        "applied to it is measured, from years of actual scoring at the position rather " +
+        "than from any projection of this player."
       );
     case "market-only-history":
       return (

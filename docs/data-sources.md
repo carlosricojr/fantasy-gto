@@ -298,6 +298,13 @@ Measured over **6,782 team-games**, 2012–2024:
 | `def_sacks` | 8 |
 | `def_safeties` | 131 |
 
+**The comparison is asserted, not merely printed.** The four fields that agree exactly are
+required to keep agreeing exactly — any disagreement there is an upstream contract change,
+and `verify-sources` refuses rather than fitting the band on a quantity that has quietly
+become a different one. Sacks and safeties are bounded instead, at 10% of team-games against
+the 0.12% and 1.93% they measure today, because their difference is attribution rather than
+fact.
+
 Safeties are the one real disagreement, and the team release is taken as authoritative for
 them. It changes nothing that matters: refitting the whole D/ST band on player-aggregated
 safeties instead moves the dispersion from 0.9050 to 0.9045 and the band from 0.208/2.118

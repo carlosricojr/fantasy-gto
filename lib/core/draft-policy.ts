@@ -262,8 +262,10 @@ export function applyMarketGate<T extends { player: PlayerRisk }>(
  * silent — `docs/draft-validation.md` says so outright, and their entire price is the
  * market's — so the engine holds no information the market does not, and every round of
  * lead is a pick spent on a claim nothing is making. Their outcome bands are measured now
- * (#90.4), and that changes nothing here: a band describes how far a week strays from a
- * price, so it cannot be evidence that the price itself is wrong. The audit's Seattle D/ST went at
+ * (#90.4), and that changes nothing here — the measurement never looks at a price. It
+ * divides actual weekly scoring by the entity's own prior-season points per game, so it is
+ * a statement about week-to-week variability and cannot be evidence that any price is
+ * wrong. The audit's Seattle D/ST went at
  * 5.05 against a round-nine market and its first kicker at 9.05 against a round-fifteen
  * one: four and six rounds of lead, and the roster paid for both.
  *
@@ -371,10 +373,11 @@ function marketRoundOf(player: PlayerRisk, teams: number): number | null {
  *    nothing in a myopic best-available prefilter knows that the same gain is available
  *    six rounds later. The market knows, and for these two positions the market is the
  *    only source there is — `docs/draft-validation.md`: the model does not project either,
- *    and their entire price is the market's. A measured outcome band did not change that;
- *    it describes the spread around the market's number rather than replacing it. So a
- *    recommendation to take one six rounds early is the engine overruling the only price
- *    it has, using no information of its own.
+ *    and their entire price is the market's. A measured outcome band did not change that.
+ *    It is fitted against prior-season points per game, not against a price, and it is
+ *    applied as a spread once the price is already chosen — so it adds nothing to *which*
+ *    number the row carries. A recommendation to take one six rounds early is still the
+ *    engine overruling the only price it has, using no information of its own.
  *
  * Three edges, deliberately matching `applyMarketGate`'s so the two gates read alike:
  *

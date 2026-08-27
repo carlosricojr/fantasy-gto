@@ -548,10 +548,12 @@ make the tool cautious — it made it unusable for any league that starts one: t
 never be filled, every simulated roster carried a permanent hole, and a user following the
 recommendations would finish the draft without a kicker. They are now valued exactly as a
 rookie is, by the same rule: where the model is silent, the market's price stands alone.
-Their weekly spread *is* measured — from historical weekly scoring against the estimate a
-drafter actually holds, since there is no projection to divide by. See
-`docs/data-sources.md`. That measures the range around the number, never the number: the
-value on a K or D/ST row is still the market's alone.
+Their weekly spread *is* measured, and it is worth being exact about what against, since
+the obvious guess is wrong. The denominator is the entity's own **prior-season points per
+game** — there is no projection to divide by, and the market's price is not used: it is the
+valuation input, not the measurement basis. See `docs/data-sources.md`. So the band gives
+the range around the value and never the value itself, which on a K or D/ST row is still
+the market's alone.
 
 **Not handled: custom scoring.** Only PPR, half-PPR, and standard are supported. This is a
 harder limit than it looks, because it binds on both halves of the valuation at once — the
@@ -716,9 +718,9 @@ it with `waiverWireCover`'s league-aware result.
 
 **This is judgement, not measurement, and is marked as such** — the same status
 `meanAbsenceWeeks` carries. What would settle it is the weekly value of the best free agent
-at each position, which nothing here measures. Measuring the K/D-ST outcome bands (#90.4)
-did not start: a band says how far a week strays from an estimate, not what the wire would
-have sold you instead. It did remove a leg the K/D-ST entry of one used to rest on, and the
+at each position, which nothing here measures — and the measured K/D-ST outcome bands
+(#90.4) are not it: a band says how far a week strays from an estimate, never what the wire
+would have sold you instead. It did remove a leg the K/D-ST entry of one used to rest on, and the
 entry survives on the other two — the model projects neither, and thirty-two NFL teams
 supply a starter at each against ten rostered. The measurement even points the other way at
 first glance, since a defense turns out to be the most dispersed of the six positions and
