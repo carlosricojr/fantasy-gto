@@ -401,6 +401,16 @@ async function verifyOutcomeBands(): Promise<void> {
    * count, for the same reason the Sleeper join's is one — the counts are allowed to move,
    * the shape is not.
    */
+  // A floor on the comparison itself, before anything is concluded from it. Every check
+  // below counts *disagreements*, so an empty comparison satisfies all of them — a key
+  // that stopped matching would read exactly like two releases in perfect accord.
+  if (crossCheck.compared < teamGames * 0.9) {
+    throw new Error(
+      `only ${crossCheck.compared} of ${teamGames} team-games found a player-release ` +
+        `aggregate to compare against, so every agreement below would be an agreement ` +
+        `about nothing — the team-and-week key has stopped matching across the releases`,
+    );
+  }
   const exact: [string, number][] = [
     ["interceptions", crossCheck.interceptions],
     ["defensive touchdowns", crossCheck.tds],

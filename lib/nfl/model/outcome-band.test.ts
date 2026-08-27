@@ -214,6 +214,28 @@ describe("fitting a band", () => {
     expect(fitOutcomeBand([0, 0, 3]).band.provenance).toBe("measured");
   });
 
+  it("refuses a band that rounds away to nothing", () => {
+    // The degenerate band's last way back in, and it arrives wearing the right label:
+    // three decimals is what the skill bands carry, so a fitted tenth percentile under
+    // 0.0005 is checked in as exactly zero — which is what `fitLognormal` floors at an
+    // epsilon and reads back as a dispersion near six. Ninety-nine zeros and one large
+    // value is dispersed far enough to get there.
+    const extreme = [...Array.from({ length: 99 }, () => 0), 100];
+    const fit = () => fitOutcomeBand(extreme);
+    expect(fit).toThrow(/log-range formula can read back/);
+    // The mechanism, so the test fails for its own reason if the threshold ever moves.
+    expect(lognormalDeciles(lognormalSigmaFromExpectedMax(1.99)).p10).toBeLessThan(0.0005);
+  });
+
+  it("refuses a band with no width, which reads back as no spread at all", () => {
+    // The other half of the same guard, and it is not the same case: here the pair is
+    // positive and equal, so `ln(p90 / p10)` is zero and the simulator re-derives a
+    // dispersion of nothing — every week exactly the projection. A sample with no observed
+    // variation is the honest way to reach it.
+    expect(() => fitOutcomeBand([1, 1, 1])).toThrow(/log-range formula can read back/);
+    expect(() => fitOutcomeBand([2.5, 2.5])).toThrow(/log-range formula can read back/);
+  });
+
   it("marks what it produced as measured, whichever rule produced it", () => {
     for (const ratios of [lognormalSample(0.5, 500, 1), [0, 0, 1, 2, 3, 4]]) {
       expect(fitOutcomeBand(ratios).band.provenance).toBe("measured");

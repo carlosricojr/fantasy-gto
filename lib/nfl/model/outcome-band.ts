@@ -205,6 +205,24 @@ export function fitOutcomeBand(ratios: readonly number[]): OutcomeBandFit {
       ? { p10: empiricalP10, p90: empiricalP90 }
       : lognormalDeciles(sigmaFromExpectedMax);
 
+  // Rounding is the last place the degenerate band can come back, and it comes back
+  // wearing the right label. Three decimals is what the skill bands carry, so a fitted
+  // p10 below 0.0005 rounds to exactly zero — and a checked-in zero is what `fitLognormal`
+  // floors at an epsilon and turns into the dispersion near six this module exists to
+  // refuse. A wide enough sample reaches it: dispersion past about 3.6 puts the tenth
+  // percentile of a unit-mean lognormal under that threshold. The pair also has to be
+  // strictly increasing, or `ln(p90 / p10)` is zero or negative and the simulator reads
+  // back no spread at all.
+  const p10 = round3(fitted.p10);
+  const p90 = round3(fitted.p90);
+  if (!(p10 > 0) || !(p90 > p10)) {
+    throw new Error(
+      `${ratios.length} ratios fitted to a band of ${p10}/${p90} at three decimals, which ` +
+        `is not a pair the log-range formula can read back — the sample is too dispersed ` +
+        `for a multiplicative band to describe at the precision the others carry`,
+    );
+  }
+
   return {
     sampleSize: ratios.length,
     empiricalP10,
@@ -215,10 +233,6 @@ export function fitOutcomeBand(ratios: readonly number[]): OutcomeBandFit {
     sigmaFromRange,
     sigmaFromExpectedMax,
     rule,
-    band: {
-      p10: round3(fitted.p10),
-      p90: round3(fitted.p90),
-      provenance: "measured",
-    },
+    band: { p10, p90, provenance: "measured" },
   };
 }
