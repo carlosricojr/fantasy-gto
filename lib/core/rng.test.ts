@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalCdf } from "./draft";
+import { normalCdf } from "./stats";
 import { type Rng, Z_90, createRng, standardNormal } from "./rng";
 
 /**

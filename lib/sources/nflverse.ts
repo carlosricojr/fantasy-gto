@@ -39,6 +39,22 @@ export function schedulesUrl(): string {
 }
 
 /**
+ * Team-level weekly statistics.
+ *
+ * The player release carries no team-defense row — a defense is not a player, and the
+ * position never appears in it — so this is the only nflverse release from which a D/ST
+ * week can be assembled. Verified by direct request; `docs/data-sources.md` records what
+ * it carries and how its defensive counts compare against aggregating the player release
+ * over each team-week.
+ *
+ * Nothing in the product reads it. It is the seam and the measurement behind the D/ST
+ * outcome band, in the same sense `snapCountsUrl` is the seam behind the snap-share one.
+ */
+export function teamWeeklyStatsUrl(season: number): string {
+  return `${RELEASE_BASE}/stats_team/stats_team_week_${season}.csv`;
+}
+
+/**
  * Season roster release.
  *
  * The one source that says which team a player is on *before* a game has been played.

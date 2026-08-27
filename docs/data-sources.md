@@ -251,6 +251,122 @@ Note that `offense_pct` is a fraction, not a percentage — upstream ships `0.9`
 Reading it as a percentage puts every snap share two orders of magnitude too low and
 silently disables any feature built on it.
 
+### 1.2b-1 Team weekly stats — the only place a D/ST week exists
+
+```text
+{base}/stats_team/stats_team_week_{SEASON}.csv
+```
+
+Verified by direct request 2026-08-26 for every season 2012–2024: HTTP 200, one row per
+team-game, 512–544 regular-season rows a season, 32 distinct teams throughout.
+
+**`stats_player_week` carries no D/ST row at all.** The position never appears in it —
+checked on 2024, where `DST`, `DEF` and `D` are all absent — because a team defense is not
+a player. That is why this release exists in the repo: it is the only nflverse file from
+which a defense's week can be assembled.
+
+Columns the parser reads, and their exact spellings: `def_sacks`, `def_interceptions`,
+`fumble_recovery_opp`, `def_tds`, `special_teams_tds`, `def_safeties`, plus `team`,
+`week`, `season` and `season_type`. Two are easy to get wrong in a way that parses:
+`def_fumbles` is a different count from `fumble_recovery_opp`, and `special_teams_tds` is
+the team's own return touchdowns, which is what a fantasy defense is credited with.
+`tests/fixtures/stats_team_week_sample.csv` is five unedited rows of the 2024 file, chosen
+so every one of those six columns is non-zero somewhere, and `lib/nfl/stats/parse.test.ts`
+asserts each is present and read.
+
+**Points allowed is not in this release.** It is the other team's final score, so it comes
+from the schedule (section 1.2) through the shipped `parseContests`. Measured: **0 of 6,782
+regular-season team-weeks** failed to join a kickoff across 2012–2024. `pnpm verify-sources`
+throws rather than fitting a band on whichever weeks happened to join.
+
+**Yards allowed is not measured.** No shipped ruleset enables yardage tiers, so
+`toDefenseStatLine` returns `null` rather than approximating it from the opponent's passing
+and rushing yards, which is a different quantity.
+
+#### Cross-checked against the player release
+
+The player release carries the same `def_*` columns for individual defenders, so
+aggregating them over each team-week is an independent reading of the same events.
+Measured over **6,782 team-games**, 2012–2024:
+
+| field | team-games where the two releases disagree |
+|---|---|
+| `def_interceptions` | 0 |
+| `def_tds` | 0 |
+| `fumble_recovery_opp` | 0 |
+| `special_teams_tds` | 0 |
+| `def_sacks` | 8 |
+| `def_safeties` | 131 |
+
+Safeties are the one real disagreement, and the team release is taken as authoritative for
+them. It changes nothing that matters: refitting the whole D/ST band on player-aggregated
+safeties instead moves the dispersion from 0.9050 to 0.9045 and the band from 0.208/2.118
+to 0.208/2.117. Recorded because a 131-row discrepancy that turns out not to matter is
+worth measuring once rather than worrying about repeatedly.
+
+### 1.2b-2 Measured K and D/ST outcome bands
+
+`OUTCOME_QUANTILES` in `lib/nfl/model/config.ts` used to carry an admitted placeholder for
+kicker and defense, because `pnpm backtest` fits a band from the model's own predictions and
+the model projects neither position. Both are now measured here instead, and
+`pnpm verify-sources` prints them beside the checked-in constants and **fails if the two
+disagree** — the same contract the backtest's own quantiles carry.
+
+**Construction.** For each season 2013–2024, each week's actual fantasy points divided by
+that entity's *prior*-season points per game, requiring at least eight prior games behind the
+denominator. 2012 supplies denominators and is never scored; **no 2025 row is read**, because
+2025 is the holdout and a band fitted here is not the pre-registered decision `CLAUDE.md`
+reserves it for. The denominator is deliberately a forecast rather than a same-season mean:
+the skill bands are actual-over-*predicted* and carry the forecast's error, and a band built
+on a level nobody knows until the season is over would be a narrower, differently-defined
+number.
+
+Scoring is this repo's own K and D/ST ladders, which `lib/nfl/scoring/presets.ts` says
+plainly are conventional defaults verified against no external source — unlike the offensive
+values, which are. A league scoring defenses differently has a differently-shaped band. The
+three shipped rulesets score K and D/ST identically, so unlike the skill bands these two are
+not PPR-specific.
+
+**Measured, 2013–2024:**
+
+| | n | p10 | p50 | p90 | weeks ≤ 0 | E[max of 2]/mean | σ from p10/p90 | σ from E[max] |
+|---|---|---|---|---|---|---|---|---|
+| K | 4,866 | 0.271 | 0.952 | 1.864 | 3.7% | 1.341 | 0.752 | 0.624 |
+| D/ST | 6,270 | **0.000** | 0.858 | 2.379 | 12.6% | 1.478 | **undefined** | 0.905 |
+
+**The kicker band is the empirical deciles**, taken exactly as the four skill bands are:
+`0.271 / 1.864`, against a placeholder of `0.25 / 1.85` — the placeholder was within 4% on
+dispersion. It is flat in the prior-games threshold (4 → `0.267/1.875`, 12 → `0.276/1.859`)
+and leave-one-season-out moves its dispersion only within [0.617, 0.634].
+
+**The defense band cannot be the empirical deciles.** Under the conventional points-allowed
+ladder an eighth of team-weeks score nothing or less, so the empirical tenth percentile is
+0.000 and the log range `ln(p90/p10)` is undefined. Flooring it at an epsilon does not
+rescue anything: it manufactures a dispersion near six, which is not a wide distribution but
+a degenerate one — nearly every week at zero with rare enormous spikes, the mean preserved
+and the shape absurd, and it would inflate the worth of a *second* defense, which is the
+exact defect the #88 audit found.
+
+So the defense is fitted by matching the expectation of a weekly maximum, which is defined
+whatever the lower tail does and is the only functional the season simulation consumes: a
+roster scores the best legal lineup it can field each week. That gives σ = 0.905 and a band
+of `0.208 / 2.118`, against a placeholder of `0.2 / 2.0` — within 1% on dispersion.
+Leave-one-season-out moves it only within [0.890, 0.918].
+
+**Why the substitute is licensed rather than convenient.** Applying one construction to all
+six positions, the incumbent log-range rule sits 8–18% above the expected-max fit for
+QB/RB/WR/TE/K, and 43% above for D/ST alone — because an atom at zero is the one thing a log
+range cannot read. The rule is therefore "use the incumbent rule wherever it is defined, and
+where it is not, use the fit that agrees with it everywhere else".
+
+**Two limits worth stating.** A measured band is not a projection: nothing has started
+estimating what a kicker will score, only how far a week strays from an estimate somebody
+else supplies, so `MODELED_POSITIONS` is unchanged and every market-only label still fires.
+And the multiplicative form is an approximation at *every* position — regressing each
+entity-season's weekly standard deviation on its mean gives a large positive intercept
+(2.3–4.4 points) and a shallow slope (0.17–0.44) at all six, meaning weekly spread is mostly
+additive. Measuring a band does not fix that.
+
 ### 1.2c Player directory — age, experience, and the identifier bridge
 
 ```text

@@ -190,8 +190,9 @@ export default defineSchema({
      *
      * Stored rather than inferred, for the same reason `modelPoints` is nullable: a row
      * that cannot say where its numbers came from will eventually be presented as though
-     * they were all measured. Kickers and defenses carry `placeholder`, and so does any
-     * position `OUTCOME_QUANTILES` has no entry for.
+     * they were all measured. Every position `OUTCOME_QUANTILES` carries is now measured,
+     * kickers and defenses included; `placeholder` remains for a position it has no entry
+     * for, which is the fail-closed default rather than a live value.
      *
      * Required, like the four fields beside it — and a required field on a populated table
      * is rejected by Convex outright, so adding it breaks the next push until the table is

@@ -194,31 +194,44 @@ describe("the weekly spread behind a row", () => {
   it("agrees with the band the ingest actually writes", () => {
     // `hasMeasuredSpread` exists because a recommendation carries a `PlayerRisk`, which has
     // the quantiles but not where they came from. It has to give the same answer the stored
-    // row does, and the only thing making that true is that both key on the position — so
-    // it is asserted against `OUTCOME_QUANTILES` rather than restated.
+    // row does, so it is asserted against `OUTCOME_QUANTILES` — including the fallback,
+    // which is the branch `convex/ingest.ts` reaches for a position with no entry.
     for (const position of DRAFTABLE_POSITIONS) {
       const band =
         OUTCOME_QUANTILES[position as keyof typeof OUTCOME_QUANTILES] ??
         PLACEHOLDER_QUANTILES;
       expect(hasMeasuredSpread(position)).toBe(band.provenance === "measured");
     }
+    expect(hasMeasuredSpread("LS")).toBe(false);
   });
 
-  it("is false for exactly the positions whose caveat mentions the placeholder", () => {
-    for (const position of DRAFTABLE_POSITIONS) {
-      const caveat = recommendationCaveat(position);
-      if (hasMeasuredSpread(position)) expect(caveat).toBeNull();
-      else expect(caveat).toContain("placeholder");
+  it("is not the same question as whether the model projects the position", () => {
+    // The discriminating case, and the reason this function may not answer
+    // `isModeledPosition`: both bands are measured, neither position is projected. Keying
+    // on projection would make the recommendation contradict the row beside it.
+    for (const position of ["K", "DST"]) {
+      expect(hasMeasuredSpread(position)).toBe(true);
+      expect(isModeledPosition(position)).toBe(false);
     }
   });
 
-  it("never claims a measured spread for a kicker or a defense", () => {
-    expect(hasMeasuredSpread("K")).toBe(false);
-    expect(hasMeasuredSpread("DST")).toBe(false);
-    // And the sentence a reader sees does not use calibrated-model language for them.
+  it("caveats exactly the positions the model does not project", () => {
+    for (const position of DRAFTABLE_POSITIONS) {
+      const caveat = recommendationCaveat(position);
+      if (isModeledPosition(position)) expect(caveat).toBeNull();
+      else expect(caveat).toContain("does not cover this position");
+    }
+  });
+
+  it("never claims a projection for a kicker or a defense", () => {
     const caveat = recommendationCaveat("K")!;
+    // The sentence a reader sees does not use calibrated-model language for them...
     expect(caveat).not.toMatch(/calibrat/i);
     expect(caveat).not.toMatch(/\bedge\b/i);
-    expect(caveat).toContain("assumed");
+    expect(caveat).toContain("Market price only");
+    // ...and it no longer disclaims a spread that is now measured, which would be the
+    // opposite failure: a true limitation replaced by a false one.
+    expect(caveat).not.toMatch(/placeholder/i);
+    expect(caveat).not.toMatch(/assumed/i);
   });
 });

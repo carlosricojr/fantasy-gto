@@ -20,6 +20,17 @@ import { join } from "node:path";
 
 import { num, parseCsv, str } from "@/lib/nfl/csv";
 import { MODELED_POSITIONS } from "@/lib/nfl/draft/config";
+import { OUTCOME_QUANTILES } from "@/lib/nfl/model/config";
+import {
+  type EntitySeason,
+  type OutcomeBandFit,
+  fitOutcomeBand,
+  priorSeasonRatios,
+} from "@/lib/nfl/model/outcome-band";
+import { toDefenseStatLine, toKickerStatLine, toTeamWeek } from "@/lib/nfl/stats/parse";
+import { scoreDefense, scoreKicker } from "@/lib/nfl/scoring/score";
+import { PPR } from "@/lib/nfl/scoring/presets";
+import { parseContests, teamWeeklyStatsUrl } from "@/lib/sources/nflverse";
 import { joinMarketAwareness } from "@/lib/nfl/draft/market-awareness";
 import { parseBoardFixture } from "@/lib/nfl/draft/mock";
 import { adpUrl, parseAdp } from "@/lib/sources/adp";
@@ -198,6 +209,223 @@ async function verifySleeperAwareness(): Promise<void> {
 
 const statsUrl = (season: number) =>
   `${RELEASE_BASE}/stats_player/stats_player_week_${season}.csv`;
+
+/**
+ * Seasons the K and D/ST outcome bands are fitted on.
+ *
+ * 2013 through 2024, and the choice is forced twice over. The floor is the earliest season
+ * with a usable prior: 2012 supplies the denominators and is not itself scored. The ceiling
+ * is the holdout rule in `CLAUDE.md` — 2025 is evaluated once, by `pnpm backtest --
+ * holdout`, at a decision point written down in advance, and a band fitted here is not that
+ * decision. Nothing in this section reads a 2025 row.
+ */
+const BAND_SEASONS: readonly number[] = Array.from({ length: 13 }, (_, i) => 2012 + i);
+
+/** The first of those seasons supplies denominators only. */
+const BAND_FIRST_SCORED = BAND_SEASONS[0] + 1;
+
+/**
+ * Prior-season games a kicker or defense needs before his mean is used as a denominator.
+ *
+ * Half a season. Below that the denominator is noise and the ratio describes it rather than
+ * the outcome; the figures printed at 4 and 12 games are how a reader checks that the band
+ * does not hinge on the number.
+ */
+const BAND_MIN_PRIOR_GAMES = 8;
+
+/**
+ * The two bands in `OUTCOME_QUANTILES` that the backtest cannot produce.
+ *
+ * `pnpm backtest` fits a band from the model's own predictions, and the model projects
+ * neither of these positions. Measured here instead, from historical weekly scoring against
+ * the estimate a drafter actually holds — the entity's own prior-season points per game.
+ * `lib/nfl/model/outcome-band.ts` carries the argument for the construction and for why a
+ * defense cannot be fitted the same way a kicker is.
+ *
+ * This also verifies the two upstream releases the D/ST half needs, which is why it lives
+ * in this script rather than beside the backtest: a team defense is not a player and has no
+ * row in `stats_player_week` at all, so a D/ST week is `stats_team_week` for the counting
+ * statistics plus the schedule for the points its own team conceded.
+ */
+async function verifyOutcomeBands(): Promise<void> {
+  process.stdout.write(
+    `\n${"=".repeat(78)}\nK and D/ST outcome bands: measured, not assumed\n${"=".repeat(78)}\n`,
+  );
+
+  const kickerSeasons: EntitySeason[] = [];
+  const defenseSeasons: EntitySeason[] = [];
+
+  // Points allowed is the *other* team's final score, so it comes from the schedule
+  // through the shipped parser rather than from a column of the statistics release, which
+  // has none. `parseContests` keeps regular-season rows only, which is the same filter
+  // both statistics loops apply below.
+  const contests = parseContests(parseCsv(await cached(schedulesUrl())));
+  const conceded = new Map<string, number>();
+  for (const contest of contests) {
+    if (contest.result === null) continue;
+    const week = contest.period.index;
+    conceded.set(
+      `${contest.homeTeam}|${contest.period.season}|${week}`,
+      contest.result.awayScore,
+    );
+    conceded.set(
+      `${contest.awayTeam}|${contest.period.season}|${week}`,
+      contest.result.homeScore,
+    );
+  }
+
+  let unresolvedPointsAllowed = 0;
+  let teamGames = 0;
+  const crossCheck = { compared: 0, sacks: 0, interceptions: 0, tds: 0, safeties: 0, recoveries: 0 };
+
+  for (const season of BAND_SEASONS) {
+    const kickerWeeks = new Map<string, number[]>();
+    const playerRows = parseCsv(await cached(statsUrl(season)));
+    // Defensive counts aggregated from the player release, purely to cross-check the team
+    // release against an independent upstream file. Nothing downstream reads them.
+    const playerAggregate = new Map<string, Record<string, number>>();
+    for (const row of playerRows) {
+      if (str(row, "season_type") !== "REG") continue;
+      const team = normalizeTeam(str(row, "team"));
+      if (team !== null) {
+        const key = `${team}|${num(row, "week")}`;
+        const bucket = playerAggregate.get(key) ?? {
+          sacks: 0,
+          interceptions: 0,
+          tds: 0,
+          safeties: 0,
+          recoveries: 0,
+        };
+        bucket.sacks += num(row, "def_sacks");
+        bucket.interceptions += num(row, "def_interceptions");
+        bucket.tds += num(row, "def_tds");
+        bucket.safeties += num(row, "def_safeties");
+        bucket.recoveries += num(row, "fumble_recovery_opp");
+        playerAggregate.set(key, bucket);
+      }
+      if (str(row, "position").toUpperCase() !== "K") continue;
+      const id = str(row, "player_id");
+      if (id === "") continue;
+      const bucket = kickerWeeks.get(id) ?? [];
+      bucket.push(scoreKicker(toKickerStatLine(row), PPR).total);
+      kickerWeeks.set(id, bucket);
+    }
+    for (const [id, weeklyPoints] of kickerWeeks) {
+      kickerSeasons.push({ id, season, weeklyPoints });
+    }
+
+    const defenseWeeks = new Map<string, number[]>();
+    for (const row of parseCsv(await cached(teamWeeklyStatsUrl(season)))) {
+      if (str(row, "season_type") !== "REG") continue;
+      const identity = toTeamWeek(row);
+      if (identity === null) continue;
+      teamGames += 1;
+      const pointsAllowed = conceded.get(
+        `${identity.team}|${identity.period.season}|${identity.period.index}`,
+      );
+      if (pointsAllowed === undefined) {
+        // Counted and reported rather than skipped silently: a team-week with no kickoff
+        // behind it means the schedule join has broken, and a band quietly fitted on the
+        // survivors would look no different.
+        unresolvedPointsAllowed += 1;
+        continue;
+      }
+      const aggregate = playerAggregate.get(`${identity.team}|${identity.period.index}`);
+      if (aggregate !== undefined) {
+        crossCheck.compared += 1;
+        if (Math.abs(aggregate.sacks - num(row, "def_sacks")) > 1e-9) crossCheck.sacks += 1;
+        if (Math.abs(aggregate.interceptions - num(row, "def_interceptions")) > 1e-9)
+          crossCheck.interceptions += 1;
+        if (Math.abs(aggregate.tds - num(row, "def_tds")) > 1e-9) crossCheck.tds += 1;
+        if (Math.abs(aggregate.safeties - num(row, "def_safeties")) > 1e-9)
+          crossCheck.safeties += 1;
+        if (Math.abs(aggregate.recoveries - num(row, "fumble_recovery_opp")) > 1e-9)
+          crossCheck.recoveries += 1;
+      }
+      const bucket = defenseWeeks.get(identity.team) ?? [];
+      bucket.push(scoreDefense(toDefenseStatLine(row, pointsAllowed), PPR).total);
+      defenseWeeks.set(identity.team, bucket);
+    }
+    for (const [id, weeklyPoints] of defenseWeeks) {
+      defenseSeasons.push({ id, season, weeklyPoints });
+    }
+  }
+
+  process.stdout.write(
+    `  seasons ${BAND_FIRST_SCORED}-${BAND_SEASONS[BAND_SEASONS.length - 1]} scored, ` +
+      `${BAND_SEASONS[0]} supplying denominators only; 2025 not read\n` +
+      `  kicker seasons ${kickerSeasons.length}, defense seasons ${defenseSeasons.length}, ` +
+      `team-games ${teamGames}\n` +
+      `  points allowed unresolved from the schedule: ${unresolvedPointsAllowed}\n` +
+      `  team release vs aggregating the player release over ${crossCheck.compared} team-games:\n` +
+      `    sacks ${crossCheck.sacks}, interceptions ${crossCheck.interceptions}, ` +
+      `touchdowns ${crossCheck.tds}, fumble recoveries ${crossCheck.recoveries}, ` +
+      `safeties ${crossCheck.safeties} disagree\n`,
+  );
+  if (unresolvedPointsAllowed > 0) {
+    throw new Error(
+      `${unresolvedPointsAllowed} team-weeks had no kickoff to take points allowed from, ` +
+        `so the defense band would be fitted on whichever weeks happened to join`,
+    );
+  }
+
+  const report = (label: string, fit: OutcomeBandFit) => {
+    process.stdout.write(
+      `  ${label.padEnd(22)} n=${String(fit.sampleSize).padStart(5)}  ` +
+        `p10=${fit.empiricalP10.toFixed(3)}  p50=${fit.empiricalP50.toFixed(3)}  ` +
+        `p90=${fit.empiricalP90.toFixed(3)}  <=0 ${(fit.nonPositiveShare * 100).toFixed(1)}%  ` +
+        `E[max2]/mean=${fit.expectedMaxRatio.toFixed(3)}  ` +
+        `sigma(10/90)=${fit.sigmaFromRange === null ? " undefined" : fit.sigmaFromRange.toFixed(3)}  ` +
+        `sigma(E[max])=${fit.sigmaFromExpectedMax.toFixed(3)}  ` +
+        `band ${fit.band.p10}/${fit.band.p90} by ${fit.rule}\n`,
+    );
+  };
+
+  for (const [position, seasons] of [
+    ["K", kickerSeasons],
+    ["DST", defenseSeasons],
+  ] as const) {
+    process.stdout.write(`\n  ${position}\n`);
+    for (const minPriorGames of [4, BAND_MIN_PRIOR_GAMES, 12]) {
+      report(
+        `prior games >= ${minPriorGames}`,
+        fitOutcomeBand(priorSeasonRatios(seasons, minPriorGames)),
+      );
+    }
+    // Leave-one-season-out, so a band that rests on one unusual year is visible as one.
+    let lowest = Number.POSITIVE_INFINITY;
+    let highest = Number.NEGATIVE_INFINITY;
+    for (const dropped of BAND_SEASONS.slice(1)) {
+      const fit = fitOutcomeBand(
+        priorSeasonRatios(
+          seasons.filter((entry) => entry.season !== dropped),
+          BAND_MIN_PRIOR_GAMES,
+        ),
+      );
+      lowest = Math.min(lowest, fit.sigmaFromExpectedMax);
+      highest = Math.max(highest, fit.sigmaFromExpectedMax);
+    }
+    const shipped = OUTCOME_QUANTILES[position];
+    const fit = fitOutcomeBand(priorSeasonRatios(seasons, BAND_MIN_PRIOR_GAMES));
+    process.stdout.write(
+      `  leave-one-season-out sigma(E[max]) in [${lowest.toFixed(3)}, ${highest.toFixed(3)}]\n` +
+        `  checked in as ${shipped.p10}/${shipped.p90} (${shipped.provenance})\n`,
+    );
+    // The same rule the backtest's quantiles follow, enforced rather than eyeballed: a
+    // constant in `config.ts` marked measured must be the number this program prints.
+    if (shipped.p10 !== fit.band.p10 || shipped.p90 !== fit.band.p90) {
+      throw new Error(
+        `OUTCOME_QUANTILES.${position} is ${shipped.p10}/${shipped.p90} but this ` +
+          `measurement says ${fit.band.p10}/${fit.band.p90}. Upstream has restated a ` +
+          `season, or the constant was edited by hand; either way one of the two is a ` +
+          `number the code cannot produce.`,
+      );
+    }
+    if (shipped.provenance !== "measured") {
+      throw new Error(`OUTCOME_QUANTILES.${position} is measured but marked ${shipped.provenance}`);
+    }
+  }
+}
 const snapsUrl = (season: number) =>
   `${RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
 const playersUrl = () => `${RELEASE_BASE}/players/players.csv`;
@@ -483,6 +711,7 @@ async function main(): Promise<void> {
   }
 
   await verifySleeperAwareness();
+  await verifyOutcomeBands();
 
   process.stdout.write(
     "\nEvery figure above appears in docs/data-sources.md. If one has moved, update that\n" +

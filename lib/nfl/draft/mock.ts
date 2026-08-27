@@ -106,6 +106,24 @@ export interface MockBoardRow {
   availability: number;
   p10: number;
   p90: number;
+  /**
+   * Whether this row's band was measured, as of the board this row was frozen from.
+   *
+   * The fixture is the audit's record and is never regenerated, so its kicker and defense
+   * rows still say `placeholder` and still carry `0.25/1.85` and `0.2/2.0` — the bands the
+   * ingest wrote in August 2026, before #90.4 measured them. Every replay here therefore
+   * runs against those, which is deliberate: a regression lock whose board moves is not
+   * one.
+   *
+   * The shipped bands are `0.271/1.864` and `0.208/2.118`, so the harness and the product
+   * do differ here, and the difference was measured rather than assumed away. Replaying
+   * both modes with the rows re-banded the way `runBuildDraftBoard` writes them today
+   * changes twelve of sixteen of our picks in each mode and lands both on the same roster
+   * shape (1 QB, 5 RB, 6 WR, 2 TE, 1 K, 1 D/ST) — **and all nine checks still pass in both
+   * modes**. The churn is the tie saturation #89.C documented, not the band: mid-draft
+   * candidates sit inside each other's error bars, so any perturbation reorders them. The
+   * nine properties are what this harness locks, and they held.
+   */
   quantileProvenance: "measured" | "placeholder";
 }
 
@@ -641,10 +659,10 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // can produce and this one did not.
     //
     // The argument for zero is the one `docs/draft-validation.md` already makes about
-    // these two positions and no others: the model does not project them, their entire
-    // price is the market's, and their weekly spread is still a placeholder. An engine
-    // taking one six rounds early is overruling the only price it has, on no signal of
-    // its own. Measured on the merged engine: the defence went 16.06 and 14.06 in the two
+    // these two positions and no others: the model does not project them and their entire
+    // price is the market's. An engine taking one six rounds early is overruling the only
+    // price it has, on no signal of its own. Measuring their outcome bands (#90.4) left
+    // that argument standing — a band prices the spread around a number, never the number. Measured on the merged engine: the defence went 16.06 and 14.06 in the two
     // modes against a market round of 13 and 14, the kicker 14.06 and 15.05 against 14
     // and 15 — late, which this check deliberately does not penalise.
     expected: "pass",

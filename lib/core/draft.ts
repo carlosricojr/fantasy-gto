@@ -23,6 +23,8 @@
  */
 
 /** The market's view of a player: when he goes, and how sure the market is. */
+import { normalCdf } from "./stats";
+
 export interface MarketPlayer {
   /**
    * Average draft position, in overall picks. `null` when the market has no opinion —
@@ -71,30 +73,6 @@ export const UNRANKED_ADP_PADDING = 24;
 // Two rounds of a twelve-team draft, and a judgement rather than a measurement — what is
 // testable is that an unranked player lands behind everyone the market has priced, which
 // is asserted, and not that the gap is 24 rather than 23.
-
-/**
- * Standard normal CDF, Abramowitz & Stegun 7.1.26. Max error ~7.5e-8.
- *
- * The tests hold it to exactly that: twelve tabulated values, each within 7.5e-8. That is
- * the strongest statement available about the six fitted constants below, and it is worth
- * knowing what it does and does not cover. A change of 1e-6 to any of them fails; a change
- * of 1e-7 to most of them fails; a change in the ninth decimal place of the largest does
- * not, because the function is not claiming that much precision. Neither does `sign`
- * treating zero as negative — the polynomial sums to one at zero, so the two branches
- * differ there by about 1e-9.
- */
-export function normalCdf(x: number): number {
-  const sign = x < 0 ? -1 : 1;
-  const z = Math.abs(x) / Math.SQRT2;
-  const t = 1 / (1 + 0.3275911 * z);
-  const y =
-    1 -
-    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t +
-      0.254829592) *
-      t *
-      Math.exp(-z * z);
-  return 0.5 * (1 + sign * y);
-}
 
 /**
  * Probability a player is still available at a given overall pick.

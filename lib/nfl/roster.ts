@@ -218,11 +218,21 @@ export const SHALLOW_BENCH_TEMPLATE: RosterTemplate = {
  *
  *  - **K and D/ST — 1.** Both are already special in this codebase for a reason that
  *    settles this: *the model does not project either*, and will not pretend to. Their
- *    entire price is the market's, and their weekly spread is the `placeholder` band
- *    rather than a measured one (#90.4). So there is no model claim that a particular
- *    kicker's absence costs more than a freely available kicker's presence, and drafting
- *    a second one buys a claim nothing in the system is making. Thirty-two NFL teams
- *    supply a starting kicker and a starting defence; a ten-team league rosters ten.
+ *    entire price is the market's, so there is no model claim that a particular kicker's
+ *    absence costs more than a freely available kicker's presence, and drafting a second
+ *    one buys a claim nothing in the system is making. Thirty-two NFL teams supply a
+ *    starting kicker and a starting defence; a ten-team league rosters ten.
+ *
+ *    This entry used to rest on a third leg — that their weekly spread was an assumed
+ *    placeholder — and that leg is gone: #90.4 measured both bands. The value is
+ *    unchanged, and the reason is worth writing down rather than assuming, because the
+ *    measurement points the other way at first glance. A defence turns out to be the most
+ *    dispersed of the six positions, and dispersion is exactly what makes a *reserve*
+ *    worth something, since a roster scores the better of the two each week. It does not
+ *    make one worth something here. The wire's kicker and the wire's defence are drawn
+ *    from the same distribution as the drafted ones — that is what a cover of one asserts
+ *    — so the spread appears on both sides of the comparison and cancels. Dispersion buys
+ *    depth only where the depth is scarce, and at these two positions it is not.
  *  - **TE — 0.75.** One tight-end slot, and the wire holds a starting NFL tight end in
  *    every week of the season, so most of a reserve's cover is free. Not all of it: the
  *    top of the position is separated from the wire by far more than the top kicker is,

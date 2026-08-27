@@ -1,3 +1,4 @@
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../model/config";
 import { MODELED_POSITIONS } from "./config";
 import type { MarketValueBasis } from "./value";
 
@@ -5,15 +6,19 @@ import type { MarketValueBasis } from "./value";
  * Where a board row's number came from, at the point somebody reads it.
  *
  * The draft board carries kickers and defenses on the market's price alone: the weekly model
- * has no view of either and will not pretend to, and their weekly spread is the explicitly
- * unmeasured `PLACEHOLDER_QUANTILES` band rather than a fitted one. All of that is true, all
- * of it is documented, and none of it was visible on the row.
+ * has no view of either and will not pretend to. That is true, it is documented, and none of
+ * it was visible on the row.
  *
  * A general caveat elsewhere on the page is not the same thing. A user comparing a kicker's
- * championship probability with a running back's is comparing a number built on a fitted
- * outcome distribution against one built on an assumed one, and the page said so in a
- * paragraph they had already scrolled past. The limitation has to be attached to the number
- * it limits.
+ * championship probability with a running back's is comparing a number nothing of ours
+ * contributed to against one the model helped produce, and the page said so in a paragraph
+ * they had already scrolled past. The limitation has to be attached to the number it limits.
+ *
+ * One clause this module used to carry is gone, because it stopped being true: the weekly
+ * spread behind a kicker or a defense is now measured, from historical scoring against the
+ * estimate a drafter actually holds (`lib/nfl/model/outcome-band.ts`). Measuring a spread is
+ * not projecting a player, so the labels below still fire — what they say is that the value
+ * is the market's, not that the range around it was invented.
  *
  * **This module labels. It does not estimate.** Nothing here invents a projection, a spread,
  * or a confidence for a position the model does not cover; a future kicker model is a
@@ -168,9 +173,10 @@ export function basisExplanation(basis: ValueBasis): string {
   switch (basis) {
     case "market-only-position":
       return (
-        "Market price only. The projection model does not cover this position, so there is " +
-        "no model estimate and no measured weekly spread behind this row — the spread used " +
-        "is an assumed placeholder."
+        "Market price only. The projection model does not cover this position, so nothing " +
+        "of ours went into this number — it is what the market charges. The weekly spread " +
+        "around it is measured from historical scoring at the position, not from a " +
+        "projection of this player."
       );
     case "market-only-history":
       return (
@@ -221,11 +227,19 @@ export function basisExplanation(basis: ValueBasis): string {
  *
  * `quantileProvenance` on the board row is the authority; this exists so a caller that only
  * has a position — a recommendation carries a `PlayerRisk`, which has the quantiles but not
- * where they came from — reaches the same answer. The two agree because `convex/ingest.ts`
- * assigns the placeholder band by position.
+ * where they came from — reaches the same answer. It reads the same table `convex/ingest.ts`
+ * writes from, and falls back the same way, so the two agree by derivation rather than by a
+ * coincidence somebody has to maintain.
+ *
+ * It used to answer `isModeledPosition`, which was right only while the two sets happened to
+ * coincide. They no longer do: a kicker and a defense carry measured bands and are still not
+ * projected, so keying on projection would have made this function contradict the row it
+ * describes.
  */
 export function hasMeasuredSpread(position: string): boolean {
-  return isModeledPosition(position);
+  const band =
+    OUTCOME_QUANTILES[position as keyof typeof OUTCOME_QUANTILES] ?? PLACEHOLDER_QUANTILES;
+  return band.provenance === "measured";
 }
 
 /**

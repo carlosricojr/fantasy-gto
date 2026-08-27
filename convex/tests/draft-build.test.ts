@@ -7,6 +7,7 @@ import { AdpProvider } from "../../lib/sources/adp";
 import { teamByeWeeks } from "../../lib/nfl/byes";
 import { parseCsv } from "../../lib/nfl/csv";
 import { MODEL_BLEND_WEIGHT } from "../../lib/nfl/draft/config";
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../../lib/nfl/model/config";
 import {
   NflverseProvider,
   parseContests,
@@ -116,9 +117,9 @@ const PER_POSITION: Record<string, number> = { WR: 45, RB: 7, TE: 40, QB: 25 };
  * Kickers, who exist to exercise the two branches with the most scar tissue.
  *
  * `scoreOffense` scores a kicking line as zero, so `modeled` — not the row count — is what
- * decides they have no model value, and `OUTCOME_QUANTILES` marks their band `placeholder`.
- * Without one on the board the provenance assertion can only ever see `measured` and the
- * `modeled` guard is never taken.
+ * decides they have no model value, and without a kicker on the board that guard is never
+ * taken. They also give the band assertion below a position whose entry differs from every
+ * skill entry, which is what makes it a check on the lookup rather than on a constant.
  */
 const KICKERS = 3;
 
@@ -541,20 +542,34 @@ describe("runBuildDraftBoard", () => {
     }
   });
 
-  it("labels an assumed weekly band as assumed, and a measured one as measured", async () => {
-    // `expect(["measured","placeholder"]).toContain(x)` restates the union the validator
-    // already enforces — it passes for every row and would keep passing if a kicker's
-    // assumed band were labeled measured, which is the defect worth catching. The fixture
-    // carries kickers and defenses precisely so both labels actually occur.
+  it("writes each row the band its own position carries, not a constant", async () => {
+    // Asserting the label alone stopped discriminating once every shipped position became
+    // `measured`: a hardcoded "measured" would satisfy it for every row. So the whole
+    // triple is checked against the table the ingest is supposed to be reading, which a
+    // literal cannot survive — the six entries differ from one another in p10 and p90.
     const { rows } = await build(ONE_ROW_EACH);
 
     const skill = rows.filter((r) => ["WR", "RB", "TE", "QB"].includes(r.position));
-    const assumed = rows.filter((r) => ["K", "DST"].includes(r.position));
+    const unprojected = rows.filter((r) => ["K", "DST"].includes(r.position));
     expect(skill.length).toBeGreaterThan(0);
-    expect(assumed.length).toBeGreaterThan(0);
+    expect(unprojected.length).toBeGreaterThan(0);
 
-    for (const row of skill) expect(row.quantileProvenance).toBe("measured");
-    for (const row of assumed) expect(row.quantileProvenance).toBe("placeholder");
+    for (const row of rows) {
+      const band = OUTCOME_QUANTILES[row.position as keyof typeof OUTCOME_QUANTILES];
+      expect(band).toBeDefined();
+      expect({ p10: row.p10, p90: row.p90, provenance: row.quantileProvenance }).toEqual({
+        p10: band.p10,
+        p90: band.p90,
+        provenance: band.provenance,
+      });
+    }
+
+    // The fallback is still the fail-closed default for a position with no entry, and it
+    // is still the thing nothing on a shipped board reaches. Both halves are asserted,
+    // because "unreachable" quietly becoming "reachable" is how an unmeasured band would
+    // get onto a row without anybody editing this file.
+    expect(PLACEHOLDER_QUANTILES.provenance).toBe("placeholder");
+    for (const row of rows) expect(row.quantileProvenance).toBe("measured");
   });
 
   it("prices a kicker off the market alone, because the model cannot score one", async () => {

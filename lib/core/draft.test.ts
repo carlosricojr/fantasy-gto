@@ -7,7 +7,6 @@ import {
   MIN_ADP_STDEV,
   adpDispersion,
   type MarketPlayer,
-  normalCdf,
   normalizeLeagueSetup,
   pickCoordinates,
   pickOwnership,
@@ -16,6 +15,7 @@ import {
   survivalProbability,
   teamIndexForSeat,
 } from "./draft";
+import { normalCdf } from "./stats";
 
 /**
  * Draft market model and snake geometry.
