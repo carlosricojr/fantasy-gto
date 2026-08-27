@@ -1156,9 +1156,10 @@ function Caveat({
       Odds are for {describeSeason(config)}. Player values blend
       the market&rsquo;s price with our own projection; measured out-of-sample, the market
       ranks players better than our model does and no edge over it is claimed. Kickers and
-      defenses carry the market&rsquo;s price alone, and their weekly spread is an assumed
-      placeholder rather than a measured one — every such row is marked, so this sentence is
-      a summary of the labels rather than the only place the limitation appears. Scoring is
+      defenses carry the market&rsquo;s price alone: the model does not project either, so
+      those numbers carry no model estimate — every such row is marked, so this sentence is
+      a summary of the labels rather than the only place the limitation appears. Their weekly
+      spread is measured, from historical scoring rather than from a projection. Scoring is
       limited to PPR, half PPR and standard. Opponents&rsquo; unfilled roster spots are
       completed by a simple best-available rule, so early-round odds lean on that assumption
       more than late ones.

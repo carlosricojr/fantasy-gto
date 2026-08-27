@@ -1,7 +1,7 @@
 import type { Competitor, Period } from "../../core/domain";
 import { type CsvRow, num, str } from "../csv";
 import { normalizeTeam } from "../teams";
-import type { KickerStatLine, Position, StatLine } from "../scoring/types";
+import type { DefenseStatLine, KickerStatLine, Position, StatLine } from "../scoring/types";
 
 /**
  * Pure mapping from an nflverse `stats_player_week` row to domain types.
@@ -167,4 +167,42 @@ export function toRegularSeasonPlayerWeeks(rows: readonly CsvRow[]): PlayerWeek[
     if (parsed !== null) out.push(parsed);
   }
   return out;
+}
+
+/**
+ * A team defense's week, assembled from a `stats_team_week` row plus the points its own
+ * team conceded.
+ *
+ * Points allowed is not in the team statistics release at all — it is the *other* team's
+ * final score — so it is passed in from the schedule rather than read from a column that
+ * does not exist. That is the whole reason this takes two arguments instead of one.
+ *
+ * `yardsAllowed` is `null` because no shipped ruleset enables yardage tiers, and the
+ * honest thing for a number nothing scores is to be absent rather than approximated from
+ * the opponent's passing and rushing yards, which is not the same quantity.
+ *
+ * Column spellings are the ones `docs/data-sources.md` records as verified. Two are worth
+ * naming because a plausible-looking neighbour would parse and mean something else:
+ * `fumble_recovery_opp` is fumbles the defense recovered (`def_fumbles` is a different
+ * count), and `special_teams_tds` is the team's own return touchdowns, which is what a
+ * fantasy defense is credited with.
+ */
+export function toDefenseStatLine(row: CsvRow, pointsAllowed: number): DefenseStatLine {
+  return {
+    sacks: num(row, "def_sacks"),
+    interceptions: num(row, "def_interceptions"),
+    fumbleRecoveries: num(row, "fumble_recovery_opp"),
+    defensiveTds: num(row, "def_tds"),
+    specialTeamsTds: num(row, "special_teams_tds"),
+    safeties: num(row, "def_safeties"),
+    pointsAllowed,
+    yardsAllowed: null,
+  };
+}
+
+/** A team-week row's identity: which defense, in which week. */
+export function toTeamWeek(row: CsvRow): { team: string; period: Period } | null {
+  const team = normalizeTeam(str(row, "team"));
+  if (team === null) return null;
+  return { team, period: toPeriod(row) };
 }

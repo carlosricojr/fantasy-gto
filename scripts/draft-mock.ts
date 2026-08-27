@@ -22,6 +22,7 @@ import {
   replayAdpMockDraft,
   unexpectedOutcomes,
 } from "@/lib/nfl/draft/mock";
+import { OUTCOME_QUANTILES } from "@/lib/nfl/model/config";
 import { UNPROJECTED_POSITIONS, slotsForTemplate, waiverWireCover } from "@/lib/nfl/roster";
 import { parseContests } from "@/lib/sources/nflverse";
 
@@ -29,6 +30,10 @@ import { parseContests } from "@/lib/sources/nflverse";
  * The mock-draft harness: the #88/#89 audit as a command.
  *
  * `pnpm draft-mock`                      replay BOTH modes and enforce both scoreboards
+ * `pnpm draft-mock -- --current-bands`   the same two modes, with each row's band taken
+ *                                        from `OUTCOME_QUANTILES` instead of the frozen
+ *                                        fixture's — how far the audit board has drifted
+ *                                        from the one production builds
  * `pnpm draft-mock -- --log`             also print all 160 picks, not only ours
  * `pnpm draft-mock -- --frozen`          only the frozen-board replay (fast iteration)
  * `pnpm draft-mock -- --schedule-byes`   only the schedule-byes replay
@@ -196,14 +201,61 @@ function columnName(mode: ReplayMode): string {
   return mode === "frozen" ? "expected" : "expectedWithScheduleByes";
 }
 
+/**
+ * The fixture's rows re-banded the way `runBuildDraftBoard` writes them today.
+ *
+ * The frozen board is the audit's record and is never regenerated, so its kicker and
+ * defense rows still carry the bands the ingest wrote in August 2026 — before #90.4
+ * measured them. That is deliberate: a regression lock whose board moves is not one. But it
+ * means the default run exercises a board two constants away from production, and the size
+ * of that gap should be a measurement rather than a note somebody once wrote down.
+ *
+ * `--current-bands` is that measurement. It replays the same two modes with each row's band
+ * replaced by whatever `OUTCOME_QUANTILES` says for its position — the one thing the ingest
+ * does that the fixture cannot follow — and checks the same nine properties. The default
+ * run is untouched by it.
+ */
+function withCurrentBands(rows: readonly MockBoardRow[]): MockBoardRow[] {
+  return rows.map((row) => {
+    const band = OUTCOME_QUANTILES[row.position as keyof typeof OUTCOME_QUANTILES];
+    if (band === undefined) return row;
+    return { ...row, p10: band.p10, p90: band.p90, quantileProvenance: band.provenance };
+  });
+}
+
+/**
+ * How many rows the re-banding actually moves.
+ *
+ * Counted rather than named, because `withCurrentBands` rewrites *every* position and the
+ * banner would otherwise claim it touched K and D/ST alone. It happens to be true today
+ * that only those rows differ — the fixture's four skill bands already equal the shipped
+ * ones — but that is a fact about this fixture, not about the code, and it stops being true
+ * the moment a skill band is re-measured.
+ */
+function rebanded(rows: readonly MockBoardRow[]): number {
+  const current = withCurrentBands(rows);
+  // Provenance counts as a change. `withCurrentBands` rewrites it alongside the two
+  // numbers, so comparing the numbers alone would report a row unchanged when its label
+  // had moved from `placeholder` to `measured` — which is the whole subject of #90.4, and
+  // the one difference a band whose values happened to match would still carry.
+  return rows.filter(
+    (row, index) =>
+      row.p10 !== current[index].p10 ||
+      row.p90 !== current[index].p90 ||
+      row.quantileProvenance !== current[index].quantileProvenance,
+  ).length;
+}
+
 /** Replays one mode, prints its section, and returns the outcomes that ring the alarm. */
 function runMode(
   mode: ReplayMode,
   fixture: ReturnType<typeof parseBoardFixture>,
   config: LeagueConfig,
   showFullLog: boolean,
+  currentBands = false,
 ): CheckOutcome[] {
-  const board = mode === "frozen" ? fixture.rows : boardWithScheduleByes(fixture.rows);
+  const frozen = mode === "frozen" ? fixture.rows : boardWithScheduleByes(fixture.rows);
+  const board = currentBands ? withCurrentBands(frozen) : frozen;
   if (mode === "schedule-byes") {
     // "Resolved", counted by kind: on this fixture every change is a fill (the pinned
     // 213-agree/0-disagree cross-check), but `applyTeamByes` also overwrites a
@@ -278,7 +330,7 @@ function main(): void {
   // Rejected rather than defaulted: `--schedule-bye` or `--scheduleByes` silently
   // downgrading to a green frozen run would publish a number for work that did not
   // happen — the exact defect class `scripts/mutate.ts`'s `--limit` guard documents.
-  const KNOWN_FLAGS = ["--log", "--frozen", "--schedule-byes"];
+  const KNOWN_FLAGS = ["--log", "--frozen", "--schedule-byes", "--current-bands"];
   const unknown = args.filter((a) => !KNOWN_FLAGS.includes(a));
   if (unknown.length > 0) {
     process.stderr.write(
@@ -288,6 +340,7 @@ function main(): void {
     return;
   }
   const showFullLog = args.includes("--log");
+  const currentBands = args.includes("--current-bands");
   if (args.includes("--frozen") && args.includes("--schedule-byes")) {
     process.stderr.write(
       `--frozen and --schedule-byes are each a single-mode filter; ` +
@@ -336,12 +389,18 @@ function main(): void {
       `the /draft page's own constants\n` +
       `  policy opponents take the lowest ADP, unranked players last; ` +
       `we take the panel's #1\n` +
-      `  modes  ${modes.join(", ")}\n\n`,
+      `  modes  ${modes.join(", ")}\n` +
+      (currentBands
+        ? `  bands  --current-bands: every row re-banded from OUTCOME_QUANTILES; ` +
+          `${rebanded(fixture.rows)} of ${fixture.rows.length} actually differ from the\n` +
+          `         fixture's, which is the drift between the audit board and the one\n` +
+          `         production builds today\n\n`
+        : `\n`),
   );
 
   let alarms = 0;
   for (const mode of modes) {
-    alarms += runMode(mode, fixture, config, showFullLog).length;
+    alarms += runMode(mode, fixture, config, showFullLog, currentBands).length;
   }
   if (alarms > 0) process.exitCode = 1;
 }

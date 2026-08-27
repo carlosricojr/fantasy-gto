@@ -391,6 +391,75 @@ export function bootstrapPairedComparison(
   };
 }
 
+/**
+ * Standard normal CDF, Abramowitz & Stegun 7.1.26. Max error ~7.5e-8.
+ *
+ * The tests hold it to exactly that: twelve tabulated values, each within 7.5e-8. That is
+ * the strongest statement available about the six fitted constants below, and it is worth
+ * knowing what it does and does not cover. A change of 1e-6 to any of them fails; a change
+ * of 1e-7 to most of them fails; a change in the ninth decimal place of the largest does
+ * not, because the function is not claiming that much precision. Neither does `sign`
+ * treating zero as negative — the polynomial sums to one at zero, so the two branches
+ * differ there by about 1e-9.
+ */
+export function normalCdf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const z = Math.abs(x) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * z);
+  const y =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t +
+      0.254829592) *
+      t *
+      Math.exp(-z * z);
+  return 0.5 * (1 + sign * y);
+}
+
+/**
+ * Inverse standard normal CDF, by bisection on `normalCdf`.
+ *
+ * Bisection rather than a rational approximation of its own, which would be a second table
+ * of fitted constants a reader has to take on trust. Sixty iterations cost nothing at the
+ * handful of call sites this has, and correctness follows from `normalCdf` being correct,
+ * which is separately pinned to tabulated values.
+ *
+ * Accuracy is therefore `normalCdf`'s, not the bisection's, and it is not a constant: an
+ * absolute error of `e` in the CDF lands as `e / density` in the quantile, so 7.5e-8 is
+ * about 2e-7 at the median and about 1.3e-6 at the 97.5th percentile. Do not read a result
+ * here as exact to machine precision, and hold it to that ratio rather than to a fixed
+ * number of decimals.
+ */
+export function standardNormalQuantile(p: number): number {
+  // `NaN` first, because it fails every comparison below and would therefore fall out of
+  // the `p <= 0` test as `POSITIVE_INFINITY` — turning "this is not a probability" into a
+  // confident statement about the upper tail, which is the worst of the three answers.
+  if (Number.isNaN(p)) return Number.NaN;
+  if (!(p > 0 && p < 1)) return p <= 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+  // Three constants here read as survivors in a mutation report, and all three are
+  // equivalences rather than gaps — recorded because "no test objected" is the same
+  // output for an untestable constant and an untested one.
+  //
+  // The bracket. `normalCdf` carries an *absolute* error of 7.5e-8, so it cannot resolve a
+  // tail probability smaller than that at all: everything past roughly |z| = 5.3 reads as
+  // exactly 0 or 1 to it, and no bracket wider than that changes an answer this function
+  // can honestly give. Ten is comfortably outside the resolvable range in both directions,
+  // and widening or narrowing it inside that range is unobservable by construction.
+  let low = -10;
+  let high = 10;
+  // The iteration count. Twenty halved a hundred times is far below the spacing of a
+  // double near one — the interval stops shrinking somewhere around sixty — so every count
+  // above that returns bit-identical results. A hundred is a round number past the point
+  // where the loop can still make progress.
+  for (let i = 0; i < 100; i += 1) {
+    const mid = (low + high) / 2;
+    // `<` against `<=` differ only where the CDF hits `p` exactly, which decides nothing:
+    // that midpoint is the answer, and both branches converge on it.
+    if (normalCdf(mid) < p) low = mid;
+    else high = mid;
+  }
+  return (low + high) / 2;
+}
+
 /** Linear-interpolated quantile of a sorted copy. */
 export function quantile(values: readonly number[], q: number): number {
   if (values.length === 0) return Number.NaN;
@@ -661,4 +730,22 @@ export function pairedOutcomeComparison(
     interval: [meanDifference - halfWidth, meanDifference + halfWidth],
     confidenceLevel: CONFIDENCE_LEVEL,
   };
+}
+
+/**
+ * `E[max(X, Y)]` for two independent draws from the empirical distribution of `values`.
+ *
+ * Exact for that distribution rather than simulated: summing `max` over all n² ordered
+ * pairs, each order statistic is the maximum of exactly `2k + 1` of them, so the whole
+ * double sum collapses to one pass over the sorted sample.
+ *
+ * This is the functional a sum-of-weekly-maxima objective actually consumes, which is why
+ * it is worth computing exactly instead of reading a spread off two quantiles.
+ */
+export function expectedMaxOfTwo(values: readonly number[]): number {
+  if (values.length === 0) return Number.NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  let total = 0;
+  for (let k = 0; k < sorted.length; k += 1) total += sorted[k] * (2 * k + 1);
+  return total / (sorted.length * sorted.length);
 }

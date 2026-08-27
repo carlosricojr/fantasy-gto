@@ -400,9 +400,9 @@ projection's baseline.
 ### Outcome quantiles
 
 Every floor and ceiling shown in the interface is `mean × p10` and `mean × p90` from this
-table. `pnpm backtest -- --holdout` prints it on the holdout season, from the same predictions the
-MAE table is built from, and `OUTCOME_QUANTILES` in `lib/nfl/model/config.ts` is copied
-from that output.
+table. `pnpm backtest -- --holdout` prints the four projected positions on the holdout
+season, from the same predictions the MAE table is built from, and those four entries of
+`OUTCOME_QUANTILES` in `lib/nfl/model/config.ts` are copied from that output.
 
 | Position | n | p10 | p90 |
 | --- | --- | --- | --- |
@@ -415,8 +415,30 @@ The spread is enormous — a tenth-percentile outcome is around a fifth of the p
 a ninetieth-percentile outcome nearly double it. That is not a defect in the model; it is
 the week-to-week variance of fantasy football.
 
-K and DST carry `provenance: "placeholder"` in the same table. The model does not project
-those positions, so there is no backtest behind their bands and the type says so.
+K and DST are in the same table and are also `provenance: "measured"`, but **not by this
+command and not against a projection**. The model does not project either position, so there
+is nothing here to divide an outcome by; their bands are measured from historical weekly
+scoring against the entity's own prior-season points per game — the estimate a drafter
+actually holds — and `pnpm verify-sources` prints them beside the checked-in constants and
+fails if the two disagree.
+
+| Position | n | p10 | p90 | how |
+| --- | --- | --- | --- | --- |
+| K | 4,866 | 0.271 | 1.864 | empirical deciles, as above |
+| DST | 6,270 | 0.208 | 2.118 | fitted: its empirical p10 is 0.000 |
+
+The defense entry is the one departure from "the band is the deciles", and it is forced. An
+eighth of D/ST team-weeks score nothing or less under the conventional points-allowed ladder,
+so the empirical tenth percentile is zero and `ln(p90/p10)` — which is how the season
+simulation reads a band back — does not exist. The band shipped is the closest one that does:
+the lognormal reproducing the measured expectation of a weekly maximum, which is the only
+functional the simulation consumes. `docs/data-sources.md` records the full construction,
+both dispersions for both positions, and the cross-position check that licenses the
+substitute; `lib/nfl/model/outcome-band.ts` carries the argument.
+
+Neither band makes a kicker or a defense projectable. `MODELED_POSITIONS` is unchanged and
+every market-only label in the draft interface still fires — a band says how far a week
+strays from an estimate, not what the estimate should be.
 
 ### Reproducing the sweeps
 

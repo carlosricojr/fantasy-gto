@@ -1,3 +1,4 @@
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../model/config";
 import { MODELED_POSITIONS } from "./config";
 import type { MarketValueBasis } from "./value";
 
@@ -5,15 +6,28 @@ import type { MarketValueBasis } from "./value";
  * Where a board row's number came from, at the point somebody reads it.
  *
  * The draft board carries kickers and defenses on the market's price alone: the weekly model
- * has no view of either and will not pretend to, and their weekly spread is the explicitly
- * unmeasured `PLACEHOLDER_QUANTILES` band rather than a fitted one. All of that is true, all
- * of it is documented, and none of it was visible on the row.
+ * has no view of either and will not pretend to. That is true, it is documented, and none of
+ * it was visible on the row.
  *
  * A general caveat elsewhere on the page is not the same thing. A user comparing a kicker's
- * championship probability with a running back's is comparing a number built on a fitted
- * outcome distribution against one built on an assumed one, and the page said so in a
- * paragraph they had already scrolled past. The limitation has to be attached to the number
- * it limits.
+ * championship probability with a running back's is comparing a number the model had no
+ * hand in against one it helped produce, and the page said so in a paragraph they had
+ * already scrolled past. The limitation has to be attached to the number it limits.
+ *
+ * Note what "no hand in" does and does not mean. The market half of a row is our own
+ * per-position fit of historical points on log(ADP) (`lib/nfl/draft/value.ts`), so it is
+ * not somebody else's number handed through untouched — `marketEstimateExplanation` says
+ * as much on the same panel. What the model contributes nothing to is the *projection*,
+ * and that is the claim these labels make.
+ *
+ * One clause this module used to carry is gone, because it stopped being true: the weekly
+ * spread behind a kicker or a defense is now measured, against the entity's own
+ * prior-season points per game (`lib/nfl/model/outcome-band.ts`). Note what that denominator
+ * is *not* — the market's price plays no part in the measurement, which is worth keeping
+ * straight because the market's price is exactly what the band is later applied to. What
+ * was measured and what it multiplies are two different quantities. Measuring a spread is
+ * also not projecting a player, so the labels below still fire — what they say is that the
+ * value is the market's, not that the range around it was invented.
  *
  * **This module labels. It does not estimate.** Nothing here invents a projection, a spread,
  * or a confidence for a position the model does not cover; a future kicker model is a
@@ -133,7 +147,19 @@ export function basisBadge(basis: ValueBasis): string | null {
   }
 }
 
-/** The disclosure attached directly to the market estimate. */
+/**
+ * The disclosure attached directly to the market estimate.
+ *
+ * Written as an exhaustive match on the three states the board actually records, with
+ * everything else falling to *unknown* rather than to the ADP-ordered sentence. That last
+ * clause is the whole point of the shape. `marketValueBasis` is optional on the schema
+ * precisely so a row written before the disclosure existed can say nothing, and the schema
+ * says in as many words that readers treat an absent value as unknown rather than guessing
+ * — but this function used to end at the ADP-ordered sentence, so an absent basis was
+ * described to the reader as a per-position fit that nothing had checked. That is the
+ * failure the schema comment and the README ledger row both exist to prevent, arriving
+ * through the one path neither was looking at.
+ */
 export function marketEstimateExplanation(
   marketPoints: number | null,
   basis: MarketValueBasis | null | undefined,
@@ -153,7 +179,14 @@ export function marketEstimateExplanation(
       "mean and carries no within-position ADP ordering."
     );
   }
-  return "What this player’s average draft position has historically been worth, fitted per position.";
+  if (basis === "adp-ordered") {
+    return "What this player’s average draft position has historically been worth, fitted per position.";
+  }
+  return (
+    "What this player’s average draft position has historically been worth. This row " +
+    "predates the record of which curve produced it, so whether it carries the market’s " +
+    "ordering or only a position mean is unknown."
+  );
 }
 
 /**
@@ -168,9 +201,10 @@ export function basisExplanation(basis: ValueBasis): string {
   switch (basis) {
     case "market-only-position":
       return (
-        "Market price only. The projection model does not cover this position, so there is " +
-        "no model estimate and no measured weekly spread behind this row — the spread used " +
-        "is an assumed placeholder."
+        "Market price only. The projection model does not cover this position, so there " +
+        "is no model estimate here — the number is what this player's draft position has " +
+        "historically been worth. The weekly spread applied to it is measured, from years " +
+        "of actual scoring at the position rather than from any projection of this player."
       );
     case "market-only-history":
       return (
@@ -221,11 +255,23 @@ export function basisExplanation(basis: ValueBasis): string {
  *
  * `quantileProvenance` on the board row is the authority; this exists so a caller that only
  * has a position — a recommendation carries a `PlayerRisk`, which has the quantiles but not
- * where they came from — reaches the same answer. The two agree because `convex/ingest.ts`
- * assigns the placeholder band by position.
+ * where they came from — reaches the same answer. It reads the same table `convex/ingest.ts`
+ * writes from, and falls back the same way, so the two agree by derivation rather than by a
+ * coincidence somebody has to maintain.
+ *
+ * It used to answer `isModeledPosition`, which was right only while the two sets happened to
+ * coincide. They no longer do: a kicker and a defense carry measured bands and are still not
+ * projected, so keying on projection would have made this function contradict the row it
+ * describes.
  */
 export function hasMeasuredSpread(position: string): boolean {
-  return isModeledPosition(position);
+  // `??` here reads in a mutation report as a survivor against `||`, and the two genuinely
+  // cannot disagree: the lookup is either a band object, which is always truthy, or
+  // `undefined`. Kept as `??` because the question being asked is "was there an entry",
+  // not "was the entry usable".
+  const band =
+    OUTCOME_QUANTILES[position as keyof typeof OUTCOME_QUANTILES] ?? PLACEHOLDER_QUANTILES;
+  return band.provenance === "measured";
 }
 
 /**

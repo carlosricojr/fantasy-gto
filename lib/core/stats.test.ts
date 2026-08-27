@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalCdf } from "./draft";
-import { createRng, standardNormal } from "./rng";
+import { Z_90, createRng, standardNormal } from "./rng";
 import {
   CONFIDENCE_LEVEL,
   POWER_MULTIPLIER,
@@ -9,6 +8,9 @@ import {
   Z_POWER_80,
   Z_TWO_SIDED_95,
   bootstrapPairedComparison,
+  expectedMaxOfTwo,
+  normalCdf,
+  standardNormalQuantile,
   pairedComparison,
   pairedOutcomeComparison,
   quantile,
@@ -550,6 +552,13 @@ describe("quantile", () => {
   it("returns NaN on an empty sample rather than a number", () => {
     expect(quantile([], 0.5)).toBeNaN();
   });
+
+  it("answers from a sample of one, which is the boundary beside that guard", () => {
+    // A pre-existing gap the K/D-ST band work surfaced: the empty guard was pinned and
+    // the case immediately next to it was not, so a guard that refused one element too
+    // many would have gone unnoticed by every caller that reads a quantile.
+    for (const q of [0, 0.1, 0.5, 0.9, 1]) expect(quantile([5], q)).toBe(5);
+  });
 });
 
 /**
@@ -691,5 +700,93 @@ describe("pairedOutcomeComparison", () => {
       result.meanDifference - critical * result.standardError,
       12,
     );
+  });
+});
+
+describe("the inverse standard normal", () => {
+  it("inverts the CDF it is built on", () => {
+    // Round-tripped through `normalCdf` rather than against tabulated quantiles, because
+    // that is the accuracy actually on offer: the bisection is exact, the CDF is not, and
+    // asserting more would be claiming precision the approximation does not have.
+    for (const p of [1e-4, 0.01, 0.1, 0.5, 0.9, 0.975, 1 - 1e-4]) {
+      expect(normalCdf(standardNormalQuantile(p))).toBeCloseTo(p, 9);
+    }
+  });
+
+  it("lands on the z-values the rest of the repo is keyed to", () => {
+    // Held to the bound the inversion actually inherits rather than to a round number of
+    // decimals: an error of `e` in the CDF becomes `e / density` in the quantile, so the
+    // tolerance widens as the density thins. Asserting a fixed six decimals passes at 0.9
+    // and fails at 0.975 for no reason but that — which is a fact about the density, not
+    // a defect. Every one of these is inside its own bound by a factor of two or more.
+    const density = (z: number) => Math.exp((-z * z) / 2) / Math.sqrt(2 * Math.PI);
+    for (const [p, z] of [
+      [0.9, Z_90],
+      [0.975, Z_TWO_SIDED_95],
+      [0.8, Z_POWER_80],
+    ] as const) {
+      expect(Math.abs(standardNormalQuantile(p) - z)).toBeLessThan(7.5e-8 / density(z));
+    }
+  });
+
+  it("is antisymmetric about a half", () => {
+    for (const p of [0.001, 0.05, 0.3, 0.49]) {
+      expect(standardNormalQuantile(p) + standardNormalQuantile(1 - p)).toBeCloseTo(0, 9);
+    }
+  });
+
+  it("refuses a probability outside the open unit interval rather than guessing", () => {
+    expect(standardNormalQuantile(0)).toBe(Number.NEGATIVE_INFINITY);
+    expect(standardNormalQuantile(1)).toBe(Number.POSITIVE_INFINITY);
+    expect(standardNormalQuantile(-0.5)).toBe(Number.NEGATIVE_INFINITY);
+    expect(standardNormalQuantile(1.5)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("answers NaN for a NaN, rather than a confident upper tail", () => {
+    // `NaN` fails every comparison, so without its own branch it falls out of the
+    // below-zero test as `+Infinity` — an invalid probability silently becoming the
+    // strongest possible statement about the top of the distribution.
+    expect(standardNormalQuantile(Number.NaN)).toBeNaN();
+  });
+});
+
+describe("the expected maximum of two draws", () => {
+  it("is the mean when every draw is the same", () => {
+    expect(expectedMaxOfTwo([4, 4, 4])).toBe(4);
+  });
+
+  it("matches the definition summed over every ordered pair", () => {
+    // The closed form collapses an n-squared double sum to one pass, so the double sum is
+    // what it has to be checked against — not against a number somebody computed once.
+    const sample = [-3, 0, 0.5, 2, 7, 7, 11.25];
+    let total = 0;
+    for (const a of sample) for (const b of sample) total += Math.max(a, b);
+    expect(expectedMaxOfTwo(sample)).toBeCloseTo(total / sample.length ** 2, 12);
+  });
+
+  it("is insensitive to the order it is handed", () => {
+    const sample = [5, 1, 9, 2, 2, 8];
+    expect(expectedMaxOfTwo([...sample].reverse())).toBeCloseTo(expectedMaxOfTwo(sample), 12);
+  });
+
+  it("exceeds the mean by more the wider the sample, and never falls below it", () => {
+    const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+    const tight = [9, 10, 11];
+    const wide = [0, 10, 20];
+    expect(expectedMaxOfTwo(tight)).toBeGreaterThan(mean(tight));
+    expect(expectedMaxOfTwo(wide) - mean(wide)).toBeGreaterThan(
+      expectedMaxOfTwo(tight) - mean(tight),
+    );
+  });
+
+  it("has no answer for an empty sample rather than a zero", () => {
+    expect(expectedMaxOfTwo([])).toBeNaN();
+  });
+
+  it("answers the single value it was given, rather than refusing a sample of one", () => {
+    // The guard is on *empty*, and the boundary beside it is the case that must still
+    // work: two draws from a one-point distribution have that point as their maximum.
+    expect(expectedMaxOfTwo([7])).toBe(7);
+    expect(expectedMaxOfTwo([-3])).toBe(-3);
   });
 });

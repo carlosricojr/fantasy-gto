@@ -20,10 +20,17 @@ import type {
  * to reproduce and nothing in the suite checks them against an external source. They are
  * the conventional ladder used by mainstream platforms, and they should be read as a
  * reasonable default rather than a verified one. Both are implemented and unit-tested for
- * internal consistency — the tiers tile the range without overlap or gaps — but neither
- * position is projected today (see the known gaps in the README), so nothing the product
- * shows depends on them yet. Wiring either into projections means validating these tiers
- * against the specific platform being mirrored first.
+ * internal consistency — the tiers tile the range without overlap or gaps.
+ *
+ * **Something the product shows now does depend on them.** This used to say nothing did,
+ * on the grounds that neither position is projected — still true of projections, no longer
+ * true generally. `OUTCOME_QUANTILES.K` and `.DST` are fitted by scoring historical weeks
+ * through these two ladders (`pnpm verify-sources`), and those bands set the weekly spread
+ * the draft simulation draws from, which is where every championship probability on the
+ * board comes from. So a league whose commissioner moved the points-allowed tiers has a
+ * differently-shaped band, and the size of that effect is unmeasured. Wiring either
+ * position into *projections* would still mean validating these tiers against the specific
+ * platform being mirrored first.
  */
 
 const BASE_OFFENSE: OffenseScoringRules = {

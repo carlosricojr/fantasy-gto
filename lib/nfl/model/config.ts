@@ -7,8 +7,18 @@ import type { Position } from "../scoring/types";
  * `USAGE_WEIGHT_CAP`, `DVP_WEIGHT`, `VEGAS_WEIGHT`, and the calibration toggle — were
  * selected by sweeping on the 2024 season and then evaluated once, unchanged, on 2025.
  * `CALIBRATION`, `OUTCOME_QUANTILES`, and `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` are measured
- * rather than swept, and `pnpm backtest` prints each of them so the checked-in value can be
- * compared against what the data currently says.
+ * rather than swept, and each is printed by the program that produces it. `pnpm backtest`
+ * produces all three — every entry of the first and the third, and the QB/RB/WR/TE entries
+ * of the second. `pnpm verify-sources` produces what is left: the K and DST entries of
+ * `OUTCOME_QUANTILES`, which the backtest cannot, since the model does not project either
+ * position.
+ *
+ * They are not all checked to the same standard, and it is worth knowing which is which.
+ * `pnpm verify-sources` prints the two bands it produces *beside* the values below and
+ * throws if they disagree. `pnpm backtest` prints `LEAGUE_MEAN_IMPLIED_TEAM_TOTAL` beside
+ * its constant and prints the rest bare, so the other four bands and the calibration
+ * factors are compared by eye. Everything here is reproducible; only some of it is
+ * enforced.
  *
  * The remaining constants — the clamp bounds, the shrinkage strengths, and
  * `EFFICIENCY_PRIOR` — are judgement, not measurement. They are documented individually as
@@ -97,9 +107,10 @@ export const EFFICIENCY_PRIOR: Readonly<Record<Position, number>> = {
 /**
  * Per-position multiplicative bias correction.
  *
- * **Fitted on PPR only**, like `OUTCOME_QUANTILES` and the published accuracy figure. They
- * are applied to every ruleset because a per-ruleset fit has not been measured; for Half
- * PPR and Standard they are an unvalidated approximation, and the interface says so.
+ * **Fitted on PPR only**, like the projected half of `OUTCOME_QUANTILES` and the published
+ * accuracy figure. They are applied to every ruleset because a per-ruleset fit has not been
+ * measured; for Half PPR and Standard they are an unvalidated approximation, and the
+ * interface says so.
  *
  * The uncorrected model projects high — it is fitted on players selected for recent
  * production, who regress. These are `mean(actual) / mean(predicted)` per position on the
@@ -122,10 +133,17 @@ export interface QuantileBand {
   /**
    * Whether these numbers were measured or assumed.
    *
-   * `measured` bands come from the out-of-sample backtest. `placeholder` bands do not —
-   * they are plausible values standing in until the position is actually projected and
-   * measured. The distinction is recorded in the type rather than in a comment so the
-   * interface can decline to present an unmeasured range as if it were evidence.
+   * `measured` means a checked-in program produces them from data. There are two such
+   * programs, because the four positions the weekly model projects and the two it does not
+   * cannot be measured the same way: `pnpm backtest` prints the skill bands from its own
+   * out-of-sample predictions, and `pnpm verify-sources` prints the kicker and defense
+   * bands from historical weekly scoring, against the best forecast anybody could have
+   * held at the draft. `lib/nfl/model/outcome-band.ts` carries that argument in full.
+   *
+   * `placeholder` bands come from neither — they are plausible values standing in until
+   * the position is actually measured. The distinction is recorded in the type rather than
+   * in a comment so the interface can decline to present an unmeasured range as if it were
+   * evidence.
    */
   provenance: "measured" | "placeholder";
 }
@@ -143,17 +161,33 @@ export interface QuantileBand {
  * the week-to-week variance of fantasy football, and showing it honestly is more useful
  * than implying a precision that does not exist.
  *
- * K and DST are **placeholders**. The model does not project those positions yet (see the
- * README's known gaps), so there is no backtest behind their bands. They are present so
- * the table is total, not because they are evidence.
+ * K and DST are measured too, but not by the backtest and not against a projection — the
+ * model does not project either position and still does not (see the README's known gaps).
+ * Their forecast is the entity's own prior-season points per game, which is what a drafter
+ * actually has, and `pnpm verify-sources` prints both bands beside these values. The
+ * kicker band is the empirical deciles, exactly as the four above are. The defense band is
+ * not: an eighth of team-weeks score nothing or less, so its empirical tenth percentile is
+ * 0.000 and no multiplicative band can carry it. It is the closest fit that can be — the
+ * lognormal reproducing the measured expectation of a weekly maximum, which is the only
+ * functional the season simulation consumes. `lib/nfl/model/outcome-band.ts` makes the
+ * whole argument, and `docs/data-sources.md` records both figures for both positions.
+ *
+ * Two things a measured band here does **not** buy. It is not a projection: nothing has
+ * started estimating what a kicker will score, only how far a week strays from an estimate
+ * somebody else supplies. And it is fitted under this repo's own K and D/ST scoring
+ * ladders, which `lib/nfl/scoring/presets.ts` says plainly are conventional defaults
+ * matched against no external source — unlike the offensive values, which are verified.
+ * A league that scores defenses differently has a differently-shaped band.
  */
 /**
  * The band used for a position `OUTCOME_QUANTILES` has no entry for.
  *
  * Not measured, and named so that nothing reads it as though it were. It exists because a
- * draft board carries positions the weekly model never scores — a defense, or anything a
- * future ruleset adds — and giving them no spread at all would make them look risk-free
- * rather than unmeasured.
+ * draft board can carry a position the weekly model never scores — anything a future
+ * ruleset adds — and giving one no spread at all would make it look risk-free rather than
+ * unmeasured. Every position the product ships today has a measured entry above, so
+ * nothing reaches this in practice; it is the fail-closed default for the position that
+ * does not exist yet, not a live value.
  */
 export const PLACEHOLDER_QUANTILES: QuantileBand = {
   p10: 0.2,
@@ -168,8 +202,8 @@ export const OUTCOME_QUANTILES: Readonly<Record<Position, QuantileBand>> = {
   RB: { p10: 0.269, p90: 1.901, provenance: "measured" },
   WR: { p10: 0.186, p90: 1.808, provenance: "measured" },
   TE: { p10: 0.217, p90: 1.953, provenance: "measured" },
-  K: { p10: 0.25, p90: 1.85, provenance: "placeholder" },
-  DST: { p10: 0.2, p90: 2.0, provenance: "placeholder" },
+  K: { p10: 0.271, p90: 1.864, provenance: "measured" },
+  DST: { p10: 0.208, p90: 2.118, provenance: "measured" },
 };
 
 /**

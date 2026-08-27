@@ -548,7 +548,17 @@ make the tool cautious — it made it unusable for any league that starts one: t
 never be filled, every simulated roster carried a permanent hole, and a user following the
 recommendations would finish the draft without a kicker. They are now valued exactly as a
 rookie is, by the same rule: where the model is silent, the market's price stands alone.
-Their weekly spread is the `placeholder` band in `OUTCOME_QUANTILES`, not a measured one.
+Their weekly spread *is* measured, and it is worth being exact about what against, since
+the obvious guess is wrong. The denominator is the entity's own **prior-season points per
+game** — there is no projection to divide by, and the market's price is not used: it is the
+valuation input, not the measurement basis. See `docs/data-sources.md`. So the band gives
+the range around the value and never the value itself, which on a K or D/ST row is still
+the market's alone.
+
+The frozen harness fixture predates that measurement and is deliberately not regenerated,
+so `pnpm draft-mock` replays the August-2026 bands. `pnpm draft-mock -- --current-bands`
+replays the same two modes with every row re-banded from `OUTCOME_QUANTILES` and enforces
+the same nine checks: both finish 9/9, on a different sixteen players.
 
 **Not handled: custom scoring.** Only PPR, half-PPR, and standard are supported. This is a
 harder limit than it looks, because it binds on both halves of the valuation at once — the
@@ -713,8 +723,14 @@ it with `waiverWireCover`'s league-aware result.
 
 **This is judgement, not measurement, and is marked as such** — the same status
 `meanAbsenceWeeks` carries. What would settle it is the weekly value of the best free agent
-at each position, which nothing here measures; the K/D-ST weekly spread is still the
-`placeholder` band (#90.4). Quarterback is the structurally derived exception: one startable
+at each position, which nothing here measures — and the measured K/D-ST outcome bands
+(#90.4) are not it: a band says how far a week strays from an estimate, never what the wire
+would have sold you instead. It did remove a leg the K/D-ST entry of one used to rest on, and the
+entry survives on the other two — the model projects neither, and thirty-two NFL teams
+supply a starter at each against ten rostered. The measurement even points the other way at
+first glance, since a defense's band is a wide one and dispersion is what makes a reserve
+worth holding; it cancels here, because a cover of one asserts the wire's body is drawn from
+the same distribution as the drafted one. Quarterback is the structurally derived exception: one startable
 QB per current NFL team, against demand from the fantasy league's actual QB-eligible slots.
 Coverage is `min(1, (32 - demand) / demand)` — free startable bodies per demanded starter.
 A 10-team 1-QB league derives **1.00**; a 10-team SUPERFLEX/2QB league derives **0.60**.
@@ -737,9 +753,10 @@ not infer this policy from cover: a 1-QB league now has full QB cover while QB r
 modeled position, so applying K/D-ST discipline there would conflate valuation with
 projection provenance.
 
-- **Not before the market's own round.** The model does not project kickers or defenses;
-  their whole price is the market's and their spread is a placeholder, so an engine taking
-  one ahead of the market is overruling the only price it has using no signal of its own.
+- **Not before the market's own round.** The model does not project kickers or defenses and
+  their whole price is the market's, so an engine taking one ahead of the market is
+  overruling the only price it has using no signal of its own. Their spreads being measured
+  changes nothing here: a spread cannot be evidence that a price is wrong.
   The permitted lead is zero rounds (`STREAMABLE_MARKET_LEAD_ROUNDS`), against a harness
   check that tolerates two.
 - **Never a second before the closing rounds.** Pricing puts a second kicker at zero, which

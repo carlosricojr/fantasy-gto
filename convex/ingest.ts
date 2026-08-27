@@ -1106,8 +1106,9 @@ export async function runBuildDraftBoard(
       if (marketPoints !== null) withMarketPrice += 1;
 
       const band = OUTCOME_QUANTILES[entry.position as keyof typeof OUTCOME_QUANTILES];
-      // Kickers have no model projection, so their weekly spread is the placeholder band
-      // rather than a measured one. `config.ts` marks it as such.
+      // Read by position rather than by whether the model had an opinion. A kicker has no
+      // model projection and still carries a measured band — the two questions came apart
+      // when #90.4 measured the bands the backtest cannot produce.
       rows.push({
         playerId: entry.playerId,
         name: entry.name,
@@ -1124,10 +1125,10 @@ export async function runBuildDraftBoard(
           priorGames.get(entry.playerId) ?? 0,
           history.length > 0,
         ),
-        // Measured where the weekly model has a band for the position, and an explicitly
-        // unmeasured placeholder where it does not — declared in `config.ts` beside the
-        // real ones rather than as two literals here, so the difference is visible at the
-        // point somebody reads the measured bands.
+        // Whatever `config.ts` says for this position, including its provenance —
+        // declared there rather than as literals here, so a band and its label can never
+        // drift apart. The fallback is the fail-closed default for a position the table
+        // has no entry for; every position on a shipped board has one.
         p10: band?.p10 ?? PLACEHOLDER_QUANTILES.p10,
         p90: band?.p90 ?? PLACEHOLDER_QUANTILES.p90,
         quantileProvenance: band?.provenance ?? PLACEHOLDER_QUANTILES.provenance,
@@ -1159,8 +1160,8 @@ export async function runBuildDraftBoard(
         availability: 1,
         p10: band.p10,
         p90: band.p90,
-        // A defense's band is `placeholder` in `OUTCOME_QUANTILES`, and the stored row
-        // says so rather than leaving the reader to know it.
+        // Carried onto the row rather than left for the reader to look up, which is the
+        // whole point of storing provenance beside the numbers it describes.
         quantileProvenance: band.provenance,
       });
     }
