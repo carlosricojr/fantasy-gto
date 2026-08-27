@@ -118,6 +118,14 @@ export function priorSeasonRatios(
   seasons: readonly EntitySeason[],
   minPriorGames: number,
 ): number[] {
+  // A fractional or negative threshold would not fail — it would quietly admit a different
+  // sample and produce a band from it, which is the failure this whole module is arranged
+  // to make impossible.
+  if (!Number.isInteger(minPriorGames) || minPriorGames < 1) {
+    throw new Error(
+      `minPriorGames must be a positive whole number of games, got ${minPriorGames}`,
+    );
+  }
   const meanByKey = new Map<string, number>();
   for (const entry of seasons) {
     if (entry.weeklyPoints.length < minPriorGames) continue;
@@ -130,8 +138,10 @@ export function priorSeasonRatios(
     const priorMean = meanByKey.get(`${entry.id}|${entry.season - 1}`);
     // A non-positive prior mean is not a small denominator to be clamped — it is an
     // entity whose prior season carries no level at all, and dividing by it inverts the
-    // sign of every ratio it produces.
-    if (priorMean === undefined || priorMean <= 0) continue;
+    // sign of every ratio it produces. Written to reject anything that is not a positive
+    // finite number rather than as `<= 0`, which lets a `NaN` through to become a `NaN`
+    // ratio and an infinity through to become a silent zero.
+    if (priorMean === undefined || !Number.isFinite(priorMean) || priorMean <= 0) continue;
     for (const points of entry.weeklyPoints) ratios.push(points / priorMean);
   }
   return ratios;

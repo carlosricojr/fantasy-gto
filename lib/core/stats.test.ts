@@ -738,7 +738,15 @@ describe("the inverse standard normal", () => {
   it("refuses a probability outside the open unit interval rather than guessing", () => {
     expect(standardNormalQuantile(0)).toBe(Number.NEGATIVE_INFINITY);
     expect(standardNormalQuantile(1)).toBe(Number.POSITIVE_INFINITY);
-    expect(standardNormalQuantile(Number.NaN)).toBe(Number.POSITIVE_INFINITY);
+    expect(standardNormalQuantile(-0.5)).toBe(Number.NEGATIVE_INFINITY);
+    expect(standardNormalQuantile(1.5)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("answers NaN for a NaN, rather than a confident upper tail", () => {
+    // `NaN` fails every comparison, so without its own branch it falls out of the
+    // below-zero test as `+Infinity` — an invalid probability silently becoming the
+    // strongest possible statement about the top of the distribution.
+    expect(standardNormalQuantile(Number.NaN)).toBeNaN();
   });
 });
 

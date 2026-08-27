@@ -430,6 +430,10 @@ export function normalCdf(x: number): number {
  * number of decimals.
  */
 export function standardNormalQuantile(p: number): number {
+  // `NaN` first, because it fails every comparison below and would therefore fall out of
+  // the `p <= 0` test as `POSITIVE_INFINITY` — turning "this is not a probability" into a
+  // confident statement about the upper tail, which is the worst of the three answers.
+  if (Number.isNaN(p)) return Number.NaN;
   if (!(p > 0 && p < 1)) return p <= 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
   // Three constants here read as survivors in a mutation report, and all three are
   // equivalences rather than gaps — recorded because "no test objected" is the same

@@ -67,6 +67,29 @@ describe("ratios against the prior season", () => {
     expect(priorSeasonRatios(negative, 2)).toEqual([]);
   });
 
+  it("refuses a threshold that is not a whole number of games", () => {
+    // Silently admitting a different sample is the one failure mode a band measurement
+    // cannot survive, so the threshold is checked rather than floored.
+    const seasons = [season("k1", 2020, [4, 8]), season("k1", 2021, [3, 9])];
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => priorSeasonRatios(seasons, bad)).toThrow(/positive whole number/);
+    }
+    expect(priorSeasonRatios(seasons, 1)).toEqual([0.5, 1.5]);
+  });
+
+  it("refuses a non-finite prior mean, which is not the same guard as a non-positive one", () => {
+    // The case the `Number.isFinite` half exists for, and the only input that separates it
+    // from the `<= 0` half. An infinite prior mean passes `<= 0` and would divide every
+    // week down to a silent zero; a NaN one passes it too and would poison the sample.
+    const infinite = [
+      season("k1", 2020, [Number.POSITIVE_INFINITY, 4]),
+      season("k1", 2021, [3, 9]),
+    ];
+    expect(priorSeasonRatios(infinite, 2)).toEqual([]);
+    const notANumber = [season("k2", 2020, [Number.NaN, 4]), season("k2", 2021, [3, 9])];
+    expect(priorSeasonRatios(notANumber, 2)).toEqual([]);
+  });
+
   it("keeps entities apart, and keeps seasons in sequence", () => {
     const seasons = [
       season("a", 2020, [10, 10]),

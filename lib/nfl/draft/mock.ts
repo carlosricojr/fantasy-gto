@@ -111,9 +111,8 @@ export interface MockBoardRow {
    *
    * The fixture is the audit's record and is never regenerated, so its kicker and defense
    * rows still say `placeholder` and still carry `0.25/1.85` and `0.2/2.0` — the bands the
-   * ingest wrote in August 2026, before #90.4 measured them. Every replay here therefore
-   * runs against those, which is deliberate: a regression lock whose board moves is not
-   * one.
+   * ingest wrote in August 2026, before #90.4 measured them. The default replay runs
+   * against those, which is deliberate: a regression lock whose board moves is not one.
    *
    * The shipped bands are `0.271/1.864` and `0.208/2.118`, so the harness and the product
    * do differ here. How much is not left to a note: `pnpm draft-mock -- --current-bands`
