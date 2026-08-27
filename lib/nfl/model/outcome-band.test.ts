@@ -49,6 +49,14 @@ describe("ratios against the prior season", () => {
     expect(priorSeasonRatios(seasons, 1)).toEqual([0.5, 1.5]);
   });
 
+  it("keeps a small but positive prior mean, which is a level and not a defect", () => {
+    // The guard is at zero, not at one. A kicker who averaged half a point a game had a
+    // level; dividing by it is what the construction says to do, and raising the bar would
+    // drop real careers out of the sample on no stated grounds.
+    const seasons = [season("k1", 2020, [0.5, 0.5]), season("k1", 2021, [1, 2])];
+    expect(priorSeasonRatios(seasons, 2)).toEqual([2, 4]);
+  });
+
   it("refuses a non-positive prior mean rather than clamping it", () => {
     // A kicker whose prior season netted zero — every attempt missed — has no level to
     // divide by. Clamping would manufacture enormous ratios; a negative mean would flip
@@ -107,9 +115,12 @@ describe("inverting the expected maximum", () => {
   });
 
   it("saturates rather than returning a band nothing could hold", () => {
-    // Two is the ceiling: E[max] of two draws cannot exceed twice the mean.
+    // Two is the ceiling: E[max] of two draws cannot exceed twice the mean. Inherited from
+    // `standardNormalQuantile` rather than guarded here, so this is the assertion that the
+    // inheritance actually holds.
     expect(lognormalSigmaFromExpectedMax(2)).toBe(Number.POSITIVE_INFINITY);
     expect(lognormalSigmaFromExpectedMax(2.5)).toBe(Number.POSITIVE_INFINITY);
+    expect(lognormalSigmaFromExpectedMax(1.999)).toBeLessThan(Number.POSITIVE_INFINITY);
   });
 });
 
@@ -158,6 +169,28 @@ describe("fitting a band", () => {
       fitOutcomeBand(clamped).expectedMaxRatio,
       12,
     );
+  });
+
+  it("divides the expected maximum by the sample's own mean", () => {
+    // Pinned against the arithmetic rather than against the other fit, because a
+    // comparison between two fits cancels any error the two share — which is exactly how
+    // a wrong mean survives a test that looks like it covers one.
+    const raw = [-4, -1, 0, 0.5, 1, 1.5, 2, 6];
+    const clamped = raw.map((value) => Math.max(0, value));
+    const mean = clamped.reduce((sum, value) => sum + value, 0) / clamped.length;
+    let expectedMax = 0;
+    for (const a of clamped) for (const b of clamped) expectedMax += Math.max(a, b);
+    expect(fitOutcomeBand(raw).expectedMaxRatio).toBeCloseTo(
+      expectedMax / clamped.length ** 2 / mean,
+      12,
+    );
+    expect(mean).toBeCloseTo(11 / 8, 12);
+  });
+
+  it("reports the median of the ratios it was handed", () => {
+    const raw = [0, 1, 2, 3, 4, 5, 6, 100];
+    expect(fitOutcomeBand(raw).empiricalP50).toBeCloseTo(3.5, 12);
+    expect(fitOutcomeBand(raw).empiricalP50).toBe(quantile(raw, 0.5));
   });
 
   it("reports the deciles raw, so a negative tenth percentile is visible as one", () => {

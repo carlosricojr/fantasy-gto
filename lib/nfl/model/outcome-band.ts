@@ -143,13 +143,17 @@ export function lognormalDeciles(sigma: number): { p10: number; p90: number } {
  * The dispersion of the unit-mean lognormal whose `E[max]` of two draws matches `ratio`.
  *
  * Closed form: for independent unit-mean lognormals, `E[max] = 2 * Phi(sigma / sqrt(2))`.
- * A ratio at or below one means the sample shows no dispersion at all; at or above two it
- * shows more than any lognormal can carry, and both are returned as the boundary rather
- * than as an infinity that would silently poison a band.
+ * A ratio at or below one means the sample shows no dispersion at all, and is answered with
+ * zero rather than with the negative dispersion the inversion would otherwise return.
+ *
+ * The upper end needs no guard of its own. Two is the ceiling — the expected maximum of two
+ * draws cannot exceed twice the mean — and a ratio at or above it maps to a probability at
+ * or above one, which `standardNormalQuantile` already answers as an infinity rather than
+ * by extrapolating. A second check for it here would be a branch no input can distinguish,
+ * which mutation testing reports as a survivor and a reader reads as a live case.
  */
 export function lognormalSigmaFromExpectedMax(ratio: number): number {
   if (!(ratio > 1)) return 0;
-  if (ratio >= 2) return Number.POSITIVE_INFINITY;
   return Math.SQRT2 * standardNormalQuantile(ratio / 2);
 }
 

@@ -256,6 +256,10 @@ export function basisExplanation(basis: ValueBasis): string {
  * describes.
  */
 export function hasMeasuredSpread(position: string): boolean {
+  // `??` here reads in a mutation report as a survivor against `||`, and the two genuinely
+  // cannot disagree: the lookup is either a band object, which is always truthy, or
+  // `undefined`. Kept as `??` because the question being asked is "was there an entry",
+  // not "was the entry usable".
   const band =
     OUTCOME_QUANTILES[position as keyof typeof OUTCOME_QUANTILES] ?? PLACEHOLDER_QUANTILES;
   return band.provenance === "measured";

@@ -431,12 +431,25 @@ export function normalCdf(x: number): number {
  */
 export function standardNormalQuantile(p: number): number {
   if (!(p > 0 && p < 1)) return p <= 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
-  // A&S 7.1.26 saturates well before this, so the bracket is wide enough to contain any
-  // finite answer it can distinguish.
+  // Three constants here read as survivors in a mutation report, and all three are
+  // equivalences rather than gaps — recorded because "no test objected" is the same
+  // output for an untestable constant and an untested one.
+  //
+  // The bracket. `normalCdf` carries an *absolute* error of 7.5e-8, so it cannot resolve a
+  // tail probability smaller than that at all: everything past roughly |z| = 5.3 reads as
+  // exactly 0 or 1 to it, and no bracket wider than that changes an answer this function
+  // can honestly give. Ten is comfortably outside the resolvable range in both directions,
+  // and widening or narrowing it inside that range is unobservable by construction.
   let low = -10;
   let high = 10;
+  // The iteration count. Twenty halved a hundred times is far below the spacing of a
+  // double near one — the interval stops shrinking somewhere around sixty — so every count
+  // above that returns bit-identical results. A hundred is a round number past the point
+  // where the loop can still make progress.
   for (let i = 0; i < 100; i += 1) {
     const mid = (low + high) / 2;
+    // `<` against `<=` differ only where the CDF hits `p` exactly, which decides nothing:
+    // that midpoint is the answer, and both branches converge on it.
     if (normalCdf(mid) < p) low = mid;
     else high = mid;
   }

@@ -552,6 +552,13 @@ describe("quantile", () => {
   it("returns NaN on an empty sample rather than a number", () => {
     expect(quantile([], 0.5)).toBeNaN();
   });
+
+  it("answers from a sample of one, which is the boundary beside that guard", () => {
+    // A pre-existing gap the K/D-ST band work surfaced: the empty guard was pinned and
+    // the case immediately next to it was not, so a guard that refused one element too
+    // many would have gone unnoticed by every caller that reads a quantile.
+    for (const q of [0, 0.1, 0.5, 0.9, 1]) expect(quantile([5], q)).toBe(5);
+  });
 });
 
 /**
@@ -766,5 +773,12 @@ describe("the expected maximum of two draws", () => {
 
   it("has no answer for an empty sample rather than a zero", () => {
     expect(expectedMaxOfTwo([])).toBeNaN();
+  });
+
+  it("answers the single value it was given, rather than refusing a sample of one", () => {
+    // The guard is on *empty*, and the boundary beside it is the case that must still
+    // work: two draws from a one-point distribution have that point as their maximum.
+    expect(expectedMaxOfTwo([7])).toBe(7);
+    expect(expectedMaxOfTwo([-3])).toBe(-3);
   });
 });
