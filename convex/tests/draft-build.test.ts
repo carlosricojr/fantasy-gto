@@ -371,8 +371,25 @@ describe("runBuildDraftBoard", () => {
 
     const quarterbacks = rows.filter((row) => row.position === "QB");
     expect(quarterbacks).toHaveLength(PER_POSITION.QB);
+    const quarterbackSeasonTotals = PLAYERS.filter(
+      (player) => player.position === "QB",
+    ).map((player) => {
+      // `statsCsv` writes sixteen identical PPR weeks for this fixture: one point per
+      // rounded reception and 0.1 per rounded receiving yard. Compute the fit target from
+      // those source values rather than from the board output being asserted.
+      const receptions = Number(Math.max(0, player.volume).toFixed(0));
+      const receivingYards = Number(Math.max(0, player.volume * 12).toFixed(0));
+      return 16 * (receptions + receivingYards / 10);
+    });
+    const expectedPositionMean =
+      Math.round(
+        (quarterbackSeasonTotals.reduce((sum, points) => sum + points, 0) /
+          quarterbackSeasonTotals.length) *
+          100,
+      ) / 100;
     for (const quarterback of quarterbacks) {
       expect(quarterback.marketPoints).not.toBeNull();
+      expect(quarterback.marketPoints).toBe(expectedPositionMean);
       expect(quarterback.marketValueBasis).toBe("position-mean");
     }
   });
