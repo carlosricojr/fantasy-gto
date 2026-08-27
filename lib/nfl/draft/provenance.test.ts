@@ -183,6 +183,21 @@ describe("the market estimate disclosure", () => {
     }
   });
 
+  it("says a row with no recorded basis is unknown rather than calling it ADP-ordered", () => {
+    // The schema makes `marketValueBasis` optional so an older row can decline to answer,
+    // and says readers must treat that as unknown. This is where that promise is kept or
+    // broken: the sentence for an absent basis has to differ from the one for a row that
+    // really was fitted per position.
+    const ordered = marketEstimateExplanation(247, "adp-ordered");
+    expect(ordered).toContain("fitted per position");
+    for (const basis of [null, undefined] as const) {
+      const unknown = marketEstimateExplanation(247, basis);
+      expect(unknown).not.toBe(ordered);
+      expect(unknown).not.toContain("fitted per position");
+      expect(unknown).toContain("unknown");
+    }
+  });
+
   it("does not describe an ADP fit when no market estimate exists", () => {
     const explanation = marketEstimateExplanation(null, null);
     expect(explanation).toContain("no market estimate is available");

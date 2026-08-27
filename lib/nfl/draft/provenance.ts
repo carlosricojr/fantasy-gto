@@ -138,7 +138,19 @@ export function basisBadge(basis: ValueBasis): string | null {
   }
 }
 
-/** The disclosure attached directly to the market estimate. */
+/**
+ * The disclosure attached directly to the market estimate.
+ *
+ * Written as an exhaustive match on the three states the board actually records, with
+ * everything else falling to *unknown* rather than to the ADP-ordered sentence. That last
+ * clause is the whole point of the shape. `marketValueBasis` is optional on the schema
+ * precisely so a row written before the disclosure existed can say nothing, and the schema
+ * says in as many words that readers treat an absent value as unknown rather than guessing
+ * — but this function used to end at the ADP-ordered sentence, so an absent basis was
+ * described to the reader as a per-position fit that nothing had checked. That is the
+ * failure the schema comment and the README ledger row both exist to prevent, arriving
+ * through the one path neither was looking at.
+ */
 export function marketEstimateExplanation(
   marketPoints: number | null,
   basis: MarketValueBasis | null | undefined,
@@ -158,7 +170,14 @@ export function marketEstimateExplanation(
       "mean and carries no within-position ADP ordering."
     );
   }
-  return "What this player’s average draft position has historically been worth, fitted per position.";
+  if (basis === "adp-ordered") {
+    return "What this player’s average draft position has historically been worth, fitted per position.";
+  }
+  return (
+    "What this player’s average draft position has historically been worth. This row " +
+    "predates the record of which curve produced it, so whether it carries the market’s " +
+    "ordering or only a position mean is unknown."
+  );
 }
 
 /**
