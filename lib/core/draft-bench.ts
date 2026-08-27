@@ -96,8 +96,8 @@
  * **This is a policy prior, not a measurement, and the distinction matters more here than
  * usual.** What would make it a measurement is the weekly value of the best free agent at
  * each position — how much of a starter's production you can recover by streaming, week to
- * week, on matchup. Nothing in this repo measures that, and measuring the K/D-ST outcome
- * bands (#90.4) did not start: a band says how far a week strays from an estimate, not what
+ * week, on matchup. Nothing in this repo measures that, and the measured K/D-ST outcome
+ * bands (#90.4) are not it: a band says how far a week strays from an estimate, never what
  * the wire would have sold you instead. What the caller supplies instead is a per-position number
  * argued from roster arithmetic, and it lives in the sport layer (`lib/nfl/roster.ts`)
  * where the argument can name positions. `docs/draft-validation.md` carries the argument

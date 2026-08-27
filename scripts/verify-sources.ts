@@ -276,7 +276,18 @@ async function verifyOutcomeBands(): Promise<void> {
 
   let unresolvedPointsAllowed = 0;
   let teamGames = 0;
-  const crossCheck = { compared: 0, sacks: 0, interceptions: 0, tds: 0, safeties: 0, recoveries: 0 };
+  // Every field `toDefenseStatLine` reads and `scoreDefense` then scores. Cross-checking a
+  // subset and publishing a count for the whole set is the defect this script exists to
+  // prevent, so the two lists are the same list.
+  const crossCheck = {
+    compared: 0,
+    sacks: 0,
+    interceptions: 0,
+    tds: 0,
+    safeties: 0,
+    recoveries: 0,
+    returnTds: 0,
+  };
 
   for (const season of BAND_SEASONS) {
     const kickerWeeks = new Map<string, number[]>();
@@ -295,12 +306,14 @@ async function verifyOutcomeBands(): Promise<void> {
           tds: 0,
           safeties: 0,
           recoveries: 0,
+          returnTds: 0,
         };
         bucket.sacks += num(row, "def_sacks");
         bucket.interceptions += num(row, "def_interceptions");
         bucket.tds += num(row, "def_tds");
         bucket.safeties += num(row, "def_safeties");
         bucket.recoveries += num(row, "fumble_recovery_opp");
+        bucket.returnTds += num(row, "special_teams_tds");
         playerAggregate.set(key, bucket);
       }
       if (str(row, "position").toUpperCase() !== "K") continue;
@@ -341,6 +354,8 @@ async function verifyOutcomeBands(): Promise<void> {
           crossCheck.safeties += 1;
         if (Math.abs(aggregate.recoveries - num(row, "fumble_recovery_opp")) > 1e-9)
           crossCheck.recoveries += 1;
+        if (Math.abs(aggregate.returnTds - num(row, "special_teams_tds")) > 1e-9)
+          crossCheck.returnTds += 1;
       }
       const bucket = defenseWeeks.get(identity.team) ?? [];
       bucket.push(scoreDefense(toDefenseStatLine(row, pointsAllowed), PPR).total);
@@ -359,7 +374,8 @@ async function verifyOutcomeBands(): Promise<void> {
       `  points allowed unresolved from the schedule: ${unresolvedPointsAllowed}\n` +
       `  team release vs aggregating the player release over ${crossCheck.compared} team-games:\n` +
       `    sacks ${crossCheck.sacks}, interceptions ${crossCheck.interceptions}, ` +
-      `touchdowns ${crossCheck.tds}, fumble recoveries ${crossCheck.recoveries}, ` +
+      `defensive touchdowns ${crossCheck.tds}, return touchdowns ${crossCheck.returnTds}, ` +
+      `fumble recoveries ${crossCheck.recoveries}, ` +
       `safeties ${crossCheck.safeties} disagree\n`,
   );
   if (unresolvedPointsAllowed > 0) {

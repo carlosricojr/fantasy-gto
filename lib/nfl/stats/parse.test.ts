@@ -100,7 +100,12 @@ describe("toDefenseStatLine", () => {
   });
 
   it("reads a missing column as zero, which is why the header check above exists", () => {
-    const { def_sacks: _dropped, ...withoutSacks } = ROWS[3];
+    // Built by filtering rather than by destructuring off the unwanted key: the discard
+    // binding that reads most naturally here is an unused variable, and an ESLint warning
+    // survives `pnpm verify`, which only fails on errors.
+    const withoutSacks = Object.fromEntries(
+      Object.entries(ROWS[3]).filter(([column]) => column !== "def_sacks"),
+    );
     expect(toDefenseStatLine(ROWS[3], 0).sacks).toBe(6);
     expect(toDefenseStatLine(withoutSacks, 0).sacks).toBe(0);
   });
