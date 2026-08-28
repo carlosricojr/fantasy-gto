@@ -1,5 +1,8 @@
 import { v } from "convex/values";
 
+import { SUPPORTED_LEAGUE_SIZES } from "../lib/nfl/draft/league-size";
+import { CHAMPIONSHIP_WEEKS, PLAYOFF_FIELDS } from "../lib/nfl/league-rules";
+import { SCORING_PRESETS } from "../lib/nfl/scoring/presets";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { currentUser, invalid, notFound, requireLeagueCapacity, requireUser } from "./lib/auth";
@@ -18,6 +21,53 @@ const slotValidator = v.object({
   eligiblePositions: v.array(v.string()),
   playerId: v.union(v.string(), v.null()),
 });
+
+type LeagueRules = {
+  teams: number;
+  scoringId: string;
+  playoffTeams: number;
+  championshipWeek: number;
+};
+
+/**
+ * Refuses values the product cannot represent instead of repairing them into another league.
+ *
+ * The controls are not the authority: imports and direct mutation calls bypass them. A
+ * clamped value would persist rules the caller did not choose and make later draft or lineup
+ * work disagree silently about what this league is.
+ */
+function validateRules({
+  teams,
+  scoringId,
+  playoffTeams,
+  championshipWeek,
+}: LeagueRules): void {
+  if (!SCORING_PRESETS.some((preset) => preset.id === scoringId)) {
+    throw invalid(`Unsupported scoring format: ${scoringId}.`);
+  }
+  if (
+    !SUPPORTED_LEAGUE_SIZES.includes(
+      teams as (typeof SUPPORTED_LEAGUE_SIZES)[number],
+    )
+  ) {
+    throw invalid(`Unsupported league size: ${teams}.`);
+  }
+  if (
+    !PLAYOFF_FIELDS.includes(playoffTeams as (typeof PLAYOFF_FIELDS)[number])
+  ) {
+    throw invalid(`Unsupported playoff field: ${playoffTeams}.`);
+  }
+  if (
+    !CHAMPIONSHIP_WEEKS.includes(
+      championshipWeek as (typeof CHAMPIONSHIP_WEEKS)[number],
+    )
+  ) {
+    throw invalid(`Unsupported championship week: ${championshipWeek}.`);
+  }
+  if (playoffTeams >= teams) {
+    throw invalid("A playoff field must be smaller than the league.");
+  }
+}
 
 /** The caller's leagues. Returns empty for anonymous visitors rather than throwing. */
 export const list = query({
@@ -46,10 +96,14 @@ export const create = mutation({
     platform: v.string(),
     externalId: v.union(v.string(), v.null()),
     scoringId: v.string(),
+    teams: v.number(),
+    playoffTeams: v.number(),
+    championshipWeek: v.number(),
     slots: v.array(slotValidator),
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    validateRules(args);
 
     if (args.externalId !== null) {
       const existing = await ctx.db
@@ -75,6 +129,9 @@ export const create = mutation({
       name: args.name,
       season: args.season,
       scoringId: args.scoringId,
+      teams: args.teams,
+      playoffTeams: args.playoffTeams,
+      championshipWeek: args.championshipWeek,
       createdAt: now,
     });
 
@@ -88,6 +145,32 @@ export const create = mutation({
     });
 
     return leagueId;
+  },
+});
+
+/**
+ * Changes the complete set of persisted league rules without changing its denormalized roster.
+ *
+ * Roster slots are intentionally independent: a custom shape survives without a template id,
+ * and changing season/scoring rules must not replace a manager's players or slot layout.
+ */
+export const updateRules = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    scoringId: v.string(),
+    teams: v.number(),
+    playoffTeams: v.number(),
+    championshipWeek: v.number(),
+  },
+  handler: async (ctx, { leagueId, ...rules }) => {
+    const user = await requireUser(ctx);
+    const league = await ctx.db.get(leagueId);
+    if (!league || league.userId !== user._id) {
+      throw notFound("That league does not exist.");
+    }
+
+    validateRules(rules);
+    await ctx.db.patch(leagueId, rules);
   },
 });
 

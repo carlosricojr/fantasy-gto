@@ -21,6 +21,14 @@ import { describeLeagueCap, limit, planCapabilities } from "@/lib/billing/entitl
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SUPPORTED_LEAGUE_SIZES } from "@/lib/nfl/draft/league-size";
+import { CHAMPIONSHIP_WEEKS, PLAYOFF_FIELDS } from "@/lib/nfl/league-rules";
+import {
+  dashboardSeasonSummary,
+  DEFAULT_DASHBOARD_LEAGUE_RULES,
+  persistedLeagueRules,
+} from "./league-rules";
 
 /**
  * League management.
@@ -44,7 +52,16 @@ export default function DashboardPage() {
 
   const [name, setName] = useState("");
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
-  const [scoringId, setScoringId] = useState(SCORING_PRESETS[0].id);
+  const [teams, setTeams] = useState(DEFAULT_DASHBOARD_LEAGUE_RULES.teams);
+  const [scoringId, setScoringId] = useState(
+    DEFAULT_DASHBOARD_LEAGUE_RULES.scoringId,
+  );
+  const [playoffTeams, setPlayoffTeams] = useState(
+    DEFAULT_DASHBOARD_LEAGUE_RULES.playoffTeams,
+  );
+  const [championshipWeek, setChampionshipWeek] = useState(
+    DEFAULT_DASHBOARD_LEAGUE_RULES.championshipWeek,
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Deleting a league also deletes its roster and cannot be undone, so it is confirmed
@@ -64,7 +81,12 @@ export default function DashboardPage() {
         season: season.season,
         platform: "manual",
         externalId: null,
-        scoringId,
+        ...persistedLeagueRules({
+          teams,
+          scoringId,
+          playoffTeams,
+          championshipWeek,
+        }),
         slots: slotsForTemplate(templateId).map((slot) => ({
           slotId: slot.id,
           slotLabel: slot.label,
@@ -216,28 +238,80 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <span id="league-scoring-label" className="text-sm font-medium">
-                Scoring
-              </span>
-              <div
-                className="flex flex-wrap gap-2"
-                role="group"
-                aria-labelledby="league-scoring-label"
+            <div className="space-y-6">
+              <DashboardField
+                label="Teams"
+                hint="Boards are built per league size"
               >
-                {SCORING_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    type="button"
-                    size="sm"
-                    variant={preset.id === scoringId ? "default" : "outline"}
-                    aria-pressed={preset.id === scoringId}
-                    onClick={() => setScoringId(preset.id)}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
+                <SegmentedControl
+                  label="League size"
+                  value={teams}
+                  onChange={(nextTeams) => {
+                    setTeams(nextTeams);
+                    if (playoffTeams >= nextTeams) {
+                      setPlayoffTeams(
+                        PLAYOFF_FIELDS.find((field) => field < nextTeams)!,
+                      );
+                    }
+                  }}
+                  options={SUPPORTED_LEAGUE_SIZES.map((size) => ({
+                    value: size,
+                    label: String(size),
+                  }))}
+                />
+              </DashboardField>
+
+              <DashboardField label="Scoring">
+                <SegmentedControl
+                  label="Scoring"
+                  value={scoringId}
+                  onChange={setScoringId}
+                  options={SCORING_PRESETS.map((preset) => ({
+                    value: preset.id,
+                    label: preset.label,
+                  }))}
+                />
+              </DashboardField>
+
+              <DashboardField
+                label="Playoff teams"
+                hint="How many make the bracket, which is what the odds are odds of"
+              >
+                <SegmentedControl
+                  label="Playoff teams"
+                  value={playoffTeams}
+                  onChange={setPlayoffTeams}
+                  options={PLAYOFF_FIELDS.filter((field) => field < teams).map(
+                    (field) => ({
+                      value: field,
+                      label: String(field),
+                    }),
+                  )}
+                />
+              </DashboardField>
+
+              <DashboardField
+                label="Championship week"
+                hint="The last week you play. Leagues often end early to keep the final out of the NFL weeks where teams rest starters."
+              >
+                <SegmentedControl
+                  label="Championship week"
+                  value={championshipWeek}
+                  onChange={setChampionshipWeek}
+                  options={CHAMPIONSHIP_WEEKS.map((week) => ({
+                    value: week,
+                    label: `Week ${week}`,
+                  }))}
+                />
+                <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+                  {dashboardSeasonSummary({
+                    teams,
+                    scoringId,
+                    playoffTeams,
+                    championshipWeek,
+                  })}
+                </p>
+              </DashboardField>
             </div>
 
             {!season && (
@@ -290,5 +364,25 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
     </PageShell>
+  );
+}
+
+function DashboardField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium">{label}</p>
+      {hint === undefined ? null : (
+        <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+      )}
+      <div className="mt-2">{children}</div>
+    </div>
   );
 }

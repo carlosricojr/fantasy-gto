@@ -46,6 +46,9 @@ async function createLeague(
     platform: "manual",
     externalId: null,
     scoringId: "ppr",
+    teams: 12,
+    playoffTeams: 6,
+    championshipWeek: 17,
     slots: STANDARD_SLOTS,
   });
 }
@@ -115,6 +118,9 @@ describe("the free-tier league cap", () => {
         platform: "manual",
         externalId: null,
         scoringId: "ppr",
+        teams: 12,
+        playoffTeams: 6,
+        championshipWeek: 17,
         slots: STANDARD_SLOTS,
       }),
     ).rejects.toThrow(/signed in/);
@@ -149,6 +155,9 @@ describe("error payloads reach the client", () => {
         platform: "manual",
         externalId: null,
         scoringId: "ppr",
+        teams: 12,
+        playoffTeams: 6,
+        championshipWeek: 17,
         slots: STANDARD_SLOTS,
       }),
     ).rejects.toMatchObject({ data: { code: "unauthenticated" } });

@@ -557,6 +557,9 @@ describe("user lifecycle", () => {
       platform: "manual",
       externalId: null,
       scoringId: "ppr",
+      teams: 12,
+      playoffTeams: 6,
+      championshipWeek: 17,
       slots: [],
     });
 
