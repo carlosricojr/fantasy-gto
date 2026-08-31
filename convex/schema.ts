@@ -75,6 +75,10 @@ export default defineSchema({
     name: v.string(),
     season: v.number(),
     scoringId: v.string(),
+    /** Absent on leagues recorded before complete rules persistence. */
+    teams: v.optional(v.number()),
+    playoffTeams: v.optional(v.number()),
+    championshipWeek: v.optional(v.number()),
     createdAt: v.number(),
   })
     // Listing a user's leagues, and counting them to enforce the free-tier cap.
