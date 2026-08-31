@@ -243,6 +243,18 @@ describe("parseSeasonRoster", () => {
     }
   });
 
+  it("keeps the provider bridge and rookie year where the roster supplies them", () => {
+    const header = "season,team,position,status,full_name,gsis_id,sleeper_id,rookie_year";
+    const [entry] = parseSeasonRoster(
+      parseCsv(`${header}\n2026,CAR,WR,ACT,Rookie Receiver,00-0040000,123456,2026`),
+    );
+    expect(entry).toMatchObject({
+      playerId: "00-0040000",
+      sleeperId: "123456",
+      rookieYear: 2026,
+    });
+  });
+
   it("drops players who are not active", () => {
     // Retired and cut players stay on the file. A draft board that offered them would be
     // recommending someone who will not take a snap.

@@ -16,6 +16,7 @@ pnpm backtest              # development + tuning sets; leaves the 2025 holdout 
 pnpm backtest -- --holdout # scores the holdout and rewrites the published figures
 pnpm backtest -- --sweeps  # reproduce how each parameter was chosen
 pnpm verify-sources        # reproduce every measured figure in docs/data-sources.md
+pnpm identity-coverage     # audit live Sleeper-to-board player identity coverage
 pnpm dev                   # Next.js + Convex
 ```
 

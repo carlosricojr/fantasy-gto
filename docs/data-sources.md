@@ -719,7 +719,23 @@ The market-discipline gate (`applyMarketGate`, `lib/core/draft-policy.ts`) keys 
 measures a different universe than the engine sees. What this dump supplies is the
 evidence for the gate's premise: that the players the board leaves unpriced are ones a
 deeper source does know about, at ranks nowhere near the rounds the model was leading
-them in. `pnpm verify-sources` and the tests are its only callers.
+them in. The market-awareness join is exercised by `pnpm verify-sources` and its tests;
+`pnpm identity-coverage` separately measures the player-identity seam below.
+
+### Draft player-identity coverage
+
+`pnpm identity-coverage` measures the deterministic provider-to-board classifier used by
+live-pick integration work. It prints matched, ambiguous, and unmatched counts for both the
+current public production board and the freshly fetched Sleeper player universe, including
+rookies and every unresolved identity. The command fetches the Sleeper dump and the matching
+nflverse season roster afresh, writing inspection copies under `.cache/identity-coverage` but
+never reading a cache as though it were current data. Pass `-- --board path/to/board.json` to
+audit an exported snapshot instead; the source provenance printed by the command is part of the
+result.
+
+The reported board snapshot is only clean when the command prints `identity coverage status:
+clean`. Any ambiguous or unmatched row remains explicit and needs an append-only operator
+repair; it is not silently guessed, dropped, or treated as a completed draft.
 
 The audit's culprits, re-measured 2026-08-18: Kenny Gainwell rank **86**, RB2 — spelled
 "Kenneth" on our board, which is why the join needs the first-name aliases in

@@ -249,6 +249,8 @@ export function parsePicks(
 export interface SleeperPlayerRow {
   /** Sleeper's own player id — the dump's key, kept for de-duplication and audit. */
   sleeperId: string;
+  /** Sleeper's `years_exp`; zero is its explicit rookie marker. */
+  rookie: boolean;
   name: string;
   /**
    * The player's *fantasy* position, folded to the codes the board uses.
@@ -343,6 +345,7 @@ export function parsePlayersDump(
 
     rows.push({
       sleeperId,
+      rookie: toInt(row.years_exp) === 0,
       name,
       position,
       team: normalizeTeam(typeof row.team === "string" ? row.team : null),

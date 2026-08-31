@@ -21,6 +21,7 @@
     "verify-sources": "tsx scripts/verify-sources.ts",
     "draft-backtest": "tsx scripts/draft-backtest.ts",
     "draft-mock": "tsx scripts/draft-mock.ts",
+    "identity-coverage": "tsx scripts/identity-coverage.ts",
     "mutate": "tsx scripts/mutate.ts",
     "draft-latency": "tsx scripts/draft-latency.ts"
   },

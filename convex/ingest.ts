@@ -1111,6 +1111,7 @@ export async function runBuildDraftBoard(
       // when #90.4 measured the bands the backtest cannot produce.
       rows.push({
         playerId: entry.playerId,
+        ...(entry.sleeperId === null ? {} : { sleeperId: entry.sleeperId }),
         name: entry.name,
         position: entry.position,
         team: entry.team,
