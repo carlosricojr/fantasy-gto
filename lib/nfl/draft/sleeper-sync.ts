@@ -29,6 +29,7 @@ export interface ProviderPickConflict {
   kind:
     | "invalid-provider-pick"
     | "duplicate-provider-overall"
+    | "conflicting-provider-pick-key"
     | "provider-history-replaced"
     | "local-provider-disagreement";
   pickKey: string;
@@ -58,14 +59,35 @@ function sortedUniqueHistory(
   const byKey = new Map<string, SleeperSyncPick>();
   for (const pick of existing) byKey.set(pick.pickKey, pick);
   for (const pick of incoming) {
-    // The first observed event is preserved. A same-key change from a provider is handled
-    // as a visible history conflict below, not silently accepted as a replacement.
-    if (!byKey.has(pick.pickKey)) byKey.set(pick.pickKey, pick);
+    // A repeated whole-list poll is one source event. A conflicting same-key event is a
+    // different source record and gets a deterministic local suffix so it remains visible
+    // and repairable rather than replacing or disappearing behind the first observation.
+    if ([...byKey.values()].some((existingPick) => samePick(existingPick, pick))) continue;
+    let key = pick.pickKey;
+    let duplicate = 1;
+    while (byKey.has(key)) {
+      key = `${pick.pickKey}#conflict-${duplicate}`;
+      duplicate += 1;
+    }
+    byKey.set(key, key === pick.pickKey ? pick : { ...pick, pickKey: key });
   }
   return [...byKey.values()].sort(
     (left, right) =>
       (left.overall ?? Number.MAX_SAFE_INTEGER) - (right.overall ?? Number.MAX_SAFE_INTEGER) ||
       left.pickKey.localeCompare(right.pickKey),
+  );
+}
+
+function samePick(left: SleeperSyncPick, right: SleeperSyncPick): boolean {
+  return (
+    left.pickKey === right.pickKey &&
+    left.overall === right.overall &&
+    left.draftSlot === right.draftSlot &&
+    left.playerName === right.playerName &&
+    left.position === right.position &&
+    left.team === right.team &&
+    left.playerId === right.playerId &&
+    left.isKeeper === right.isKeeper
   );
 }
 
@@ -97,7 +119,19 @@ export function reconcileSleeperDraft(input: {
   const providerPicks = sortedUniqueHistory(input.prior.providerPicks, input.incoming);
   const previousByKey = new Map(input.prior.providerPicks.map((pick) => [pick.pickKey, pick]));
   const conflicts: ProviderPickConflict[] = [];
+  const incomingByKey = new Map<string, SleeperSyncPick>();
   for (const pick of input.incoming) {
+    const duplicate = incomingByKey.get(pick.pickKey);
+    if (duplicate !== undefined && !samePick(duplicate, pick)) {
+      conflicts.push({
+        kind: "conflicting-provider-pick-key",
+        pickKey: pick.pickKey,
+        overall: pick.overall,
+        providerPlayerId: pick.playerId,
+      });
+    } else if (duplicate === undefined) {
+      incomingByKey.set(pick.pickKey, pick);
+    }
     const previous = previousByKey.get(pick.pickKey);
     if (
       previous !== undefined &&
@@ -121,7 +155,13 @@ export function reconcileSleeperDraft(input: {
   const byOverall = new Map<number, SleeperSyncPick>();
   for (const [index, pick] of providerPicks.entries()) {
     const classification = repaired.classifications[index];
-    if (pick.overall === null || pick.draftSlot === null || pick.overall > input.expectedPickCount) {
+    if (
+      pick.overall === null ||
+      pick.draftSlot === null ||
+      pick.overall < 1 ||
+      pick.draftSlot < 1 ||
+      pick.overall > input.expectedPickCount
+    ) {
       conflicts.push({ kind: "invalid-provider-pick", pickKey: pick.pickKey, overall: pick.overall });
       continue;
     }

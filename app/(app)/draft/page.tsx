@@ -837,7 +837,14 @@ export default function DraftPage() {
       (entry) => entry.input.pickKey === pickKey,
     );
     if (classification?.state !== "matched") return;
-    setPicks((previous) => ({ ...previous, [overall]: classification.boardPlayerId }));
+    setPicks((previous) => {
+      // A manual correction may have put this board player at a different overall. Move
+      // that local assignment rather than showing one player as drafted twice.
+      const withoutSamePlayer = Object.fromEntries(
+        Object.entries(previous).filter(([, playerId]) => playerId !== classification.boardPlayerId),
+      );
+      return { ...withoutSamePlayer, [overall]: classification.boardPlayerId };
+    });
   }
 
   function resetDraft(): void {

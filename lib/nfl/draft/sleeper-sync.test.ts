@@ -43,6 +43,26 @@ describe("reconcileSleeperDraft", () => {
     expect(result.cleanCompletion).toBe(false);
   });
 
+  it("retains conflicting same-key source records and never calls the complete poll clean", () => {
+    const result = reconcileSleeperDraft({
+      prior: empty,
+      incoming: [pick(), pick({ playerId: "s-b", playerName: "Beta Wideout", position: "WR", team: "BUF" })],
+      board,
+      localPicks: {},
+      expectedPickCount: 1,
+      providerStatus: "complete",
+    });
+    expect(result.history.providerPicks).toHaveLength(2);
+    expect(result.conflicts.some((conflict) => conflict.kind === "conflicting-provider-pick-key")).toBe(true);
+    expect(result.cleanCompletion).toBe(false);
+  });
+
+  it("does not accept zero provider coordinates as a local draft pick", () => {
+    const result = reconcileSleeperDraft({ prior: empty, incoming: [pick({ overall: 0, draftSlot: 0 })], board, localPicks: {}, expectedPickCount: 1, providerStatus: "complete" });
+    expect(result.acceptedPicks).toEqual({});
+    expect(result.conflicts).toMatchObject([{ kind: "invalid-provider-pick" }]);
+  });
+
   it("only calls a completed draft clean after identity resolution and exact expected count", () => {
     const unresolved = reconcileSleeperDraft({ prior: empty, incoming: [pick({ playerId: null, playerName: "A. Back", pickKey: "repair-me" })], board, localPicks: {}, expectedPickCount: 1, providerStatus: "complete" });
     const repaired = reconcileSleeperDraft({ prior: appendSleeperIdentityRepair(unresolved.history, { repairId: "r1", pickKey: "repair-me", boardPlayerId: "a" }), incoming: [], board, localPicks: {}, expectedPickCount: 1, providerStatus: "complete" });
