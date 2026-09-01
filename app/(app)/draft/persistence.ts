@@ -208,6 +208,9 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   const picks = parsePicks(row.picks, teams * rounds);
   if (picks === null) return null;
 
+  const sleeper = parseSleeperSync(row.sleeper);
+  if (sleeper === undefined) return null;
+
   return {
     teams,
     rounds,
@@ -220,20 +223,20 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     started,
     picks,
     queue: parseQueue(row.queue),
-    sleeper: parseSleeperSync(row.sleeper),
+    sleeper,
   };
 }
 
-function parseSleeperSync(value: unknown): PersistedSleeperSync | null {
+function parseSleeperSync(value: unknown): PersistedSleeperSync | null | undefined {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "object" || Array.isArray(value)) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
   const row = value as Record<string, unknown>;
-  if (typeof row.draftId !== "string" || row.draftId.trim() === "") return null;
-  if (typeof row.status !== "string" || !nullableTimestamp(row.lastSyncedAt)) return null;
-  if (!Array.isArray(row.providerPicks) || !Array.isArray(row.repairs)) return null;
+  if (typeof row.draftId !== "string" || row.draftId.trim() === "") return undefined;
+  if (typeof row.status !== "string" || !nullableTimestamp(row.lastSyncedAt)) return undefined;
+  if (!Array.isArray(row.providerPicks) || !Array.isArray(row.repairs)) return undefined;
   const providerPicks: SleeperSyncPick[] = [];
   for (const entry of row.providerPicks) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
     const pick = entry as Record<string, unknown>;
     if (
       typeof pick.pickKey !== "string" ||
@@ -245,20 +248,20 @@ function parseSleeperSync(value: unknown): PersistedSleeperSync | null {
       !nullableText(pick.playerId) ||
       !(typeof pick.isKeeper === "boolean" || pick.isKeeper === null)
     ) {
-      return null;
+      return undefined;
     }
     providerPicks.push(pick as unknown as SleeperSyncPick);
   }
   const repairs: IdentityRepair[] = [];
   for (const entry of row.repairs) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
     const repair = entry as Record<string, unknown>;
     if (
       typeof repair.repairId !== "string" ||
       typeof repair.pickKey !== "string" ||
       typeof repair.boardPlayerId !== "string"
     ) {
-      return null;
+      return undefined;
     }
     repairs.push(repair as unknown as IdentityRepair);
   }

@@ -72,6 +72,13 @@ describe("parsePersistedDraft", () => {
     expect(parsePersistedDraft(stored())).toEqual(VALID);
   });
 
+  it("refuses malformed Sleeper sync while retaining absent legacy sync", () => {
+    const legacy: Record<string, unknown> = { ...VALID };
+    delete legacy.sleeper;
+    expect(parsePersistedDraft(JSON.stringify(legacy))?.sleeper).toBeNull();
+    expect(parsePersistedDraft(stored({ sleeper: { draftId: "only-this" } }))).toBeNull();
+  });
+
   it("round-trips the exact configuration this epic is built against", () => {
     // Ten teams, fifteen rounds, standard scoring, two FLEX — the league the recommendations
     // were tested against, and the one no roster template could represent before #41. A

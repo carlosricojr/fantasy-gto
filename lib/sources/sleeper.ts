@@ -198,31 +198,42 @@ export class SleeperDraftPoller {
     const schedule = (delay: number) => {
       if (!cancelled) timer = setTimeout(poll, delay);
     };
+    const fail = (reason: string) => {
+      if (cancelled) return;
+        failures += 1;
+        const retryInMs = sleeperRetryDelay(failures);
+        try {
+          onError(reason, retryInMs);
+        } catch {
+          // An observer must not turn a retryable provider failure into an unhandled poll.
+        } finally {
+          schedule(retryInMs);
+        }
+    };
     const poll = async () => {
-      const settings = await this.provider.settings(draftId);
-      if (cancelled) return;
-      if (!settings.ok) {
-        failures += 1;
-        const retryInMs = sleeperRetryDelay(failures);
-        onError(settings.reason, retryInMs);
-        schedule(retryInMs);
-        return;
+      try {
+        const settings = await this.provider.settings(draftId);
+        if (cancelled) return;
+        if (!settings.ok) {
+          fail(settings.reason);
+          return;
+        }
+        const picks = await this.provider.picks(draftId, settings.data.teams);
+        if (cancelled) return;
+        if (!picks.ok) {
+          fail(picks.reason);
+          return;
+        }
+        failures = 0;
+        if (onUpdate({ settings: settings.data, picks: picks.data }) === true) {
+          cancel();
+          return;
+        }
+        schedule(SLEEPER_POLLING.activeIntervalMs);
+      } catch (cause) {
+        const detail = cause instanceof Error && cause.message !== "" ? ` ${cause.message}` : "";
+        fail(`Sleeper sync for draft ${draftId} hit an unexpected error.${detail} You can retry.`);
       }
-      const picks = await this.provider.picks(draftId, settings.data.teams);
-      if (cancelled) return;
-      if (!picks.ok) {
-        failures += 1;
-        const retryInMs = sleeperRetryDelay(failures);
-        onError(picks.reason, retryInMs);
-        schedule(retryInMs);
-        return;
-      }
-      failures = 0;
-      if (onUpdate({ settings: settings.data, picks: picks.data }) === true) {
-        cancel();
-        return;
-      }
-      schedule(SLEEPER_POLLING.activeIntervalMs);
     };
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
@@ -335,7 +346,7 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
 
 export function parsePicks(payload: readonly unknown[], teams?: number): SleeperPick[] {
   const picks: SleeperPick[] = [];
-  for (const [index, item] of payload.entries()) {
+  for (const item of payload) {
     const row = record(item);
     // `??` over `||` by the same proof as `parseSettings`: a falsy-but-present metadata
     // reads every property as undefined either way, so no input separates the two forms
@@ -365,7 +376,20 @@ export function parsePicks(payload: readonly unknown[], teams?: number): Sleeper
         : null;
     const playerId = textOrNull(row.player_id);
     const draftId = textOrNull(row.draft_id) ?? "unknown-draft";
-    const pickKey = `${draftId}:${sourceOverall ?? `row-${index}`}:${playerId ?? "unknown-player"}:${sourceSlot ?? "unknown-slot"}`;
+    // `pick_no` is Sleeper's stable event number. Do not use the response-array index as
+    // a fallback: whole-list polls may arrive in a different order, and an index-derived
+    // key would turn the same provider event into a conflicting new event on the next poll.
+    // When Sleeper has omitted it, retain the row under a deterministic fingerprint of the
+    // source facts we did receive.
+    const pickKey = stablePickKey({
+      draftId,
+      overall: sourceOverall,
+      round: positiveOrNull(toInt(row.round)),
+      draftSlot: sourceSlot,
+      playerId,
+      metadata,
+      row,
+    });
     const providerFields: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
       if (!["draft_id", "draft_slot", "is_keeper", "metadata", "pick_no", "player_id", "round"].includes(key)) {
@@ -392,11 +416,52 @@ export function parsePicks(payload: readonly unknown[], teams?: number): Sleeper
   }
   // A response order is not draft order. Invalid records remain after valid ones instead
   // of disappearing; reconciliation will surface them as a repairable provider fault.
-  return picks.sort(
+  const sorted = picks.sort(
     (a, b) =>
       (a.overall ?? Number.MAX_SAFE_INTEGER) - (b.overall ?? Number.MAX_SAFE_INTEGER) ||
       a.pickKey.localeCompare(b.pickKey),
   );
+  // Exact duplicate records are not useful accepted picks, but they are still provider
+  // facts. Give each one a deterministic occurrence key so reconciliation can surface the
+  // duplicate instead of silently collapsing it into a repeated poll.
+  const occurrences = new Map<string, number>();
+  return sorted.map((pick) => {
+    const occurrence = (occurrences.get(pick.pickKey) ?? 0) + 1;
+    occurrences.set(pick.pickKey, occurrence);
+    return occurrence === 1 ? pick : { ...pick, pickKey: `${pick.pickKey}#duplicate-${occurrence}` };
+  });
+}
+
+function stablePickKey(input: {
+  draftId: string;
+  overall: number | null;
+  round: number | null;
+  draftSlot: number | null;
+  playerId: string | null;
+  metadata: Readonly<Record<string, unknown>>;
+  row: Readonly<Record<string, unknown>>;
+}): string {
+  if (input.overall !== null) return `${input.draftId}:pick-${input.overall}`;
+  return `${input.draftId}:row-${stableValue({
+    round: input.round,
+    draftSlot: input.draftSlot,
+    playerId: input.playerId,
+    metadata: input.metadata,
+    row: input.row,
+  })}`;
+}
+
+/** A canonical serializer for an opaque provider row; it deliberately has no clock or RNG. */
+function stableValue(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableValue(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
 }
 
 /**

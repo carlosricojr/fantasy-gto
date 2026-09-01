@@ -145,6 +145,22 @@ interface BoardFreshness {
   lastAttemptStatus: "running" | "succeeded" | "failed" | null;
 }
 
+/**
+ * The persisted local board is deliberately a 1..n prefix. Provider history remains in
+ * `sleeper`, so a resolved source event beyond a repair gap need not make local storage
+ * sparse just to remain visible after a reload.
+ */
+function persistedPickPrefix(
+  picks: Readonly<Record<number, string>>,
+  totalPicks: number,
+): Record<number, string> {
+  const prefix: Record<number, string> = {};
+  for (let pick = 1; pick <= totalPicks && picks[pick] !== undefined; pick += 1) {
+    prefix[pick] = picks[pick];
+  }
+  return prefix;
+}
+
 export default function DraftPage() {
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
@@ -415,6 +431,18 @@ export default function DraftPage() {
   useEffect(() => {
     sleeperRef.current = sleeper;
   }, [sleeper]);
+  const sleeperPollInputRef = useRef({
+    board: boardIdentities,
+    localPicks: picks,
+    expectedPickCount: totalPicks,
+  });
+  useEffect(() => {
+    sleeperPollInputRef.current = {
+      board: boardIdentities,
+      localPicks: picks,
+      expectedPickCount: totalPicks,
+    };
+  }, [boardIdentities, picks, totalPicks]);
   useEffect(() => {
     const currentSleeper = sleeperRef.current;
     if (currentSleeper === null || sleeperPollDraftId === null || boardPending) return;
@@ -426,12 +454,13 @@ export default function DraftPage() {
     const handle = poller.start({
       draftId: sleeperPollDraftId,
       onUpdate: (update) => {
+        const latest = sleeperPollInputRef.current;
         const reconciled = reconcileSleeperDraft({
           prior: history,
           incoming: update.picks,
-          board: boardIdentities,
-          localPicks: picks,
-          expectedPickCount: totalPicks,
+          board: latest.board,
+          localPicks: latest.localPicks,
+          expectedPickCount: latest.expectedPickCount,
           providerStatus: update.settings.status,
         });
         history = reconciled.history;
@@ -462,9 +491,6 @@ export default function DraftPage() {
     sleeperPollDraftId,
     sleeperPollRepairKey,
     boardPending,
-    boardIdentities,
-    picks,
-    totalPicks,
     sleeperRetry,
   ]);
 
@@ -695,7 +721,7 @@ export default function DraftPage() {
         if (Object.values(combined).includes(playerId)) return previous;
         const target = nextPick(combined, totalPicks);
         if (target > totalPicks) return previous;
-        return { ...previous, [target]: playerId };
+        return persistedPickPrefix({ ...combined, [target]: playerId }, totalPicks);
       });
       // The queue is deliberately *not* pruned here. `QueuePanel` already hides anyone
       // drafted, so a taken player disappears from it either way — but removing the id
@@ -838,12 +864,26 @@ export default function DraftPage() {
     );
     if (classification?.state !== "matched") return;
     setPicks((previous) => {
-      // A manual correction may have put this board player at a different overall. Move
-      // that local assignment rather than showing one player as drafted twice.
-      const withoutSamePlayer = Object.fromEntries(
-        Object.entries(previous).filter(([, playerId]) => playerId !== classification.boardPlayerId),
+      // A player already assigned to another local pick is a separate repair. Moving it
+      // from here would create a gap in persisted local state and silently change that
+      // earlier pick, so keep the conflict visible until the manager repairs it directly.
+      const duplicatePick = Object.entries(previous).find(
+        ([pick, playerId]) => Number(pick) !== overall && playerId === classification.boardPlayerId,
       );
-      return { ...withoutSamePlayer, [overall]: classification.boardPlayerId };
+      if (duplicatePick !== undefined) {
+        setSleeperMessage(
+          `This player is already recorded at pick ${duplicatePick[0]}. Repair that assignment before using the provider match.`,
+        );
+        return previous;
+      }
+      const combined =
+        sleeperReconciliation === null
+          ? previous
+          : { ...sleeperReconciliation.acceptedPicks, ...previous };
+      return persistedPickPrefix(
+        { ...combined, [overall]: classification.boardPlayerId },
+        totalPicks,
+      );
     });
   }
 

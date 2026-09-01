@@ -242,6 +242,24 @@ describe("parsePicks", () => {
     expect(parsePicks([])).toEqual([]);
   });
 
+  it("uses stable source facts, never the response index, for fallback keys", () => {
+    const rows = [
+      { draft_id: "draft", draft_slot: 1, player_id: "a", metadata: { first_name: "A" } },
+      { draft_id: "draft", draft_slot: 2, player_id: "b", metadata: { first_name: "B" } },
+    ];
+    expect(parsePicks(rows).map((pick) => pick.pickKey)).toEqual(
+      parsePicks([...rows].reverse()).map((pick) => pick.pickKey),
+    );
+  });
+
+  it("retains exact duplicate source rows as separately visible events", () => {
+    const row = { pick_no: 1, draft_slot: 1, player_id: "a", metadata: { first_name: "A" } };
+    expect(parsePicks([row, row]).map((pick) => pick.pickKey)).toEqual([
+      "unknown-draft:pick-1",
+      "unknown-draft:pick-1#duplicate-2",
+    ]);
+  });
+
   it("refuses settings missing only one of the two counts", () => {
     // Each count is independently load-bearing: a null team count with a real round
     // count (or the reverse) still cannot describe a draft, and letting it through
@@ -342,6 +360,24 @@ describe("SleeperDraftPoller", () => {
     repeating.cancel();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(provider.settings).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("routes unexpected provider exceptions through bounded retry handling", async () => {
+    vi.useFakeTimers();
+    const provider = {
+      settings: vi.fn().mockRejectedValue(new Error("unexpected")),
+      picks: vi.fn(),
+    };
+    const onError = vi.fn();
+    const handle = new SleeperDraftPoller(provider).start({
+      draftId: "abc",
+      onUpdate: vi.fn(),
+      onError,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("unexpected"), 2_000);
+    handle.cancel();
     vi.useRealTimers();
   });
 });
