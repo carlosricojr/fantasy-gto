@@ -23,7 +23,8 @@ pnpm identity-coverage
 It fetches the public production board, current nflverse roster bridge, and current Sleeper
 universe afresh. The command prints all matched / ambiguous / unmatched numerators and
 denominators, rookie subsets, and concrete unresolved identities. `UNRESOLVED — not clean`
-means an operator repair or later board/provider correction is still required.
+means an operator repair or later board/provider correction is still required; it also exits
+with status 1 so unattended readiness checks cannot mistake unresolved coverage for success.
 
 ## Mutation evidence
 

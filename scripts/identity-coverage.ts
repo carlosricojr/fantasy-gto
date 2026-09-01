@@ -187,8 +187,10 @@ async function main(): Promise<void> {
   line("current Sleeper player universe rookies", audit.providerRookies);
   unresolved("Draft board", audit.board);
   unresolved("Sleeper player universe", audit.provider);
+  const unresolvedCoverage = hasUnresolvedIdentityCoverage(audit);
+  if (unresolvedCoverage) process.exitCode = 1;
   process.stdout.write(
-    `\nidentity coverage status: ${hasUnresolvedIdentityCoverage(audit) ? "UNRESOLVED — not clean" : "clean"}\n`,
+    `\nidentity coverage status: ${unresolvedCoverage ? "UNRESOLVED — not clean" : "clean"}\n`,
   );
 }
 

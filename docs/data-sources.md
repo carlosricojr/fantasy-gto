@@ -804,6 +804,14 @@ https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roste
 carrying `position`, `status` (`ACT`, `RET`, and others), and `gsis_id`, which is the same
 identifier `stats_player_week` uses as `player_id`.
 
+For the draft identity bridge, verified by direct request and this repository's
+`parseSeasonRoster` on **2026-09-01**: the 1,695 active rows with usable `gsis_id` contain
+`sleeper_id` on 1,264 rows (74.6%) and a positive integer `rookie_year` on all 1,695 (100.0%).
+The parser maps a blank `sleeper_id` to `null`; it maps blank, non-numeric, or non-positive
+`rookie_year` to `null`. Thus this release supplies a stable provider-ID bridge where it is
+published and a season-based rookie flag where it is populated, without inventing either
+missing value.
+
 This is the release the README's week-1 known gap names as the fix. It resolves a player's
 team before any game has been played, which is exactly what a preseason draft board needs
 and what the in-season projection path currently cannot do.
