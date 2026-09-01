@@ -708,7 +708,7 @@ Public, unauthenticated, one JSON object keyed by Sleeper's player id. **Verifie
 direct request 2026-08-18**: HTTP 200, ~14.6 MB, 12,221 entries, every entry an object.
 The fields `lib/sources/sleeper.ts` reads — `full_name`, `first_name`/`last_name`,
 `position`, `fantasy_positions`, `team`, `search_rank`, `depth_chart_position`,
-`depth_chart_order` — were all observed in the live payload, unlike the draft endpoints
+`depth_chart_order`, `years_exp` — were all observed in the live payload, unlike the draft endpoints
 above, whose shapes come from documentation.
 
 **Nothing in the product reads this dump.** It is the seam and the measurement only, in

@@ -27,7 +27,7 @@ means an operator repair or later board/provider correction is still required.
 
 ## Mutation evidence
 
-`pnpm mutate lib/nfl/draft/provider-identity.ts` generated 48 parseable mutants: 40 were
+`pnpm mutate lib/nfl/draft/provider-identity.ts` generated 44 parseable mutants: 36 were
 killed and eight survived as equivalent mutants. Four replace `??` with `||` where the only
 non-nullish values are arrays or strings with the same empty fallback. Four change `> 1` after
 the preceding `=== 1` return to `>= 1` or `> 0`; that branch is reachable only for counts

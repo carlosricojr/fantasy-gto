@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     const roster = rosterById.get(row.playerId);
     return {
       id: row.playerId,
-      providerId: roster?.sleeperId ?? null,
+      providerId: row.sleeperId ?? roster?.sleeperId ?? null,
       name: row.name,
       position: row.position,
       team: row.team,

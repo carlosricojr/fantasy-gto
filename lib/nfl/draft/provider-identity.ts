@@ -371,16 +371,17 @@ export function auditIdentityCoverage(
     asPicks(provider),
     board,
   );
+  const boardRookieIds = new Set(
+    board.filter((identity) => identity.rookie).map((identity) => identity.id),
+  );
+  const providerRookieIds = new Set(
+    provider.filter((identity) => identity.rookie).map((identity) => identity.id),
+  );
   const boardRookieClassifications = boardClassifications.filter((entry) =>
-    board.some(
-      (identity) => identity.id === entry.input.pickKey && identity.rookie,
-    ),
+    boardRookieIds.has(entry.input.pickKey),
   );
   const providerRookieClassifications = providerClassifications.filter(
-    (entry) =>
-      provider.some(
-        (identity) => identity.id === entry.input.pickKey && identity.rookie,
-      ),
+    (entry) => providerRookieIds.has(entry.input.pickKey),
   );
   return {
     board: counts(boardClassifications),
