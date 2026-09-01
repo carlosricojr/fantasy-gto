@@ -302,6 +302,60 @@ describe("applyIdentityRepairs", () => {
       "pick-not-unresolved",
     ]);
   });
+
+  it("refuses repairs that would assign a board player twice", () => {
+    const board = [
+      player(),
+      player({
+        id: "00-jsn",
+        providerId: "sleeper-jsn",
+        name: "Jaxon Smith-Njigba",
+        position: "WR",
+        team: "SEA",
+      }),
+    ];
+    const classifications = classifyProviderPicks(
+      [
+        pick({ pickKey: "matched" }),
+        pick({ pickKey: "conflict", providerPlayerId: null, name: "CMC" }),
+        pick({ pickKey: "first", providerPlayerId: null, name: "JSN" }),
+        pick({ pickKey: "second", providerPlayerId: null, name: "DK" }),
+      ],
+      board,
+    );
+    const result = applyIdentityRepairs(classifications, board, [
+      {
+        repairId: "conflicts-with-match",
+        pickKey: "conflict",
+        boardPlayerId: "00-board-a",
+      },
+      {
+        repairId: "first-jsn-repair",
+        pickKey: "first",
+        boardPlayerId: "00-jsn",
+      },
+      {
+        repairId: "second-jsn-repair",
+        pickKey: "second",
+        boardPlayerId: "00-jsn",
+      },
+    ]);
+
+    expect(result.classifications).toMatchObject([
+      { state: "matched", boardPlayerId: "00-board-a" },
+      { state: "unmatched" },
+      {
+        state: "matched",
+        boardPlayerId: "00-jsn",
+        matchedBy: "operator-repair",
+      },
+      { state: "unmatched" },
+    ]);
+    expect(result.rejected.map((entry) => entry.reason).sort()).toEqual([
+      "board-player-already-assigned",
+      "board-player-already-assigned",
+    ]);
+  });
 });
 
 describe("auditIdentityCoverage", () => {

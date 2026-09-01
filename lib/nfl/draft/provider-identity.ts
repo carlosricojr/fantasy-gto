@@ -225,7 +225,8 @@ export interface RejectedIdentityRepair {
   reason:
     | "duplicate-pick-repair"
     | "pick-not-unresolved"
-    | "board-player-not-found";
+    | "board-player-not-found"
+    | "board-player-already-assigned";
 }
 
 export interface IdentityRepairApplication {
@@ -253,6 +254,18 @@ export function applyIdentityRepairs(
     else existing.push(repair);
   }
   const boardIds = new Set(board.map((player) => player.id));
+  // A repair may only fill an unassigned slot. Seed this with prior resolved draft history,
+  // then extend it as repairs are accepted so neither path can assign one board player twice.
+  const assignedBoardPlayerIds = new Set(
+    classifications
+      .filter(
+        (classification): classification is Extract<
+          PickIdentityClassification,
+          { state: "matched" }
+        > => classification.state === "matched",
+      )
+      .map((classification) => classification.boardPlayerId),
+  );
   const rejected: RejectedIdentityRepair[] = [];
   const classificationsWithRepairs = classifications.map((classification) => {
     // `byPick` only contains non-empty arrays, so its `??` → `||` mutation is equivalent.
@@ -276,6 +289,11 @@ export function applyIdentityRepairs(
       rejected.push({ repair, reason: "board-player-not-found" });
       return classification;
     }
+    if (assignedBoardPlayerIds.has(repair.boardPlayerId)) {
+      rejected.push({ repair, reason: "board-player-already-assigned" });
+      return classification;
+    }
+    assignedBoardPlayerIds.add(repair.boardPlayerId);
     return {
       state: "matched" as const,
       input: classification.input,
