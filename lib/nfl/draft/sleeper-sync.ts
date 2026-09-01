@@ -62,7 +62,7 @@ function sortedUniqueHistory(
     // A repeated whole-list poll is one source event. A conflicting same-key event is a
     // different source record and gets a deterministic local suffix so it remains visible
     // and repairable rather than replacing or disappearing behind the first observation.
-    if ([...byKey.values()].some((existingPick) => samePick(existingPick, pick))) continue;
+    if ([...byKey.values()].some((existingPick) => sameSourceEvent(existingPick, pick))) continue;
     let key = pick.pickKey;
     let duplicate = 1;
     while (byKey.has(key)) {
@@ -75,6 +75,18 @@ function sortedUniqueHistory(
     (left, right) =>
       (left.overall ?? Number.MAX_SAFE_INTEGER) - (right.overall ?? Number.MAX_SAFE_INTEGER) ||
       left.pickKey.localeCompare(right.pickKey),
+  );
+}
+
+/** A conflict suffix is local history bookkeeping, not part of Sleeper's source event key. */
+function sourcePickKey(pickKey: string): string {
+  return pickKey.replace(/#conflict-\d+$/, "");
+}
+
+function sameSourceEvent(stored: SleeperSyncPick, incoming: SleeperSyncPick): boolean {
+  return (
+    sourcePickKey(stored.pickKey) === incoming.pickKey &&
+    samePick({ ...stored, pickKey: incoming.pickKey }, incoming)
   );
 }
 

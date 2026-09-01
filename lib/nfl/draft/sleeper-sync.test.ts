@@ -57,6 +57,28 @@ describe("reconcileSleeperDraft", () => {
     expect(result.cleanCompletion).toBe(false);
   });
 
+  it("does not append another conflict row when a changed source event repeats", () => {
+    const original = pick({ pickKey: "one", playerId: "s-a" });
+    const changed = pick({ pickKey: "one", playerId: "s-b", playerName: "Beta Wideout" });
+    const first = reconcileSleeperDraft({
+      prior: empty,
+      incoming: [original, changed],
+      board,
+      localPicks: {},
+      expectedPickCount: 1,
+      providerStatus: "drafting",
+    });
+    const repeated = reconcileSleeperDraft({
+      prior: first.history,
+      incoming: [original, changed],
+      board,
+      localPicks: {},
+      expectedPickCount: 1,
+      providerStatus: "drafting",
+    });
+    expect(repeated.history.providerPicks).toHaveLength(2);
+  });
+
   it("does not accept zero provider coordinates as a local draft pick", () => {
     const result = reconcileSleeperDraft({ prior: empty, incoming: [pick({ overall: 0, draftSlot: 0 })], board, localPicks: {}, expectedPickCount: 1, providerStatus: "complete" });
     expect(result.acceptedPicks).toEqual({});

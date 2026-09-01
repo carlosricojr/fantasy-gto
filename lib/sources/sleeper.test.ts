@@ -260,6 +260,16 @@ describe("parsePicks", () => {
     ]);
   });
 
+  it("assigns duplicate occurrence keys by content rather than response order", () => {
+    const rows = [
+      { pick_no: 1, draft_slot: 1, player_id: "z", metadata: { first_name: "Zed" } },
+      { pick_no: 1, draft_slot: 1, player_id: "a", metadata: { first_name: "Abe" } },
+    ];
+    const keysByPlayer = (input: typeof rows) =>
+      Object.fromEntries(parsePicks(input).map((pick) => [pick.playerId, pick.pickKey]));
+    expect(keysByPlayer(rows)).toEqual(keysByPlayer([...rows].reverse()));
+  });
+
   it("refuses settings missing only one of the two counts", () => {
     // Each count is independently load-bearing: a null team count with a real round
     // count (or the reverse) still cannot describe a draft, and letting it through

@@ -421,6 +421,17 @@ export default function DraftPage() {
     () => (sleeperReconciliation === null ? picks : { ...sleeperReconciliation.acceptedPicks, ...picks }),
     [sleeperReconciliation, picks],
   );
+  const manualPickNumbers = useMemo(
+    () =>
+      Object.keys(picks)
+        .map(Number)
+        .filter(
+          (pick) =>
+            sleeperReconciliation?.acceptedPicks[pick] === undefined ||
+            sleeperReconciliation.acceptedPicks[pick] !== picks[pick],
+        ),
+    [picks, sleeperReconciliation],
+  );
   const currentPick = useMemo(() => nextPick(activePicks, totalPicks), [activePicks, totalPicks]);
 
   const sleeperPollDraftId = sleeper?.draftId ?? null;
@@ -735,7 +746,7 @@ export default function DraftPage() {
 
   const undo = useCallback(() => {
     setPicks((previous) => {
-      const lastManualPick = Math.max(0, ...Object.keys(previous).map(Number));
+      const lastManualPick = Math.max(0, ...manualPickNumbers);
       if (lastManualPick === 0) return previous;
       const next = { ...previous };
       delete next[lastManualPick];
@@ -744,7 +755,7 @@ export default function DraftPage() {
     // Cleared for the same reason it is cleared on record: the highlight refers to a board
     // cell whose contents just changed.
     setFocus(null);
-  }, []);
+  }, [manualPickNumbers]);
 
   const toggleQueue = useCallback((playerId: string) => {
     setQueue((previous) =>
@@ -1040,7 +1051,7 @@ export default function DraftPage() {
         // Gated on the pick it actually removes, not on the map being non-empty.
         // `currentPick` is the first *empty* pick, so a restored board with a gap in it
         // offered an undo for an entry that did not exist and removed nothing when pressed.
-        canUndo={Object.keys(picks).length > 0}
+        canUndo={manualPickNumbers.length > 0}
         onUndo={undo}
         onOpenSettings={() => setSettingsOpen(true)}
         // Every value below belongs to the setup the board was built for, which is not the
@@ -1283,7 +1294,8 @@ function SleeperSyncStatus({
     sync.lastSyncedAt === null
       ? "Waiting for the first successful poll"
       : `Last received ${new Date(sync.lastSyncedAt).toLocaleTimeString()}`;
-  const completeButUnresolved = sync.status.toLowerCase() === "complete" && !reconciliation.cleanCompletion;
+  const completeButUnresolved =
+    sync.status.trim().toLowerCase() === "complete" && !reconciliation.cleanCompletion;
 
   return (
     <section className="mt-3 rounded-xl border border-dashed p-3 text-sm" aria-labelledby="sleeper-sync-title">

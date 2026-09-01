@@ -419,7 +419,8 @@ export function parsePicks(payload: readonly unknown[], teams?: number): Sleeper
   const sorted = picks.sort(
     (a, b) =>
       (a.overall ?? Number.MAX_SAFE_INTEGER) - (b.overall ?? Number.MAX_SAFE_INTEGER) ||
-      a.pickKey.localeCompare(b.pickKey),
+      a.pickKey.localeCompare(b.pickKey) ||
+      pickContentFingerprint(a).localeCompare(pickContentFingerprint(b)),
   );
   // Exact duplicate records are not useful accepted picks, but they are still provider
   // facts. Give each one a deterministic occurrence key so reconciliation can surface the
@@ -429,6 +430,20 @@ export function parsePicks(payload: readonly unknown[], teams?: number): Sleeper
     const occurrence = (occurrences.get(pick.pickKey) ?? 0) + 1;
     occurrences.set(pick.pickKey, occurrence);
     return occurrence === 1 ? pick : { ...pick, pickKey: `${pick.pickKey}#duplicate-${occurrence}` };
+  });
+}
+
+function pickContentFingerprint(pick: SleeperPick): string {
+  return stableValue({
+    round: pick.round,
+    draftSlot: pick.draftSlot,
+    playerName: pick.playerName,
+    position: pick.position,
+    team: pick.team,
+    playerId: pick.playerId,
+    isKeeper: pick.isKeeper,
+    metadata: pick.metadata,
+    providerFields: pick.providerFields,
   });
 }
 
