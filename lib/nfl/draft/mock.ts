@@ -94,6 +94,8 @@ import { perGameRate } from "./value";
 /** A row of the persisted draft board, as `draft:board` serves it and the fixture stores it. */
 export interface MockBoardRow {
   playerId: string;
+  /** Sleeper's stable player id when this board snapshot preserved the provider bridge. */
+  sleeperId?: string;
   name: string;
   position: string;
   team: string | null;
@@ -265,12 +267,16 @@ export function parseBoardFixture(value: unknown): BoardFixture {
     if (team !== null && typeof team !== "string") {
       fail(`${where("team")} must be a string or null`);
     }
+    if (row.sleeperId !== undefined && (typeof row.sleeperId !== "string" || row.sleeperId === "")) {
+      fail(`${where("sleeperId")} must be a non-empty string when present`);
+    }
     const provenance = row.quantileProvenance;
     if (provenance !== "measured" && provenance !== "placeholder") {
       fail(`${where("quantileProvenance")} must be "measured" or "placeholder"`);
     }
     const parsed: MockBoardRow = {
       playerId: expectString(row.playerId, where("playerId")),
+      ...(row.sleeperId === undefined ? {} : { sleeperId: row.sleeperId }),
       name: expectString(row.name, where("name")),
       position: expectString(row.position, where("position")),
       team,

@@ -270,9 +270,13 @@ export function parseVenues(rows: readonly CsvRow[]): VenueContext[] {
 export interface RosterEntry {
   /** `gsis_id` upstream, which is the same identifier `stats_player_week` calls `player_id`. */
   playerId: string;
+  /** Sleeper's player id, when nflverse publishes the cross-provider bridge. */
+  sleeperId: string | null;
   name: string;
   position: string;
   team: string | null;
+  /** The first NFL season. Equality with the board season marks a rookie. */
+  rookieYear: number | null;
 }
 
 /** Pure parse of the season roster release. */
@@ -302,12 +306,19 @@ export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
     seen.add(playerId);
     entries.push({
       playerId,
+      sleeperId: str(row, "sleeper_id") || null,
       name,
       position,
       team: normalizeTeam(str(row, "team")),
+      rookieYear: positiveIntOrNull(str(row, "rookie_year")),
     });
   }
   return entries;
+}
+
+function positiveIntOrNull(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvider {

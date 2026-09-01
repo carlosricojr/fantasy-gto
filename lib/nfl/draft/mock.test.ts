@@ -257,6 +257,16 @@ describe("parseBoardFixture", () => {
     expect(gainwell).toMatchObject({ position: "RB", adp: null, byeWeek: null });
   });
 
+  it("preserves an optional Sleeper bridge and rejects an unusable one", () => {
+    const fixture = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    fixture.rows[0].sleeperId = "12345";
+    expect(parseBoardFixture(fixture).rows[0].sleeperId).toBe("12345");
+    fixture.rows[0].sleeperId = "";
+    expect(() => parseBoardFixture(fixture)).toThrow(/sleeperId/);
+  });
+
   it("rejects a row missing a field instead of producing numbers", () => {
     const fixture = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as {
       rows: Array<Record<string, unknown>>;

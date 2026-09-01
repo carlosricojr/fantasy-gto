@@ -450,6 +450,15 @@ describe("parsePlayersDump", () => {
     expect(gainwell?.depthChartOrder).toBe(2);
   });
 
+  it("uses Sleeper's explicit zero years-exp marker for rookies", () => {
+    const rows = parsePlayersDump({
+      rookie: { full_name: "Rookie Receiver", position: "WR", years_exp: 0 },
+      veteran: { full_name: "Veteran Receiver", position: "WR", years_exp: 1 },
+      unknown: { full_name: "Unknown Experience", position: "WR" },
+    });
+    expect(rows.map((row) => row.rookie)).toEqual([true, false, false]);
+  });
+
   it("reads the fantasy position where the roster position disagrees", () => {
     // `position: "FB"` with `fantasy_positions: ["RB"]`. Reading the roster code dropped
     // Kyle Juszczyk (search rank 410) from a skill-position join — measured 2026-08-18.

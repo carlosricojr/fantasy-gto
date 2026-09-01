@@ -15,6 +15,7 @@ import { internalMutation, query } from "./_generated/server";
 /** One row of the board, as the interface consumes it. */
 const boardRowValidator = v.object({
   playerId: v.string(),
+  sleeperId: v.optional(v.string()),
   name: v.string(),
   position: v.string(),
   team: v.union(v.string(), v.null()),
@@ -77,6 +78,7 @@ export const board = query({
 
     return rows.map((row) => ({
       playerId: row.playerId,
+      ...(row.sleeperId === undefined ? {} : { sleeperId: row.sleeperId }),
       name: row.name,
       position: row.position,
       team: row.team,

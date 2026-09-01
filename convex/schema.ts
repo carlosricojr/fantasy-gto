@@ -148,6 +148,8 @@ export default defineSchema({
     /** League size, because ADP is only meaningful against one. */
     teams: v.number(),
     playerId: v.string(),
+    /** Sleeper's stable player id when the current nflverse roster supplied it. */
+    sleeperId: v.optional(v.string()),
     name: v.string(),
     position: v.string(),
     team: v.union(v.string(), v.null()),

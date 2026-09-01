@@ -178,6 +178,7 @@ const DEFAULT_TARGETS = [
   "lib/nfl/roster.ts",
   "lib/nfl/draft/value.ts",
   "lib/nfl/draft/match.ts",
+  "lib/nfl/draft/provider-identity.ts",
   "lib/billing/entitlements.ts",
 ];
 
