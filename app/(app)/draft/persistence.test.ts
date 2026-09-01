@@ -34,6 +34,7 @@ const VALID: PersistedDraft = {
   started: true,
   picks: { 1: "player-a", 2: "player-b" },
   queue: ["player-c", "player-d"],
+  sleeper: null,
 };
 
 const stored = (overrides: Record<string, unknown> = {}): string =>
@@ -88,6 +89,7 @@ describe("parsePersistedDraft", () => {
       started: true,
       queue: [],
       picks: { 1: "player-a" },
+      sleeper: null,
     };
     expect(parsePersistedDraft(JSON.stringify(mock))).toEqual(mock);
   });

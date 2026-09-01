@@ -135,6 +135,7 @@ describe("what is stored comes back as the season it was drafted against", () =>
     started: true,
     picks: {},
     queue: [],
+    sleeper: null,
   };
 
   it("round-trips every league the controls can produce", () => {

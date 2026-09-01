@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useQuery } from "convex/react";
 
@@ -30,6 +30,14 @@ import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
+import {
+  appendSleeperIdentityRepair,
+  reconcileSleeperDraft,
+  type SleeperReconciliation,
+} from "@/lib/nfl/draft/sleeper-sync";
+import { importSleeperSetup } from "@/lib/nfl/draft/sleeper-import";
+import type { PlayerIdentity } from "@/lib/nfl/draft/provider-identity";
+import { SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
 
 import { BoardGrid } from "./board-grid";
 import { describeTurn, nextPickFor, pickLabel, picksUntilTurn } from "./board-view";
@@ -42,10 +50,9 @@ import {
   MAX_ROUNDS,
   PLAYOFF_FIELDS,
   type PersistedDraft,
+  type PersistedSleeperSync,
   nextPick,
   parsePersistedDraft,
-  recordPick,
-  undoPick,
 } from "./persistence";
 import { PlayerDetail } from "./player-detail";
 import { PlayerPool } from "./player-pool";
@@ -108,6 +115,7 @@ const CANDIDATES = RECOMMEND_CANDIDATES;
 
 interface BoardPlayer {
   playerId: string;
+  sleeperId?: string;
   name: string;
   position: string;
   team: string | null;
@@ -172,6 +180,10 @@ export default function DraftPage() {
   /** Overall pick number to the team index that made it. Index 0 is always the user. */
   const [picks, setPicks] = useState<Record<number, string>>({});
   const [queue, setQueue] = useState<string[]>([]);
+  const [sleeper, setSleeper] = useState<PersistedSleeperSync | null>(null);
+  const [sleeperDraftId, setSleeperDraftId] = useState("");
+  const [sleeperMessage, setSleeperMessage] = useState<string | null>(null);
+  const [sleeperRetry, setSleeperRetry] = useState(0);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -199,6 +211,7 @@ export default function DraftPage() {
       setStarted(stored.started);
       setPicks(stored.picks);
       setQueue(stored.queue);
+      setSleeper(stored.sleeper);
     }
     setRestored(true);
   }, []);
@@ -219,6 +232,7 @@ export default function DraftPage() {
       started,
       picks,
       queue,
+      sleeper,
     };
     try {
       window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
@@ -239,6 +253,7 @@ export default function DraftPage() {
     started,
     picks,
     queue,
+    sleeper,
   ]);
 
   // The season being drafted is the one after the last completed one, resolved from the
@@ -340,6 +355,20 @@ export default function DraftPage() {
   );
 
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
+  const boardIdentities = useMemo<PlayerIdentity[]>(
+    () =>
+      ((board ?? []) as BoardPlayer[]).map((player) => ({
+        id: player.playerId,
+        providerId: player.sleeperId ?? null,
+        name: player.name,
+        position: player.position,
+        team: player.team,
+        // The board query does not expose rookie metadata; #60's deterministic matcher
+        // does not use it for live-pick matching, so never infer it from a name or season.
+        rookie: false,
+      })),
+    [board],
+  );
 
   // Ownership comes from `lib/core/draft.ts`, where it is tested against the invariant
   // that every pick in the draft has exactly one owner, for every league shape. It was
@@ -356,7 +385,88 @@ export default function DraftPage() {
   // recorded against one of those is never marked as taken — he stays on the board and
   // keeps being recommended after he is gone.
   const totalPicks = setup.teams * setup.rounds;
-  const currentPick = useMemo(() => nextPick(picks, totalPicks), [picks, totalPicks]);
+  const sleeperReconciliation = useMemo<SleeperReconciliation | null>(
+    () =>
+      sleeper === null
+        ? null
+        : reconcileSleeperDraft({
+            prior: { providerPicks: sleeper.providerPicks, repairs: sleeper.repairs },
+            incoming: [],
+            board: boardIdentities,
+            localPicks: picks,
+            expectedPickCount: totalPicks,
+            providerStatus: sleeper.status,
+          }),
+    [sleeper, boardIdentities, picks, totalPicks],
+  );
+  // Provider matches fill an empty local board; a local correction remains in place until
+  // the explicit conflict repair chooses the provider match. Neither side is overwritten.
+  const activePicks = useMemo(
+    () => (sleeperReconciliation === null ? picks : { ...sleeperReconciliation.acceptedPicks, ...picks }),
+    [sleeperReconciliation, picks],
+  );
+  const currentPick = useMemo(() => nextPick(activePicks, totalPicks), [activePicks, totalPicks]);
+
+  const sleeperPollDraftId = sleeper?.draftId ?? null;
+  const sleeperPollRepairKey = sleeper?.repairs
+    .map((repair) => `${repair.repairId}:${repair.pickKey}:${repair.boardPlayerId}`)
+    .join("|") ?? "";
+  const sleeperRef = useRef<PersistedSleeperSync | null>(sleeper);
+  useEffect(() => {
+    sleeperRef.current = sleeper;
+  }, [sleeper]);
+  useEffect(() => {
+    const currentSleeper = sleeperRef.current;
+    if (currentSleeper === null || sleeperPollDraftId === null || boardPending) return;
+    let history = {
+      providerPicks: currentSleeper.providerPicks,
+      repairs: currentSleeper.repairs,
+    };
+    const poller = new SleeperDraftPoller();
+    const handle = poller.start({
+      draftId: sleeperPollDraftId,
+      onUpdate: (update) => {
+        const reconciled = reconcileSleeperDraft({
+          prior: history,
+          incoming: update.picks,
+          board: boardIdentities,
+          localPicks: picks,
+          expectedPickCount: totalPicks,
+          providerStatus: update.settings.status,
+        });
+        history = reconciled.history;
+        setSleeper((previous) =>
+          previous === null || previous.draftId !== sleeperPollDraftId
+            ? previous
+            : {
+                ...previous,
+                status: update.settings.status,
+                lastSyncedAt: Date.now(),
+                providerPicks: reconciled.history.providerPicks,
+                repairs: reconciled.history.repairs,
+              },
+        );
+        setSleeperMessage(
+          reconciled.cleanCompletion
+            ? "Sleeper reports a complete draft; every pick and identity reconciled. Polling stopped."
+            : null,
+        );
+        return reconciled.cleanCompletion;
+      },
+      onError: (reason, retryInMs) => {
+        setSleeperMessage(`${reason} Retrying in ${Math.ceil(retryInMs / 1000)} seconds.`);
+      },
+    });
+    return handle.cancel;
+  }, [
+    sleeperPollDraftId,
+    sleeperPollRepairKey,
+    boardPending,
+    boardIdentities,
+    picks,
+    totalPicks,
+    sleeperRetry,
+  ]);
 
   const onTheClock = pickOwners.get(currentPick) === 0;
   const draftComplete = currentPick > totalPicks;
@@ -376,7 +486,7 @@ export default function DraftPage() {
   /** Which pick each recorded player went at, and who took them. */
   const pickedBy = useMemo(() => {
     const out = new Map<string, { pick: number; owner: string }>();
-    for (const [pick, playerId] of Object.entries(picks)) {
+    for (const [pick, playerId] of Object.entries(activePicks)) {
       const team = pickOwners.get(Number(pick));
       if (team === undefined) continue;
       out.set(playerId, {
@@ -385,7 +495,7 @@ export default function DraftPage() {
       });
     }
     return out;
-  }, [picks, pickOwners, setup]);
+  }, [activePicks, pickOwners, setup]);
 
   /**
    * The board as the interface consumes it: every player, available or gone.
@@ -446,7 +556,7 @@ export default function DraftPage() {
     if (pool.length === 0) return null;
     const rosters: PlayerRisk[][] = Array.from({ length: setup.teams }, () => []);
     const taken = new Set<string>();
-    for (const [pick, playerId] of Object.entries(picks)) {
+    for (const [pick, playerId] of Object.entries(activePicks)) {
       const team = pickOwners.get(Number(pick));
       const player = byId.get(playerId);
       // A restored draft can name a player the current board no longer carries — the
@@ -474,7 +584,7 @@ export default function DraftPage() {
       available: pool.filter((p) => !taken.has(p.id)),
       rosterSize: setup.rounds,
     };
-  }, [pool, picks, pickOwners, byId, setup, currentPick]);
+  }, [pool, activePicks, pickOwners, byId, setup, currentPick]);
 
   // Derived from the league's own final rather than written out. The literals this
   // replaces — weeks 1-14 with a three-week bracket — describe one real setting and were
@@ -577,7 +687,16 @@ export default function DraftPage() {
   // the same key: the second player overwrote the first, and the first stayed on the board.
   const record = useCallback(
     (playerId: string) => {
-      setPicks((previous) => recordPick(previous, playerId, totalPicks));
+      setPicks((previous) => {
+        const combined =
+          sleeperReconciliation === null
+            ? previous
+            : { ...sleeperReconciliation.acceptedPicks, ...previous };
+        if (Object.values(combined).includes(playerId)) return previous;
+        const target = nextPick(combined, totalPicks);
+        if (target > totalPicks) return previous;
+        return { ...previous, [target]: playerId };
+      });
       // The queue is deliberately *not* pruned here. `QueuePanel` already hides anyone
       // drafted, so a taken player disappears from it either way — but removing the id
       // outright made Undo asymmetric: correcting a mis-recorded pick brought the pick
@@ -585,15 +704,21 @@ export default function DraftPage() {
       // mistake under a clock. Keeping the id means undo restores the queue with it.
       setFocus(null);
     },
-    [totalPicks],
+    [totalPicks, sleeperReconciliation],
   );
 
   const undo = useCallback(() => {
-    setPicks((previous) => undoPick(previous, totalPicks));
+    setPicks((previous) => {
+      const lastManualPick = Math.max(0, ...Object.keys(previous).map(Number));
+      if (lastManualPick === 0) return previous;
+      const next = { ...previous };
+      delete next[lastManualPick];
+      return next;
+    });
     // Cleared for the same reason it is cleared on record: the highlight refers to a board
     // cell whose contents just changed.
     setFocus(null);
-  }, [totalPicks]);
+  }, []);
 
   const toggleQueue = useCallback((playerId: string) => {
     setQueue((previous) =>
@@ -605,7 +730,7 @@ export default function DraftPage() {
 
   const selectBoardPick = useCallback(
     (pick: number) => {
-      const playerId = picks[pick];
+      const playerId = activePicks[pick];
       if (playerId === undefined) return;
       // A board cell only ever holds a player who has been taken, so `drafted` is settled
       // here rather than looked up in the pool — which is what lets the pool act on this
@@ -617,7 +742,7 @@ export default function DraftPage() {
       // already handled a request numbered 1, silently ignored the next one.
       setFocus({ playerId, drafted: true });
     },
-    [picks],
+    [activePicks],
   );
 
   const swapInQueue = useCallback((a: string, b: string) => {
@@ -656,6 +781,65 @@ export default function DraftPage() {
     if (patch.templateId !== undefined) setTemplateId(patch.templateId);
   }
 
+  async function connectSleeper(): Promise<void> {
+    const draftId = sleeperDraftId.trim();
+    if (draftId === "") {
+      setSleeperMessage("Enter the Sleeper draft ID from its URL.");
+      return;
+    }
+    setSleeperMessage("Checking Sleeper settings…");
+    const result = await new SleeperDraftProvider().settings(draftId);
+    if (!result.ok) {
+      setSleeperMessage(result.reason);
+      return;
+    }
+    const imported = importSleeperSetup(result.data);
+    if (!imported.exact || imported.settings === null) {
+      setSleeperMessage(
+        `Sleeper settings were not imported: ${imported.unsupported.join(", ")}. No local preset was selected.`,
+      );
+      return;
+    }
+    setTeams(imported.settings.teams);
+    setRounds(imported.settings.rounds);
+    setScoringId(imported.settings.scoringId);
+    setTemplateId(imported.settings.templateId);
+    setScoringConfirmed(true);
+    setSleeper({
+      draftId,
+      status: result.data.status,
+      lastSyncedAt: null,
+      providerPicks: [],
+      repairs: [],
+    });
+    setSleeperMessage(
+      `Connected to Sleeper. ${imported.settings.pickTimerSeconds === null ? "No provider timer was supplied." : `Provider timer: ${imported.settings.pickTimerSeconds} seconds.`}`,
+    );
+    setStarted(true);
+  }
+
+  function repairSleeperIdentity(pickKey: string, boardPlayerId: string): void {
+    setSleeper((previous) =>
+      previous === null
+        ? previous
+        : {
+            ...previous,
+            repairs: appendSleeperIdentityRepair(
+              { providerPicks: previous.providerPicks, repairs: previous.repairs },
+              { repairId: `manual:${pickKey}:${boardPlayerId}`, pickKey, boardPlayerId },
+            ).repairs,
+          },
+    );
+  }
+
+  function useProviderConflictPick(pickKey: string, overall: number): void {
+    const classification = sleeperReconciliation?.classifications.find(
+      (entry) => entry.input.pickKey === pickKey,
+    );
+    if (classification?.state !== "matched") return;
+    setPicks((previous) => ({ ...previous, [overall]: classification.boardPlayerId }));
+  }
+
   function resetDraft(): void {
     setPicks({});
     setQueue([]);
@@ -665,6 +849,8 @@ export default function DraftPage() {
     setScoringConfirmed(false);
     setFocus(null);
     setDetailId(null);
+    setSleeper(null);
+    setSleeperMessage(null);
   }
 
   if (!seasonLoading && season === null) {
@@ -728,6 +914,12 @@ export default function DraftPage() {
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
         <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
+        <SleeperConnect
+          draftId={sleeperDraftId}
+          message={sleeperMessage}
+          onDraftIdChange={setSleeperDraftId}
+          onConnect={() => void connectSleeper()}
+        />
         {/* The size and scoring buttons on this screen key the board query too, so it used
             to replace itself with a skeleton on every click. The board is held now, which
             means the count and build date below belong to the previous selection until the
@@ -801,13 +993,26 @@ export default function DraftPage() {
         // Gated on the pick it actually removes, not on the map being non-empty.
         // `currentPick` is the first *empty* pick, so a restored board with a gap in it
         // offered an undo for an entry that did not exist and removed nothing when pressed.
-        canUndo={picks[currentPick - 1] !== undefined}
+        canUndo={Object.keys(picks).length > 0}
         onUndo={undo}
         onOpenSettings={() => setSettingsOpen(true)}
         // Every value below belongs to the setup the board was built for, which is not the
         // one the controls now show. The page says so rather than redrawing itself: see
         // `useStableQuery`.
         reloading={boardPending}
+      />
+
+      <SleeperSyncStatus
+        sync={sleeper}
+        reconciliation={sleeperReconciliation}
+        message={sleeperMessage}
+        players={poolPlayers}
+        onRepair={repairSleeperIdentity}
+        onUseProviderPick={useProviderConflictPick}
+        onRetry={() => {
+          setSleeperMessage("Retrying Sleeper now…");
+          setSleeperRetry((attempt) => attempt + 1);
+        }}
       />
 
       <NeedsStrip
@@ -838,7 +1043,7 @@ export default function DraftPage() {
             teams={setup.teams}
             slot={setup.slot}
             rounds={setup.rounds}
-            picks={picks}
+            picks={activePicks}
             playersById={poolById}
             currentPick={currentPick}
             onSelectPick={selectBoardPick}
@@ -936,7 +1141,7 @@ export default function DraftPage() {
         onChange={applySettings}
         // Picks are a prefix of 1..n, so the rounds already touched is what the count
         // implies. Dropping below it would put recorded picks past the end of the draft.
-        minRounds={Math.max(1, Math.ceil(Object.keys(picks).length / setup.teams))}
+        minRounds={Math.max(1, Math.ceil(Object.keys(activePicks).length / setup.teams))}
         onReset={resetDraft}
       />
 
@@ -961,6 +1166,147 @@ export default function DraftPage() {
         pending={boardPending}
       />
     </PageShell>
+  );
+}
+
+function SleeperConnect({
+  draftId,
+  message,
+  onDraftIdChange,
+  onConnect,
+}: {
+  draftId: string;
+  message: string | null;
+  onDraftIdChange: (value: string) => void;
+  onConnect: () => void;
+}) {
+  return (
+    <section className="rounded-xl border bg-card p-5 sm:p-6" aria-labelledby="sleeper-connect-title">
+      <h2 id="sleeper-connect-title" className="text-sm font-medium">Connect Sleeper</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        Paste the public draft ID from Sleeper. We prefill only an exact snake, roster, and
+        PPR/Half PPR/Standard mapping; custom settings stay visible and are not approximated.
+      </p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <label className="sr-only" htmlFor="sleeper-draft-id">Sleeper draft ID</label>
+        <input
+          id="sleeper-draft-id"
+          value={draftId}
+          onChange={(event) => onDraftIdChange(event.target.value)}
+          placeholder="Sleeper draft ID"
+          className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+        />
+        <Button type="button" onClick={onConnect}>Connect Sleeper</Button>
+      </div>
+      {message === null ? null : <p className="mt-2 text-xs text-muted-foreground" role="status">{message}</p>}
+    </section>
+  );
+}
+
+function SleeperSyncStatus({
+  sync,
+  reconciliation,
+  message,
+  players,
+  onRepair,
+  onUseProviderPick,
+  onRetry,
+}: {
+  sync: PersistedSleeperSync | null;
+  reconciliation: SleeperReconciliation | null;
+  message: string | null;
+  players: readonly PoolPlayer[];
+  onRepair: (pickKey: string, boardPlayerId: string) => void;
+  onUseProviderPick: (pickKey: string, overall: number) => void;
+  onRetry: () => void;
+}) {
+  if (sync === null || reconciliation === null) return null;
+  const unresolved = reconciliation.classifications.filter(
+    (entry) => entry.state !== "matched",
+  );
+  const matchedByKey = new Map(
+    reconciliation.classifications
+      .filter(
+        (entry): entry is Extract<(typeof reconciliation.classifications)[number], { state: "matched" }> =>
+          entry.state === "matched",
+      )
+      .map((entry) => [entry.input.pickKey, entry.boardPlayerId]),
+  );
+  const freshness =
+    sync.lastSyncedAt === null
+      ? "Waiting for the first successful poll"
+      : `Last received ${new Date(sync.lastSyncedAt).toLocaleTimeString()}`;
+  const completeButUnresolved = sync.status.toLowerCase() === "complete" && !reconciliation.cleanCompletion;
+
+  return (
+    <section className="mt-3 rounded-xl border border-dashed p-3 text-sm" aria-labelledby="sleeper-sync-title">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 id="sleeper-sync-title" className="font-medium">Sleeper sync</h2>
+          <p className="text-xs text-muted-foreground">
+            {freshness} · provider status {sync.status || "unknown"} · {reconciliation.observedValidPickCount} of {reconciliation.expectedPickCount} valid provider picks
+          </p>
+        </div>
+        <span className={reconciliation.cleanCompletion ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>
+          {reconciliation.cleanCompletion
+            ? "Cleanly complete"
+            : unresolved.length > 0
+              ? `${unresolved.length} identity repair${unresolved.length === 1 ? "" : "s"} required`
+              : "Reconciling"}
+        </span>
+      </div>
+      {message === null ? null : (
+        <p className="mt-2 text-xs text-muted-foreground" role="status">
+          {message} <Button type="button" variant="link" size="sm" className="h-auto px-1 py-0" onClick={onRetry}>Retry now</Button>
+        </p>
+      )}
+      {completeButUnresolved ? (
+        <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          Sleeper says complete, but this draft is not clean: expected count, conflicts, and identity resolution must all agree.
+        </p>
+      ) : null}
+      {reconciliation.conflicts.length > 0 ? (
+        <div className="mt-3 space-y-2" role="alert">
+          <p className="font-medium">Provider/local conflicts need a decision</p>
+          {reconciliation.conflicts.map((conflict) => {
+            const providerPlayerId = matchedByKey.get(conflict.pickKey);
+            return (
+              <div key={`${conflict.kind}:${conflict.pickKey}`} className="flex flex-wrap items-center gap-2 text-xs">
+                <span>{conflict.kind.replaceAll("-", " ")} at pick {conflict.overall ?? "unknown"}.</span>
+                {conflict.kind === "local-provider-disagreement" && conflict.overall !== null && providerPlayerId !== undefined ? (
+                  <Button size="sm" variant="outline" onClick={() => onUseProviderPick(conflict.pickKey, conflict.overall!)}>Use provider match</Button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {unresolved.length > 0 ? (
+        <div className="mt-3 space-y-3">
+          <p className="font-medium">Resolve provider identities</p>
+          {unresolved.map((entry) => (
+            <div key={entry.input.pickKey} className="flex flex-col gap-2 rounded-md bg-muted/50 p-2 sm:flex-row sm:items-center">
+              <span className="min-w-0 flex-1 text-xs">
+                Pick {entry.input.pickKey}: {entry.input.name || "Unnamed Sleeper player"} ({entry.state})
+              </span>
+              <select
+                defaultValue=""
+                aria-label={`Match ${entry.input.name || "unresolved Sleeper player"}`}
+                className="rounded-md border bg-background px-2 py-1 text-xs"
+                onChange={(event) => {
+                  if (event.target.value !== "") onRepair(entry.input.pickKey, event.target.value);
+                }}
+              >
+                <option value="" disabled>Choose board player…</option>
+                {players.map((player) => (
+                  <option key={player.id} value={player.id}>{player.name} · {player.position} · {player.team ?? "FA"}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
