@@ -17,6 +17,8 @@ import { UNRANKED_ADP_PADDING } from "@/lib/core/draft";
 import { matchName } from "@/lib/nfl/draft/match";
 import type { ValueBasis } from "@/lib/nfl/draft/provenance";
 import type { MarketValueBasis } from "@/lib/nfl/draft/value";
+import type { RosterStatus } from "@/lib/nfl/weekly-roster";
+import { isRecommendationEligible } from "@/lib/nfl/draft/status";
 
 /** A player as the pool presents them, board facts and draft state together. */
 export interface PoolPlayer {
@@ -26,7 +28,7 @@ export interface PoolPlayer {
   team: string | null;
   byeWeek: number | null;
   /** Projected season total under the league's scoring — the board's blended value. */
-  seasonPoints: number;
+  seasonPoints: number | null;
   /** Our own season projection, absent for kickers and defences. */
   modelPoints: number | null;
   /** What the market's price implies, absent when the market has no opinion. */
@@ -36,7 +38,12 @@ export interface PoolPlayer {
   adp: number | null;
   adpStdev: number | null;
   /** Modelled share of weeks fit, shrunk toward the league rate. */
-  availability: number;
+  availability: number | null;
+  /** Current roster designation; null only before the first status snapshot exists. */
+  rosterStatus: RosterStatus | null;
+  /** Raw provider code, retained for designations the app does not yet understand. */
+  rosterStatusCode: string | null;
+  statusUpdatedAt: number | null;
   /**
    * Where this row's number came from — a blend, or one side of it alone.
    *
@@ -118,6 +125,16 @@ export function filterPool(
  */
 export function sortPool(players: readonly PoolPlayer[], sort: PoolSort): PoolPlayer[] {
   const rows = [...players];
+  // Healthy valued players, healthy unpriced identities, known record-only identities,
+  // and finally unknown upstream designations. This prefix applies to every sort so a
+  // reserve player with an old high ADP never floats above actionable rows.
+  const statusGroup = (player: PoolPlayer): number => {
+    if (isRecommendationEligible(player.rosterStatus)) {
+      return player.seasonPoints === null ? 1 : 0;
+    }
+    return player.rosterStatus === "unknown" ? 3 : 2;
+  };
+  const byStatus = (a: PoolPlayer, b: PoolPlayer) => statusGroup(a) - statusGroup(b);
   switch (sort) {
     case "adp":
       // Unranked players last rather than first. A missing ADP sorted as zero would put
@@ -125,20 +142,27 @@ export function sortPool(players: readonly PoolPlayer[], sort: PoolSort): PoolPl
       // exact inversion `UNRANKED_ADP_PADDING` exists to prevent elsewhere.
       return rows.sort(
         (a, b) =>
+          byStatus(a, b) ||
           (a.adp ?? Number.POSITIVE_INFINITY) - (b.adp ?? Number.POSITIVE_INFINITY) ||
           a.overallRank - b.overallRank,
       );
     case "bye":
       return rows.sort(
         (a, b) =>
+          byStatus(a, b) ||
           (a.byeWeek ?? Number.POSITIVE_INFINITY) - (b.byeWeek ?? Number.POSITIVE_INFINITY) ||
           a.overallRank - b.overallRank,
       );
     case "name":
-      return rows.sort((a, b) => a.name.localeCompare(b.name) || a.overallRank - b.overallRank);
+      return rows.sort(
+        (a, b) =>
+          byStatus(a, b) ||
+          a.name.localeCompare(b.name) ||
+          a.overallRank - b.overallRank,
+      );
     case "value":
     default:
-      return rows.sort((a, b) => a.overallRank - b.overallRank);
+      return rows.sort((a, b) => byStatus(a, b) || a.overallRank - b.overallRank);
   }
 }
 

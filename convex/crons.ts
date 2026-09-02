@@ -41,14 +41,24 @@ crons.cron(
   {},
 );
 
-// Twice a day through the preseason. The market moves continuously as camp news lands,
-// and a board built yesterday misprices exactly the players whose value just changed.
+// Current roster designations are much cheaper than recomputing prices and move much
+// faster. One season-wide snapshot updates every league shape, and the action exits after
+// draft season, so a 15-minute clock does not become year-round polling.
+crons.interval(
+  "refresh draft player catalog and status",
+  { minutes: 15 },
+  internal.ingest.refreshDraftPlayerCatalog,
+  {},
+);
+
+// Four times a day through the preseason. The market moves continuously as camp news lands,
+// and an evening draft should not still carry the board built that morning.
 // Outside the preseason this exits immediately, so it costs nothing in season.
 //
 // The expression comes from `refresh-plan.ts`, which also derives the staleness threshold
 // the interface warns on from it. They were two independent literals — a `12` beside a cron
-// nothing connected it to — so changing this schedule to every six hours would have left the
-// interface calling a board that had missed four runs "fresh".
+// nothing connected it to — so changing this schedule without the derived threshold would
+// leave the interface calling a board fresh after it missed several runs.
 crons.cron(
   "rebuild draft boards",
   BOARD_REFRESH_CRON,

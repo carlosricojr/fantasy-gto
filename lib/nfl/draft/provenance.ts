@@ -63,7 +63,7 @@ export type ValueBasis =
   | "market-only-position-position-mean"
   /** An unmodeled position priced by a flat pooled fallback. */
   | "market-only-position-pooled-mean"
-  /** Neither side priced him. `convex/ingest.ts` keeps these off the board. */
+  /** Neither side priced him. The recording catalog keeps him searchable, not recommendable. */
   | "unpriced";
 
 type PricedValueBasis = "blend" | "market-only-history" | "market-only-position";

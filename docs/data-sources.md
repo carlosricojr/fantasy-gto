@@ -9,10 +9,17 @@ vendor to produce a projection.
 
 ## Runbook: refreshing the draft boards before a draft
 
-The boards rebuild twice a day at 11:00 and 23:00 UTC through the offseason and preseason,
+The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
 and not during the regular season — `planDraftRefresh` in `lib/nfl/draft/refresh-plan.ts`
 decides that, and it is tested across every phase. The matrix is three scoring formats across
 eleven league sizes: **33 boards**.
+
+Player identity and roster status run on a separate 15-minute clock. One complete catalog
+serves all 33 boards, so a reserve/exempt/cut designation does not wait for a market rebuild.
+The refresh hashes canonical rows and only rewrites the catalog when content changes; an
+unchanged check advances `checkedAt` without rewriting hundreds of documents. Players stay
+searchable and recordable regardless of valuation or status, while only valued active rows
+enter recommendations.
 
 **A failed rebuild is invisible in a timestamp.** `publishBoard` is atomic, so a run that
 fails leaves the previous board whole — which is the behaviour you want, and is exactly why
@@ -26,6 +33,7 @@ of five states: fresh, stale, refreshing, last-refresh-failed, never-built.
 ```bash
 npx convex run --prod draft:boardFreshness \
   '{"season": 2026, "scoringId": "standard", "teams": 10}'
+npx convex run --prod draft:catalogFreshness '{"season": 2026}'
 ```
 
 Read `lastAttemptStatus`. `"failed"` means the board on screen is not the one the last run
@@ -36,6 +44,7 @@ needs doing.
 
 ```bash
 npx convex run --prod --push ingest:refreshDraftBoards '{}'
+npx convex run --prod ingest:refreshDraftPlayerCatalog '{"season": 2026}'
 ```
 
 It returns `{rebuilt, failed, attempted}` — or `{rebuilt: 0, failed: [], skipped}` with a
@@ -48,10 +57,13 @@ the rest: a market board can be missing for an unusual size while the common one
 Check the exact shape being drafted, not the default. A board is per `(season, scoring,
 teams)`, and the seven league sizes with no published market board are derived from a
 neighbour — `adpSourceTeams` says which, and it is worth reading before trusting a price.
+Also require `catalogFreshness.computedAt` within the last hour. Any
+`unknownStatuses` entry is a source-drift alarm: the affected identities remain recordable
+but are deliberately withheld from recommendations.
 
 ### Staleness
 
-`BOARD_STALE_AFTER_MS` is 26 hours: two full 12-hour cycles plus two hours of slack, the
+`BOARD_STALE_AFTER_MS` is 14 hours: two full six-hour cycles plus two hours of slack, the
 smallest threshold that does not fire on a single late or slow run. A warning that appears
 routinely is a warning nobody reads. Change the cron and this has to change with it; both
 numbers live beside each other in `refresh-plan.ts`.

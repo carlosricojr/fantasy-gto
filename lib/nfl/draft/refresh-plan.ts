@@ -100,7 +100,9 @@ export function planDraftRefresh(state: SeasonState | null): RefreshPlan {
  * slow run from firing a warning, because a warning that appears routinely is a warning
  * nobody reads.
  */
-export const BOARD_REFRESH_CRON = "0 11,23 * * *";
+// Four times daily during draft season. In Eastern daylight time these land at 23:00,
+// 05:00, 11:00 and 17:00, putting a fresh market board in place before evening drafts.
+export const BOARD_REFRESH_CRON = "0 3,9,15,21 * * *";
 
 /**
  * The longest gap between two scheduled rebuilds, derived from the schedule itself.

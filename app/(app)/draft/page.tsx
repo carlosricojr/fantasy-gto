@@ -31,6 +31,12 @@ import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
 import {
+  describeDraftStatusHealth,
+  draftStatusHealth,
+  isRecommendationEligible,
+} from "@/lib/nfl/draft/status";
+import type { RosterStatus } from "@/lib/nfl/weekly-roster";
+import {
   appendSleeperIdentityRepair,
   reconcileSleeperDraft,
   type SleeperReconciliation,
@@ -70,6 +76,7 @@ import { SettingsDialog } from "./settings-dialog";
 import { DraftSetup } from "./setup";
 import { StatusBar } from "./status-bar";
 import { useRecommendations } from "./use-recommendations";
+import { initialScenarioBudget, nextScenarioBudget } from "./compute-budget";
 
 /**
  * The draft board.
@@ -120,15 +127,18 @@ interface BoardPlayer {
   position: string;
   team: string | null;
   modelPoints: number | null;
-  blendedPoints: number;
+  blendedPoints: number | null;
   marketPoints: number | null;
   marketValueBasis: "adp-ordered" | "position-mean" | "pooled-mean" | null;
   adp: number | null;
   adpStdev: number | null;
   byeWeek: number | null;
-  availability: number;
+  availability: number | null;
   p10: number;
   p90: number;
+  rosterStatus: RosterStatus | null;
+  rosterStatusCode: string | null;
+  statusUpdatedAt: number | null;
 }
 
 /**
@@ -141,6 +151,15 @@ interface BoardPlayer {
 interface BoardFreshness {
   computedAt: number | null;
   adpSourceTeams: number | null;
+  lastAttemptAt: number | null;
+  lastAttemptStatus: "running" | "succeeded" | "failed" | null;
+}
+
+interface CatalogFreshness {
+  computedAt: number | null;
+  playerCount: number | null;
+  activeCount: number | null;
+  unknownStatuses: Array<{ code: string; count: number }>;
   lastAttemptAt: number | null;
   lastAttemptStatus: "running" | "succeeded" | "failed" | null;
 }
@@ -322,6 +341,10 @@ export default function DraftPage() {
     api.draft.boardFreshness,
     season === null ? "skip" : { season, scoringId, teams: setup.teams },
   );
+  const { data: catalogFreshness, pending: catalogFreshnessPending } = useStableQuery(
+    api.draft.catalogFreshness,
+    season === null ? "skip" : { season },
+  );
   // Two independent subscriptions, so one can settle before the other — and each surface
   // is marked by the one it actually reads. Marking a settled board as the previous
   // selection's because a *freshness* query is still in flight is a false statement in the
@@ -333,6 +356,26 @@ export default function DraftPage() {
   const describesHeldBoard = boardPending || freshnessPending;
 
   const recommender = useRecommendations();
+  const [scenarioBudget, setScenarioBudget] = useState(SCENARIOS);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+    setScenarioBudget(
+      initialScenarioBudget({
+        full: SCENARIOS,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemoryGb: memory,
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (recommender.lastElapsedMs === null) return;
+    setScenarioBudget((current) =>
+      nextScenarioBudget(current, recommender.lastElapsedMs as number),
+    );
+  }, [recommender.lastElapsedMs]);
 
   useEffect(() => {
     if (setup.teams !== teams) setTeams(setup.teams);
@@ -353,24 +396,82 @@ export default function DraftPage() {
 
   const pool = useMemo<PlayerRisk[]>(
     () =>
-      ((board ?? []) as BoardPlayer[]).map((row) => ({
-        id: row.playerId,
-        name: row.name,
-        position: row.position,
-        // Points per game *played*, which is what `PlayerRisk.weeklyMean` means. See
-        // `perGameRate` for why dividing by a full season here discounted twice.
-        weeklyMean: perGameRate(row.blendedPoints, row.availability),
-        p10: row.p10,
-        p90: row.p90,
-        byeWeek: row.byeWeek,
-        availability: row.availability,
-        adp: row.adp,
-        adpStdev: row.adpStdev,
-      })),
+      ((board ?? []) as BoardPlayer[]).flatMap((row) => {
+        // Catalog-only rows and current reserve/cut/unknown rows are recordable facts, not
+        // advice. Neither reaches the candidate pool. Null status is the temporary
+        // migration fallback before the first catalog snapshot publishes; the prominent
+        // status notice names that degraded state.
+        if (
+          row.blendedPoints === null ||
+          row.availability === null ||
+          !isRecommendationEligible(row.rosterStatus)
+        ) {
+          return [];
+        }
+        return [{
+          id: row.playerId,
+          name: row.name,
+          position: row.position,
+          // Points per game *played*, which is what `PlayerRisk.weeklyMean` means. See
+          // `perGameRate` for why dividing by a full season here discounted twice.
+          weeklyMean: perGameRate(row.blendedPoints, row.availability),
+          p10: row.p10,
+          p90: row.p90,
+          byeWeek: row.byeWeek,
+          availability: row.availability,
+          adp: row.adp,
+          adpStdev: row.adpStdev,
+        }];
+      }),
     [board],
   );
 
-  const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
+  /**
+   * Risk used only after a record-only identity is actually selected in the real draft.
+   *
+   * Giving an unpriced player zero would make the opponent who took him artificially weak.
+   * Instead he receives the lowest current value at his position — explicit conservative
+   * replacement value. He is still never recommended, and the UI never presents this
+   * internal bookkeeping value as his projection.
+   */
+  const byId = useMemo(() => {
+    const valued = new Map(pool.map((player) => [player.id, player]));
+    const floorByPosition = new Map<string, PlayerRisk>();
+    for (const player of pool) {
+      const existing = floorByPosition.get(player.position);
+      if (
+        existing === undefined ||
+        player.weeklyMean * player.availability <
+          existing.weeklyMean * existing.availability
+      ) {
+        floorByPosition.set(player.position, player);
+      }
+    }
+
+    const recordable = new Map<string, PlayerRisk>();
+    for (const row of (board ?? []) as BoardPlayer[]) {
+      const priced = valued.get(row.playerId);
+      if (priced !== undefined) {
+        recordable.set(row.playerId, priced);
+        continue;
+      }
+      const floor = floorByPosition.get(row.position);
+      recordable.set(row.playerId, {
+        id: row.playerId,
+        name: row.name,
+        position: row.position,
+        weeklyMean: floor?.weeklyMean ?? 0.1,
+        p10: row.p10,
+        p90: row.p90,
+        byeWeek: row.byeWeek,
+        availability: floor?.availability ?? 0.85,
+        adp: row.adp,
+        adpStdev: row.adpStdev,
+      });
+    }
+    return recordable;
+  }, [board, pool]);
+
   const boardIdentities = useMemo<PlayerIdentity[]>(
     () =>
       ((board ?? []) as BoardPlayer[]).map((player) => ({
@@ -558,6 +659,9 @@ export default function DraftPage() {
           adp: row.adp,
           adpStdev: row.adpStdev,
           availability: row.availability,
+          rosterStatus: row.rosterStatus,
+          rosterStatusCode: row.rosterStatusCode,
+          statusUpdatedAt: row.statusUpdatedAt,
           // Where this row's number came from, decided by the board's own columns rather
           // than guessed from the position at render time — a rookie with no prior games is
           // market-only for a different reason than a kicker is, and the row says which.
@@ -636,12 +740,12 @@ export default function DraftPage() {
       slots: starters,
       ...fantasySeasonWeeks(championshipWeek, playoffTeams),
       playoffTeams,
-      scenarios: SCENARIOS,
+      scenarios: scenarioBudget,
       meanAbsenceWeeks: 3,
       wireCover: waiverWireCover(setup.teams, starters),
       unprojectedPositions: UNPROJECTED_POSITIONS,
     }),
-    [starters, playoffTeams, championshipWeek, setup.teams],
+    [starters, playoffTeams, championshipWeek, setup.teams, scenarioBudget],
   );
 
   // Before anything is requested, and whether or not anything can be. Changing the scoring
@@ -724,6 +828,18 @@ export default function DraftPage() {
   // the same key: the second player overwrote the first, and the first stayed on the board.
   const record = useCallback(
     (playerId: string) => {
+      const player = poolById.get(playerId);
+      if (
+        onTheClock &&
+        player !== undefined &&
+        !isRecommendationEligible(player.rosterStatus) &&
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `${player.name} is currently listed as ${player.rosterStatusCode ?? player.rosterStatus}. Take him anyway?`,
+        )
+      ) {
+        return;
+      }
       setPicks((previous) => {
         const combined =
           sleeperReconciliation === null
@@ -741,7 +857,7 @@ export default function DraftPage() {
       // mistake under a clock. Keeping the id means undo restores the queue with it.
       setFocus(null);
     },
-    [totalPicks, sleeperReconciliation],
+    [totalPicks, sleeperReconciliation, poolById, onTheClock],
   );
 
   const undo = useCallback(() => {
@@ -972,6 +1088,13 @@ export default function DraftPage() {
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
         <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
+        <DraftStatusNotice
+          freshness={catalogFreshness ?? null}
+          pending={catalogFreshnessPending}
+          unknownStatusCount={((board ?? []) as BoardPlayer[]).filter(
+            (player) => player.rosterStatus === "unknown",
+          ).length}
+        />
         <SleeperConnect
           draftId={sleeperDraftId}
           message={sleeperMessage}
@@ -1040,6 +1163,13 @@ export default function DraftPage() {
       </p>
 
       <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
+      <DraftStatusNotice
+        freshness={catalogFreshness ?? null}
+        pending={catalogFreshnessPending}
+        unknownStatusCount={((board ?? []) as BoardPlayer[]).filter(
+          (player) => player.rosterStatus === "unknown",
+        ).length}
+      />
 
       <StatusBar
         turn={turn}
@@ -1133,7 +1263,7 @@ export default function DraftPage() {
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
           <Recommendations
             state={recommender}
-            scenarios={SCENARIOS}
+            scenarios={scenarioBudget}
             candidates={CANDIDATES}
             onTheClock={onTheClock && !draftComplete}
             draftComplete={draftComplete}
@@ -1447,6 +1577,52 @@ function NeedsStrip({
         {picksLeft} {picksLeft === 1 ? "pick" : "picks"} left
       </span>
     </div>
+  );
+}
+
+/** Current roster truth on its own, faster clock than the valuation board. */
+function DraftStatusNotice({
+  freshness,
+  pending,
+  unknownStatusCount,
+}: {
+  freshness: CatalogFreshness | null;
+  pending: boolean;
+  /** Includes old valued rows that disappeared from the current roster release. */
+  unknownStatusCount: number;
+}) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), [freshness]);
+  if (now === null || pending) return null;
+
+  const health = draftStatusHealth({
+    now,
+    publishedAt: freshness?.computedAt ?? null,
+    lastAttemptFailed: freshness?.lastAttemptStatus === "failed",
+    refreshing: freshness?.lastAttemptStatus === "running",
+    unknownStatusCount,
+  });
+  const warning = health !== "fresh" && health !== "refreshing";
+
+  return (
+    <p
+      className={cn(
+        "mb-4 rounded-lg border px-3 py-2 text-xs",
+        warning
+          ? "border-amber-500/40 bg-amber-500/8 text-amber-800 dark:text-amber-200"
+          : "border-border bg-muted/30 text-muted-foreground",
+      )}
+      role={warning ? "alert" : "status"}
+    >
+      {describeDraftStatusHealth(health, {
+        now,
+        publishedAt: freshness?.computedAt ?? null,
+        unknownStatusCount,
+      })}
+      {freshness?.activeCount == null
+        ? ""
+        : ` ${freshness.activeCount} active player identities are current; valued active players are eligible for recommendations, and every cataloged player remains searchable.`}
+    </p>
   );
 }
 

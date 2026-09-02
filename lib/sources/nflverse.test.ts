@@ -6,6 +6,7 @@ import { parseCsv } from "../nfl/csv";
 
 import {
   NflverseProvider,
+  parseDraftRoster,
   parseSeasonRoster,
   seasonRosterUrl,
   easternWallClockToUtcIso,
@@ -344,6 +345,60 @@ describe("parseSeasonRoster", () => {
 
   it("builds the documented release url", () => {
     expect(seasonRosterUrl(2026)).toContain("/rosters/roster_2026.csv");
+  });
+});
+
+describe("parseDraftRoster", () => {
+  it("keeps active, reserve and exempt players recordable without recommending their status", () => {
+    const csv = [
+      "season,team,position,status,full_name,gsis_id,sleeper_id,rookie_year",
+      "2026,GB,RB,EXE,Exempt Veteran,00-0041000,7001,2020",
+      "2026,SEA,RB,RES,Pup Veteran,00-0041001,7002,2023",
+      "2026,KC,WR,ACT,Active Player,00-0041002,7003,2026",
+    ].join("\n");
+    const report = parseDraftRoster(parseCsv(csv));
+    expect(report.entries.map((entry) => [entry.name, entry.status])).toEqual([
+      ["Exempt Veteran", "reserve"],
+      ["Pup Veteran", "reserve"],
+      ["Active Player", "active"],
+    ]);
+  });
+
+  it("keeps an active player without GSIS by a stable provider id", () => {
+    const csv = [
+      "season,team,position,status,full_name,gsis_id,sleeper_id",
+      "2026,KC,K,ACT,Unpriced Kicker,,9988",
+    ].join("\n");
+    const [entry] = parseDraftRoster(parseCsv(csv)).entries;
+    expect(entry.playerId).toBe("sleeper:9988");
+    expect(entry.gsisId).toBeNull();
+    expect(parseSeasonRoster(parseCsv(csv))).toEqual([]);
+  });
+
+  it("surfaces an upstream status code it does not understand", () => {
+    const csv = [
+      "season,team,position,status,full_name,gsis_id",
+      "2026,KC,WR,W04,New Designation,00-0041004",
+    ].join("\n");
+    const report = parseDraftRoster(parseCsv(csv));
+    expect(report.entries[0]).toMatchObject({
+      status: "unknown",
+      statusCode: "W04",
+    });
+    expect(report.unknownStatus.get("W04")).toBe(1);
+  });
+
+  it("lets an active transaction row win over an inactive duplicate", () => {
+    const csv = [
+      "season,team,position,status,full_name,gsis_id",
+      "2026,NYJ,WR,TRD,Moving Player,00-0041005",
+      "2026,SF,WR,ACT,Moving Player,00-0041005",
+    ].join("\n");
+    expect(parseDraftRoster(parseCsv(csv)).entries).toHaveLength(1);
+    expect(parseDraftRoster(parseCsv(csv)).entries[0]).toMatchObject({
+      team: "SF",
+      status: "active",
+    });
   });
 });
 

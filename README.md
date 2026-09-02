@@ -134,13 +134,15 @@ before using it:
 
 ```bash
 pnpm exec convex run ingest:syncSchedule '{"season":2026}'
+pnpm exec convex run ingest:refreshDraftPlayerCatalog '{"season":2026}'
 pnpm exec convex run ingest:refreshDraftBoards '{}'
 ```
 
 The first is needed because the page resolves its season from ingested games; without it
-`/draft` says there is no season to draft for. The second builds every scoring and league
-size in one pass — twelve boards sharing one download, where twelve separate
-`buildDraftBoard` calls re-fetch the same multi-megabyte CSVs twelve times. A single
+`/draft` says there is no season to draft for. The second publishes the complete recording
+catalog and current roster designations. The third builds every scoring and league
+size in one pass — 33 boards sharing one download, where separate
+`buildDraftBoard` calls would re-fetch the same multi-megabyte CSVs 33 times. A single
 combination is still available if that is all you want:
 
 ```bash
@@ -160,12 +162,15 @@ pnpm exec convex run ingest:refreshDraftBoards '{}'
 ```
 
 The rebuild is not optional. `dev --until-success` pushes the schema; it does not write
-application data, so without the last line the board stays empty until the cron next runs —
-twice a day, and not at all once the season is under way.
+application data, so the board stays empty until the final command runs. On a fresh
+deployment, run both catalog and board commands from the seed sequence above; their crons
+stop once the season is under way.
 
-Verified against a real deployment on 2026-07-31: 650 players, 244 of them carrying a
-market price. A cron rebuilds every scoring/league-size combination twice daily through the
-preseason and does nothing once a season is under way.
+Verified against production on 2026-09-02: the PPR/12-team read returned 972 recordable
+entities — the complete 945-player roster catalog plus 27 team defenses — with 482 carrying
+a valuation and 257 carrying a direct market ADP. A cron rebuilds every scoring/league-size
+combination every six hours through the preseason; the current identity/status catalog
+checks every 15 minutes. Both stop once a season is under way.
 
 The simulation runs in a Web Worker, because a second of synchronous work would freeze the
 board at the moment a pick is due. `docs/draft-validation.md` records what was measured,

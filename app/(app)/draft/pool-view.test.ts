@@ -36,6 +36,9 @@ function player(overrides: Partial<PoolPlayer> & { id: string }): PoolPlayer {
     adp: 10,
     adpStdev: 8,
     availability: 0.9,
+    rosterStatus: "active",
+    rosterStatusCode: "ACT",
+    statusUpdatedAt: 1_000,
     basis: "blend",
     overallRank: 1,
     draftedAt: null,
@@ -126,6 +129,21 @@ describe("sortPool", () => {
     ];
     expect(sortPool(tied, "bye").map((row) => row.id)).toEqual(["b", "c", "a"]);
     expect(sortPool([...tied].reverse(), "bye").map((row) => row.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("puts record-only and unpriced identities behind actionable players", () => {
+    const rows = [
+      player({ id: "reserve", rosterStatus: "reserve", rosterStatusCode: "EXE", adp: 1 }),
+      player({ id: "unpriced", seasonPoints: null, modelPoints: null, marketPoints: null }),
+      player({ id: "active", adp: 100 }),
+      player({ id: "unknown", rosterStatus: "unknown", rosterStatusCode: "W04", adp: 2 }),
+    ];
+    expect(sortPool(rows, "adp").map((row) => row.id)).toEqual([
+      "active",
+      "unpriced",
+      "reserve",
+      "unknown",
+    ]);
   });
 
   it("does not mutate what it was given", () => {

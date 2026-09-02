@@ -107,9 +107,12 @@ export function useRecommendations(): RecommendationState & {
     // recommendations are unavailable, so a failure belongs on that path.
     let worker: Worker;
     try {
-      worker = new Worker(new URL("./recommend.worker.ts", import.meta.url), {
-        type: "module",
-      });
+      // Let Next bundle this as a classic worker. The worker source may use imports — the
+      // bundler resolves those — while the emitted runtime no longer requires module-worker
+      // support, which Safari did not gain until version 15. The board has always degraded
+      // when a worker cannot start; this widens the browsers that receive recommendations
+      // without putting the simulation back on the UI thread.
+      worker = new Worker(new URL("./recommend.worker.ts", import.meta.url));
     } catch {
       // The browser has workers; this one could not be constructed.
       setUnavailable("The recommendation worker could not be started");

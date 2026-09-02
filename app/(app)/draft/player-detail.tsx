@@ -17,6 +17,10 @@ import {
 import { pickLabel } from "./board-view";
 import type { PoolPlayer } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
+import {
+  isRecommendationEligible,
+  rosterStatusLabel,
+} from "@/lib/nfl/draft/status";
 
 /**
  * One player, with the working shown.
@@ -84,6 +88,13 @@ export function PlayerDetail({
               </DialogDescription>
             </DialogHeader>
 
+            {rosterStatusLabel(player.rosterStatus, player.rosterStatusCode) === null ? null : (
+              <p className="rounded-lg border border-amber-500/40 bg-amber-500/8 p-3 text-sm text-amber-800 dark:text-amber-200">
+                Current roster status: {rosterStatusLabel(player.rosterStatus, player.rosterStatusCode)}.
+                This player remains recordable but is excluded from recommendations.
+              </p>
+            )}
+
             <section>
               <h3 className="text-sm font-medium">Projected season points</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -143,7 +154,9 @@ export function PlayerDetail({
                 )}
               </p>
 
-              {player.draftedAt !== null || remainingOwnPicks.length === 0 ? null : (
+              {player.draftedAt !== null ||
+              remainingOwnPicks.length === 0 ||
+              !isRecommendationEligible(player.rosterStatus) ? null : (
                 <>
                   <p className="mt-3 text-xs text-muted-foreground">
                     Chance he is still on the board at each of your remaining picks. ADP is a
@@ -176,15 +189,23 @@ export function PlayerDetail({
 
             <section className="border-t pt-4">
               <h3 className="text-sm font-medium">Availability</h3>
-              <p className="mt-1 text-sm">
-                Modelled fit in{" "}
-                <span className="font-medium tabular-nums">
-                  {(player.availability * 100).toFixed(0)}%
-                </span>{" "}
-                of weeks, from his own games played shrunk toward the league rate. This is
-                what turns a season total into points per game he actually plays, and it is
-                what makes a bench worth something in the simulation.
-              </p>
+              {player.availability === null ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  No model or market valuation is available. If this player is selected in
+                  the real draft, the simulation records him at conservative replacement
+                  value; that fallback is not shown as a projection.
+                </p>
+              ) : (
+                <p className="mt-1 text-sm">
+                  Modelled fit in{" "}
+                  <span className="font-medium tabular-nums">
+                    {(player.availability * 100).toFixed(0)}%
+                  </span>{" "}
+                  of weeks, from his own games played shrunk toward the league rate. This is
+                  what turns a season total into points per game he actually plays, and it is
+                  what makes a bench worth something in the simulation.
+                </p>
+              )}
             </section>
 
             {player.draftedAt !== null || !canRecord ? null : (
@@ -196,6 +217,7 @@ export function PlayerDetail({
                 }}
               >
                 {actionLabel}
+                {isRecommendationEligible(player.rosterStatus) ? "" : " anyway"}
               </Button>
             )}
           </>

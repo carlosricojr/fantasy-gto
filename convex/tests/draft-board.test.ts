@@ -51,7 +51,91 @@ function row(playerId: string, blendedPoints: number) {
 
 const shape = { season: SEASON, scoringId: SCORING, teams: TEAMS };
 
+function catalogRow(
+  playerId: string,
+  rosterStatus: "active" | "reserve" | "unknown" = "active",
+) {
+  return {
+    playerId,
+    name: playerId,
+    position: "RB",
+    team: "SF",
+    byeWeek: 9,
+    rosterStatus,
+    rosterStatusCode:
+      rosterStatus === "active" ? "ACT" : rosterStatus === "reserve" ? "EXE" : "W04",
+  };
+}
+
 describe("draft board publishing", () => {
+  it("joins a complete catalog without inventing a valuation", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 1_000,
+      rows: [row("valued-now-reserve", 200), row("valued-active", 150)],
+    });
+    await t.mutation(internal.draft.publishBoard, {
+      ...shape,
+      computedAt: 1_000,
+      adpSourceTeams: 12,
+    });
+
+    await t.mutation(internal.draft.upsertCatalogBatch, {
+      season: SEASON,
+      computedAt: 2_000,
+      rows: [
+        catalogRow("valued-now-reserve", "reserve"),
+        catalogRow("valued-active"),
+        catalogRow("active-without-price"),
+        catalogRow("new-code", "unknown"),
+      ],
+    });
+
+    // A partial catalog run is invisible, just like a partial board run.
+    expect((await t.query(api.draft.board, shape)).map((r) => r.playerId)).toEqual([
+      "valued-now-reserve",
+      "valued-active",
+    ]);
+
+    await t.mutation(internal.draft.publishCatalog, {
+      season: SEASON,
+      computedAt: 2_000,
+      playerCount: 4,
+      activeCount: 2,
+      fingerprint: "snapshot-1",
+      unknownStatuses: [{ code: "W04", count: 1 }],
+    });
+
+    const served = await t.query(api.draft.board, shape);
+    expect(served.map((r) => r.playerId)).toEqual([
+      "valued-active",
+      "active-without-price",
+      "valued-now-reserve",
+      "new-code",
+    ]);
+    expect(served.find((r) => r.playerId === "active-without-price")).toMatchObject({
+      modelPoints: null,
+      marketPoints: null,
+      blendedPoints: null,
+      rosterStatus: "active",
+      statusUpdatedAt: 2_000,
+    });
+    expect(served.find((r) => r.playerId === "valued-now-reserve")).toMatchObject({
+      blendedPoints: 200,
+      rosterStatus: "reserve",
+      rosterStatusCode: "EXE",
+    });
+    expect(await t.query(api.draft.catalogFreshness, { season: SEASON })).toEqual({
+      computedAt: 2_000,
+      playerCount: 4,
+      activeCount: 2,
+      unknownStatuses: [{ code: "W04", count: 1 }],
+      lastAttemptAt: null,
+      lastAttemptStatus: null,
+    });
+  });
+
   it("serves nothing until a run has completed", async () => {
     const t = convexTest(schema, modules);
     // Rows written but never published: a run that died before its last batch.

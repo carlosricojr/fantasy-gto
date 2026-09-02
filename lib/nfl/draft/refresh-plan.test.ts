@@ -121,13 +121,13 @@ describe("the matrix", () => {
 
 describe("the staleness threshold", () => {
   it("is two full cycles plus slack, derived from the cron cadence", () => {
-    // Not a chosen number. The rebuild runs at 11:00 and 23:00 UTC, so a healthy board is at
-    // most twelve hours old; twenty-six is two cycles plus two hours, the smallest threshold
+    // Not a chosen number. The rebuild runs every six hours, so a healthy board is at
+    // most six hours old; fourteen is two cycles plus two hours, the smallest threshold
     // that does not fire on a single late or slow run. A warning that appears routinely is a
     // warning nobody reads.
-    expect(BOARD_REFRESH_CRON).toBe("0 11,23 * * *");
-    expect(BOARD_REFRESH_INTERVAL_HOURS).toBe(12);
-    expect(BOARD_STALE_AFTER_MS).toBe(26 * HOUR);
+    expect(BOARD_REFRESH_CRON).toBe("0 3,9,15,21 * * *");
+    expect(BOARD_REFRESH_INTERVAL_HOURS).toBe(6);
+    expect(BOARD_STALE_AFTER_MS).toBe(14 * HOUR);
     expect(BOARD_STALE_AFTER_MS).toBeGreaterThan(2 * BOARD_REFRESH_INTERVAL_HOURS * HOUR);
   });
 
@@ -171,14 +171,14 @@ describe("the staleness threshold", () => {
     const now = 1_000 * HOUR;
     const healthy: BoardHealthInput = {
       now,
-      publishedAt: now - 12 * HOUR,
-      lastAttemptAt: now - 12 * HOUR,
+      publishedAt: now - 6 * HOUR,
+      lastAttemptAt: now - 6 * HOUR,
       lastAttemptFailed: false,
       refreshing: false,
     };
     expect(boardHealth(healthy)).toBe("fresh");
     // And not on one that is a full cycle late either.
-    expect(boardHealth({ ...healthy, publishedAt: now - 24 * HOUR })).toBe("fresh");
+    expect(boardHealth({ ...healthy, publishedAt: now - 12 * HOUR })).toBe("fresh");
   });
 
   it("fires once two scheduled runs have been missed", () => {
@@ -186,8 +186,8 @@ describe("the staleness threshold", () => {
     expect(
       boardHealth({
         now,
-        publishedAt: now - 27 * HOUR,
-        lastAttemptAt: now - 27 * HOUR,
+        publishedAt: now - 15 * HOUR,
+        lastAttemptAt: now - 15 * HOUR,
         lastAttemptFailed: false,
         refreshing: false,
       }),
