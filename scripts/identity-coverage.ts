@@ -35,6 +35,20 @@ const CACHE = join(process.cwd(), ".cache", "identity-coverage");
 const PRODUCTION_CONVEX_URL = "https://limitless-elk-261.convex.cloud";
 const CURRENT_SHAPE = { season: 2026, scoringId: "half_ppr", teams: 10 };
 
+interface IdentityBoardSource {
+  source: string;
+  season: number;
+  scoringId: string;
+  teams: number;
+  rows: Array<{
+    playerId: string;
+    sleeperId?: string;
+    name: string;
+    position: string;
+    team: string | null;
+  }>;
+}
+
 function argument(name: string): string | null {
   const index = process.argv.indexOf(name);
   if (index === -1) return null;
@@ -55,7 +69,7 @@ async function fetchFresh(name: string, url: string): Promise<string> {
   return text;
 }
 
-async function fetchCurrentBoard() {
+async function fetchCurrentBoard(): Promise<IdentityBoardSource> {
   const response = await fetch(`${PRODUCTION_CONVEX_URL}/api/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -75,12 +89,32 @@ async function fetchCurrentBoard() {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("production draft board returned no rows");
   }
-  return parseBoardFixture({
+  const rows = value.flatMap((item, index) => {
+    if (typeof item !== "object" || item === null) {
+      throw new Error(`production draft board row ${index} is not an object`);
+    }
+    const row = item as Record<string, unknown>;
+    if (
+      typeof row.playerId !== "string" ||
+      typeof row.name !== "string" ||
+      typeof row.position !== "string" ||
+      !(typeof row.team === "string" || row.team === null)
+    ) {
+      throw new Error(`production draft board row ${index} has no usable identity`);
+    }
+    return [{
+      playerId: row.playerId,
+      ...(typeof row.sleeperId === "string" ? { sleeperId: row.sleeperId } : {}),
+      name: row.name,
+      position: row.position,
+      team: row.team,
+    }];
+  });
+  return {
     source: `live production draft:board, ${PRODUCTION_CONVEX_URL}`,
     ...CURRENT_SHAPE,
-    computedAt: 0,
-    rows: value,
-  });
+    rows,
+  };
 }
 
 function line(label: string, counts: CoverageCounts): void {
@@ -127,7 +161,7 @@ function unresolved(label: string, counts: CoverageCounts): void {
 
 async function main(): Promise<void> {
   const boardPath = argument("--board");
-  const fixture =
+  const fixture: IdentityBoardSource =
     boardPath === null
       ? await fetchCurrentBoard()
       : parseBoardFixture(

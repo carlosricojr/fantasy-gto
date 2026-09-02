@@ -4,6 +4,10 @@ import { ChevronDown, ChevronUp, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  isRecommendationEligible,
+  rosterStatusLabel,
+} from "@/lib/nfl/draft/status";
 import type { PoolPlayer } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
 
@@ -61,8 +65,13 @@ export function QueuePanel({
         <>
           {onTheClock ? (
             <div className="border-b p-3">
-              <Button className="w-full" size="sm" onClick={() => onRecord(rows[0].id)}>
-                Take {rows[0].name}
+              <Button
+                className="w-full"
+                size="sm"
+                variant={isRecommendationEligible(rows[0].rosterStatus) ? "default" : "outline"}
+                onClick={() => onRecord(rows[0].id)}
+              >
+                {isRecommendationEligible(rows[0].rosterStatus) ? "Take" : "Review"} {rows[0].name}
               </Button>
             </div>
           ) : null}
@@ -87,7 +96,12 @@ export function QueuePanel({
                 >
                   {positionLabel(player.position)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm">{player.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {player.name}
+                  {rosterStatusLabel(player.rosterStatus, player.rosterStatusCode) === null
+                    ? ""
+                    : ` · ${rosterStatusLabel(player.rosterStatus, player.rosterStatusCode)}`}
+                </span>
                 <span className="flex shrink-0 items-center">
                   {/* `aria-disabled` rather than `disabled`, for the reason the status
                       bar's Undo carries: moving an entry to the end of the queue disables

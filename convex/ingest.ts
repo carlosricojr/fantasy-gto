@@ -1,9 +1,10 @@
 "use node";
 
+import { createHash } from "node:crypto";
 import { v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
-import { boardJobKind } from "./draft";
+import { boardJobKind, catalogJobKind } from "./draft";
 import { type ActionCtx, internalAction } from "./_generated/server";
 
 import type { Contribution } from "../lib/core/domain";
@@ -126,6 +127,9 @@ function shrunkAvailability(priorSeasonGames: number, hasHistory: boolean): numb
 /** Batch size for writes. Small enough to stay well inside a transaction's limits. */
 const WRITE_BATCH = 100;
 
+/** A valid NFL draft catalog should comfortably clear this even in a thin preseason. */
+const MIN_ACTIVE_DRAFT_PLAYERS = 300;
+
 /**
  * How many weeks a player may go without appearing before they stop being projected.
  *
@@ -212,6 +216,7 @@ export interface ProjectWeekResult {
 
 /** The database surface the run needs. Narrowed so a test can supply it directly. */
 type ProjectWriteCtx = Pick<ActionCtx, "runMutation">;
+type CatalogWriteCtx = Pick<ActionCtx, "runMutation" | "runQuery">;
 
 /**
  * The body of `projectWeek`, with its data source and database handed in.
@@ -760,6 +765,137 @@ export const syncSchedule = internalAction({
 });
 
 /**
+ * Publishes the complete draft identity and current roster-status catalog.
+ *
+ * This intentionally has its own fast clock. Player existence and current eligibility do
+ * not vary by scoring format or league size, so rebuilding 33 valuation boards to learn
+ * one player moved to reserve is both slower and less reliable than one season-wide join.
+ */
+export const refreshDraftPlayerCatalog = internalAction({
+  args: { season: v.optional(v.number()) },
+  handler: async (ctx, { season }) => {
+    let target = season;
+    if (target === undefined) {
+      const state = await ctx.runQuery(api.season.current, {});
+      const plan = planDraftRefresh(state ?? null);
+      if (plan.kind === "skip") return { players: 0, active: 0, skipped: plan.reason };
+      target = plan.season;
+    }
+    return runRefreshDraftPlayerCatalog(ctx, target, new NflverseProvider());
+  },
+});
+
+export async function runRefreshDraftPlayerCatalog(
+  ctx: CatalogWriteCtx,
+  season: number,
+  provider: NflverseProvider,
+): Promise<{
+  players: number;
+  active: number;
+  unknownStatuses: Array<{ code: string; count: number }>;
+  unchanged: boolean;
+}> {
+  const jobId = await ctx.runMutation(internal.jobs.start, {
+    kind: catalogJobKind(season),
+    detail: `Refreshing ${season} draft player identities and roster status`,
+  });
+
+  try {
+    const roster = await provider.draftRoster(season);
+    if (!roster.ok) throw new Error(roster.reason);
+
+    // A bye is useful when an unpriced player is recorded. It is not allowed to hold the
+    // status update hostage: before a schedule release the catalog is still what makes the
+    // player recordable, so missing schedule data yields null byes rather than no catalog.
+    const contests = await provider.allContests();
+    const byes = contests.ok ? teamByeWeeks(contests.data, season) : new Map<string, number>();
+
+    const rows = roster.data.entries
+      .filter((entry) =>
+        DRAFTABLE_POSITIONS.includes(
+          entry.position as (typeof DRAFTABLE_POSITIONS)[number],
+        ),
+      )
+      .map((entry) => ({
+        playerId: entry.playerId,
+        ...(entry.sleeperId === null ? {} : { sleeperId: entry.sleeperId }),
+        name: entry.name,
+        position: entry.position,
+        team: entry.team,
+        byeWeek: entry.team === null ? null : (byes.get(entry.team) ?? null),
+        rosterStatus: entry.status,
+        rosterStatusCode: entry.statusCode,
+      }))
+      .sort((a, b) => a.playerId.localeCompare(b.playerId));
+    const active = rows.filter((row) => row.rosterStatus === "active").length;
+    if (active < MIN_ACTIVE_DRAFT_PLAYERS) {
+      throw new Error(
+        `The ${season} roster contains only ${active} active draftable players; ` +
+          `expected at least ${MIN_ACTIVE_DRAFT_PLAYERS}. The release is truncated or its ` +
+          `status codes changed, so the previous catalog remains live.`,
+      );
+    }
+
+    const unknownStatuses = [...roster.data.unknownStatus]
+      .map(([code, count]) => ({ code, count }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+    const computedAt = Date.now();
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(rows))
+      .digest("hex");
+    const current = await ctx.runQuery(internal.draft.catalogRunState, { season });
+    if (current?.fingerprint === fingerprint) {
+      await ctx.runMutation(internal.draft.touchCatalog, {
+        season,
+        checkedAt: computedAt,
+        fingerprint,
+      });
+      await ctx.runMutation(internal.jobs.finish, {
+        jobId,
+        status: "succeeded",
+        error: null,
+      });
+      return { players: rows.length, active, unknownStatuses, unchanged: true };
+    }
+    for (const batch of chunk(rows, WRITE_BATCH)) {
+      await ctx.runMutation(internal.draft.upsertCatalogBatch, {
+        season,
+        computedAt,
+        rows: batch,
+      });
+    }
+    await ctx.runMutation(internal.draft.publishCatalog, {
+      season,
+      computedAt,
+      playerCount: rows.length,
+      activeCount: active,
+      fingerprint,
+      unknownStatuses,
+    });
+    for (;;) {
+      const pruned = await ctx.runMutation(internal.draft.pruneCatalog, {
+        season,
+        computedBefore: computedAt,
+      });
+      if (!pruned.more) break;
+    }
+    await ctx.runMutation(internal.jobs.finish, {
+      jobId,
+      status: "succeeded",
+      error: null,
+    });
+    return { players: rows.length, active, unknownStatuses, unchanged: false };
+  } catch (error) {
+    await ctx.runMutation(internal.jobs.finish, {
+      jobId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/**
  * Builds the season-long draft board.
  *
  * Distinct from `projectWeek` in what it needs and when it runs. A weekly projection is
@@ -1081,8 +1217,8 @@ export async function runBuildDraftBoard(
       );
 
       // A player neither side can value cannot be valued by anything. Listing him at zero
-      // would rank him below every kicker; omitting him is honest, and he can still be
-      // drafted manually.
+      // would rank him below every kicker; omitting him from the valuation table is honest.
+      // The independent draft-player catalog still makes him searchable and recordable.
       //
       // Gated on `modeled`, not on the row count. Those agree for QB/RB/WR/TE, where no
       // prior games means no projection — but a kicker accumulates a history row per game

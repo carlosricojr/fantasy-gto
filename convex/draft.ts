@@ -2,7 +2,8 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
+import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 
 /**
  * Draft board reads and writes.
@@ -35,6 +36,29 @@ const boardRowValidator = v.object({
   p10: v.number(),
   p90: v.number(),
   quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
+});
+
+const rosterStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("cut"),
+  v.literal("practice-squad"),
+  v.literal("reserve"),
+  v.literal("inactive"),
+  v.literal("retired"),
+  v.literal("traded"),
+  v.literal("unknown"),
+);
+
+/** One current identity/status row, independent of any league's valuation. */
+const catalogRowValidator = v.object({
+  playerId: v.string(),
+  sleeperId: v.optional(v.string()),
+  name: v.string(),
+  position: v.string(),
+  team: v.union(v.string(), v.null()),
+  byeWeek: v.union(v.number(), v.null()),
+  rosterStatus: rosterStatusValidator,
+  rosterStatusCode: v.string(),
 });
 
 /**
@@ -71,34 +95,112 @@ export const board = query({
       )
       .collect();
 
-    rows.sort(
-      (a, b) =>
-        b.blendedPoints - a.blendedPoints || (a.playerId < b.playerId ? -1 : 1),
-    );
+    const catalogRun = await publishedCatalogRun(ctx, season);
+    const catalogRows =
+      catalogRun === null
+        ? []
+        : await ctx.db
+            .query("draftPlayerCatalog")
+            .withIndex("by_catalog_run", (q) =>
+              q
+                .eq("sport", "nfl")
+                .eq("season", season)
+                .eq("computedAt", catalogRun.publishedAt),
+            )
+            .collect();
+    const catalogById = new Map(catalogRows.map((row) => [row.playerId, row]));
+    const valuedIds = new Set(rows.map((row) => row.playerId));
 
-    return rows.map((row) => ({
-      playerId: row.playerId,
-      ...(row.sleeperId === undefined ? {} : { sleeperId: row.sleeperId }),
-      name: row.name,
-      position: row.position,
-      team: row.team,
-      modelPoints: row.modelPoints,
-      marketPoints: row.marketPoints,
-      // Older published runs predate this field. `null` means the client knows no basis;
-      // it must not infer one from equal, rounded player values.
-      marketValueBasis: row.marketValueBasis ?? null,
-      blendedPoints: row.blendedPoints,
-      adp: row.adp,
-      adpStdev: row.adpStdev,
-      byeWeek: row.byeWeek,
-      availability: row.availability,
-      p10: row.p10,
-      p90: row.p90,
-      // Carried to the client so the interface can decline to present an assumed spread
-      // as evidence. Nothing renders a range today; the marker exists so that when
-      // something does, it cannot do so without knowing which kind it has.
-      quantileProvenance: row.quantileProvenance,
-    }));
+    // A valuation and an identity/status snapshot move on different clocks. Join them at
+    // read time: prices can stay atomic per league shape while one catalog refresh updates
+    // every shape's roster truth at once.
+    const served = rows.map((row) => {
+      const current = catalogById.get(row.playerId);
+      const isDefense = row.position === "DST";
+      const rosterStatus =
+        current?.rosterStatus ??
+        (isDefense ? "active" : catalogRun === null ? null : "unknown");
+      return {
+        playerId: row.playerId,
+        ...((current?.sleeperId ?? row.sleeperId) === undefined
+          ? {}
+          : { sleeperId: current?.sleeperId ?? row.sleeperId }),
+        name: current?.name ?? row.name,
+        position: current?.position ?? row.position,
+        team: current?.team ?? row.team,
+        modelPoints: row.modelPoints,
+        marketPoints: row.marketPoints,
+        // Older published runs predate this field. `null` means the client knows no basis;
+        // it must not infer one from equal, rounded player values.
+        marketValueBasis: row.marketValueBasis ?? null,
+        blendedPoints: row.blendedPoints as number | null,
+        adp: row.adp,
+        adpStdev: row.adpStdev,
+        byeWeek: current?.byeWeek ?? row.byeWeek,
+        availability: row.availability as number | null,
+        p10: row.p10,
+        p90: row.p90,
+        quantileProvenance: row.quantileProvenance,
+        rosterStatus,
+        rosterStatusCode:
+          current?.rosterStatusCode ?? (isDefense ? "TEAM" : null),
+        statusUpdatedAt: catalogRun?.checkedAt ?? null,
+      };
+    });
+
+    // The catalog is the recordability contract. A missing valuation becomes an explicit
+    // unpriced row instead of becoming a missing player. It is kept out of recommendation
+    // inputs on the client, but remains searchable and can be attached to a real pick.
+    for (const current of catalogRows) {
+      if (valuedIds.has(current.playerId)) continue;
+      const band =
+        OUTCOME_QUANTILES[current.position as keyof typeof OUTCOME_QUANTILES] ??
+        PLACEHOLDER_QUANTILES;
+      served.push({
+        playerId: current.playerId,
+        ...(current.sleeperId === undefined ? {} : { sleeperId: current.sleeperId }),
+        name: current.name,
+        position: current.position,
+        team: current.team,
+        modelPoints: null,
+        marketPoints: null,
+        marketValueBasis: null,
+        blendedPoints: null,
+        adp: null,
+        adpStdev: null,
+        byeWeek: current.byeWeek,
+        availability: null,
+        p10: band.p10,
+        p90: band.p90,
+        quantileProvenance: band.provenance,
+        rosterStatus: current.rosterStatus,
+        rosterStatusCode: current.rosterStatusCode,
+        statusUpdatedAt: catalogRun?.checkedAt ?? null,
+      });
+    }
+
+    // Advice first, record-only identities second. Within those groups the original value
+    // order remains total and deterministic. A current reserve player with an old high ADP
+    // must not sit above healthy recommendations merely because the value snapshot predates
+    // his designation.
+    served.sort((a, b) => {
+      const group = (row: (typeof served)[number]) => {
+        const eligible = row.rosterStatus === null || row.rosterStatus === "active";
+        if (eligible && row.blendedPoints !== null) return 0;
+        if (eligible) return 1;
+        if (row.rosterStatus === "unknown") return 3;
+        return 2;
+      };
+      return (
+        group(a) - group(b) ||
+        (b.blendedPoints ?? Number.NEGATIVE_INFINITY) -
+          (a.blendedPoints ?? Number.NEGATIVE_INFINITY) ||
+        a.name.localeCompare(b.name) ||
+        (a.playerId < b.playerId ? -1 : 1)
+      );
+    });
+
+    return served;
   },
 });
 
@@ -152,6 +254,20 @@ export const boardFreshness = query({
   },
 });
 
+/** Fingerprint of the live snapshot, for the refresh action's unchanged fast path. */
+export const catalogRunState = internalQuery({
+  args: { season: v.number() },
+  handler: async (ctx, { season }) => {
+    const run = await publishedCatalogRun(ctx, season);
+    if (run === null) return null;
+    return {
+      publishedAt: run.publishedAt,
+      checkedAt: run.checkedAt,
+      fingerprint: run.fingerprint,
+    };
+  },
+});
+
 /**
  * The `jobs.kind` a board build records itself under.
  *
@@ -166,6 +282,40 @@ export function boardJobKind(
 ): string {
   return `draft:${season}-${scoringId}-${teams}`;
 }
+
+/** One job kind for the season-wide identity/status snapshot. */
+export function catalogJobKind(season: number): string {
+  return `draft-catalog:${season}`;
+}
+
+/**
+ * Freshness and drift of the status layer, reported independently from valuation age.
+ *
+ * A six-hour-old price can be usable while a six-hour-old roster designation is not. One
+ * timestamp for both lets the slower clock hide the faster one's failure, which is exactly
+ * how a morning board still recommended an afternoon-exempt player.
+ */
+export const catalogFreshness = query({
+  args: { season: v.number() },
+  handler: async (ctx, { season }) => {
+    const run = await publishedCatalogRun(ctx, season);
+    const attempt = await ctx.db
+      .query("jobs")
+      .withIndex("by_kind_started", (q) => q.eq("kind", catalogJobKind(season)))
+      .order("desc")
+      .first();
+
+    if (run === null && attempt === null) return null;
+    return {
+      computedAt: run?.checkedAt ?? null,
+      playerCount: run?.playerCount ?? null,
+      activeCount: run?.activeCount ?? null,
+      unknownStatuses: run?.unknownStatuses ?? [],
+      lastAttemptAt: attempt?.startedAt ?? null,
+      lastAttemptStatus: attempt?.status ?? null,
+    };
+  },
+});
 
 /** `computedAt` of the last completed run for a league shape, or `null` if none has. */
 async function publishedRun(
@@ -197,6 +347,21 @@ async function publishedRun(
   // The whole row rather than only its timestamp, because callers now need the provenance
   // alongside it and reading them from two separate maxima could pair one run's timestamp
   // with another's source.
+  return runs.reduce((newest, run) =>
+    run.publishedAt > newest.publishedAt ? run : newest,
+  );
+}
+
+/** The newest complete season catalog snapshot, or null before the first refresh. */
+async function publishedCatalogRun(
+  ctx: QueryCtx,
+  season: number,
+): Promise<Doc<"draftPlayerCatalogRuns"> | null> {
+  const runs = await ctx.db
+    .query("draftPlayerCatalogRuns")
+    .withIndex("by_catalog", (q) => q.eq("sport", "nfl").eq("season", season))
+    .collect();
+  if (runs.length === 0) return null;
   return runs.reduce((newest, run) =>
     run.publishedAt > newest.publishedAt ? run : newest,
   );
@@ -309,6 +474,122 @@ export const upsertBoardBatch = internalMutation({
       written += 1;
     }
     return { written };
+  },
+});
+
+/** Writes one run-scoped batch of the complete draft player catalog. */
+export const upsertCatalogBatch = internalMutation({
+  args: {
+    season: v.number(),
+    computedAt: v.number(),
+    rows: v.array(catalogRowValidator),
+  },
+  handler: async (ctx, { season, computedAt, rows }) => {
+    let written = 0;
+    for (const row of rows) {
+      const forPlayer = await ctx.db
+        .query("draftPlayerCatalog")
+        .withIndex("by_catalog_player", (q) =>
+          q.eq("sport", "nfl").eq("season", season).eq("playerId", row.playerId),
+        )
+        .collect();
+      const thisRun = forPlayer.find((existing) => existing.computedAt === computedAt);
+      const doc = { sport: "nfl", season, ...row, computedAt };
+      if (thisRun) await ctx.db.patch(thisRun._id, doc);
+      else await ctx.db.insert("draftPlayerCatalog", doc);
+      written += 1;
+    }
+    return { written };
+  },
+});
+
+/** Atomically makes a complete identity/status snapshot visible to every draft shape. */
+export const publishCatalog = internalMutation({
+  args: {
+    season: v.number(),
+    computedAt: v.number(),
+    playerCount: v.number(),
+    activeCount: v.number(),
+    fingerprint: v.string(),
+    unknownStatuses: v.array(v.object({ code: v.string(), count: v.number() })),
+  },
+  handler: async (
+    ctx,
+    { season, computedAt, playerCount, activeCount, fingerprint, unknownStatuses },
+  ) => {
+    const runs = await ctx.db
+      .query("draftPlayerCatalogRuns")
+      .withIndex("by_catalog", (q) => q.eq("sport", "nfl").eq("season", season))
+      .collect();
+    const [existing, ...duplicates] = runs;
+    if (existing) {
+      for (const duplicate of duplicates) await ctx.db.delete(duplicate._id);
+      if (computedAt <= existing.publishedAt) return;
+      await ctx.db.patch(existing._id, {
+        publishedAt: computedAt,
+        checkedAt: computedAt,
+        fingerprint,
+        playerCount,
+        activeCount,
+        unknownStatuses,
+      });
+      return;
+    }
+    await ctx.db.insert("draftPlayerCatalogRuns", {
+      sport: "nfl",
+      season,
+      publishedAt: computedAt,
+      checkedAt: computedAt,
+      fingerprint,
+      playerCount,
+      activeCount,
+      unknownStatuses,
+    });
+  },
+});
+
+/** Marks an unchanged snapshot freshly verified without rewriting hundreds of rows. */
+export const touchCatalog = internalMutation({
+  args: {
+    season: v.number(),
+    checkedAt: v.number(),
+    fingerprint: v.string(),
+  },
+  handler: async (ctx, { season, checkedAt, fingerprint }) => {
+    const runs = await ctx.db
+      .query("draftPlayerCatalogRuns")
+      .withIndex("by_catalog", (q) => q.eq("sport", "nfl").eq("season", season))
+      .collect();
+    if (runs.length === 0) return { touched: false };
+    const newest = runs.reduce((latest, run) =>
+      run.publishedAt > latest.publishedAt ? run : latest,
+    );
+    // The action read this fingerprint before asking to touch. If another refresh
+    // published between those operations, do not put the new run under the old check time.
+    if (newest.fingerprint !== fingerprint || checkedAt <= newest.checkedAt) {
+      return { touched: false };
+    }
+    await ctx.db.patch(newest._id, { checkedAt });
+    return { touched: true };
+  },
+});
+
+/** Bounded cleanup of catalog runs no reader can see after publication. */
+export const pruneCatalog = internalMutation({
+  args: { season: v.number(), computedBefore: v.number() },
+  handler: async (ctx, { season, computedBefore }) => {
+    const stale = await ctx.db
+      .query("draftPlayerCatalog")
+      .withIndex("by_catalog_run", (q) =>
+        q
+          .eq("sport", "nfl")
+          .eq("season", season)
+          .lt("computedAt", computedBefore),
+      )
+      .take(PRUNE_PAGE + 1);
+    const page = stale.slice(0, PRUNE_PAGE);
+    for (const row of page) await ctx.db.delete(row._id);
+    return { deleted: page.length, more: stale.length > PRUNE_PAGE };
   },
 });
 

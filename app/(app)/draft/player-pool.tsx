@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { survivalProbability } from "@/lib/core/draft";
 import { cn } from "@/lib/utils";
+import {
+  isRecommendationEligible,
+  rosterStatusLabel,
+} from "@/lib/nfl/draft/status";
 import { BasisBadge } from "./basis-badge";
 import { pickLabel } from "./board-view";
 import {
@@ -417,6 +421,11 @@ function PoolRow({
   onOpenDetail: (playerId: string) => void;
 }) {
   const drafted = player.draftedAt !== null;
+  const recommendationEligible = isRecommendationEligible(player.rosterStatus);
+  const statusLabel = rosterStatusLabel(
+    player.rosterStatus,
+    player.rosterStatusCode,
+  );
 
   // The probability the market leaves him on the board until your next turn. This is the
   // question a draft actually asks — "can I wait?" — and `survivalProbability` has been
@@ -424,7 +433,7 @@ function PoolRow({
   // it. Shown only when there is a later pick to wait for, and never for a player already
   // gone, where it would be a statement about the past.
   const survival =
-    waitPick === null || drafted
+    waitPick === null || drafted || !recommendationEligible
       ? null
       : survivalProbability(player, waitPick, unrankedAdp);
 
@@ -505,6 +514,11 @@ function PoolRow({
               ) : null}
               {/* Beside the number it qualifies, not two screens above it. */}
               <BasisBadge basis={player.basis} />
+              {statusLabel === null ? null : (
+                <span className="ml-1 font-medium text-amber-700 dark:text-amber-300">
+                  · {statusLabel}
+                </span>
+              )}
             </span>
           </span>
         </div>
@@ -519,7 +533,11 @@ function PoolRow({
       </td>
 
       <td className="pr-3 text-right align-middle font-medium whitespace-nowrap tabular-nums">
-        {player.seasonPoints.toFixed(0)}
+        {player.seasonPoints === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          player.seasonPoints.toFixed(0)
+        )}
       </td>
 
       <td className="hidden pr-3 text-right align-middle whitespace-nowrap tabular-nums lg:table-cell">
@@ -540,14 +558,14 @@ function PoolRow({
         ) : (
           <Button
             size="sm"
-            variant={onTheClock ? "default" : "outline"}
+            variant={onTheClock && recommendationEligible ? "default" : "outline"}
             onClick={() => onRecord(player.id)}
             // The visible label is short so the column stays narrow; the accessible name
             // carries who the pick is for, because that is the part that goes wrong.
             aria-label={`${actionLabel}: ${player.name}`}
             title={`${actionLabel} — ${player.name}`}
           >
-            {onTheClock ? "Take" : "Record"}
+            {onTheClock ? (recommendationEligible ? "Take" : "Take?") : "Record"}
           </Button>
         )}
       </td>

@@ -270,6 +270,62 @@ export default defineSchema({
      */
     adpSourceTeams: v.optional(v.number()),
   }).index("by_board", ["sport", "season", "scoringId", "teams"]),
+
+  /**
+   * Complete, current identities for recording a draft.
+   *
+   * This is deliberately separate from `draftBoard`. A player's existence is not a
+   * scoring-format or league-size fact, and it must not depend on whether the model or an
+   * ADP feed can value him. Each refresh is run-scoped and published atomically through
+   * `draftPlayerCatalogRuns`, so a multi-batch status update is never served half-old and
+   * half-new.
+   */
+  draftPlayerCatalog: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    playerId: v.string(),
+    sleeperId: v.optional(v.string()),
+    name: v.string(),
+    position: v.string(),
+    team: v.union(v.string(), v.null()),
+    byeWeek: v.union(v.number(), v.null()),
+    rosterStatus: v.union(
+      v.literal("active"),
+      v.literal("cut"),
+      v.literal("practice-squad"),
+      v.literal("reserve"),
+      v.literal("inactive"),
+      v.literal("retired"),
+      v.literal("traded"),
+      v.literal("unknown"),
+    ),
+    /** Raw upstream code, e.g. ACT, RES, EXE. */
+    rosterStatusCode: v.string(),
+    computedAt: v.number(),
+  })
+    .index("by_catalog_run", ["sport", "season", "computedAt"])
+    .index("by_catalog_player", ["sport", "season", "playerId"]),
+
+  /** Pointer to the last complete catalog/status snapshot for a season. */
+  draftPlayerCatalogRuns: defineTable({
+    sport: v.string(),
+    season: v.number(),
+    /** When row content last changed and a new atomic snapshot was published. */
+    publishedAt: v.number(),
+    /** When upstream last successfully confirmed this snapshot, even if unchanged. */
+    checkedAt: v.number(),
+    /** SHA-256 of the canonical rows, used to avoid rewriting an unchanged catalog. */
+    fingerprint: v.string(),
+    playerCount: v.number(),
+    activeCount: v.number(),
+    unknownStatuses: v.array(
+      v.object({
+        code: v.string(),
+        count: v.number(),
+      }),
+    ),
+  }).index("by_catalog", ["sport", "season"]),
+
   /**
    * Model output. The product's primary read.
    *

@@ -12,7 +12,12 @@ import { normalizeTeam } from "../nfl/teams";
 import { type InjuryParseReport, toRegularSeasonInjuries } from "../nfl/injuries";
 import { type PlayerProfile, toPlayerProfiles } from "../nfl/players";
 import { type SnapCount, toRegularSeasonSnaps } from "../nfl/snaps";
-import { type WeeklyRosterReport, toWeeklyRoster } from "../nfl/weekly-roster";
+import {
+  type RosterStatus,
+  type WeeklyRosterReport,
+  toRosterStatus,
+  toWeeklyRoster,
+} from "../nfl/weekly-roster";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
 
 /**
@@ -279,41 +284,138 @@ export interface RosterEntry {
   rookieYear: number | null;
 }
 
-/** Pure parse of the season roster release. */
-export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
-  const entries: RosterEntry[] = [];
-  // A player traded mid-season can appear active on two teams in the same release. The
-  // board is keyed by `(board, playerId)`, so both rows are written and the later one wins
-  // — meaning the team shown is whichever the file happened to list last, silently. Kept
-  // once, at the first active row, so the choice is at least deterministic and the
-  // duplicate cannot masquerade as two draftable players.
-  const seen = new Set<string>();
+/**
+ * One identity in the complete season roster release.
+ *
+ * Unlike `RosterEntry`, this is a recording catalog rather than a recommendation set:
+ * reserve, exempt, cut and otherwise inactive players stay present so a real draft pick
+ * can always be recorded. A missing GSIS id is not grounds to erase a player either; the
+ * best stable provider bridge available becomes the catalog id instead.
+ */
+export interface DraftRosterEntry {
+  /** GSIS when present; otherwise a namespaced provider id or deterministic roster id. */
+  playerId: string;
+  /** The statistics join key. Null means the player cannot receive a model valuation yet. */
+  gsisId: string | null;
+  sleeperId: string | null;
+  name: string;
+  position: string;
+  team: string | null;
+  rookieYear: number | null;
+  status: RosterStatus;
+  /** The upstream code, retained so a new designation is visible rather than guessed. */
+  statusCode: string;
+}
+
+export interface DraftRosterReport {
+  entries: DraftRosterEntry[];
+  /** Upstream codes not covered by `toRosterStatus`, with their observed counts. */
+  unknownStatus: Map<string, number>;
+}
+
+/** Stable fallback for the small set of roster rows that do not yet have a GSIS id. */
+function catalogPlayerId(row: CsvRow, name: string, position: string): string {
+  const gsisId = str(row, "gsis_id");
+  if (gsisId !== "") return gsisId;
+
+  for (const [column, namespace] of [
+    ["sleeper_id", "sleeper"],
+    ["espn_id", "espn"],
+    ["smart_id", "smart"],
+    ["pfr_id", "pfr"],
+  ] as const) {
+    const value = str(row, column);
+    if (value !== "") return `${namespace}:${value}`;
+  }
+
+  // Last resort only. Team is deliberately absent: a transaction must not change the id
+  // in the middle of a draft. Same-name/same-position collisions are disambiguated below.
+  const slug = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `roster:${position.toLowerCase()}:${slug}`;
+}
+
+/**
+ * Parses the complete player catalog from a season roster release.
+ *
+ * An active duplicate wins (a mid-transaction file can carry the old and new rows), then
+ * the first row wins for equal states so results remain deterministic. Unknown status
+ * codes remain unknown and are counted; silently reading one as active is the dangerous
+ * direction for draft advice.
+ */
+export function parseDraftRoster(rows: readonly CsvRow[]): DraftRosterReport {
+  const entries: DraftRosterEntry[] = [];
+  const indexById = new Map<string, number>();
+  const unknownStatus = new Map<string, number>();
+
   for (const row of rows) {
-    // Only active players. `RET`, `CUT`, and the rest are on the file too.
-    if (str(row, "status").toUpperCase() !== "ACT") continue;
-
-    // `gsis_id` is the join key to weekly statistics. Without it a roster row cannot be
-    // connected to any production history, so it would price a player from nothing.
-    const playerId = str(row, "gsis_id");
-    if (playerId === "" || seen.has(playerId)) continue;
-
     const name = str(row, "full_name") || str(row, "player_name");
     if (name === "") continue;
 
     let position = str(row, "position").toUpperCase();
     if (position === "FB") position = "RB";
+    if (position === "") continue;
 
-    seen.add(playerId);
-    entries.push({
+    const statusCode = str(row, "status").trim().toUpperCase();
+    const status = toRosterStatus(statusCode);
+    if (status === "unknown") {
+      const key = statusCode || "(blank)";
+      unknownStatus.set(key, (unknownStatus.get(key) ?? 0) + 1);
+    }
+
+    const baseId = catalogPlayerId(row, name, position);
+    let playerId = baseId;
+    // A namespaced provider id is unique. Only the last-resort name id can collide, and
+    // preserving both players is safer than silently letting one erase the other.
+    if (baseId.startsWith("roster:") && indexById.has(baseId)) {
+      const team = normalizeTeam(str(row, "team")) ?? "fa";
+      playerId = `${baseId}:${team.toLowerCase()}`;
+    }
+
+    const entry: DraftRosterEntry = {
       playerId,
+      gsisId: str(row, "gsis_id") || null,
       sleeperId: str(row, "sleeper_id") || null,
       name,
       position,
       team: normalizeTeam(str(row, "team")),
       rookieYear: positiveIntOrNull(str(row, "rookie_year")),
-    });
+      status,
+      statusCode,
+    };
+
+    const existingIndex = indexById.get(playerId);
+    if (existingIndex === undefined) {
+      indexById.set(playerId, entries.length);
+      entries.push(entry);
+      continue;
+    }
+    if (entries[existingIndex].status !== "active" && status === "active") {
+      entries[existingIndex] = entry;
+    }
   }
-  return entries;
+
+  return { entries, unknownStatus };
+}
+
+/** Pure parse of the season roster release. */
+export function parseSeasonRoster(rows: readonly CsvRow[]): RosterEntry[] {
+  return parseDraftRoster(rows).entries.flatMap((entry) =>
+    entry.status === "active" && entry.gsisId !== null
+      ? [{
+          playerId: entry.gsisId,
+          sleeperId: entry.sleeperId,
+          name: entry.name,
+          position: entry.position,
+          team: entry.team,
+          rookieYear: entry.rookieYear,
+        }]
+      : [],
+  );
 }
 
 function positiveIntOrNull(value: string): number | null {
@@ -399,47 +501,66 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
    * with a `status` other than `ACT`, and a draft board that offered them would be
    * recommending players who will not take a snap.
    */
-  private readonly rosterCache = new Map<number, ProviderResult<RosterEntry[]>>();
-  private readonly rosterInFlight = new Map<
+  private readonly draftRosterCache = new Map<number, ProviderResult<DraftRosterReport>>();
+  private readonly draftRosterInFlight = new Map<
     number,
-    Promise<ProviderResult<RosterEntry[]>>
+    Promise<ProviderResult<DraftRosterReport>>
   >();
 
   async seasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
-    // Cached for the provider's lifetime. A single action builds a board for every scoring
-    // format and league size, and each one needs the same roster file; without this it is
-    // fetched and parsed once per shape.
-    const cached = this.rosterCache.get(season);
+    const catalog = await this.draftRoster(season);
+    if (!catalog.ok) return failed(catalog.reason, catalog.cause);
+    return ok(
+      catalog.data.entries.flatMap((entry) =>
+        entry.status === "active" && entry.gsisId !== null
+          ? [{
+              playerId: entry.gsisId,
+              sleeperId: entry.sleeperId,
+              name: entry.name,
+              position: entry.position,
+              team: entry.team,
+              rookieYear: entry.rookieYear,
+            }]
+          : [],
+      ),
+    );
+  }
+
+  /** Complete recording catalog, including inactive and not-yet-valued identities. */
+  async draftRoster(season: number): Promise<ProviderResult<DraftRosterReport>> {
+    // Cached for the provider's lifetime. The catalog refresh and all board shapes can
+    // share one fetch of the same release.
+    const cached = this.draftRosterCache.get(season);
     if (cached !== undefined) return cached;
-    let inFlight = this.rosterInFlight.get(season);
+    let inFlight = this.draftRosterInFlight.get(season);
     if (inFlight === undefined) {
-      inFlight = this.fetchSeasonRoster(season).finally(() => {
-        this.rosterInFlight.delete(season);
+      inFlight = this.fetchDraftRoster(season).finally(() => {
+        this.draftRosterInFlight.delete(season);
       });
-      this.rosterInFlight.set(season, inFlight);
+      this.draftRosterInFlight.set(season, inFlight);
     }
     const result = await inFlight;
     // Only successes are cached. A failure is usually transient — a network blip, or a
     // release that upstream has not published yet — and one provider serves a whole
     // board-building run, so caching the failure turns a single bad fetch into every
     // later call for that season failing too, for the lifetime of the action.
-    if (result.ok) this.rosterCache.set(season, result);
+    if (result.ok) this.draftRosterCache.set(season, result);
     return result;
   }
 
-  private async fetchSeasonRoster(season: number): Promise<ProviderResult<RosterEntry[]>> {
+  private async fetchDraftRoster(season: number): Promise<ProviderResult<DraftRosterReport>> {
     try {
       const text = await this.fetchText(seasonRosterUrl(season));
-      const entries = parseSeasonRoster(parseCsv(text));
+      const report = parseDraftRoster(parseCsv(text));
       // An empty file parses cleanly and would report success, leaving every downstream
       // caller to conclude the league has no players rather than that the fetch was bad.
-      if (entries.length === 0) {
+      if (report.entries.length === 0) {
         return failed(
-          `Rosters for ${season} parsed to no active players. The release is probably a ` +
+          `Rosters for ${season} parsed to no players. The release is probably a ` +
             `placeholder that has not been populated yet.`,
         );
       }
-      return ok(entries);
+      return ok(report);
     } catch (cause) {
       return failed(
         `Rosters for ${season} are unavailable. They are usually published well before ` +
