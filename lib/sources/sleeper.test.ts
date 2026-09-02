@@ -1,13 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   SleeperDraftProvider,
+  SleeperDraftPoller,
   SleeperPlayersProvider,
   draftPicksUrl,
   draftUrl,
   parsePicks,
   parsePlayersDump,
   parseSettings,
+  sleeperRetryDelay,
 } from "./sleeper";
 
 /**
@@ -55,7 +58,35 @@ describe("urls", () => {
 describe("parseSettings", () => {
   it("reads teams and rounds", () => {
     const settings = parseSettings(DRAFT);
-    expect(settings).toEqual({ teams: 12, rounds: 15, type: "snake", status: "drafting" });
+    expect(settings).toMatchObject({
+      teams: 12,
+      rounds: 15,
+      type: "snake",
+      status: "drafting",
+      rosterSlots: {},
+      scoring: { identity: null },
+    });
+  });
+
+  it("retains the settings in the recorded public Sleeper payload without a live request", () => {
+    const payload = JSON.parse(
+      readFileSync(
+        new URL("../../tests/fixtures/sleeper-draft-257270643320426496.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(parseSettings(payload)).toMatchObject({
+      draftId: "257270643320426496",
+      leagueId: "257270637750382592",
+      teams: 6,
+      rounds: 15,
+      type: "snake",
+      status: "complete",
+      draftOrder: { "200837482281963520": 1 },
+      rosterSlots: { slots_flex: 2, slots_bn: 5 },
+      pickTimerSeconds: 120,
+      scoring: { identity: "ppr", metadata: { scoring_type: "ppr" } },
+    });
   });
 
   it("returns null when the numbers that matter are missing", () => {
@@ -86,11 +117,11 @@ describe("parseSettings", () => {
     expect(parseSettings({ type: "snake", settings: { teams: 10, rounds: 16.5 } })).toBeNull();
   });
 
-  it("refuses a draft format it cannot represent at all", () => {
+  it("retains unsupported provider formats for an explicit import warning", () => {
     // An auction has no pick order, so every pick number derived from it is fiction. Read
     // as a snake it produces a complete, confident board of seats that never existed.
-    expect(parseSettings({ type: "auction", settings: { teams: 10, rounds: 16 } })).toBeNull();
-    expect(parseSettings({ type: "unknown", settings: { teams: 10, rounds: 16 } })).toBeNull();
+    expect(parseSettings({ type: "auction", settings: { teams: 10, rounds: 16 } })?.type).toBe("auction");
+    expect(parseSettings({ type: "unknown", settings: { teams: 10, rounds: 16 } })?.type).toBe("unknown");
   });
 
   it("defaults only what is genuinely cosmetic", () => {
@@ -127,27 +158,28 @@ describe("parsePicks", () => {
     ).toBeNull();
   });
 
-  it("skips a pick with no usable name rather than inventing one", () => {
+  it("keeps a pick with no usable name as an explicit unresolved source event", () => {
     const picks = parsePicks([
       { pick_no: 1, draft_slot: 1, metadata: {} },
       { pick_no: 2, draft_slot: 2, metadata: { first_name: "Real", last_name: "Player" } },
     ]);
-    expect(picks).toHaveLength(1);
-    expect(picks[0].playerName).toBe("Real Player");
+    expect(picks).toHaveLength(2);
+    expect(picks[0].playerName).toBe("");
+    expect(picks[1].playerName).toBe("Real Player");
   });
 
-  it("drops a pick whose seat is unknown rather than attributing it to seat zero", () => {
+  it("keeps an unknown seat visible while refusing to attribute it to seat zero", () => {
     // The seat decides which manager owns the pick. Defaulting it files the player under
     // somebody who did not take him, and that roster is what the odds are computed from —
     // strictly worse than not recording the pick at all.
     expect(
       parsePicks([{ pick_no: 1, metadata: { first_name: "A", last_name: "B" } }]),
-    ).toEqual([]);
+    ).toMatchObject([{ draftSlot: null }]);
     expect(
       parsePicks([
         { pick_no: 1, draft_slot: "not a number", metadata: { first_name: "A", last_name: "B" } },
       ]),
-    ).toEqual([]);
+    ).toMatchObject([{ draftSlot: null }]);
 
     // Seats are 1-based. Zero and negatives parse as integers but are not seats, and
     // would attribute the pick to a manager who does not exist.
@@ -156,11 +188,11 @@ describe("parsePicks", () => {
         parsePicks([
           { pick_no: 1, draft_slot: draftSlot, metadata: { first_name: "A", last_name: "B" } },
         ]),
-      ).toEqual([]);
+      ).toMatchObject([{ draftSlot: null }]);
     }
   });
 
-  it("drops a pick whose overall number is not a real pick", () => {
+  it("keeps an invalid overall visible rather than moving it into the draft", () => {
     // Same rule as `draft_slot`, and for the same reason: an identity field that parses
     // but cannot be real puts the pick at a position no draft has. Picks are sorted by
     // this number, so an overall of 0 or -3 sorts ahead of the true first pick.
@@ -169,7 +201,7 @@ describe("parsePicks", () => {
         parsePicks([
           { pick_no: pickNo, draft_slot: 1, metadata: { first_name: "A", last_name: "B" } },
         ]),
-      ).toEqual([]);
+      ).toMatchObject([{ overall: null }]);
     }
   });
 
@@ -185,29 +217,57 @@ describe("parsePicks", () => {
     expect(withRound.round).toBe(3);
   });
 
-  it("drops a pick whose seat or number is fractional", () => {
+  it("keeps fractional provider fields as null repair states", () => {
     expect(
       parsePicks([
         { pick_no: 1, draft_slot: 2.5, metadata: { first_name: "A", last_name: "B" } },
       ]),
-    ).toEqual([]);
+    ).toMatchObject([{ draftSlot: null }]);
     expect(
       parsePicks([
         { pick_no: 1.5, draft_slot: 2, metadata: { first_name: "A", last_name: "B" } },
       ]),
-    ).toEqual([]);
+    ).toMatchObject([{ overall: null }]);
   });
 
-  it("skips a pick with no overall number", () => {
+  it("keeps a pick with no overall number visible", () => {
     // Without it the pick cannot be placed in the draft at all.
     expect(
       parsePicks([{ draft_slot: 1, metadata: { first_name: "A", last_name: "B" } }]),
-    ).toEqual([]);
+    ).toMatchObject([{ overall: null }]);
   });
 
-  it("survives junk entries", () => {
-    expect(parsePicks([null, "nope", 42])).toEqual([]);
+  it("preserves junk rows as invalid provider events instead of disappearing", () => {
+    expect(parsePicks([null, "nope", 42])).toHaveLength(3);
     expect(parsePicks([])).toEqual([]);
+  });
+
+  it("uses stable source facts, never the response index, for fallback keys", () => {
+    const rows = [
+      { draft_id: "draft", draft_slot: 1, player_id: "a", metadata: { first_name: "A" } },
+      { draft_id: "draft", draft_slot: 2, player_id: "b", metadata: { first_name: "B" } },
+    ];
+    expect(parsePicks(rows).map((pick) => pick.pickKey)).toEqual(
+      parsePicks([...rows].reverse()).map((pick) => pick.pickKey),
+    );
+  });
+
+  it("retains exact duplicate source rows as separately visible events", () => {
+    const row = { pick_no: 1, draft_slot: 1, player_id: "a", metadata: { first_name: "A" } };
+    expect(parsePicks([row, row]).map((pick) => pick.pickKey)).toEqual([
+      "unknown-draft:pick-1",
+      "unknown-draft:pick-1#duplicate-2",
+    ]);
+  });
+
+  it("assigns duplicate occurrence keys by content rather than response order", () => {
+    const rows = [
+      { pick_no: 1, draft_slot: 1, player_id: "z", metadata: { first_name: "Zed" } },
+      { pick_no: 1, draft_slot: 1, player_id: "a", metadata: { first_name: "Abe" } },
+    ];
+    const keysByPlayer = (input: typeof rows) =>
+      Object.fromEntries(parsePicks(input).map((pick) => [pick.playerId, pick.pickKey]));
+    expect(keysByPlayer(rows)).toEqual(keysByPlayer([...rows].reverse()));
   });
 
   it("refuses settings missing only one of the two counts", () => {
@@ -267,7 +327,68 @@ describe("SleeperDraftProvider", () => {
   it("rejects a non-array picks payload instead of coercing it", async () => {
     const result = await provider('{"unexpected":true}').picks("abc");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/unexpected shape/);
+    if (!result.ok) expect(result.reason).toMatch(/unexpected response/);
+  });
+});
+
+describe("SleeperDraftPoller", () => {
+  it("backs off within its documented bounds", () => {
+    expect([1, 2, 3, 4, 5, 6, 99].map(sleeperRetryDelay)).toEqual([
+      2_000,
+      4_000,
+      8_000,
+      16_000,
+      30_000,
+      30_000,
+      30_000,
+    ]);
+  });
+
+  it("is cancellable and stops after its caller confirms clean completion", async () => {
+    vi.useFakeTimers();
+    const provider = {
+      settings: vi.fn().mockResolvedValue({ ok: true, data: parseSettings(DRAFT)!, degraded: false }),
+      picks: vi.fn().mockResolvedValue({ ok: true, data: parsePicks(PICKS), degraded: false }),
+    };
+    const updates = vi.fn(() => true);
+    const complete = new SleeperDraftPoller(provider).start({
+      draftId: "abc",
+      onUpdate: updates,
+      onError: vi.fn(),
+    });
+    await vi.runAllTimersAsync();
+    expect(updates).toHaveBeenCalledTimes(1);
+    expect(provider.settings).toHaveBeenCalledTimes(1);
+    complete.cancel();
+
+    const repeating = new SleeperDraftPoller(provider).start({
+      draftId: "abc",
+      onUpdate: () => false,
+      onError: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    repeating.cancel();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(provider.settings).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("routes unexpected provider exceptions through bounded retry handling", async () => {
+    vi.useFakeTimers();
+    const provider = {
+      settings: vi.fn().mockRejectedValue(new Error("unexpected")),
+      picks: vi.fn(),
+    };
+    const onError = vi.fn();
+    const handle = new SleeperDraftPoller(provider).start({
+      draftId: "abc",
+      onUpdate: vi.fn(),
+      onError,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("unexpected"), 2_000);
+    handle.cancel();
+    vi.useRealTimers();
   });
 });
 
@@ -278,18 +399,18 @@ describe("seats above the league", () => {
     metadata: { first_name: "A", last_name: "B" },
   });
 
-  it("drops a seat past the last one when the league size is known", () => {
+  it("marks a seat past the league as unresolved rather than assigning it", () => {
     // The mirror of the below-1 rule. A seat of 14 in a twelve-team draft is not a seat,
     // and unbounded it persists and gets treated as one — a pick attributed to a manager
     // who does not exist, from the other end.
-    expect(parsePicks([pick(14)], 12)).toEqual([]);
-    expect(parsePicks([pick(13)], 12)).toEqual([]);
+    expect(parsePicks([pick(14)], 12)).toMatchObject([{ draftSlot: null }]);
+    expect(parsePicks([pick(13)], 12)).toMatchObject([{ draftSlot: null }]);
     expect(parsePicks([pick(12)], 12)).toHaveLength(1);
   });
 
   it("keeps the lower bound when the league size is not supplied", () => {
     expect(parsePicks([pick(14)])).toHaveLength(1);
-    expect(parsePicks([pick(0)])).toEqual([]);
+    expect(parsePicks([pick(0)])).toMatchObject([{ draftSlot: null }]);
   });
 });
 
@@ -331,7 +452,7 @@ describe("count boundaries", () => {
     expect(first.round).toBe(1);
   });
 
-  it("reads a name from either field, and refuses when neither is usable", () => {
+  it("reads a name from either field and retains a missing name for repair", () => {
     // `first_name` and `last_name` are separate fields upstream; a pick with only one is
     // ordinary, and a pick with neither cannot be attributed to anybody.
     expect(
@@ -344,7 +465,7 @@ describe("count boundaries", () => {
     ).toBe("Cooper");
     expect(
       parsePicks([{ pick_no: 1, draft_slot: 1, metadata: { first_name: 42, last_name: 7 } }]),
-    ).toEqual([]);
+    ).toMatchObject([{ playerName: "" }]);
   });
 });
 

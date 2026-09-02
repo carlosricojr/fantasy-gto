@@ -26,6 +26,8 @@ import {
 } from "@/lib/nfl/league-rules";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import type { IdentityRepair } from "@/lib/nfl/draft/provider-identity";
+import type { SleeperSyncPick } from "@/lib/nfl/draft/sleeper-sync";
 
 export { CHAMPIONSHIP_WEEKS, DEFAULT_CHAMPIONSHIP_WEEK, PLAYOFF_FIELDS };
 
@@ -66,6 +68,16 @@ export const LEAGUE_SIZES = SUPPORTED_LEAGUE_SIZES;
  * round count the interface could neither represent nor correct.
  */
 export const MAX_ROUNDS = 30;
+
+/** Stored source history for a connected draft. It is separate from manual board picks. */
+export interface PersistedSleeperSync {
+  draftId: string;
+  status: string;
+  /** Browser receipt time, not a claim about provider event time. */
+  lastSyncedAt: number | null;
+  providerPicks: readonly SleeperSyncPick[];
+  repairs: readonly IdentityRepair[];
+}
 
 export interface PersistedDraft {
   teams: number;
@@ -115,6 +127,8 @@ export interface PersistedDraft {
    * change.
    */
   queue: string[];
+  /** Optional so a pre-sync tab restores rather than being invalidated by this addition. */
+  sleeper: PersistedSleeperSync | null;
 }
 
 /**
@@ -194,6 +208,9 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   const picks = parsePicks(row.picks, teams * rounds);
   if (picks === null) return null;
 
+  const sleeper = parseSleeperSync(row.sleeper);
+  if (sleeper === undefined) return null;
+
   return {
     teams,
     rounds,
@@ -206,7 +223,67 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     started,
     picks,
     queue: parseQueue(row.queue),
+    sleeper,
   };
+}
+
+function parseSleeperSync(value: unknown): PersistedSleeperSync | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  if (typeof row.draftId !== "string" || row.draftId.trim() === "") return undefined;
+  if (typeof row.status !== "string" || !nullableTimestamp(row.lastSyncedAt)) return undefined;
+  if (!Array.isArray(row.providerPicks) || !Array.isArray(row.repairs)) return undefined;
+  const providerPicks: SleeperSyncPick[] = [];
+  for (const entry of row.providerPicks) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
+    const pick = entry as Record<string, unknown>;
+    if (
+      typeof pick.pickKey !== "string" ||
+      typeof pick.playerName !== "string" ||
+      !nullableWhole(pick.overall) ||
+      !nullableWhole(pick.draftSlot) ||
+      !nullableText(pick.position) ||
+      !nullableText(pick.team) ||
+      !nullableText(pick.playerId) ||
+      !(typeof pick.isKeeper === "boolean" || pick.isKeeper === null)
+    ) {
+      return undefined;
+    }
+    providerPicks.push(pick as unknown as SleeperSyncPick);
+  }
+  const repairs: IdentityRepair[] = [];
+  for (const entry of row.repairs) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
+    const repair = entry as Record<string, unknown>;
+    if (
+      typeof repair.repairId !== "string" ||
+      typeof repair.pickKey !== "string" ||
+      typeof repair.boardPlayerId !== "string"
+    ) {
+      return undefined;
+    }
+    repairs.push(repair as unknown as IdentityRepair);
+  }
+  return {
+    draftId: row.draftId,
+    status: row.status,
+    lastSyncedAt: row.lastSyncedAt as number | null,
+    providerPicks,
+    repairs,
+  };
+}
+
+function nullableWhole(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isInteger(value) && value > 0);
+}
+
+function nullableText(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function nullableTimestamp(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);
 }
 
 /**
