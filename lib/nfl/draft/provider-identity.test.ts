@@ -82,6 +82,57 @@ describe("classifyProviderPicks", () => {
     ]);
   });
 
+  it("matches a defense by normalized team when provider and board names differ", () => {
+    const results = classifyProviderPicks(
+      [
+        pick({
+          providerPlayerId: "LAR",
+          name: "Los Angeles Rams",
+          position: "DEF",
+          team: "LAR",
+        }),
+      ],
+      [
+        player({
+          id: "dst-laramsdefense",
+          providerId: null,
+          name: "LA Rams Defense",
+          position: "DST",
+          team: "LA",
+        }),
+      ],
+    );
+
+    expect(results).toMatchObject([
+      {
+        state: "matched",
+        boardPlayerId: "dst-laramsdefense",
+        matchedBy: "defense-team",
+      },
+    ]);
+  });
+
+  it("refuses to guess when a board contains duplicate defenses for one team", () => {
+    const results = classifyProviderPicks(
+      [pick({ providerPlayerId: "DEN", name: "Denver Broncos", position: "DEF", team: "DEN" })],
+      [
+        player({ id: "dst-den-a", providerId: null, name: "Denver Defense", position: "DST", team: "DEN" }),
+        player({ id: "dst-den-b", providerId: null, name: "Denver Broncos Defense", position: "DST", team: "DEN" }),
+      ],
+    );
+
+    expect(results).toMatchObject([
+      {
+        state: "ambiguous",
+        reason: "defense-team-collision",
+        candidates: [
+          { boardPlayerId: "dst-den-a" },
+          { boardPlayerId: "dst-den-b" },
+        ],
+      },
+    ]);
+  });
+
   it("does not use a stale team as a name fallback, while a provider id survives a team change", () => {
     const board = [player({ team: "SF" })];
     const results = classifyProviderPicks(
