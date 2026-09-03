@@ -5,11 +5,13 @@ an exact import, not a best-effort setup guess.
 
 ## Supported setup
 
-The board imports only a snake draft whose team count, round count, roster slots, and
-scoring identity exactly match a shipped board setup. Sleeper's `ppr`, `half_ppr`, and
-`standard` identities map to the matching local scoring IDs. Sleeper roster slots map only
-when their counts and rounds select one existing roster template; this includes Standard
-and two FLEX when every slot agrees. The adapter exposes the provider timer, draft/league
+The board imports only a snake draft whose team count, round count, starter slots, and
+scoring identity the board can represent exactly. Sleeper's `ppr`, `half_ppr`, and
+`standard` identities map to the matching local scoring IDs. Sleeper starter slots map only
+when their counts select one existing roster template; bench length remains exact through
+the independently imported round count. Ordinary draft-room controls such as the provider
+clock, auto-start, sorting, and pause window are retained as source evidence but do not block
+an otherwise exact league. The adapter exposes the provider timer, draft/league
 IDs, draft order, and raw roster slots for the current import. The persisted sync state
 stores only the draft ID, provider status, browser receipt time, provider picks, and repairs.
 

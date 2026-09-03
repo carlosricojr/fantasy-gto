@@ -21,6 +21,27 @@ import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
 const BASE = "https://api.sleeper.app/v1";
 
+/**
+ * Draft-room controls Sleeper includes on ordinary snake drafts.
+ *
+ * These affect the provider UI or clock, not the league shape, scoring, player pool, or
+ * ownership model this adapter imports. They still remain in `extraSettings` for support
+ * evidence; they simply are not custom league rules that should block every live draft.
+ */
+const DRAFT_ROOM_SETTINGS = new Set([
+  "alpha_sort",
+  "autopause_enabled",
+  "autopause_end_time",
+  "autopause_start_time",
+  "autostart",
+  "cpu_autopick",
+  "enforce_position_limits",
+  "nomination_timer",
+]);
+
+/** Zero is the only variant represented by the local all-player, ordinary snake board. */
+const ZERO_ONLY_DRAFT_SETTINGS = new Set(["player_type", "reversal_round"]);
+
 export function draftUrl(draftId: string): string {
   return `${BASE}/draft/${encodeURIComponent(draftId)}`;
 }
@@ -323,6 +344,8 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
     }
     if (key === "teams" || key === "rounds" || key === "pick_timer") continue;
     extraSettings[key] = value;
+    if (DRAFT_ROOM_SETTINGS.has(key)) continue;
+    if (ZERO_ONLY_DRAFT_SETTINGS.has(key) && toInt(value) === 0) continue;
     unsupported.push(`settings.${key}`);
   }
   return {
