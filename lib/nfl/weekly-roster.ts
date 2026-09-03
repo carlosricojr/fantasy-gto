@@ -22,9 +22,10 @@ import { normalizeTeam } from "./teams";
 /**
  * Roster status, as a closed union.
  *
- * Measured on the 2025 file: `ACT` 27,377, `DEV` 8,783, `RES` 5,763, `INA` 3,593,
- * `CUT` 951, `RET` 361, and `EXE`, `TRD`, `TRC` at 7 each. Only `ACT` is a player who can
- * be projected; the rest are on the file and must not be.
+ * Measured on the 2025 weekly file: `ACT` 27,377, `DEV` 8,783, `RES` 5,763, `INA`
+ * 3,593, `CUT` 951, `RET` 361, and `EXE`, `TRD`, `TRC` at 7 each. The season roster has
+ * a wider documented vocabulary (`PUP`, `RSN`, `RSR`, `SUS`, and others). Only `ACT` is
+ * a player who can be projected; the rest are on the file and must not be.
  *
  * All nine are mapped explicitly. An unrecognised value maps to `unknown` and is counted
  * rather than folded into `active`, because a new code silently read as active would put a
@@ -70,6 +71,21 @@ const STATUS: ReadonlyMap<string, RosterStatus> = new Map([
   ["exe", "reserve"],
   ["trd", "traded"],
   ["trc", "traded"],
+  // The season-roster vocabulary documented by nflreadr. These are all explicitly
+  // non-active. Keeping their upstream code lets the interface give the more specific
+  // designation while this closed union controls recommendation eligibility.
+  ["e14", "reserve"],
+  ["nwt", "cut"],
+  ["pup", "reserve"],
+  ["rfa", "cut"],
+  ["rsn", "reserve"],
+  ["rsr", "reserve"],
+  ["sus", "inactive"],
+  ["trt", "traded"],
+  ["ufa", "cut"],
+  // NFL.com's current roster feed uses RLS for reserve/left squad. It first appeared in
+  // the 2026 release and is not yet present in nflreadr's dictionary.
+  ["rls", "reserve"],
 ]);
 
 export function toRosterStatus(raw: string): RosterStatus {

@@ -827,9 +827,18 @@ https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_{seas
 https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_{season}.csv
 ```
 
-`roster_2026.csv` confirmed present and populated: **2,930 players across all 32 teams**,
-carrying `position`, `status` (`ACT`, `RET`, and others), and `gsis_id`, which is the same
-identifier `stats_player_week` uses as `player_id`.
+`roster_2026.csv` was re-checked on **2026-09-03** and contains **3,118 rows**, carrying
+`position`, `status`, and `gsis_id`, which is the same identifier `stats_player_week` uses
+as `player_id`. Its status counts are `ACT` 1,693, `CUT` 615, `DEV` 528, `RES` 185,
+`RSR` 47, `PUP` 30, `RSN` 8, `SUS` 7, `EXE` 4, and `RLS` 1.
+
+The parser's non-active mappings follow nflreadr's published
+[`dictionary_roster_status`](https://github.com/nflverse/nflreadr/blob/main/data-raw/dictionary_roster_status.csv).
+The sole code not yet in that dictionary is `RLS`; NFL.com's live 49ers roster uses it for
+Brandon Aiyuk while NFL reporting describes his designation as reserve/left squad, so it is
+mapped to `reserve`, not guessed active. `TRL`, which the dictionary explicitly cannot
+interpret, deliberately stays `unknown` so a genuinely unexplained source change still
+raises the drift alarm.
 
 For the draft identity bridge, verified by direct request and this repository's
 `parseSeasonRoster` on **2026-09-01**: the 1,695 active rows with usable `gsis_id` contain
