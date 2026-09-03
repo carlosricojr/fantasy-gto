@@ -39,14 +39,21 @@ export interface IdentityCandidate {
 type UnmatchedReason =
   | "missing-name-position-or-team"
   | "no-provider-id-or-fallback-match";
-type AmbiguousReason = "provider-id-collision" | "fallback-collision";
+type AmbiguousReason =
+  | "provider-id-collision"
+  | "defense-team-collision"
+  | "fallback-collision";
 
 export type PickIdentityClassification =
   | {
       state: "matched";
       input: ProviderPickIdentity;
       boardPlayerId: string;
-      matchedBy: "provider-id" | "name-position-team" | "operator-repair";
+      matchedBy:
+        | "provider-id"
+        | "defense-team"
+        | "name-position-team"
+        | "operator-repair";
       repairId?: string;
     }
   | {
@@ -91,6 +98,20 @@ function fallbackKey(
   return `${nameKey}|${positionKey}|${teamKey}`;
 }
 
+/**
+ * A defense is the NFL team, not a person. Providers legitimately name that same entity
+ * differently (for example, Sleeper's "Los Angeles Rams" and our "LA Rams Defense"),
+ * while the normalized team and DST position identify it exactly.
+ */
+function defenseTeamKey(
+  position: string | null | undefined,
+  team: string | null | undefined,
+): string | null {
+  const positionKey = normalizedPosition(position);
+  const teamKey = normalizedTeam(team);
+  return positionKey === "DST" && teamKey !== null ? `DST|${teamKey}` : null;
+}
+
 function candidate(player: PlayerIdentity): IdentityCandidate {
   return {
     boardPlayerId: player.id,
@@ -122,19 +143,23 @@ function sortedCandidates(
 
 interface BoardIndex {
   byProviderId: ReadonlyMap<string, readonly PlayerIdentity[]>;
+  byDefenseTeam: ReadonlyMap<string, readonly PlayerIdentity[]>;
   byFallback: ReadonlyMap<string, readonly PlayerIdentity[]>;
 }
 
 function buildBoardIndex(board: readonly PlayerIdentity[]): BoardIndex {
   const byProviderId = new Map<string, PlayerIdentity[]>();
+  const byDefenseTeam = new Map<string, PlayerIdentity[]>();
   const byFallback = new Map<string, PlayerIdentity[]>();
   for (const player of board) {
     const providerId = clean(player.providerId);
     if (providerId !== null) insert(byProviderId, providerId, player);
+    const defenseKey = defenseTeamKey(player.position, player.team);
+    if (defenseKey !== null) insert(byDefenseTeam, defenseKey, player);
     const key = fallbackKey(player.name, player.position, player.team);
     if (key !== null) insert(byFallback, key, player);
   }
-  return { byProviderId, byFallback };
+  return { byProviderId, byDefenseTeam, byFallback };
 }
 
 function classifyOne(
@@ -164,6 +189,27 @@ function classifyOne(
         input: pick,
         reason: "provider-id-collision",
         candidates: sortedCandidates(providerMatches),
+      };
+    }
+  }
+
+  const defenseKey = defenseTeamKey(pick.position, pick.team);
+  if (defenseKey !== null) {
+    const defenseMatches = index.byDefenseTeam.get(defenseKey) ?? [];
+    if (defenseMatches.length === 1) {
+      return {
+        state: "matched",
+        input: pick,
+        boardPlayerId: defenseMatches[0].id,
+        matchedBy: "defense-team",
+      };
+    }
+    if (defenseMatches.length > 1) {
+      return {
+        state: "ambiguous",
+        input: pick,
+        reason: "defense-team-collision",
+        candidates: sortedCandidates(defenseMatches),
       };
     }
   }
