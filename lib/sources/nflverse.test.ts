@@ -364,6 +364,20 @@ describe("parseDraftRoster", () => {
     ]);
   });
 
+  it("does not report documented current-season inactive codes as source drift", () => {
+    const csv = [
+      "season,team,position,status,full_name,gsis_id",
+      "2026,SF,WR,RLS,Left Squad Player,00-0041010",
+      "2026,SEA,RB,PUP,Physically Unable Player,00-0041011",
+      "2026,NO,WR,SUS,Suspended Player,00-0041012",
+      "2026,CLE,TE,RSN,Non Football Injury Player,00-0041013",
+      "2026,ATL,WR,RSR,Reserve Player,00-0041014",
+    ].join("\n");
+    const report = parseDraftRoster(parseCsv(csv));
+    expect(report.entries.every((entry) => entry.status !== "active")).toBe(true);
+    expect([...report.unknownStatus]).toEqual([]);
+  });
+
   it("keeps an active player without GSIS by a stable provider id", () => {
     const csv = [
       "season,team,position,status,full_name,gsis_id,sleeper_id",

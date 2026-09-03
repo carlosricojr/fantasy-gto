@@ -41,6 +41,22 @@ describe("toRosterStatus", () => {
     expect(toRosterStatus("EXE")).toBe("reserve");
   });
 
+  it("maps the wider status vocabulary in the current season roster", () => {
+    expect(toRosterStatus("E14")).toBe("reserve");
+    expect(toRosterStatus("NWT")).toBe("cut");
+    expect(toRosterStatus("PUP")).toBe("reserve");
+    expect(toRosterStatus("RFA")).toBe("cut");
+    expect(toRosterStatus("RSN")).toBe("reserve");
+    expect(toRosterStatus("RSR")).toBe("reserve");
+    expect(toRosterStatus("SUS")).toBe("inactive");
+    expect(toRosterStatus("TRT")).toBe("traded");
+    expect(toRosterStatus("UFA")).toBe("cut");
+    expect(toRosterStatus("RLS")).toBe("reserve");
+    // nflreadr explicitly says this historical code cannot be determined. It remains an
+    // alarm rather than being guessed into an eligibility state.
+    expect(toRosterStatus("TRL")).toBe("unknown");
+  });
+
   it("is case- and whitespace-insensitive", () => {
     expect(toRosterStatus(" act ")).toBe("active");
   });
