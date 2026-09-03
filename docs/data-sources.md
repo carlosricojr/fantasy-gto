@@ -693,22 +693,37 @@ backtest evaluates on 2024.
 ```text
 https://api.sleeper.app/v1/draft/{draft_id}
 https://api.sleeper.app/v1/draft/{draft_id}/picks
+https://api.sleeper.app/v1/draft/{draft_id}/traded_picks
 https://api.sleeper.app/v1/state/nfl
 ```
 
 Public and unauthenticated. `/v1/state/nfl` confirmed live, reporting the 2026 preseason
 with a season start of 2026-08-06.
 
-**Partially verified.** The endpoints are reachable and an unknown draft id was confirmed
-to return HTTP 200 with the body `null` rather than a 404 — a real hazard, since parsing
-`null` as an object surfaces as a confusing shape error. But **no live draft payload was
-captured**, because that needs an in-progress draft with a known id. The field names in
-`lib/sources/sleeper.ts` come from Sleeper's documentation, not from observation, exactly
-as with the Clerk webhook in section 6.
+**Live-verified 2026-09-03.** A 10-team, 16-round league mock was followed from its two
+commissioner-set keeper squares through all 160 picks and a clean provider completion. The
+same run exposed two source details that documentation alone had not settled:
 
-The parsers are written so that being wrong about the shape degrades rather than misfires:
-a pick with no usable name or no overall number is skipped rather than guessed at, and
-missing settings fail the call instead of defaulting to invented league dimensions.
+- Sleeper's websocket draft room can run dozens of picks ahead of a cacheable REST response.
+  A unique query token on each four-second poll returned the current whole-list state; the
+  same token is shared by settings, picks and traded picks so one attempt reads one cache
+  generation.
+- Defenses arrive as team entities (`position: DEF`, team code and a full team name), not as
+  the board's player-shaped `DST` labels. The deterministic identity boundary now has a
+  collision-safe team/position index for that representation.
+
+A scheduled keeper-league draft was also read before start. Its `slot_to_roster_id` mapping
+was deliberately not identity-ordered, and its draft-specific traded-pick endpoint returned
+11 records, nine of which currently change owner. The ownership resolver maps original
+roster id → physical snake square and current owner roster id → manager seat; applying a
+roster id directly as a seat would have produced plausible but wrong opponent rosters. The
+draft-specific endpoint is used instead of the league-wide endpoint because the latter also
+returns future picks.
+
+An unknown draft id still returns HTTP 200 with the body `null` rather than a 404. Parsers
+retain malformed picks and trade rows as unresolved source facts, while missing settings or
+unmappable ownership fail closed instead of defaulting to invented league dimensions or a
+plain snake.
 
 ### Players dump — Sleeper (market-awareness signal, NOT a price)
 

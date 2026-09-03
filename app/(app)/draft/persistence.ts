@@ -28,6 +28,7 @@ import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import type { IdentityRepair } from "@/lib/nfl/draft/provider-identity";
 import type { SleeperSyncPick } from "@/lib/nfl/draft/sleeper-sync";
+import type { SleeperTradedPick } from "@/lib/sources/sleeper";
 
 export { CHAMPIONSHIP_WEEKS, DEFAULT_CHAMPIONSHIP_WEEK, PLAYOFF_FIELDS };
 
@@ -77,12 +78,17 @@ export interface PersistedSleeperSync {
   lastSyncedAt: number | null;
   providerPicks: readonly SleeperSyncPick[];
   repairs: readonly IdentityRepair[];
+  /** Source ownership facts retained so every roster can be reconstructed after a reload. */
+  slotToRosterId: Readonly<Record<number, number>>;
+  tradedPicks: readonly SleeperTradedPick[];
 }
 
 export interface PersistedDraft {
   teams: number;
   rounds: number;
   slot: number;
+  /** False until the manager actively confirms which draft seat is theirs. */
+  slotConfirmed: boolean;
   scoringId: string;
   templateId: string;
   /**
@@ -195,6 +201,10 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   // rest of the payload rather than coerced.
   const scoringConfirmed = row.scoringConfirmed ?? false;
   if (typeof scoringConfirmed !== "boolean") return null;
+  // Like scoring confirmation, absence is the legacy case and cannot be read as consent.
+  // A default seat is useful for rendering a control and unsafe for assigning a roster.
+  const slotConfirmed = row.slotConfirmed ?? false;
+  if (typeof slotConfirmed !== "boolean") return null;
   // Both tested here for the message they give a reader, not because either is load-bearing
   // on its own: a non-string of either kind fails the `some(...)` membership check below,
   // since no preset id equals a number.
@@ -215,6 +225,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     teams,
     rounds,
     slot,
+    slotConfirmed,
     scoringId,
     templateId,
     scoringConfirmed,
@@ -265,13 +276,65 @@ function parseSleeperSync(value: unknown): PersistedSleeperSync | null | undefin
     }
     repairs.push(repair as unknown as IdentityRepair);
   }
+  // Both are additive fields. A payload from before traded-pick support restores with the
+  // old ordinary-snake behavior, then the live poll refreshes the authoritative source
+  // facts immediately. Discarding an in-progress draft to avoid that brief migration
+  // would be the more damaging failure.
+  const slotToRosterId = parseSlotToRosterId(row.slotToRosterId);
+  if (slotToRosterId === null) return undefined;
+  const tradedPicks = parseTradedPicks(row.tradedPicks);
+  if (tradedPicks === null) return undefined;
   return {
     draftId: row.draftId,
     status: row.status,
     lastSyncedAt: row.lastSyncedAt as number | null,
     providerPicks,
     repairs,
+    slotToRosterId,
+    tradedPicks,
   };
+}
+
+function parseSlotToRosterId(value: unknown): Record<number, number> | null {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const out: Record<number, number> = {};
+  for (const [key, rosterId] of Object.entries(value as Record<string, unknown>)) {
+    const slot = Number(key);
+    if (
+      !Number.isInteger(slot) ||
+      slot < 1 ||
+      String(slot) !== key ||
+      typeof rosterId !== "number" ||
+      !Number.isInteger(rosterId) ||
+      rosterId < 1
+    ) {
+      return null;
+    }
+    out[slot] = rosterId;
+  }
+  return out;
+}
+
+function parseTradedPicks(value: unknown): SleeperTradedPick[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const out: SleeperTradedPick[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+    const row = entry as Record<string, unknown>;
+    if (
+      !nullableText(row.season) ||
+      !nullableWhole(row.round) ||
+      !nullableWhole(row.rosterId) ||
+      !nullableWhole(row.ownerId) ||
+      !nullableWhole(row.previousOwnerId)
+    ) {
+      return null;
+    }
+    out.push(row as unknown as SleeperTradedPick);
+  }
+  return out;
 }
 
 function nullableWhole(value: unknown): boolean {

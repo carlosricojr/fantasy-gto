@@ -492,14 +492,14 @@ export function replayAdpMockDraft(
 export type CheckId = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i";
 
 /**
- * Rounds counted as "early" for the market-discipline check (a).
+ * Rounds protected by the market-discipline check (a).
  *
  * The audited window, and since PR 3 also the gate's: `MARKET_GATE_ROUNDS` in
  * `lib/core/draft-policy.ts` holds a market-absent player off the shortlist through
  * exactly these rounds, and `mock.test.ts` pins the two constants to each other — a gate
  * narrower than the check would leave (a) asserting rounds nothing enforces.
  */
-export const EARLY_ROUNDS = 6;
+export const EARLY_ROUNDS = 12;
 
 /** How many closing rounds a second kicker or defence is allowed to occupy (b). */
 export const STREAMABLE_CLOSING_ROUNDS = 2;
@@ -567,13 +567,17 @@ export const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
     // the board prices at `adp: null` off the recommendation shortlist through round
     // `MARKET_GATE_ROUNDS`, which a test pins equal to this check's `EARLY_ROUNDS`, so
     // inside the audited window the panel cannot offer a market-absent leader at all.
-    // Measured on the merged engine in both modes: no market-absent leader at any pick
-    // in rounds 1-6, Parkinson gone from 6.06, and 2.06 still goes to Barkley.
+    // The first six-round bound closed the recorded regression and nothing more: the
+    // 2026-09-03 live Sleeper mock moved Parkinson to 7.06, and current-band replays put
+    // him at 7.05 frozen / 8.06 with schedule byes. Extending the same structural gate
+    // through round 12 removes the reproduced reach while preserving four closing rounds
+    // for a model-only flier; both modes still pass all nine checks.
     expected: "pass",
     expectedWithScheduleByes: "pass",
     audit:
       "Kenneth Gainwell (no ADP) led 2.06 at 14.5%±1.4 over Saquon Barkley's 16.2%±1.5; " +
-      "Colby Parkinson (no ADP, a TE) led 6.06",
+      "Colby Parkinson (no ADP, a TE) led 6.06; a 2026-09-03 live mock reproduced him " +
+      "at 7.06 and current-band replays at 7.05/8.06 after the original six-round gate",
   },
   {
     id: "b",

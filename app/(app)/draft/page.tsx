@@ -42,6 +42,7 @@ import {
   type SleeperReconciliation,
 } from "@/lib/nfl/draft/sleeper-sync";
 import { importSleeperSetup } from "@/lib/nfl/draft/sleeper-import";
+import { sleeperPickOwnership } from "@/lib/nfl/draft/sleeper-ownership";
 import type { PlayerIdentity } from "@/lib/nfl/draft/provider-identity";
 import { SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
 
@@ -184,6 +185,7 @@ export default function DraftPage() {
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
   const [slot, setSlot] = useState(1);
+  const [slotConfirmed, setSlotConfirmed] = useState(false);
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
   /**
@@ -238,6 +240,7 @@ export default function DraftPage() {
       setTeams(stored.teams);
       setRounds(stored.rounds);
       setSlot(stored.slot);
+      setSlotConfirmed(stored.slotConfirmed);
       setScoringId(stored.scoringId);
       setScoringConfirmed(stored.scoringConfirmed);
       setTemplateId(stored.templateId);
@@ -259,6 +262,7 @@ export default function DraftPage() {
       teams,
       rounds,
       slot,
+      slotConfirmed,
       scoringId,
       scoringConfirmed,
       templateId,
@@ -280,6 +284,7 @@ export default function DraftPage() {
     teams,
     rounds,
     slot,
+    slotConfirmed,
     scoringId,
     scoringConfirmed,
     templateId,
@@ -379,7 +384,13 @@ export default function DraftPage() {
 
   useEffect(() => {
     if (setup.teams !== teams) setTeams(setup.teams);
-    if (setup.slot !== slot) setSlot(setup.slot);
+    if (setup.slot !== slot) {
+      setSlot(setup.slot);
+      // Clamping a seat is not confirming it. The old selection no longer exists in the
+      // smaller league, and treating the replacement as deliberate assigns the user's
+      // roster to a seat they never chose.
+      setSlotConfirmed(false);
+    }
     if (setup.rounds !== rounds) setRounds(setup.rounds);
     // The playoff buttons are filtered by `field < teams`, but the chosen value was never
     // re-checked. Picking 6 in an eight-team league and then shrinking the league left it
@@ -487,14 +498,25 @@ export default function DraftPage() {
     [board],
   );
 
-  // Ownership comes from `lib/core/draft.ts`, where it is tested against the invariant
-  // that every pick in the draft has exactly one owner, for every league shape. It was
-  // inlined here once and silently gave one seat's picks to another.
+  // The ordinary snake is exact until a league trades one of its squares. Sleeper names
+  // those trades in roster ids, not draft seats, so the source's slot-to-roster bridge has
+  // to be applied before any roster, countdown, or recommendation can be trusted.
   const pickOwners = useMemo(
-    // `slot` is clamped above, but a render can happen between the state update and the
-    // effect, so an out-of-range slot must not throw the page down.
-    () => pickOwnership(setup.teams, setup.slot, setup.rounds),
-    [setup],
+    () => {
+      if (sleeper === null) return pickOwnership(setup.teams, setup.slot, setup.rounds);
+      const resolved = sleeperPickOwnership({
+        teams: setup.teams,
+        rounds: setup.rounds,
+        userSlot: setup.slot,
+        slotToRosterId: sleeper.slotToRosterId,
+        tradedPicks: sleeper.tradedPicks,
+      });
+      // Connected state is written only after this same resolver succeeds. An empty map is
+      // the fail-closed answer for malformed restored state: it withholds every ownership
+      // claim instead of quietly reverting to the snake the provider explicitly overrode.
+      return resolved.exact ? new Map(resolved.owners) : new Map<number, number>();
+    },
+    [setup, sleeper],
   );
 
   // Everything downstream reads the normalized setup, not the raw inputs. A mid-keystroke
@@ -554,14 +576,20 @@ export default function DraftPage() {
     board: boardIdentities,
     localPicks: picks,
     expectedPickCount: totalPicks,
+    teams: setup.teams,
+    rounds: setup.rounds,
+    userSlot: setup.slot,
   });
   useEffect(() => {
     sleeperPollInputRef.current = {
       board: boardIdentities,
       localPicks: picks,
       expectedPickCount: totalPicks,
+      teams: setup.teams,
+      rounds: setup.rounds,
+      userSlot: setup.slot,
     };
-  }, [boardIdentities, picks, totalPicks]);
+  }, [boardIdentities, picks, totalPicks, setup]);
   useEffect(() => {
     const currentSleeper = sleeperRef.current;
     if (currentSleeper === null || sleeperPollDraftId === null || boardPending) return;
@@ -574,6 +602,19 @@ export default function DraftPage() {
       draftId: sleeperPollDraftId,
       onUpdate: (update) => {
         const latest = sleeperPollInputRef.current;
+        const ownership = sleeperPickOwnership({
+          teams: latest.teams,
+          rounds: latest.rounds,
+          userSlot: latest.userSlot,
+          slotToRosterId: update.settings.slotToRosterId,
+          tradedPicks: update.tradedPicks,
+        });
+        if (!ownership.exact) {
+          setSleeperMessage(
+            `Sleeper pick ownership could not be mapped exactly: ${ownership.unsupported.join(", ")}. No new provider state was applied; retrying.`,
+          );
+          return false;
+        }
         const reconciled = reconcileSleeperDraft({
           prior: history,
           incoming: update.picks,
@@ -592,6 +633,8 @@ export default function DraftPage() {
                 lastSyncedAt: Date.now(),
                 providerPicks: reconciled.history.providerPicks,
                 repairs: reconciled.history.repairs,
+                slotToRosterId: update.settings.slotToRosterId,
+                tradedPicks: update.tradedPicks,
               },
         );
         setSleeperMessage(
@@ -933,7 +976,10 @@ export default function DraftPage() {
   function applySettings(patch: Partial<LeagueSettings>): void {
     if (patch.teams !== undefined) setTeams(patch.teams);
     if (patch.rounds !== undefined) setRounds(patch.rounds);
-    if (patch.slot !== undefined) setSlot(patch.slot);
+    if (patch.slot !== undefined) {
+      setSlot(patch.slot);
+      setSlotConfirmed(true);
+    }
     if (patch.playoffTeams !== undefined) setPlayoffTeams(patch.playoffTeams);
     if (patch.championshipWeek !== undefined) setChampionshipWeek(patch.championshipWeek);
     if (patch.scoringId !== undefined) {
@@ -952,9 +998,17 @@ export default function DraftPage() {
       return;
     }
     setSleeperMessage("Checking Sleeper settings…");
-    const result = await new SleeperDraftProvider().settings(draftId);
+    const provider = new SleeperDraftProvider();
+    const [result, tradedPicks] = await Promise.all([
+      provider.settings(draftId),
+      provider.tradedPicks(draftId),
+    ]);
     if (!result.ok) {
       setSleeperMessage(result.reason);
+      return;
+    }
+    if (!tradedPicks.ok) {
+      setSleeperMessage(tradedPicks.reason);
       return;
     }
     const imported = importSleeperSetup(result.data);
@@ -964,8 +1018,25 @@ export default function DraftPage() {
       );
       return;
     }
+    const importedSlot = Math.min(setup.slot, imported.settings.teams);
+    const importedSlotConfirmed = slotConfirmed && importedSlot === setup.slot;
+    const ownership = sleeperPickOwnership({
+      teams: imported.settings.teams,
+      rounds: imported.settings.rounds,
+      userSlot: importedSlot,
+      slotToRosterId: result.data.slotToRosterId,
+      tradedPicks: tradedPicks.data,
+    });
+    if (!ownership.exact) {
+      setSleeperMessage(
+        `Sleeper settings were not imported because pick ownership could not be mapped exactly: ${ownership.unsupported.join(", ")}.`,
+      );
+      return;
+    }
     setTeams(imported.settings.teams);
     setRounds(imported.settings.rounds);
+    setSlot(importedSlot);
+    setSlotConfirmed(importedSlotConfirmed);
     setScoringId(imported.settings.scoringId);
     setTemplateId(imported.settings.templateId);
     setScoringConfirmed(true);
@@ -975,11 +1046,13 @@ export default function DraftPage() {
       lastSyncedAt: null,
       providerPicks: [],
       repairs: [],
+      slotToRosterId: result.data.slotToRosterId,
+      tradedPicks: tradedPicks.data,
     });
     setSleeperMessage(
-      `Connected to Sleeper. ${imported.settings.pickTimerSeconds === null ? "No provider timer was supplied." : `Provider timer: ${imported.settings.pickTimerSeconds} seconds.`}`,
+      `Connected to Sleeper with ${ownership.reassignedPicks.length} traded pick${ownership.reassignedPicks.length === 1 ? "" : "s"} mapped. Using seat ${importedSlot}; confirm that is your Sleeper draft position. ${imported.settings.pickTimerSeconds === null ? "No provider timer was supplied." : `Provider timer: ${imported.settings.pickTimerSeconds} seconds.`}`,
     );
-    setStarted(true);
+    setStarted(importedSlotConfirmed);
   }
 
   function repairSleeperIdentity(pickKey: string, boardPlayerId: string): void {
@@ -1032,6 +1105,7 @@ export default function DraftPage() {
     // The format has to be confirmed again for the next draft. Carrying the acknowledgement
     // across a reset would let a manager set a league up once and never be asked again.
     setScoringConfirmed(false);
+    setSlotConfirmed(false);
     setFocus(null);
     setDetailId(null);
     setSleeper(null);
@@ -1142,6 +1216,7 @@ export default function DraftPage() {
           season={season}
           leagueSizes={LEAGUE_SIZES}
           scoringConfirmed={scoringConfirmed}
+          slotConfirmed={slotConfirmed}
         >
           <Caveat
             freshness={freshness ?? null}
@@ -1245,6 +1320,7 @@ export default function DraftPage() {
             picks={activePicks}
             playersById={poolById}
             currentPick={currentPick}
+            pickOwners={pickOwners}
             onSelectPick={selectBoardPick}
           />
         ) : null}
@@ -1437,6 +1513,10 @@ function SleeperSyncStatus({
       : `Last received ${new Date(sync.lastSyncedAt).toLocaleTimeString()}`;
   const completeButUnresolved =
     sync.status.trim().toLowerCase() === "complete" && !reconciliation.cleanCompletion;
+  const reassignedPickCount = sync.tradedPicks.filter(
+    (pick) =>
+      pick.rosterId !== null && pick.ownerId !== null && pick.rosterId !== pick.ownerId,
+  ).length;
 
   return (
     <section className="mt-3 rounded-xl border border-dashed p-3 text-sm" aria-labelledby="sleeper-sync-title">
@@ -1444,7 +1524,7 @@ function SleeperSyncStatus({
         <div>
           <h2 id="sleeper-sync-title" className="font-medium">Sleeper sync</h2>
           <p className="text-xs text-muted-foreground">
-            {freshness} · provider status {sync.status || "unknown"} · {reconciliation.observedValidPickCount} of {reconciliation.expectedPickCount} valid provider picks
+            {freshness} · provider status {sync.status || "unknown"} · {reconciliation.observedValidPickCount} of {reconciliation.expectedPickCount} valid provider picks · {reassignedPickCount} traded pick{reassignedPickCount === 1 ? "" : "s"} mapped
           </p>
         </div>
         <span className={reconciliation.cleanCompletion ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>

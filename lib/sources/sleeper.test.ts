@@ -7,10 +7,12 @@ import {
   SleeperPlayersProvider,
   SLEEPER_POLLING,
   draftPicksUrl,
+  draftTradedPicksUrl,
   draftUrl,
   parsePicks,
   parsePlayersDump,
   parseSettings,
+  parseTradedPicks,
   sleeperRetryDelay,
 } from "./sleeper";
 
@@ -60,6 +62,9 @@ describe("urls", () => {
     expect(draftPicksUrl("abc", "poll 1")).toBe(
       "https://api.sleeper.app/v1/draft/abc/picks?fantasy_gto_poll=poll%201",
     );
+    expect(draftTradedPicksUrl("abc", "poll 1")).toBe(
+      "https://api.sleeper.app/v1/draft/abc/traded_picks?fantasy_gto_poll=poll%201",
+    );
   });
 });
 
@@ -91,10 +96,19 @@ describe("parseSettings", () => {
       type: "snake",
       status: "complete",
       draftOrder: { "200837482281963520": 1 },
+      slotToRosterId: { 1: 1 },
       rosterSlots: { slots_flex: 2, slots_bn: 5 },
       pickTimerSeconds: 120,
       scoring: { identity: "ppr", metadata: { scoring_type: "ppr" } },
     });
+  });
+
+  it("retains the slot-to-roster bridge without assuming roster ids equal seats", () => {
+    const settings = parseSettings({
+      ...DRAFT,
+      slot_to_roster_id: { 1: 7, 2: 3, bad: 4, 4: null },
+    });
+    expect(settings?.slotToRosterId).toEqual({ 1: 7, 2: 3 });
   });
 
   it("returns null when the numbers that matter are missing", () => {
@@ -396,6 +410,7 @@ describe("SleeperDraftPoller", () => {
     const provider = {
       settings: vi.fn().mockResolvedValue({ ok: true, data: parseSettings(DRAFT)!, degraded: false }),
       picks: vi.fn().mockResolvedValue({ ok: true, data: parsePicks(PICKS), degraded: false }),
+      tradedPicks: vi.fn().mockResolvedValue({ ok: true, data: [], degraded: false }),
     };
     const updates = vi.fn(() => true);
     const complete = new SleeperDraftPoller(provider).start({
@@ -420,12 +435,13 @@ describe("SleeperDraftPoller", () => {
     vi.useRealTimers();
   });
 
-  it("uses a new cache key for every poll and one shared key per settings/picks pair", async () => {
+  it("uses a new cache key for every poll and one shared key across its three reads", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-03T15:00:00Z"));
     const provider = {
       settings: vi.fn().mockResolvedValue({ ok: true, data: parseSettings(DRAFT)!, degraded: false }),
       picks: vi.fn().mockResolvedValue({ ok: true, data: parsePicks(PICKS), degraded: false }),
+      tradedPicks: vi.fn().mockResolvedValue({ ok: true, data: [], degraded: false }),
     };
     const handle = new SleeperDraftPoller(provider).start({
       draftId: "abc",
@@ -436,11 +452,13 @@ describe("SleeperDraftPoller", () => {
     await vi.advanceTimersByTimeAsync(0);
     const firstToken = provider.settings.mock.calls[0][1];
     expect(provider.picks.mock.calls[0]).toEqual(["abc", 12, firstToken]);
+    expect(provider.tradedPicks.mock.calls[0]).toEqual(["abc", firstToken]);
 
     await vi.advanceTimersByTimeAsync(SLEEPER_POLLING.activeIntervalMs);
     const secondToken = provider.settings.mock.calls[1][1];
     expect(secondToken).not.toBe(firstToken);
     expect(provider.picks.mock.calls[1]).toEqual(["abc", 12, secondToken]);
+    expect(provider.tradedPicks.mock.calls[1]).toEqual(["abc", secondToken]);
 
     handle.cancel();
     vi.useRealTimers();
@@ -451,6 +469,7 @@ describe("SleeperDraftPoller", () => {
     const provider = {
       settings: vi.fn().mockRejectedValue(new Error("unexpected")),
       picks: vi.fn(),
+      tradedPicks: vi.fn(),
     };
     const onError = vi.fn();
     const handle = new SleeperDraftPoller(provider).start({
@@ -462,6 +481,44 @@ describe("SleeperDraftPoller", () => {
     expect(onError).toHaveBeenCalledWith(expect.stringContaining("unexpected"), 2_000);
     handle.cancel();
     vi.useRealTimers();
+  });
+});
+
+describe("traded picks", () => {
+  const rows = [
+    {
+      season: "2026",
+      round: 2,
+      roster_id: 1,
+      previous_owner_id: 1,
+      owner_id: 7,
+    },
+  ];
+
+  it("retains original and current roster ids as different identities", () => {
+    expect(parseTradedPicks(rows)).toEqual([
+      { season: "2026", round: 2, rosterId: 1, previousOwnerId: 1, ownerId: 7 },
+    ]);
+  });
+
+  it("keeps malformed source rows visible as null facts", () => {
+    expect(parseTradedPicks([{ round: 0, roster_id: "bad", owner_id: -1 }])).toEqual([
+      { season: null, round: null, rosterId: null, previousOwnerId: null, ownerId: null },
+    ]);
+  });
+
+  it("uses the draft-specific endpoint and rejects a non-array response", async () => {
+    const seen: string[] = [];
+    const provider = new SleeperDraftProvider(async (url) => {
+      seen.push(url);
+      return JSON.stringify(rows);
+    });
+    const result = await provider.tradedPicks("draft id");
+    expect(result.ok).toBe(true);
+    expect(seen).toEqual(["https://api.sleeper.app/v1/draft/draft%20id/traded_picks"]);
+
+    const invalid = await new SleeperDraftProvider(async () => "{}").tradedPicks("abc");
+    expect(invalid.ok).toBe(false);
   });
 });
 

@@ -127,6 +127,7 @@ describe("what is stored comes back as the season it was drafted against", () =>
     teams: 12,
     rounds: 15,
     slot: 4,
+    slotConfirmed: true,
     scoringId: "ppr",
     templateId: "standard",
     scoringConfirmed: true,

@@ -26,6 +26,7 @@ const VALID: PersistedDraft = {
   teams: 12,
   rounds: 15,
   slot: 4,
+  slotConfirmed: true,
   scoringId: "ppr",
   templateId: "standard",
   scoringConfirmed: true,
@@ -79,6 +80,51 @@ describe("parsePersistedDraft", () => {
     expect(parsePersistedDraft(stored({ sleeper: { draftId: "only-this" } }))).toBeNull();
   });
 
+  it("restores the source facts needed to preserve traded-pick ownership", () => {
+    const sleeper = {
+      draftId: "draft-1",
+      status: "drafting",
+      lastSyncedAt: 123,
+      providerPicks: [],
+      repairs: [],
+      slotToRosterId: { 1: 7, 2: 3 },
+      tradedPicks: [
+        {
+          season: "2026",
+          round: 2,
+          rosterId: 3,
+          ownerId: 7,
+          previousOwnerId: 3,
+        },
+      ],
+    };
+    expect(parsePersistedDraft(stored({ sleeper }))?.sleeper).toEqual(sleeper);
+  });
+
+  it("migrates pre-ownership Sleeper state and refuses malformed ownership facts", () => {
+    const legacy = {
+      draftId: "draft-1",
+      status: "drafting",
+      lastSyncedAt: 123,
+      providerPicks: [],
+      repairs: [],
+    };
+    expect(parsePersistedDraft(stored({ sleeper: legacy }))?.sleeper).toMatchObject({
+      slotToRosterId: {},
+      tradedPicks: [],
+    });
+    expect(
+      parsePersistedDraft(
+        stored({ sleeper: { ...legacy, slotToRosterId: { 1: 0 }, tradedPicks: [] } }),
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedDraft(
+        stored({ sleeper: { ...legacy, slotToRosterId: {}, tradedPicks: [{ round: "two" }] } }),
+      ),
+    ).toBeNull();
+  });
+
   it("round-trips the exact configuration this epic is built against", () => {
     // Ten teams, fifteen rounds, standard scoring, two FLEX — the league the recommendations
     // were tested against, and the one no roster template could represent before #41. A
@@ -88,6 +134,7 @@ describe("parsePersistedDraft", () => {
       teams: 10,
       rounds: 15,
       slot: 9,
+      slotConfirmed: true,
       scoringId: "standard",
       templateId: "two_flex",
       scoringConfirmed: true,
@@ -130,6 +177,18 @@ describe("parsePersistedDraft", () => {
     const older: Record<string, unknown> = { ...VALID };
     delete older.scoringConfirmed;
     expect(parsePersistedDraft(JSON.stringify(older))?.scoringConfirmed).toBe(false);
+  });
+
+  it("reads a payload with no seat confirmation as unconfirmed", () => {
+    const older: Record<string, unknown> = { ...VALID };
+    delete older.slotConfirmed;
+    expect(parsePersistedDraft(JSON.stringify(older))?.slotConfirmed).toBe(false);
+  });
+
+  it("refuses a seat confirmation that is not a boolean", () => {
+    for (const value of ["true", "false", 1, 0, {}]) {
+      expect(parsePersistedDraft(stored({ slotConfirmed: value }))).toBeNull();
+    }
   });
 
   it("refuses a scoring confirmation that is not a boolean", () => {

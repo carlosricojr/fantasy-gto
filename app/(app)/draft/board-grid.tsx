@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "@/lib/utils";
+import { seatForTeamIndex } from "@/lib/core/draft";
 import { boardColumns, boardGrid, pickLabel } from "./board-view";
 import type { PoolPlayer } from "./pool-view";
 import { positionBarClass, positionLabel } from "./positions";
@@ -27,6 +28,7 @@ export function BoardGrid({
   picks,
   playersById,
   currentPick,
+  pickOwners,
   onSelectPick,
 }: {
   teams: number;
@@ -35,6 +37,8 @@ export function BoardGrid({
   picks: Readonly<Record<number, string>>;
   playersById: ReadonlyMap<string, PoolPlayer>;
   currentPick: number;
+  /** Actual current owner by overall pick, including provider-reported trades. */
+  pickOwners: ReadonlyMap<number, number>;
   /** Jumps the pool to whoever is in a cell, so a mis-recorded pick can be checked. */
   onSelectPick?: (pick: number) => void;
 }) {
@@ -142,6 +146,8 @@ export function BoardGrid({
             playersById={playersById}
             currentPick={currentPick}
             teams={teams}
+            slot={slot}
+            pickOwners={pickOwners}
             clockRef={clockCell}
             onSelectPick={onSelectPick}
           />
@@ -165,6 +171,8 @@ function Round({
   playersById,
   currentPick,
   teams,
+  slot,
+  pickOwners,
   clockRef,
   onSelectPick,
 }: {
@@ -173,6 +181,8 @@ function Round({
   playersById: ReadonlyMap<string, PoolPlayer>;
   currentPick: number;
   teams: number;
+  slot: number;
+  pickOwners: ReadonlyMap<number, number>;
   clockRef: React.RefObject<HTMLDivElement | null>;
   onSelectPick?: (pick: number) => void;
 }) {
@@ -188,7 +198,10 @@ function Round({
         const playerId = picks[cell.pick];
         const player = playerId === undefined ? undefined : playersById.get(playerId);
         const onTheClock = cell.pick === currentPick;
-        const mine = cell.teamIndex === 0;
+        const owner = pickOwners.get(cell.pick);
+        const ownerSeat = owner === undefined ? cell.seat : seatForTeamIndex(owner, slot);
+        const mine = owner === 0;
+        const traded = owner !== undefined && owner !== cell.teamIndex;
 
         return (
           <div
@@ -213,17 +226,23 @@ function Round({
                 {/* Whose empty cell this is. Sighted readers get it from the column; a
                     screen reader user reading the grid linearly gets it from nowhere. */}
                 <span className="sr-only">
-                  Pick {pickLabel(cell.pick, teams)}, {seatName(cell.teamIndex, cell.seat)}
+                  Pick {pickLabel(cell.pick, teams)}, {seatName(owner ?? cell.teamIndex, ownerSeat)}
                   {onTheClock ? ", on the clock" : ", not yet picked"}
                 </span>
+                {traded ? (
+                  <span className="mt-0.5 block text-[0.625rem] text-brand">
+                    {owner === 0 ? "Owned by you" : `Owned by Seat ${ownerSeat}`}
+                  </span>
+                ) : null}
               </span>
             ) : (
               <CellPlayer
                 player={player}
                 pick={cell.pick}
-                seat={cell.seat}
-                teamIndex={cell.teamIndex}
+                seat={ownerSeat}
+                teamIndex={owner ?? cell.teamIndex}
                 teams={teams}
+                traded={traded}
                 onSelect={onSelectPick}
               />
             )}
@@ -252,6 +271,7 @@ function CellPlayer({
   seat,
   teamIndex,
   teams,
+  traded,
   onSelect,
 }: {
   player: PoolPlayer;
@@ -259,6 +279,7 @@ function CellPlayer({
   seat: number;
   teamIndex: number;
   teams: number;
+  traded: boolean;
   onSelect?: (pick: number) => void;
 }) {
   const body = (
@@ -281,6 +302,11 @@ function CellPlayer({
       >
         {pickLabel(pick, teams)}
       </span>
+      {traded ? (
+        <span className="block pl-1.5 text-[0.625rem] text-brand">
+          {teamIndex === 0 ? "Owned by you" : `Owned by Seat ${seat}`}
+        </span>
+      ) : null}
     </>
   );
 

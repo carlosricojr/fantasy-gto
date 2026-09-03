@@ -214,13 +214,15 @@ export const CHAMPIONSHIP_CANDIDATES = 10;
  * inside the window where that overruling is most expensive, a market-absent candidate
  * needs a market to argue with before he can be advised.
  *
- * Six rounds because that is the span the audit measured the failure in and the span
- * #91's check (a) locks; the harness's `EARLY_ROUNDS` asserts the same window and a test
- * pins the two to each other. Past the gate the model's projection may lead again —
- * pricing players the market has not is the model's documented reason to exist, and a
- * late-round flier is exactly where that stands to gain more than it risks.
+ * The first six-round boundary proved to encode the audit rather than the risk. In a live
+ * 2026-09-03 Sleeper mock, Parkinson simply moved to 7.06; the deterministic current-band
+ * replays reproduced him at 7.05 and 8.06. The gate now holds through round 12: the first
+ * three quarters of the audited 16-round format, leaving four closing rounds for the
+ * model-only flier use case. Both replay modes then finished with no unpriced reach while
+ * retaining all nine roster and market-discipline checks. The harness's `EARLY_ROUNDS`
+ * asserts this same measured window and a test pins the constants together.
  */
-export const MARKET_GATE_ROUNDS = 6;
+export const MARKET_GATE_ROUNDS = 12;
 
 /**
  * The shortlist entries the market-discipline gate leaves standing.
@@ -497,7 +499,9 @@ export function applyStreamableDiscipline<T extends { player: PlayerRisk }>(
  * one" is simply false about him. He is exempt inside that window. On the first turn past
  * it the gate no longer withholds him, but an upgrade that immediately benches the player
  * just drafted is still the exact waste this rule prevents; the replacement-consistency
- * replay exposed that boundary as Pollard 6.06 then Gainwell 7.05.
+ * replay originally exposed that boundary as Pollard 6.06 then Gainwell 7.05. The later
+ * live-draft audit moved the market boundary; the rule remains expressed against the shared
+ * constant so it moves with it rather than reopening at the former round seven.
  *
  * The bound is not decoration. Exempting him outright was measured too, and it reopened
  * the very churn this rule exists to stop: the frozen replay took Hunter Henry at 11.05

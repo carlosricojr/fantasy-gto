@@ -51,12 +51,15 @@ export function LeagueForm({
   minRounds = 1,
   /** Whether the scoring format has been chosen rather than merely preselected. */
   scoringConfirmed = true,
+  /** Whether the displayed seat was actively chosen instead of inherited as a default. */
+  slotConfirmed = true,
 }: {
   value: LeagueSettings;
   onChange: (patch: Partial<LeagueSettings>) => void;
   inProgress?: boolean;
   minRounds?: number;
   scoringConfirmed?: boolean;
+  slotConfirmed?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -96,6 +99,17 @@ export function LeagueForm({
             disabled: inProgress,
           }))}
         />
+        <p
+          id="slot-confirmation-hint"
+          className={cn(
+            "mt-2 text-xs",
+            slotConfirmed ? "text-muted-foreground" : "text-amber-700 dark:text-amber-400",
+          )}
+        >
+          {slotConfirmed
+            ? `Seat ${value.slot} owns your roster and drives every turn and recommendation.`
+            : "Confirm your exact draft seat. Tap it even if the right number is already highlighted."}
+        </p>
       </Field>
 
       <Field label="Rounds" hint={inProgress ? `At least ${minRounds}, the rounds already drafted` : undefined}>

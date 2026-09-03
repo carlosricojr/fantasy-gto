@@ -328,6 +328,12 @@ export function applyIdentityRepairs(
     }
     const repair = candidates[0];
     if (classification.state === "matched") {
+      // A deterministic matcher can improve after an operator repaired an older build.
+      // When it now reaches the exact same target, the append-only repair is corroborating
+      // history, not a conflict. Rejecting it would turn a previously clean completed draft
+      // yellow on the deployment that made matching better. A different target remains a
+      // real disagreement and is still refused below.
+      if (repair.boardPlayerId === classification.boardPlayerId) return classification;
       rejected.push({ repair, reason: "pick-not-unresolved" });
       return classification;
     }

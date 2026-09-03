@@ -58,7 +58,9 @@ import { parseContests } from "@/lib/sources/nflverse";
  * bye charge + PR 4's paired tie ranking + PR 3's market-discipline gate): (f) passes in
  * both modes; (a) passes in both — after each of PR 2 and PR 4 alone measured it passing
  * and their merge surfaced Parkinson leading 6.06, the gate closed it structurally by
- * keeping `adp: null` players off the early-round shortlist; (c) passes in both on the
+ * keeping `adp: null` players off the protected shortlist. Live QA later reproduced the
+ * same reach immediately after the original six-round boundary, so the measured window is
+ * now twelve rounds with the final four reserved for model-only fliers; (c) passes in both on the
  * gate-reshuffled ordering, a measurement rather than a fix for its #89.A mechanism,
  * which PR 5 closed; replacement consistency later closed (e) and added the general
  * every-week playability check (g). League-aware QB coverage adds market-lead check (h)

@@ -310,8 +310,11 @@ describe("applyIdentityRepairs", () => {
     expect(repaired.rejected).toEqual([]);
   });
 
-  it("refuses duplicate, unknown-target, and matched-pick repairs instead of overwriting", () => {
-    const board = [player()];
+  it("refuses duplicate, unknown-target, and conflicting matched-pick repairs instead of overwriting", () => {
+    const board = [
+      player(),
+      player({ id: "00-other", providerId: "sleeper-other", name: "Other Back" }),
+    ];
     const classifications = classifyProviderPicks(
       [
         pick({ pickKey: "matched" }),
@@ -327,7 +330,7 @@ describe("applyIdentityRepairs", () => {
       board,
     );
     const result = applyIdentityRepairs(classifications, board, [
-      { repairId: "already", pickKey: "matched", boardPlayerId: "00-board-a" },
+      { repairId: "already", pickKey: "matched", boardPlayerId: "00-other" },
       {
         repairId: "bad-target",
         pickKey: "bad-target",
@@ -352,6 +355,16 @@ describe("applyIdentityRepairs", () => {
       "duplicate-pick-repair",
       "pick-not-unresolved",
     ]);
+  });
+
+  it("accepts a now-redundant repair when an improved matcher reaches the same target", () => {
+    const board = [player()];
+    const classifications = classifyProviderPicks([pick({ pickKey: "matched" })], board);
+    const result = applyIdentityRepairs(classifications, board, [
+      { repairId: "older-manual-fix", pickKey: "matched", boardPlayerId: "00-board-a" },
+    ]);
+    expect(result.classifications).toEqual(classifications);
+    expect(result.rejected).toEqual([]);
   });
 
   it("refuses repairs that would assign a board player twice", () => {
