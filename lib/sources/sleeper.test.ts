@@ -128,6 +128,45 @@ describe("parseSettings", () => {
     const settings = parseSettings({ type: "snake", settings: { teams: 10, rounds: 16 } });
     expect(settings?.status).toBe("unknown");
   });
+
+  it("does not mistake ordinary Sleeper draft-room controls for custom league rules", () => {
+    const settings = parseSettings({
+      type: "snake",
+      settings: {
+        teams: 10,
+        rounds: 16,
+        alpha_sort: 0,
+        autopause_enabled: 0,
+        autopause_end_time: 840,
+        autopause_start_time: 120,
+        autostart: 1,
+        cpu_autopick: 1,
+        enforce_position_limits: 1,
+        nomination_timer: 60,
+        player_type: 0,
+        reversal_round: 0,
+      },
+    });
+
+    expect(settings?.unsupported).toEqual([]);
+    expect(settings?.extraSettings).toMatchObject({
+      autostart: 1,
+      enforce_position_limits: 1,
+      reversal_round: 0,
+    });
+  });
+
+  it("still blocks draft-room variants that change the pick order or player pool", () => {
+    const settings = parseSettings({
+      type: "snake",
+      settings: { teams: 10, rounds: 16, player_type: 1, reversal_round: 3 },
+    });
+
+    expect(settings?.unsupported).toEqual([
+      "settings.player_type",
+      "settings.reversal_round",
+    ]);
+  });
 });
 
 describe("parsePicks", () => {

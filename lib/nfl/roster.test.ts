@@ -475,11 +475,13 @@ describe("templateForRoster", () => {
     ).toBe(NO_K_DST_TEMPLATE);
   });
 
-  it("separates the two presets that share a slot shape", () => {
+  it("uses the default round count to disambiguate templates with one starter shape", () => {
     expect(templateForRoster(STANDARD_TEMPLATE.counts, 15)).toBe(STANDARD_TEMPLATE);
     expect(templateForRoster(STANDARD_TEMPLATE.counts, 13)).toBe(SHALLOW_BENCH_TEMPLATE);
-    // And a roster size neither carries is not either of them.
-    expect(templateForRoster(STANDARD_TEMPLATE.counts, 20)).toBeNull();
+    // A different bench length is represented by the independent rounds setting, so the
+    // canonical starter template remains an exact match rather than becoming unsupported.
+    expect(templateForRoster(STANDARD_TEMPLATE.counts, 20)).toBe(STANDARD_TEMPLATE);
+    expect(templateForRoster(TWO_FLEX_TEMPLATE.counts, 16)).toBe(TWO_FLEX_TEMPLATE);
   });
 
   it("keeps 2QB and SUPERFLEX apart", () => {

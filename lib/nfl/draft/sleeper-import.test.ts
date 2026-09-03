@@ -28,6 +28,18 @@ describe("importSleeperSetup", () => {
     });
   });
 
+  it("imports a provider bench length independently from the exact starter shape", () => {
+    expect(importSleeperSetup({
+      ...source,
+      rounds: 16,
+      scoring: { identity: "half_ppr", metadata: {} },
+      rosterSlots: { ...source.rosterSlots, slots_flex: 2, slots_bn: 6 },
+    })).toMatchObject({
+      exact: true,
+      settings: { rounds: 16, scoringId: "half_ppr", templateId: "two_flex" },
+    });
+  });
+
   it("leaves custom scoring, order and slots visibly unsupported instead of choosing a nearby preset", () => {
     const imported = importSleeperSetup({ ...source, type: "linear", scoring: { identity: "custom", metadata: { scoring_type: "custom" } }, rosterSlots: { ...source.rosterSlots, slots_idp_flex: 1 }, unsupported: ["settings.some_custom_rule"] });
     expect(imported).toEqual({

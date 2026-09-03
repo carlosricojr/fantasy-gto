@@ -326,7 +326,7 @@ export function slotSummary(id: string | null | undefined): string {
 }
 
 /**
- * The shipped template with exactly these slot counts and this roster size, or `null`.
+ * The shipped template with exactly these starter-slot counts, or `null`.
  *
  * For importing a league from a provider. **Exact match only, and deliberately**: a league
  * whose shape this does not carry is an unsupported shape, not the nearest preset. Silently
@@ -335,10 +335,10 @@ export function slotSummary(id: string | null | undefined): string {
  * that (#44 for the import, #56 for arbitrary shapes) can only decide it if this reports the
  * miss rather than absorbing it.
  *
- * `rounds` is required rather than optional because two shipped templates share a slot shape
- * — `standard` and `shallow_bench` differ only in how many rounds they draft — so counts
- * alone do not identify one. Every provider that reports a lineup also reports a roster size,
- * so nothing real is being asked for that a caller does not have.
+ * `rounds` selects between templates that share a starter shape when one carries that default,
+ * but it is not a constraint on the match. The setup model stores rounds independently and
+ * lets every template use a non-default bench length. Requiring the template's default here
+ * rejected an exact 2-FLEX, sixteen-round league even though the UI can represent it exactly.
  *
  * Zero and absent are the same slot count, so `{ QB: 1, K: 0 }` matches a template with no
  * kicker rather than failing on a key the other side omits.
@@ -353,11 +353,8 @@ export function templateForRoster(
   for (const [kind, count] of Object.entries(counts)) {
     if ((count ?? 0) > 0 && !kinds.includes(kind)) return null;
   }
-  return (
-    ROSTER_TEMPLATES.find(
-      (template) =>
-        template.rounds === rounds &&
-        kinds.every((kind) => (template.counts[kind] ?? 0) === (counts[kind] ?? 0)),
-    ) ?? null
+  const matches = ROSTER_TEMPLATES.filter((template) =>
+    kinds.every((kind) => (template.counts[kind] ?? 0) === (counts[kind] ?? 0)),
   );
+  return matches.find((template) => template.rounds === rounds) ?? matches[0] ?? null;
 }
