@@ -78,6 +78,12 @@ export interface PersistedSleeperSync {
   lastSyncedAt: number | null;
   providerPicks: readonly SleeperSyncPick[];
   repairs: readonly IdentityRepair[];
+  /**
+   * True only after the draft-specific traded-pick endpoint and slot map were both read
+   * successfully. A legacy saved draft has neither fact, which is unknown ownership rather
+   * than evidence that no picks were traded.
+   */
+  ownershipVerified: boolean;
   /** Source ownership facts retained so every roster can be reconstructed after a reload. */
   slotToRosterId: Readonly<Record<number, number>>;
   tradedPicks: readonly SleeperTradedPick[];
@@ -276,10 +282,20 @@ function parseSleeperSync(value: unknown): PersistedSleeperSync | null | undefin
     }
     repairs.push(repair as unknown as IdentityRepair);
   }
-  // Both are additive fields. A payload from before traded-pick support restores with the
-  // old ordinary-snake behavior, then the live poll refreshes the authoritative source
-  // facts immediately. Discarding an in-progress draft to avoid that brief migration
-  // would be the more damaging failure.
+  // Both ownership facts were added together. Their absence is the legacy case, and it is
+  // explicitly unverified: an empty traded-pick array would otherwise be indistinguishable
+  // from a successful provider response saying there are no trades. A PR-preview payload
+  // written between adding the facts and adding the flag is still exact when both facts are
+  // present, so infer `true` only for that complete pair.
+  const hasSlotToRosterId = row.slotToRosterId !== undefined;
+  const hasTradedPicks = row.tradedPicks !== undefined;
+  if (hasSlotToRosterId !== hasTradedPicks) return undefined;
+  const ownershipVerified =
+    row.ownershipVerified === undefined
+      ? hasSlotToRosterId && hasTradedPicks
+      : row.ownershipVerified;
+  if (typeof ownershipVerified !== "boolean") return undefined;
+  if (ownershipVerified && !hasSlotToRosterId) return undefined;
   const slotToRosterId = parseSlotToRosterId(row.slotToRosterId);
   if (slotToRosterId === null) return undefined;
   const tradedPicks = parseTradedPicks(row.tradedPicks);
@@ -290,6 +306,7 @@ function parseSleeperSync(value: unknown): PersistedSleeperSync | null | undefin
     lastSyncedAt: row.lastSyncedAt as number | null,
     providerPicks,
     repairs,
+    ownershipVerified,
     slotToRosterId,
     tradedPicks,
   };

@@ -87,6 +87,7 @@ describe("parsePersistedDraft", () => {
       lastSyncedAt: 123,
       providerPicks: [],
       repairs: [],
+      ownershipVerified: true,
       slotToRosterId: { 1: 7, 2: 3 },
       tradedPicks: [
         {
@@ -110,9 +111,20 @@ describe("parsePersistedDraft", () => {
       repairs: [],
     };
     expect(parsePersistedDraft(stored({ sleeper: legacy }))?.sleeper).toMatchObject({
+      ownershipVerified: false,
       slotToRosterId: {},
       tradedPicks: [],
     });
+    expect(
+      parsePersistedDraft(
+        stored({ sleeper: { ...legacy, slotToRosterId: {}, tradedPicks: [] } }),
+      )?.sleeper,
+    ).toMatchObject({ ownershipVerified: true });
+    expect(
+      parsePersistedDraft(
+        stored({ sleeper: { ...legacy, ownershipVerified: true } }),
+      ),
+    ).toBeNull();
     expect(
       parsePersistedDraft(
         stored({ sleeper: { ...legacy, slotToRosterId: { 1: 0 }, tradedPicks: [] } }),

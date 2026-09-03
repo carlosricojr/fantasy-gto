@@ -3,8 +3,7 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "@/lib/utils";
-import { seatForTeamIndex } from "@/lib/core/draft";
-import { boardColumns, boardGrid, pickLabel } from "./board-view";
+import { boardColumns, boardGrid, boardPickOwner, pickLabel } from "./board-view";
 import type { PoolPlayer } from "./pool-view";
 import { positionBarClass, positionLabel } from "./positions";
 
@@ -198,10 +197,9 @@ function Round({
         const playerId = picks[cell.pick];
         const player = playerId === undefined ? undefined : playersById.get(playerId);
         const onTheClock = cell.pick === currentPick;
-        const owner = pickOwners.get(cell.pick);
-        const ownerSeat = owner === undefined ? cell.seat : seatForTeamIndex(owner, slot);
-        const mine = owner === 0;
-        const traded = owner !== undefined && owner !== cell.teamIndex;
+        const owner = boardPickOwner(pickOwners, cell.pick, slot);
+        const mine = owner?.teamIndex === 0;
+        const traded = owner !== null && owner.teamIndex !== cell.teamIndex;
 
         return (
           <div
@@ -226,12 +224,12 @@ function Round({
                 {/* Whose empty cell this is. Sighted readers get it from the column; a
                     screen reader user reading the grid linearly gets it from nowhere. */}
                 <span className="sr-only">
-                  Pick {pickLabel(cell.pick, teams)}, {seatName(owner ?? cell.teamIndex, ownerSeat)}
+                  Pick {pickLabel(cell.pick, teams)}, {owner === null ? "ownership unknown" : seatName(owner.teamIndex, owner.seat)}
                   {onTheClock ? ", on the clock" : ", not yet picked"}
                 </span>
                 {traded ? (
                   <span className="mt-0.5 block text-[0.625rem] text-brand">
-                    {owner === 0 ? "Owned by you" : `Owned by Seat ${ownerSeat}`}
+                    {owner.teamIndex === 0 ? "Owned by you" : `Owned by Seat ${owner.seat}`}
                   </span>
                 ) : null}
               </span>
@@ -239,8 +237,7 @@ function Round({
               <CellPlayer
                 player={player}
                 pick={cell.pick}
-                seat={ownerSeat}
-                teamIndex={owner ?? cell.teamIndex}
+                owner={owner}
                 teams={teams}
                 traded={traded}
                 onSelect={onSelectPick}
@@ -268,16 +265,14 @@ function seatName(teamIndex: number, seat: number): string {
 function CellPlayer({
   player,
   pick,
-  seat,
-  teamIndex,
+  owner,
   teams,
   traded,
   onSelect,
 }: {
   player: PoolPlayer;
   pick: number;
-  seat: number;
-  teamIndex: number;
+  owner: { teamIndex: number; seat: number } | null;
   teams: number;
   traded: boolean;
   onSelect?: (pick: number) => void;
@@ -304,7 +299,7 @@ function CellPlayer({
       </span>
       {traded ? (
         <span className="block pl-1.5 text-[0.625rem] text-brand">
-          {teamIndex === 0 ? "Owned by you" : `Owned by Seat ${seat}`}
+          {owner?.teamIndex === 0 ? "Owned by you" : `Owned by Seat ${owner?.seat}`}
         </span>
       ) : null}
     </>
@@ -320,7 +315,7 @@ function CellPlayer({
       // across a board of two hundred buttons tells a screen reader user neither where
       // they are nor whose roster they are looking at — and who took what is the entire
       // reason this board exists.
-      aria-label={`Pick ${pickLabel(pick, teams)}, ${seatName(teamIndex, seat)}: ${player.name}, ${positionLabel(player.position)}. Show in the player list.`}
+      aria-label={`Pick ${pickLabel(pick, teams)}, ${owner === null ? "ownership unknown" : seatName(owner.teamIndex, owner.seat)}: ${player.name}, ${positionLabel(player.position)}. Show in the player list.`}
     >
       {body}
     </button>

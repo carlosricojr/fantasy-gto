@@ -4,6 +4,7 @@ import { pickOwnership, seatForTeamIndex } from "@/lib/core/draft";
 import {
   boardColumns,
   boardGrid,
+  boardPickOwner,
   describeTurn,
   nextPickFor,
   pickLabel,
@@ -87,6 +88,19 @@ describe("pickLabel", () => {
     expect(pickLabel(10, 10)).toBe("1.10");
     expect(pickLabel(11, 10)).toBe("2.01");
     expect(pickLabel(27, 12)).toBe("3.03");
+  });
+});
+
+describe("boardPickOwner", () => {
+  it("preserves unknown ownership instead of claiming the physical snake seat owns it", () => {
+    expect(boardPickOwner(new Map(), 13, 5)).toBeNull();
+  });
+
+  it("maps a verified team index back to its visible seat", () => {
+    expect(boardPickOwner(new Map([[13, 6]]), 13, 5)).toEqual({
+      teamIndex: 6,
+      seat: 7,
+    });
   });
 });
 

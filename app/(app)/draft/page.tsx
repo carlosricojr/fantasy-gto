@@ -504,6 +504,9 @@ export default function DraftPage() {
   const pickOwners = useMemo(
     () => {
       if (sleeper === null) return pickOwnership(setup.teams, setup.slot, setup.rounds);
+      // A saved draft from before ownership sync has no evidence that the ordinary snake
+      // still owns every square. Keep every owner unknown until the first successful poll.
+      if (!sleeper.ownershipVerified) return new Map<number, number>();
       const resolved = sleeperPickOwnership({
         teams: setup.teams,
         rounds: setup.rounds,
@@ -633,6 +636,7 @@ export default function DraftPage() {
                 lastSyncedAt: Date.now(),
                 providerPicks: reconciled.history.providerPicks,
                 repairs: reconciled.history.repairs,
+                ownershipVerified: true,
                 slotToRosterId: update.settings.slotToRosterId,
                 tradedPicks: update.tradedPicks,
               },
@@ -1046,6 +1050,7 @@ export default function DraftPage() {
       lastSyncedAt: null,
       providerPicks: [],
       repairs: [],
+      ownershipVerified: true,
       slotToRosterId: result.data.slotToRosterId,
       tradedPicks: tradedPicks.data,
     });
@@ -1513,10 +1518,12 @@ function SleeperSyncStatus({
       : `Last received ${new Date(sync.lastSyncedAt).toLocaleTimeString()}`;
   const completeButUnresolved =
     sync.status.trim().toLowerCase() === "complete" && !reconciliation.cleanCompletion;
-  const reassignedPickCount = sync.tradedPicks.filter(
-    (pick) =>
-      pick.rosterId !== null && pick.ownerId !== null && pick.rosterId !== pick.ownerId,
-  ).length;
+  const reassignedPickCount = sync.ownershipVerified
+    ? sync.tradedPicks.filter(
+        (pick) =>
+          pick.rosterId !== null && pick.ownerId !== null && pick.rosterId !== pick.ownerId,
+      ).length
+    : null;
 
   return (
     <section className="mt-3 rounded-xl border border-dashed p-3 text-sm" aria-labelledby="sleeper-sync-title">
@@ -1524,7 +1531,7 @@ function SleeperSyncStatus({
         <div>
           <h2 id="sleeper-sync-title" className="font-medium">Sleeper sync</h2>
           <p className="text-xs text-muted-foreground">
-            {freshness} · provider status {sync.status || "unknown"} · {reconciliation.observedValidPickCount} of {reconciliation.expectedPickCount} valid provider picks · {reassignedPickCount} traded pick{reassignedPickCount === 1 ? "" : "s"} mapped
+            {freshness} · provider status {sync.status || "unknown"} · {reconciliation.observedValidPickCount} of {reconciliation.expectedPickCount} valid provider picks · {reassignedPickCount === null ? "pick ownership awaiting verification" : `${reassignedPickCount} traded pick${reassignedPickCount === 1 ? "" : "s"} mapped`}
           </p>
         </div>
         <span className={reconciliation.cleanCompletion ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>
