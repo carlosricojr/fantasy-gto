@@ -112,7 +112,15 @@ export function picksUntilTurn(
   fromPick: number,
 ): number | null {
   const next = nextPickFor(owners, teamIndex, fromPick);
-  return next === null ? null : next - fromPick;
+  if (next === null) return null;
+  // `owners` may omit locked keeper squares. Count the picks that are actually still open
+  // rather than subtracting overall numbers, which would call an already-filled keeper a
+  // pick the room still has to make and overstate both the wait and the simulation horizon.
+  let count = 0;
+  for (const pick of owners.keys()) {
+    if (pick >= fromPick && pick < next) count += 1;
+  }
+  return count;
 }
 
 export interface TurnState {
