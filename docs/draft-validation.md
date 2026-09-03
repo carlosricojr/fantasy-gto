@@ -745,6 +745,23 @@ zero, at K/D-ST it is the whole raw level, at TE it is three quarters, and at QB
 league-derived share. A drafted player's own starting value is still the lineup solver's
 answer.
 
+### Market-absence discipline
+
+The recommendation panel does not lead with a player who has no published ADP through
+round 12. That is a guard on advice, not a synthetic price: the player remains on the board,
+keeps the model projection and explicit “no market price” label, and can become a closing-
+round flier. The model ranks players worse than the market in the held-out measurement, so
+an uncorroborated model value is not enough evidence to spend a high- or middle-round pick.
+
+The boundary was six rounds after the first replay audit. Live QA on 2026-09-03 showed why
+that was not sufficient: Colby Parkinson, absent from the price feed, moved directly to
+7.06 in a full Sleeper-synchronized mock. The current-band harness independently reproduced
+him at 7.05 with the frozen board and 8.06 with schedule-derived byes. Holding through round
+12—three quarters of the 16-round format under test—removed the reach from both completed
+replays while every other roster and market check stayed green. The final four rounds remain
+open to model-only fliers; this is still a measured policy boundary, not a claim that twelve
+is universal football truth.
+
 ### Streamable-position discipline
 
 `applyStreamableDiscipline` is keyed separately to positions the weekly model does not
@@ -768,8 +785,10 @@ starting slots a position dedicates, a candidate who outranks somebody already h
 withheld, because he was on the board at the turn the lesser player was taken and nothing
 since is information about him. A player the board does not price is exempt while the market
 gate itself withholds him. The exemption ends when the gate lifts: otherwise the first
-newly-offerable upgrade can immediately bench the position bought one turn earlier, which
-the replacement-consistency replay exposed as Pollard 6.06 → Gainwell 7.05.
+newly-offerable upgrade can immediately bench the position bought one turn earlier. The
+replacement-consistency replay first exposed that mechanism as Pollard 6.06 → Gainwell 7.05;
+the exemption now follows the shared round-12 boundary rather than reopening at the obsolete
+round-seven edge.
 
 All three filter the shortlist and nothing else. The base policy, the opponents' completions
 and our own rollout stay ungated, because the outcome being steered toward is the base policy

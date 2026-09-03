@@ -29,6 +29,7 @@ export function DraftSetup({
   season,
   leagueSizes,
   scoringConfirmed,
+  slotConfirmed,
   children,
 }: {
   settings: LeagueSettings;
@@ -41,6 +42,8 @@ export function DraftSetup({
   leagueSizes: readonly number[];
   /** False until the scoring format has been chosen rather than merely preselected. */
   scoringConfirmed: boolean;
+  /** False until the manager has actively chosen the seat that owns their roster. */
+  slotConfirmed: boolean;
   /** The board provenance note, rendered underneath. */
   children?: React.ReactNode;
 }) {
@@ -56,6 +59,7 @@ export function DraftSetup({
           value={settings}
           onChange={onChange}
           scoringConfirmed={scoringConfirmed}
+          slotConfirmed={slotConfirmed}
         />
       </section>
 
@@ -111,15 +115,18 @@ export function DraftSetup({
               that does nothing and says nothing is the worst of the three states. */}
           <Button
             size="lg"
-            className={cn("w-full sm:w-auto", !scoringConfirmed && "opacity-50")}
+            className={cn(
+              "w-full sm:w-auto",
+              (!scoringConfirmed || !slotConfirmed) && "opacity-50",
+            )}
             // `aria-disabled`, not `disabled`. A disabled button is out of the tab order, so
             // the hint it points at with `aria-describedby` is the one thing a keyboard or
             // screen reader user could never reach — leaving the control unexplained for
             // exactly the people the explanation was written for.
-            aria-disabled={!scoringConfirmed}
-            aria-describedby="scoring-confirmation-hint"
+            aria-disabled={!scoringConfirmed || !slotConfirmed}
+            aria-describedby="slot-confirmation-hint scoring-confirmation-hint"
             onClick={() => {
-              if (!scoringConfirmed) return;
+              if (!scoringConfirmed || !slotConfirmed) return;
               onStart();
             }}
           >

@@ -79,6 +79,24 @@ export function pickLabel(pick: number, teams: number): string {
 }
 
 /**
+ * A provider-verified owner for one board square, or `null` while ownership is unknown.
+ *
+ * The cell's physical snake column is not a fallback owner: a traded pick stays in its
+ * original column, so substituting that column while a provider poll is unavailable makes
+ * an unverified claim look exact.
+ */
+export function boardPickOwner(
+  owners: ReadonlyMap<number, number>,
+  pick: number,
+  userSlot: number,
+): { teamIndex: number; seat: number } | null {
+  const teamIndex = owners.get(pick);
+  return teamIndex === undefined
+    ? null
+    : { teamIndex, seat: seatForTeamIndex(teamIndex, userSlot) };
+}
+
+/**
  * The next pick a team owns at or after the pick on the clock, or `null` when they are
  * done.
  *

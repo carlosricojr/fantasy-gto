@@ -846,7 +846,7 @@ describe("evaluateChecks", () => {
     // public contract, and these strings are where the numbers are pinned.
     const titles = new Map(CHECK_DEFINITIONS.map((entry) => [entry.id, entry.title]));
     expect(titles.get("a")).toBe(
-      "no player absent from the market's list leads a pick in rounds 1-6",
+      `no player absent from the market's list leads a pick in rounds 1-${EARLY_ROUNDS}`,
     );
     expect(titles.get("b")).toBe("at most one K and one D/ST before the final 2 rounds");
     expect(titles.get("d")).toBe(

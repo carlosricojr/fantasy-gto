@@ -56,6 +56,13 @@ export function draftPicksUrl(draftId: string, freshnessToken?: string): string 
     : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
 }
 
+export function draftTradedPicksUrl(draftId: string, freshnessToken?: string): string {
+  const url = `${BASE}/draft/${encodeURIComponent(draftId)}/traded_picks`;
+  return freshnessToken === undefined
+    ? url
+    : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
+}
+
 export function playersUrl(): string {
   return `${BASE}/players/nfl`;
 }
@@ -72,6 +79,8 @@ export interface SleeperDraftSettings {
   status: string;
   /** Sleeper user id to one-based draft seat. Retained even when no local user is known. */
   draftOrder: Readonly<Record<string, number>>;
+  /** One-based draft seat to Sleeper roster id, needed to resolve traded-pick owners. */
+  slotToRosterId: Readonly<Record<number, number>>;
   /** Raw Sleeper roster-slot counts, including bench and unsupported slots. */
   rosterSlots: Readonly<Record<string, number>>;
   /** Seconds on the provider clock, or null when Sleeper does not supply one. */
@@ -82,6 +91,17 @@ export interface SleeperDraftSettings {
   unsupported: readonly string[];
   /** Uninterpreted root settings, never converted into a local preset. */
   extraSettings: Readonly<Record<string, unknown>>;
+}
+
+/** Sleeper's ownership record for one traded pick in this exact draft. */
+export interface SleeperTradedPick {
+  season: string | null;
+  round: number | null;
+  /** Roster id of the original owner whose board square the pick still occupies. */
+  rosterId: number | null;
+  /** Roster id of the current owner who will actually make the selection. */
+  ownerId: number | null;
+  previousOwnerId: number | null;
 }
 
 export interface SleeperPick {
@@ -150,6 +170,30 @@ export class SleeperDraftProvider {
     return ok(parsePicks(parsed.data, teams));
   }
 
+  /**
+   * Current ownership of every traded square in this draft.
+   *
+   * Draft-specific rather than league-wide: the league endpoint also returns future picks,
+   * and applying one of those to this board would silently give a real turn to the wrong
+   * manager. The source remains whole-list and safe to poll for the same reason as picks().
+   */
+  async tradedPicks(
+    draftId: string,
+    freshnessToken?: string,
+  ): Promise<ProviderResult<SleeperTradedPick[]>> {
+    const parsed = await this.json(
+      draftTradedPicksUrl(draftId, freshnessToken),
+      "traded picks",
+    );
+    if (!parsed.ok) return draftFailure(draftId, "traded picks", parsed);
+    if (!Array.isArray(parsed.data)) {
+      return failed(
+        `Sleeper traded-pick sync for draft ${draftId} received an unexpected response. You can retry.`,
+      );
+    }
+    return ok(parseTradedPicks(parsed.data));
+  }
+
   private async json(url: string, what: string): Promise<ProviderResult<unknown>> {
     return sleeperJson(
       this.fetchText,
@@ -163,7 +207,7 @@ export class SleeperDraftProvider {
 
 function draftFailure<T>(
   draftId: string,
-  operation: "settings" | "picks",
+  operation: "settings" | "picks" | "traded picks",
   result: Extract<ProviderResult<T>, { ok: false }>,
 ): ProviderResult<T> {
   return failed(
@@ -191,6 +235,7 @@ export function sleeperRetryDelay(failures: number): number {
 export interface SleeperPollUpdate {
   settings: SleeperDraftSettings;
   picks: readonly SleeperPick[];
+  tradedPicks: readonly SleeperTradedPick[];
 }
 
 export interface SleeperPollHandle {
@@ -206,7 +251,7 @@ export interface SleeperPollHandle {
  */
 export class SleeperDraftPoller {
   constructor(
-    private readonly provider: Pick<SleeperDraftProvider, "settings" | "picks"> =
+    private readonly provider: Pick<SleeperDraftProvider, "settings" | "picks" | "tradedPicks"> =
       new SleeperDraftProvider(),
   ) {}
 
@@ -249,8 +294,8 @@ export class SleeperDraftPoller {
       try {
         // Sleeper's REST edge can continue serving an earlier whole-draft response while
         // its websocket-powered draft room is already many picks ahead. A distinct token
-        // per poll makes the URL a fresh cache key; sharing it between settings and picks
-        // keeps the two reads part of the same polling attempt.
+        // per poll makes the URL a fresh cache key; sharing it between settings, picks and
+        // traded ownership keeps the three reads part of the same polling attempt.
         const freshnessToken = `${Date.now()}-${requestSequence}`;
         requestSequence += 1;
         const settings = await this.provider.settings(draftId, freshnessToken);
@@ -269,8 +314,20 @@ export class SleeperDraftPoller {
           fail(picks.reason);
           return;
         }
+        const tradedPicks = await this.provider.tradedPicks(draftId, freshnessToken);
+        if (cancelled) return;
+        if (!tradedPicks.ok) {
+          fail(tradedPicks.reason);
+          return;
+        }
         failures = 0;
-        if (onUpdate({ settings: settings.data, picks: picks.data }) === true) {
+        if (
+          onUpdate({
+            settings: settings.data,
+            picks: picks.data,
+            tradedPicks: tradedPicks.data,
+          }) === true
+        ) {
           cancel();
           return;
         }
@@ -380,6 +437,7 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
     type,
     status: typeof root.status === "string" ? root.status : "unknown",
     draftOrder: parseDraftOrder(root.draft_order),
+    slotToRosterId: parseSlotToRosterId(root.slot_to_roster_id),
     rosterSlots,
     pickTimerSeconds: positiveOrNull(toInt(settings.pick_timer)),
     scoring: {
@@ -389,6 +447,19 @@ export function parseSettings(payload: unknown): SleeperDraftSettings | null {
     unsupported: [...new Set(unsupported)].sort(),
     extraSettings,
   };
+}
+
+export function parseTradedPicks(payload: readonly unknown[]): SleeperTradedPick[] {
+  return payload.map((item) => {
+    const row = record(item);
+    return {
+      season: textOrNull(row.season),
+      round: positiveOrNull(toInt(row.round)),
+      rosterId: positiveOrNull(toInt(row.roster_id)),
+      ownerId: positiveOrNull(toInt(row.owner_id)),
+      previousOwnerId: positiveOrNull(toInt(row.previous_owner_id)),
+    };
+  });
 }
 
 export function parsePicks(payload: readonly unknown[], teams?: number): SleeperPick[] {
@@ -696,6 +767,16 @@ function parseDraftOrder(value: unknown): Record<string, number> {
   for (const [userId, slot] of Object.entries(record(value))) {
     const parsed = positiveOrNull(toInt(slot));
     if (parsed !== null) out[userId] = parsed;
+  }
+  return out;
+}
+
+function parseSlotToRosterId(value: unknown): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const [slot, rosterId] of Object.entries(record(value))) {
+    const parsedSlot = positiveOrNull(toInt(slot));
+    const parsedRosterId = positiveOrNull(toInt(rosterId));
+    if (parsedSlot !== null && parsedRosterId !== null) out[parsedSlot] = parsedRosterId;
   }
   return out;
 }
