@@ -42,12 +42,18 @@ const DRAFT_ROOM_SETTINGS = new Set([
 /** Zero is the only variant represented by the local all-player, ordinary snake board. */
 const ZERO_ONLY_DRAFT_SETTINGS = new Set(["player_type", "reversal_round"]);
 
-export function draftUrl(draftId: string): string {
-  return `${BASE}/draft/${encodeURIComponent(draftId)}`;
+export function draftUrl(draftId: string, freshnessToken?: string): string {
+  const url = `${BASE}/draft/${encodeURIComponent(draftId)}`;
+  return freshnessToken === undefined
+    ? url
+    : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
 }
 
-export function draftPicksUrl(draftId: string): string {
-  return `${BASE}/draft/${encodeURIComponent(draftId)}/picks`;
+export function draftPicksUrl(draftId: string, freshnessToken?: string): string {
+  const url = `${BASE}/draft/${encodeURIComponent(draftId)}/picks`;
+  return freshnessToken === undefined
+    ? url
+    : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
 }
 
 export function playersUrl(): string {
@@ -103,8 +109,11 @@ export interface SleeperPick {
 export class SleeperDraftProvider {
   constructor(private readonly fetchText: TextFetcher = httpTextFetcher) {}
 
-  async settings(draftId: string): Promise<ProviderResult<SleeperDraftSettings>> {
-    const parsed = await this.json(draftUrl(draftId), "draft");
+  async settings(
+    draftId: string,
+    freshnessToken?: string,
+  ): Promise<ProviderResult<SleeperDraftSettings>> {
+    const parsed = await this.json(draftUrl(draftId, freshnessToken), "draft");
     if (!parsed.ok) return draftFailure(draftId, "settings", parsed);
 
     const settings = parseSettings(parsed.data);
@@ -124,8 +133,12 @@ export class SleeperDraftProvider {
    * list each time is deliberate — an incremental feed would make a dropped update
    * silently persistent, which is the failure mode this whole feature has to avoid.
    */
-  async picks(draftId: string, teams?: number): Promise<ProviderResult<SleeperPick[]>> {
-    const parsed = await this.json(draftPicksUrl(draftId), "picks");
+  async picks(
+    draftId: string,
+    teams?: number,
+    freshnessToken?: string,
+  ): Promise<ProviderResult<SleeperPick[]>> {
+    const parsed = await this.json(draftPicksUrl(draftId, freshnessToken), "picks");
     if (!parsed.ok) return draftFailure(draftId, "picks", parsed);
     if (!Array.isArray(parsed.data)) {
       return failed(
@@ -210,6 +223,7 @@ export class SleeperDraftPoller {
   }): SleeperPollHandle {
     let cancelled = false;
     let failures = 0;
+    let requestSequence = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const cancel = () => {
       cancelled = true;
@@ -233,13 +247,23 @@ export class SleeperDraftPoller {
     };
     const poll = async () => {
       try {
-        const settings = await this.provider.settings(draftId);
+        // Sleeper's REST edge can continue serving an earlier whole-draft response while
+        // its websocket-powered draft room is already many picks ahead. A distinct token
+        // per poll makes the URL a fresh cache key; sharing it between settings and picks
+        // keeps the two reads part of the same polling attempt.
+        const freshnessToken = `${Date.now()}-${requestSequence}`;
+        requestSequence += 1;
+        const settings = await this.provider.settings(draftId, freshnessToken);
         if (cancelled) return;
         if (!settings.ok) {
           fail(settings.reason);
           return;
         }
-        const picks = await this.provider.picks(draftId, settings.data.teams);
+        const picks = await this.provider.picks(
+          draftId,
+          settings.data.teams,
+          freshnessToken,
+        );
         if (cancelled) return;
         if (!picks.ok) {
           fail(picks.reason);

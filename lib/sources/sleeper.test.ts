@@ -5,6 +5,7 @@ import {
   SleeperDraftProvider,
   SleeperDraftPoller,
   SleeperPlayersProvider,
+  SLEEPER_POLLING,
   draftPicksUrl,
   draftUrl,
   parsePicks,
@@ -52,6 +53,13 @@ describe("urls", () => {
     // would silently request a different endpoint.
     expect(draftUrl("123/../evil")).not.toContain("/../");
     expect(draftPicksUrl("a b")).toContain("a%20b");
+  });
+
+  it("can give live polls a fresh cache key without changing ordinary endpoint URLs", () => {
+    expect(draftUrl("abc")).toBe("https://api.sleeper.app/v1/draft/abc");
+    expect(draftPicksUrl("abc", "poll 1")).toBe(
+      "https://api.sleeper.app/v1/draft/abc/picks?fantasy_gto_poll=poll%201",
+    );
   });
 });
 
@@ -409,6 +417,32 @@ describe("SleeperDraftPoller", () => {
     repeating.cancel();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(provider.settings).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("uses a new cache key for every poll and one shared key per settings/picks pair", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-03T15:00:00Z"));
+    const provider = {
+      settings: vi.fn().mockResolvedValue({ ok: true, data: parseSettings(DRAFT)!, degraded: false }),
+      picks: vi.fn().mockResolvedValue({ ok: true, data: parsePicks(PICKS), degraded: false }),
+    };
+    const handle = new SleeperDraftPoller(provider).start({
+      draftId: "abc",
+      onUpdate: () => false,
+      onError: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    const firstToken = provider.settings.mock.calls[0][1];
+    expect(provider.picks.mock.calls[0]).toEqual(["abc", 12, firstToken]);
+
+    await vi.advanceTimersByTimeAsync(SLEEPER_POLLING.activeIntervalMs);
+    const secondToken = provider.settings.mock.calls[1][1];
+    expect(secondToken).not.toBe(firstToken);
+    expect(provider.picks.mock.calls[1]).toEqual(["abc", 12, secondToken]);
+
+    handle.cancel();
     vi.useRealTimers();
   });
 
