@@ -106,6 +106,16 @@ describe("nextPickFor and picksUntilTurn", () => {
     expect(picksUntilTurn(owners, 0, 4)).toBe(14);
   });
 
+  it("does not count locked keeper squares as picks that still have to be made", () => {
+    const open = new Map(owners);
+    // The user's first two squares are already filled. Their next decision is pick 23, and
+    // only the twenty still-open picks 1–22 will happen before it.
+    open.delete(3);
+    open.delete(18);
+    expect(nextPickFor(open, 0, 1)).toBe(23);
+    expect(picksUntilTurn(open, 0, 1)).toBe(20);
+  });
+
   it("says so when a seat has no picks left", () => {
     expect(nextPickFor(owners, 0, 10 * 15 + 1)).toBeNull();
     expect(picksUntilTurn(owners, 0, 10 * 15 + 1)).toBeNull();

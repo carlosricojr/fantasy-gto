@@ -522,6 +522,13 @@ export default function DraftPage() {
     () => (sleeperReconciliation === null ? picks : { ...sleeperReconciliation.acceptedPicks, ...picks }),
     [sleeperReconciliation, picks],
   );
+  // Sleeper publishes commissioner-set keepers before the draft reaches those squares.
+  // They belong on rosters now, but they are not future decisions. Keep the complete map
+  // for board ownership/attribution and give the recommender only squares still unfilled.
+  const openPickOwners = useMemo(
+    () => new Map([...pickOwners].filter(([pick]) => activePicks[pick] === undefined)),
+    [pickOwners, activePicks],
+  );
   const manualPickNumbers = useMemo(
     () =>
       Object.keys(picks)
@@ -713,7 +720,7 @@ export default function DraftPage() {
       id: `t${index}`,
       name: index === 0 ? "You" : `Seat ${seatForTeamIndex(index, setup.slot)}`,
       roster,
-      remainingPicks: [...pickOwners.entries()]
+      remainingPicks: [...openPickOwners.entries()]
         .filter(([pick, team]) => team === index && pick >= currentPick)
         .map(([pick]) => pick)
         .sort((a, b) => a - b),
@@ -725,7 +732,7 @@ export default function DraftPage() {
       available: pool.filter((p) => !taken.has(p.id)),
       rosterSize: setup.rounds,
     };
-  }, [pool, activePicks, pickOwners, byId, setup, currentPick]);
+  }, [pool, activePicks, pickOwners, openPickOwners, byId, setup, currentPick]);
 
   // Derived from the league's own final rather than written out. The literals this
   // replaces — weeks 1-14 with a three-week bracket — describe one real setting and were
@@ -807,13 +814,17 @@ export default function DraftPage() {
   // re-solves the roster's slot assignment on renders where nothing changed.
   const myRoster = useMemo(() => draftState?.teams[0].roster ?? [], [draftState]);
   const myRemainingPicks = draftState?.teams[0].remainingPicks ?? [];
-  const nextOwnPick = nextPickFor(pickOwners, 0, currentPick);
-  const untilTurn = picksUntilTurn(pickOwners, 0, currentPick);
+  const nextOwnPick = nextPickFor(openPickOwners, 0, currentPick);
+  const untilTurn = picksUntilTurn(openPickOwners, 0, currentPick);
   // "Will he last?" is always about the turn *after* the one being decided now. On your own
   // turn `nextOwnPick` is the pick you are making, and asking whether a player survives
   // until the moment you take him is not a question anybody has — the column read "83%
   // lasts to 17" on pick 17.
-  const waitPick = nextPickFor(pickOwners, 0, onTheClock ? currentPick + 1 : currentPick);
+  const waitPick = nextPickFor(
+    openPickOwners,
+    0,
+    onTheClock ? currentPick + 1 : currentPick,
+  );
   const waitPickLabel = waitPick === null ? null : pickLabel(waitPick, setup.teams);
   const unrankedAdp = unrankedAdpFor(totalPicks);
   const needs = useMemo(() => neededPositions(starters, myRoster), [starters, myRoster]);
