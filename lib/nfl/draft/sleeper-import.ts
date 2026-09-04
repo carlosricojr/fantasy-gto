@@ -39,11 +39,15 @@ const SLOT_MAP: Readonly<Record<string, string>> = {
 };
 
 /**
- * Selects a local setup only when every imported setting is exactly represented.
+ * Selects a local setup only when the pick order, roster and imported offensive scoring are
+ * exactly represented.
  *
- * It intentionally does not approximate custom scoring, keeper rules, linear/auction
- * order, or unfamiliar roster slots. Those facts remain in the adapter result and the UI
- * must present this result's `unsupported` list before a draft can be synchronized.
+ * It intentionally does not approximate custom offensive scoring, keeper rules,
+ * linear/auction order, or unfamiliar roster slots. Kicker and D/ST rules are outside the
+ * draft payload and outside this match: those positions remain market-priced, their range
+ * uses the generic measured band, and the UI says so before and after connection. Other
+ * unsupported facts remain in the adapter result and the UI must present this result's
+ * `unsupported` list before a draft can be synchronized.
  */
 export function importSleeperSetup(source: SleeperImportSettings): SleeperSetupImport {
   const unsupported = [...source.unsupported];

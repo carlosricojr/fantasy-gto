@@ -1465,7 +1465,8 @@ function SleeperConnect({
       <h2 id="sleeper-connect-title" className="text-sm font-medium">Connect Sleeper</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Paste the public draft ID from Sleeper. We prefill only an exact snake, roster, and
-        PPR/Half PPR/Standard mapping; custom settings stay visible and are not approximated.
+        offensive PPR/Half PPR/Standard mapping. Kicker and D/ST scoring is not imported;
+        those positions stay market-priced.
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <label className="sr-only" htmlFor="sleeper-draft-id">Sleeper draft ID</label>
@@ -1542,6 +1543,10 @@ function SleeperSyncStatus({
               : "Reconciling"}
         </span>
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Sleeper scoring sync covers offense. Kicker and D/ST rules are not imported; those
+        positions use market draft price and a generic historical range.
+      </p>
       {message === null ? null : (
         <p className="mt-2 text-xs text-muted-foreground" role="status">
           {message} <Button type="button" variant="link" size="sm" className="h-auto px-1 py-0" onClick={onRetry}>Retry now</Button>

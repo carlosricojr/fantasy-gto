@@ -555,6 +555,12 @@ valuation input, not the measurement basis. See `docs/data-sources.md`. So the b
 the range around the value and never the value itself, which on a K or D/ST row is still
 the market's alone.
 
+Sleeper imports match the league's **offensive** PPR identity. The draft endpoint does not
+carry the league's full kicker or defense ladders, so those rules are not imported and the
+interface says so both before connection and beside a live sync. A custom K/D/ST league still
+gets the market-priced rows and the generic historical bands described above; it does not get
+a scoring-specific projection or a scoring-specific ADP board.
+
 The frozen harness fixture predates that measurement and is deliberately not regenerated,
 so `pnpm draft-mock` replays the August-2026 bands. `pnpm draft-mock -- --current-bands`
 replays the same two modes with every row re-banded from `OUTCOME_QUANTILES` and enforces

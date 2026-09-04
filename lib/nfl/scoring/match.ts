@@ -26,11 +26,12 @@ import type { OffenseScoringRules, ScoringRules } from "./types";
  * what separates the three presets, and what average draft position is published against.
  *
  * Kicker and defense rules are deliberately not compared. The model projects neither
- * position — `docs/draft-validation.md` says so and this repository will not invent one — so
- * no number the product shows depends on them, and refusing an import over a field-goal tier
- * would block a league whose actual scoring is exactly PPR. A caller that has them and finds
- * them different is still importing a league whose *offense* is PPR, which is what `exact`
- * claims and all it claims.
+ * position — `docs/draft-validation.md` says so and this repository will not invent one — and
+ * their draft values remain the market's. Their historical outcome bands do depend on the
+ * shipped default ladders, so an imported match is explicitly an *offensive* match rather
+ * than a claim about the whole league. Refusing an import over a field-goal tier would block
+ * a league whose offense is exactly PPR without giving the product a scoring-specific K/D/ST
+ * market or projection to use instead; the draft UI discloses that boundary persistently.
  */
 
 /** Every field that has to be known before a comparison means anything. */
