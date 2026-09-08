@@ -60,7 +60,7 @@ for (const policy of ["responsive-greedy", "strict-adp-opponents"] as const) {
   for (const name of choices) {
     const rosters = policy === "responsive-greedy" ? completeDraft(state, config, playerFor(name)) : marketOpponentCompletion(playerFor(name));
     const ids = rosters.flat().map((player) => player.id);
-    if (new Set(ids).size !== ids.length || rosters.some((roster, index) => roster.length !== state.teams[index].draftRosterSize)) throw new Error("Invalid diagnostic draft accounting.");
+    if (new Set(ids).size !== ids.length || rosters.some((roster, index) => roster.length !== (state.teams[index].draftRosterSize ?? state.rosterSize))) throw new Error("Invalid diagnostic draft accounting.");
     const outcomes = seeds.map((seed) => simulateLeague(rosters.map((roster, index) => sampleTeamWeeklyScores(trimDraftRoster(roster, state.rosterSize, config.slots), config, index === 0 ? seed : seed + 999 + index)), config)[0]);
     console.log(JSON.stringify({ kind: "opponent-policy-sensitivity", policy, name, ownRoster: rosters[0].map((player) => player.name), meanTitle: outcomes.reduce((sum, row) => sum + row.championshipProbability, 0) / seeds.length, meanPlayoffs: outcomes.reduce((sum, row) => sum + row.playoffProbability, 0) / seeds.length }));
   }
