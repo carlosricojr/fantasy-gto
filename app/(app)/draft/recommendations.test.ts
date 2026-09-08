@@ -48,7 +48,10 @@ function recommendation(
   };
 }
 
-function renderRecommendations(onTheClock: boolean) {
+function renderRecommendations(
+  onTheClock: boolean,
+  ownRecordOnlyPlayers: Parameters<typeof Recommendations>[0]["ownRecordOnlyPlayers"] = [],
+) {
   const state = {
     recommendations: [
       recommendation("parker", "Parker Washington", 0.042, true),
@@ -75,6 +78,7 @@ function renderRecommendations(onTheClock: boolean) {
       waitPickLabel: null,
       unrankedAdp: 999,
       basisFor: () => "blend" as ValueBasis,
+      ownRecordOnlyPlayers,
     }),
   );
 }
@@ -116,5 +120,59 @@ describe("Recommendations interpretation", () => {
     // binds to the reply id. It cannot borrow a newly selected league's size while that
     // league retargets the worker.
     expect(html).toContain("An even pre-draft reference in a 12-team league is 8.3%");
+  });
+
+  it("warns when an own roster player uses a positional floor instead of a personal value", () => {
+    const html = renderRecommendations(true, [
+      { id: "jacobs", name: "Josh Jacobs", position: "RB" },
+    ]);
+
+    expect(html).toContain("Roster player without an active valuation");
+    expect(html).toContain("Josh Jacobs (RB) is record-only on this board, without an active valuation");
+    expect(html).toContain("unavailable or otherwise outside the valued pool");
+    expect(html).toContain("lowest current value at each player");
+    expect(html).toContain("position when one is available");
+    expect(html).toContain("otherwise a fallback");
+    expect(html).toContain("not a personal projection");
+    expect(html).toContain("incomplete rather than pick-ready");
+  });
+
+  it("does not warn when every own roster player has a normal board value", () => {
+    const html = renderRecommendations(true);
+
+    expect(html).not.toContain("Roster player without an active valuation");
+    expect(html).not.toContain("record-only on this board");
+  });
+
+  it("keeps the missing-value warning visible once the draft is complete", () => {
+    const state = {
+      recommendations: [],
+      teams: 12,
+      stale: false,
+      loading: false,
+      error: null,
+      lastElapsedMs: null,
+      lastFromCache: false,
+      unavailable: null,
+    } as unknown as ReturnType<typeof useRecommendations>;
+    const html = renderToStaticMarkup(
+      createElement(Recommendations, {
+        state,
+        scenarios: 600,
+        candidates: 10,
+        onTheClock: false,
+        draftComplete: true,
+        onPick: () => undefined,
+        waitPick: null,
+        waitPickLabel: null,
+        unrankedAdp: 999,
+        basisFor: () => "blend" as ValueBasis,
+        ownRecordOnlyPlayers: [{ id: "jacobs", name: "Josh Jacobs", position: "RB" }],
+      }),
+    );
+
+    expect(html).toContain("The draft is over");
+    expect(html).toContain("Roster player without an active valuation");
+    expect(html).toContain("Any title estimate from this draft is incomplete");
   });
 });
