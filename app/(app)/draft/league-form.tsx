@@ -36,6 +36,7 @@ export interface LeagueSettings {
   rounds: number;
   slot: number;
   playoffTeams: number;
+  extraMedianMatchup?: boolean;
   /** The week the final is played. With the field size, it fixes every week of the season. */
   championshipWeek: number;
   scoringId: string;
@@ -135,6 +136,17 @@ export function LeagueForm({
         league that plays standard and drafts off the PPR board is reading prices for a game
         it is not playing.
       */}
+      <Field label="Regular-season standings" hint="Median games do not apply during the playoffs">
+        <SegmentedControl
+          label="Regular-season standings"
+          value={value.extraMedianMatchup === true ? "median" : "head-to-head"}
+          onChange={(mode) => onChange({ extraMedianMatchup: mode === "median" })}
+          options={[
+            { value: "head-to-head", label: "Head-to-head" },
+            { value: "median", label: "+ League median" },
+          ]}
+        />
+      </Field>
       <Field label="Scoring">
         <SegmentedControl
           label="Scoring"

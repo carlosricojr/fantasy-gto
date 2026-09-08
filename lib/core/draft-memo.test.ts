@@ -142,6 +142,11 @@ describe("leagueFingerprint separates leagues that are genuinely different", () 
   it("separates different playoff shapes", () => {
     expect(leagueFingerprint({ ...CONFIG, playoffTeams: 6 }, 1)).not.toBe(base);
     expect(leagueFingerprint({ ...CONFIG, playoffWeeks: [13, 14, 15] }, 1)).not.toBe(base);
+    // The extra median matchup changes regular-season records and therefore playoff
+    // qualification. It is optional so existing configurations retain ordinary head-to-
+    // head behavior, but a memo entry must never cross that rules boundary.
+    expect(leagueFingerprint({ ...CONFIG, extraMedianMatchup: true }, 1)).not.toBe(base);
+    expect(leagueFingerprint({ ...CONFIG, extraMedianMatchup: false }, 1)).toBe(base);
     // The waiver-wire prior changes what a reserve is worth and which positions the
     // streamable discipline withholds, so two leagues that disagree about it are two
     // different problems and must not share an answer.

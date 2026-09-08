@@ -201,6 +201,7 @@ export default function DraftPage() {
   const [scoringConfirmed, setScoringConfirmed] = useState(false);
   const [started, setStarted] = useState(false);
   const [playoffTeams, setPlayoffTeams] = useState<number>(6);
+  const [extraMedianMatchup, setExtraMedianMatchup] = useState(false);
   /**
    * The week this league plays its final.
    *
@@ -250,6 +251,7 @@ export default function DraftPage() {
       setScoringConfirmed(stored.scoringConfirmed);
       setTemplateId(stored.templateId);
       setPlayoffTeams(stored.playoffTeams);
+      setExtraMedianMatchup(stored.extraMedianMatchup === true);
       setChampionshipWeek(stored.championshipWeek);
       setStarted(stored.started);
       setPicks(stored.picks);
@@ -272,6 +274,7 @@ export default function DraftPage() {
       scoringConfirmed,
       templateId,
       playoffTeams,
+      extraMedianMatchup,
       championshipWeek,
       started,
       picks,
@@ -294,6 +297,7 @@ export default function DraftPage() {
     scoringConfirmed,
     templateId,
     playoffTeams,
+    extraMedianMatchup,
     championshipWeek,
     started,
     picks,
@@ -610,7 +614,7 @@ export default function DraftPage() {
     connected: sleeper !== null,
     verifiedAt: sleeperVerifiedAt,
     verifiedSetup: sleeperVerifiedSetup,
-    currentSetup: sleeperSetupFingerprint({ ...setup, scoringId, templateId }),
+    currentSetup: sleeperSetupFingerprint({ ...setup, scoringId, templateId, playoffTeams, championshipWeek, extraMedianMatchup }),
     now: sleeperNow,
     error: sleeperPollError,
     providerComplete: sleeper?.status.trim().toLowerCase() === "complete",
@@ -636,6 +640,9 @@ export default function DraftPage() {
     userSlot: setup.slot,
     scoringId,
     templateId,
+    playoffTeams,
+    championshipWeek,
+    extraMedianMatchup,
   });
   useEffect(() => {
     sleeperPollInputRef.current = {
@@ -647,8 +654,11 @@ export default function DraftPage() {
       userSlot: setup.slot,
       scoringId,
       templateId,
+      playoffTeams,
+      championshipWeek,
+      extraMedianMatchup,
     };
-  }, [boardIdentities, picks, totalPicks, setup, scoringId, templateId]);
+  }, [boardIdentities, picks, totalPicks, setup, scoringId, templateId, playoffTeams, championshipWeek, extraMedianMatchup]);
   useEffect(() => {
     const currentSleeper = sleeperRef.current;
     if (currentSleeper === null || sleeperPollDraftId === null || boardPending) return;
@@ -664,7 +674,11 @@ export default function DraftPage() {
         const imported = importSleeperSetup(update.settings);
         if (!imported.exact || imported.settings === null ||
             imported.settings.teams !== latest.teams || imported.settings.rounds !== latest.rounds ||
-            imported.settings.scoringId !== latest.scoringId || imported.settings.templateId !== latest.templateId) {
+            imported.settings.scoringId !== latest.scoringId || imported.settings.templateId !== latest.templateId ||
+            (imported.settings.seasonRules !== undefined && (
+              imported.settings.seasonRules.playoffTeams !== latest.playoffTeams ||
+              imported.settings.seasonRules.championshipWeek !== latest.championshipWeek ||
+              imported.settings.seasonRules.extraMedianMatchup !== latest.extraMedianMatchup))) {
           const reason = `Sleeper settings no longer match this board. ${imported.unsupported.join(", ")} Check league setup before continuing.`;
           setSleeperPollError(reason);
           setSleeperMessage(reason);
@@ -702,7 +716,7 @@ export default function DraftPage() {
         history = reconciled.history;
         const receivedAt = Date.now();
         setSleeperVerifiedAt(receivedAt);
-        setSleeperVerifiedSetup(sleeperSetupFingerprint(imported.settings));
+        setSleeperVerifiedSetup(sleeperSetupFingerprint({ ...latest, ...imported.settings, ...imported.settings.seasonRules }));
         setSleeperNow(receivedAt);
         setSleeperPollError(null);
         setSleeper((previous) =>
@@ -873,12 +887,13 @@ export default function DraftPage() {
       slots: starters,
       ...fantasySeasonWeeks(championshipWeek, playoffTeams),
       playoffTeams,
+      extraMedianMatchup,
       scenarios: scenarioBudget,
       meanAbsenceWeeks: 3,
       wireCover: waiverWireCover(setup.teams, starters),
       unprojectedPositions: UNPROJECTED_POSITIONS,
     }),
-    [starters, playoffTeams, championshipWeek, setup.teams, scenarioBudget],
+    [starters, playoffTeams, championshipWeek, setup.teams, scenarioBudget, extraMedianMatchup],
   );
 
   // Before anything is requested, and whether or not anything can be. Changing the scoring
@@ -902,6 +917,7 @@ export default function DraftPage() {
     // primitive tuple; `config` is derived from exactly these two.
     playoffTeams,
     championshipWeek,
+    extraMedianMatchup,
   }) + (adviceBlock === null ? "" : "|advice-paused");
   useEffect(() => {
     recommender.retargetTo(fingerprint);
@@ -1051,6 +1067,7 @@ export default function DraftPage() {
     rounds,
     slot,
     playoffTeams,
+    extraMedianMatchup,
     championshipWeek,
     scoringId,
     templateId,
@@ -1064,6 +1081,7 @@ export default function DraftPage() {
       setSlotConfirmed(true);
     }
     if (patch.playoffTeams !== undefined) setPlayoffTeams(patch.playoffTeams);
+    if (patch.extraMedianMatchup !== undefined) setExtraMedianMatchup(patch.extraMedianMatchup);
     if (patch.championshipWeek !== undefined) setChampionshipWeek(patch.championshipWeek);
     if (patch.scoringId !== undefined) {
       setScoringId(patch.scoringId);
@@ -1121,6 +1139,11 @@ export default function DraftPage() {
     setSlot(importedSlot);
     setSlotConfirmed(importedSlotConfirmed);
     setScoringId(imported.settings.scoringId);
+    if (imported.settings.seasonRules !== undefined) {
+      setPlayoffTeams(imported.settings.seasonRules.playoffTeams);
+      setChampionshipWeek(imported.settings.seasonRules.championshipWeek);
+      setExtraMedianMatchup(imported.settings.seasonRules.extraMedianMatchup);
+    }
     setTemplateId(imported.settings.templateId);
     setScoringConfirmed(true);
     setSleeperVerifiedAt(null);

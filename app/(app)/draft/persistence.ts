@@ -114,6 +114,7 @@ export interface PersistedDraft {
    */
   scoringConfirmed: boolean;
   playoffTeams: number;
+  extraMedianMatchup?: boolean;
   /**
    * The week the league's final is played, which fixes both halves of the season.
    *
@@ -202,6 +203,8 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   }
 
   const { scoringId, templateId, started } = row;
+  const extraMedianMatchup = row.extraMedianMatchup === undefined ? false : row.extraMedianMatchup;
+  if (typeof extraMedianMatchup !== "boolean") return null;
   // Absent means "not confirmed", which is the safe reading of a payload written before the
   // field existed. Anything else present but not a boolean is malformed and refused with the
   // rest of the payload rather than coerced.
@@ -236,6 +239,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     templateId,
     scoringConfirmed,
     playoffTeams,
+    extraMedianMatchup,
     championshipWeek,
     started,
     picks,

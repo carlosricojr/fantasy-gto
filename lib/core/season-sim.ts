@@ -36,6 +36,15 @@ export interface LeagueConfig extends UtilityConfig {
   /** Weeks the bracket is played over. One round per week. */
   playoffWeeks: readonly number[];
   /**
+   * Whether each regular-season week also awards a result against that week's league
+   * median score. Omitted is the ordinary one-head-to-head-matchup format.
+   *
+   * Sleeper calls this "Extra Game Each Week Against League Median": above the median is
+   * an additional win, below it an additional loss, and exactly at it a tie. It never
+   * applies to playoff weeks.
+   */
+  extraMedianMatchup?: boolean;
+  /**
    * The share of an absence the waiver wire covers for free, by position. Absent
    * positions are read as zero — the wire covers nothing there.
    *
@@ -159,8 +168,9 @@ export function sampleTeamWeeklyScores(
  * Plays the league out and returns each team's odds.
  *
  * Regular-season weeks decide seeding by wins, then by total points — the near-universal
- * tiebreak. The bracket is single elimination between the top seeds, higher seed on the
- * left, which is what every mainstream platform does.
+ * tiebreak. A league can optionally add Sleeper's second regular-season result against the
+ * weekly league median. The bracket is single elimination between the top seeds, higher
+ * seed on the left, which is what every mainstream platform does.
  */
 /**
  * An arbitrary but stable ordering key for breaking ties within a scenario.
@@ -408,6 +418,24 @@ export function simulateLeagueScenarios(
         else {
           wins[home] += 0.5;
           wins[away] += 0.5;
+        }
+      }
+
+      // Sleeper's optional extra matchup is against the field's score distribution, not a
+      // second scheduled opponent. For an even-sized league the two middle scores are
+      // averaged; using either middle team would turn that team's score into a tie when it
+      // should be a win or loss. An odd field has one middle score. This is deliberately in
+      // the regular-season loop: Sleeper does not use the median in playoff or consolation
+      // matchups, and `playBracket` must remain untouched by this setting.
+      if (config.extraMedianMatchup === true) {
+        const scores = teamScores.map((team) => team[s][w]).sort((a, b) => a - b);
+        const middle = Math.floor(teamCount / 2);
+        const median =
+          teamCount % 2 === 0 ? (scores[middle - 1] + scores[middle]) / 2 : scores[middle];
+        for (let t = 0; t < teamCount; t += 1) {
+          const score = teamScores[t][s][w];
+          if (score > median) wins[t] += 1;
+          else if (score === median) wins[t] += 0.5;
         }
       }
     }

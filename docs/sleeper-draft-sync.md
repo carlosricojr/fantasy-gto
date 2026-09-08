@@ -76,7 +76,22 @@ guard, not a guarantee of event-time freshness: Sleeper can still serve a laggin
 Clean completion does not require polling forever. Pausing clears old recommendation
 replies, so a delayed worker answer cannot reappear as advice for a recovered board.
 
-Kicker/DST rules, actual playoff settings, and other unmodeled league details still limit
-title estimates. The offensive compatibility check can reject ordinary platform rules
+League drafts now import the actual playoff field, final week, and additional median-game
+setting. Imported season settings are checked on every poll, stored across reloads, and
+included in both the source-verification and worker-reply fingerprints. A manual change
+cannot leave advice computed for the prior season rules on screen. Standalone mocks
+retain the manually selected season rules. Unsupported brackets, non-week-one starts,
+best ball and automatic substitutions are rejected rather than approximated.
+
+Kicker/DST rules and other unmodeled league details still limit title estimates until a
+custom-scored board has been published. The offensive compatibility check can reject ordinary platform rules
 that this model does not score, such as individual fumble-recovery touchdowns; it does
 not silently ignore them or claim every Sleeper league is supported.
+
+The pure custom scorer in `lib/nfl/scoring/sleeper.ts` is a separate foundation, not a
+flag that enables unsupported boards. It scores sparse *weekly stats*, including individual
+special-teams events, distance-specific kicking, defensive forced fumbles/blocked kicks,
+and Sleeper's own weekly points/yards-allowed tier indicators. Missing defensive tier
+coverage or incomplete kicker distance splits throw. It must not be applied to Sleeper's
+season projections, which omit required fields. Canonical nonzero coefficients form the
+exact board identity; the ADP source remains separately labelled PPR/half-PPR/standard.

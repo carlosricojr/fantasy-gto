@@ -618,6 +618,7 @@ somebody wrote down that the command was run.
 | #38 — roster-state-aware draft replacement demand | `pnpm backtest` | Every figure in this document reproduced unchanged. `lib/nfl/model/published-metrics.json` untouched, working tree otherwise clean. Holdout not evaluated: the run printed `HOLDOUT 2025 NOT EVALUATED.` |
 | #39 — diminishing bench marginal value in the base policy | `pnpm backtest` | Unchanged again, on the same terms. Spot-checked against the printed output: tuning delta MAE `+0.5243 (+8.33%)`, clustered SE `0.0299`, pairwise 65.46% against 63.94%, lineup regret 17.607 against 19.749. |
 | #40 — paired candidate-difference uncertainty | `pnpm backtest` | Unchanged. This one alters what a recommendation *reports* and how the tie band is decided, not what the base policy picks — but the tie band decides the ordering of tied candidates, so it is a policy change and gets the same treatment. |
+| September 7, 2026 — imported median standings and custom Sleeper scorer foundation | `pnpm backtest` | Development MAE 5.8818 versus 6.0099; tuning MAE 5.7706 versus 5.9453, unchanged. Holdout 2025 not evaluated; published metrics untouched. This checks unchanged baseline player inputs, not calibration of the new custom scoring path. Direct scorer tests cover verified weekly events and missing-input failures; custom board publication is a separate gate. |
 
 That result is expected rather than surprising, and the reason is worth stating: the draft
 policy consumes the weekly model's output and does not participate in producing it, so

@@ -171,6 +171,54 @@ describe("simulateLeague", () => {
   });
 });
 
+describe("extra matchup against the weekly league median", () => {
+  const oneWeek = {
+    ...CONFIG,
+    weeks: [1],
+    playoffWeeks: [],
+    playoffTeams: 1,
+    scenarios: 1,
+  };
+
+  it("is opt-in, and uses the average of both middle scores in an even league", () => {
+    // Scheduled games are 0 v 3 and 1 v 2. The median is (84 + 86) / 2 = 85, so both
+    // scheduled winners earn a second win. Choosing either middle score would make one of
+    // those teams tie instead, silently modeling a different standings rule.
+    const scores = [[[100]], [[86]], [[84]], [[70]]];
+    const ordinary = simulateLeague(scores, oneWeek);
+    const disabled = simulateLeague(scores, { ...oneWeek, extraMedianMatchup: false });
+    const withMedian = simulateLeague(scores, { ...oneWeek, extraMedianMatchup: true });
+
+    expect(ordinary.map((outcome) => outcome.expectedWins)).toEqual([1, 1, 0, 0]);
+    expect(disabled).toEqual(ordinary);
+    expect(withMedian.map((outcome) => outcome.expectedWins)).toEqual([2, 2, 0, 0]);
+  });
+
+  it("records an exact median score as a tie", () => {
+    // Both middle scores are 85, so each is exactly at the median. They each already split
+    // their scheduled matchup, then split the median matchup too: one win total.
+    const scores = [[[100]], [[85]], [[85]], [[70]]];
+    const outcomes = simulateLeague(scores, { ...oneWeek, extraMedianMatchup: true });
+
+    expect(outcomes.map((outcome) => outcome.expectedWins)).toEqual([2, 1, 1, 0]);
+  });
+
+  it("never applies the median result during playoffs", () => {
+    // All teams tie in the only regular week, so each gets 0.5 from its scheduled matchup
+    // and 0.5 from the median matchup. The deliberately different playoff scores decide a
+    // bracket game but cannot change a regular-season record.
+    const scores = [[[100, 0]], [[100, 100]], [[100, 50]], [[100, 20]]];
+    const outcomes = simulateLeague(scores, {
+      ...oneWeek,
+      playoffWeeks: [2],
+      playoffTeams: 2,
+      extraMedianMatchup: true,
+    });
+
+    expect(outcomes.map((outcome) => outcome.expectedWins)).toEqual([1, 1, 1, 1]);
+  });
+});
+
 describe("championship probability is not expected points", () => {
   it("costs an underdog wins to be volatile, despite identical expected points", () => {
     // Counter-intuitive, and the reason this is simulated rather than reasoned about.

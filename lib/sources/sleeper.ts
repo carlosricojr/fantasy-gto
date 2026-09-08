@@ -2,6 +2,7 @@ import { MAX_DRAFT_ROUNDS, MAX_LEAGUE_TEAMS } from "../core/draft";
 import { type ProviderResult, failed, ok } from "../core/providers";
 import { normalizeTeam } from "../nfl/teams";
 import { unsupportedSleeperScoring } from "../nfl/draft/sleeper-scoring";
+import { parseSleeperSeasonRules, type SleeperSeasonRules } from "../nfl/draft/sleeper-league";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
 /**
@@ -74,6 +75,8 @@ export function leagueUrl(leagueId: string, freshnessToken?: string): string {
 }
 
 export interface SleeperDraftSettings {
+  /** Authoritative regular-season and playoff rules; absent for standalone mock drafts. */
+  seasonRules?: SleeperSeasonRules;
   /** Sleeper's stable draft identifier. Never infer it from a pasted URL. */
   draftId: string | null;
   /** The league this draft belongs to, when Sleeper exposes it. */
@@ -156,10 +159,12 @@ export class SleeperDraftProvider {
       if (source.league_id !== settings.leagueId) {
         return failed(`Sleeper league scoring could not be verified for draft ${draftId}. Retry before using recommendations.`);
       }
+      const seasonRules = parseSleeperSeasonRules(source.settings);
       return ok({
         ...settings,
+        ...(seasonRules.ok ? { seasonRules: seasonRules.rules } : {}),
         scoring: { ...settings.scoring, metadata: { ...settings.scoring.metadata, league_scoring_settings: source.scoring_settings } },
-        unsupported: [...settings.unsupported, ...unsupportedSleeperScoring(settings.scoring.identity, source.scoring_settings)],
+        unsupported: [...settings.unsupported, ...unsupportedSleeperScoring(settings.scoring.identity, source.scoring_settings), ...(seasonRules.ok ? [] : seasonRules.unsupported)],
       });
     }
     return ok(settings);

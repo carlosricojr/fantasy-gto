@@ -74,6 +74,10 @@ describe("out-of-order replies", () => {
 });
 
 describe("changing the league", () => {
+  it("separates median standings while preserving the legacy false default", () => {
+    expect(leagueFingerprint(LEAGUE)).toBe(leagueFingerprint({ ...LEAGUE, extraMedianMatchup: false }));
+    expect(leagueFingerprint(LEAGUE)).not.toBe(leagueFingerprint({ ...LEAGUE, extraMedianMatchup: true }));
+  });
   it("discards every outstanding reply in one step", () => {
     let gate = initialGate(leagueFingerprint(LEAGUE));
     const a = nextRequest(gate);
