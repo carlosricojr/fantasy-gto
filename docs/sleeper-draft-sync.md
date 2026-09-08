@@ -6,8 +6,13 @@ an exact import, not a best-effort setup guess.
 ## Supported setup
 
 The board imports only a snake draft whose team count, round count, starter slots, and
-scoring identity the board can represent exactly. Sleeper's `ppr`, `half_ppr`, and
-`standard` identities map to the matching local scoring IDs. Sleeper starter slots map only
+offensive scoring the board can represent. For a league draft, the adapter also reads
+`/v1/league/{league_id}` and compares `scoring_settings` against the local coefficients.
+The draft's `ppr`, `half_ppr`, or `standard` label alone is not verification: six-point
+passing touchdowns, reception bonuses, and other unmodeled nonzero player scoring block
+import. Missing or unreadable league rules fail closed. Standalone mocks have no league
+endpoint and retain their declared preset; that is not verified league scoring.
+Sleeper starter slots map only
 when their counts select one existing roster template; bench length remains exact through
 the independently imported round count. Ordinary draft-room controls such as the provider
 clock, auto-start, sorting, and pause window are retained as source evidence but do not block
@@ -53,3 +58,25 @@ Local picks and the connected provider history are saved in session storage, so 
 same-tab sign-in redirect does not discard a draft when Sleeper is unavailable. To roll back
 an in-progress connection, use Reset draft; it clears the local board and the saved Sleeper
 connection. A provider outage never clears locally saved draft state.
+
+## Advice readiness
+
+Recording history and recommending a pick are separate contracts. Recommendations pause
+until the first successful poll in the current browser session, even when a saved draft
+contains an earlier receipt timestamp. They also pause on provider errors, unresolved
+identities, rejected repairs, conflicts, gaps before a later non-keeper pick, changed setup,
+or a snapshot that removes/replaces an observed pick. The saved board is preserved; a
+rollback requires operator verification, not silent history deletion. A subsequent valid
+snapshot resumes advice automatically. A genuinely removed pick currently requires a
+reset/reconnect after saving any manual corrections; there is no automatic undo acceptance.
+
+After 20 seconds without a successful poll (five normal poll intervals), an independent
+browser timer pauses advice even if no new event or error arrives. This is an operational
+guard, not a guarantee of event-time freshness: Sleeper can still serve a lagging response.
+Clean completion does not require polling forever. Pausing clears old recommendation
+replies, so a delayed worker answer cannot reappear as advice for a recovered board.
+
+Kicker/DST rules, actual playoff settings, and other unmodeled league details still limit
+title estimates. The offensive compatibility check can reject ordinary platform rules
+that this model does not score, such as individual fumble-recovery touchdowns; it does
+not silently ignore them or claim every Sleeper league is supported.

@@ -267,7 +267,7 @@ function describeChosenSeason(championshipWeek: number, playoffTeams: number): s
  * rounds; the ceiling is the same `MAX_ROUNDS` the stored payload validates against, so
  * the interface can represent every draft it will accept back.
  */
-const ROUND_CHOICES = [10, 12, 13, 14, 15, 16, 18, 20, MAX_ROUNDS].filter(
+const ROUND_CHOICES = [10, 12, 13, 14, 15, 16, 17, 18, 20, MAX_ROUNDS].filter(
   (rounds, index, all) => all.indexOf(rounds) === index && rounds <= MAX_ROUNDS,
 );
 

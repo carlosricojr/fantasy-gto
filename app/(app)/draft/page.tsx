@@ -42,6 +42,7 @@ import {
   type SleeperReconciliation,
 } from "@/lib/nfl/draft/sleeper-sync";
 import { importSleeperSetup } from "@/lib/nfl/draft/sleeper-import";
+import { missingDraftPlayerIds, missingSleeperSnapshotPicks, sleeperRecommendationBlock, sleeperSetupFingerprint, SLEEPER_STALE_AFTER_MS } from "@/lib/nfl/draft/sleeper-readiness";
 import { sleeperPickOwnership } from "@/lib/nfl/draft/sleeper-ownership";
 import type { PlayerIdentity } from "@/lib/nfl/draft/provider-identity";
 import { SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
@@ -221,6 +222,10 @@ export default function DraftPage() {
   const [sleeperDraftId, setSleeperDraftId] = useState("");
   const [sleeperMessage, setSleeperMessage] = useState<string | null>(null);
   const [sleeperRetry, setSleeperRetry] = useState(0);
+  const [sleeperVerifiedAt, setSleeperVerifiedAt] = useState<number | null>(null);
+  const [sleeperVerifiedSetup, setSleeperVerifiedSetup] = useState<string | null>(null);
+  const [sleeperPollError, setSleeperPollError] = useState<string | null>(null);
+  const [sleeperNow, setSleeperNow] = useState(0);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -594,6 +599,27 @@ export default function DraftPage() {
   );
 
   const sleeperPollDraftId = sleeper?.draftId ?? null;
+  const sleeperCleanCompletion = sleeperReconciliation?.cleanCompletion === true;
+  useEffect(() => {
+    if (sleeperPollDraftId === null || sleeperVerifiedAt === null || sleeperCleanCompletion) return;
+    const timer = setTimeout(() => setSleeperNow(Date.now()),
+      Math.max(0, sleeperVerifiedAt + SLEEPER_STALE_AFTER_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [sleeperPollDraftId, sleeperVerifiedAt, sleeperCleanCompletion]);
+  const sleeperBlock = sleeperRecommendationBlock({
+    connected: sleeper !== null,
+    verifiedAt: sleeperVerifiedAt,
+    verifiedSetup: sleeperVerifiedSetup,
+    currentSetup: sleeperSetupFingerprint({ ...setup, scoringId, templateId }),
+    now: sleeperNow,
+    error: sleeperPollError,
+    providerComplete: sleeper?.status.trim().toLowerCase() === "complete",
+    reconciliation: sleeperReconciliation,
+  });
+  const missingPlayerIds = missingDraftPlayerIds(activePicks, byId);
+  const adviceBlock = sleeperBlock ?? (missingPlayerIds.length > 0
+    ? "Recorded players are missing from the catalog. Their picks are preserved, but roster estimates and recommendations are incomplete until their identities are restored."
+    : null);
   const sleeperPollRepairKey = sleeper?.repairs
     .map((repair) => `${repair.repairId}:${repair.pickKey}:${repair.boardPlayerId}`)
     .join("|") ?? "";
@@ -608,6 +634,8 @@ export default function DraftPage() {
     teams: setup.teams,
     rounds: setup.rounds,
     userSlot: setup.slot,
+    scoringId,
+    templateId,
   });
   useEffect(() => {
     sleeperPollInputRef.current = {
@@ -617,8 +645,10 @@ export default function DraftPage() {
       teams: setup.teams,
       rounds: setup.rounds,
       userSlot: setup.slot,
+      scoringId,
+      templateId,
     };
-  }, [boardIdentities, picks, totalPicks, setup]);
+  }, [boardIdentities, picks, totalPicks, setup, scoringId, templateId]);
   useEffect(() => {
     const currentSleeper = sleeperRef.current;
     if (currentSleeper === null || sleeperPollDraftId === null || boardPending) return;
@@ -631,6 +661,22 @@ export default function DraftPage() {
       draftId: sleeperPollDraftId,
       onUpdate: (update) => {
         const latest = sleeperPollInputRef.current;
+        const imported = importSleeperSetup(update.settings);
+        if (!imported.exact || imported.settings === null ||
+            imported.settings.teams !== latest.teams || imported.settings.rounds !== latest.rounds ||
+            imported.settings.scoringId !== latest.scoringId || imported.settings.templateId !== latest.templateId) {
+          const reason = `Sleeper settings no longer match this board. ${imported.unsupported.join(", ")} Check league setup before continuing.`;
+          setSleeperPollError(reason);
+          setSleeperMessage(reason);
+          return false;
+        }
+        const missing = missingSleeperSnapshotPicks(history.providerPicks, update.picks);
+        if (missing.length > 0) {
+          const reason = `Sleeper removed or replaced pick${missing.length === 1 ? "" : "s"} ${missing.join(", ")}. The saved board was preserved; verify the rollback before continuing.`;
+          setSleeperPollError(reason);
+          setSleeperMessage(reason);
+          return false;
+        }
         const ownership = sleeperPickOwnership({
           teams: latest.teams,
           rounds: latest.rounds,
@@ -639,6 +685,7 @@ export default function DraftPage() {
           tradedPicks: update.tradedPicks,
         });
         if (!ownership.exact) {
+          setSleeperPollError("Sleeper pick ownership could not be verified. No new provider state was applied.");
           setSleeperMessage(
             `Sleeper pick ownership could not be mapped exactly: ${ownership.unsupported.join(", ")}. No new provider state was applied; retrying.`,
           );
@@ -653,13 +700,18 @@ export default function DraftPage() {
           providerStatus: update.settings.status,
         });
         history = reconciled.history;
+        const receivedAt = Date.now();
+        setSleeperVerifiedAt(receivedAt);
+        setSleeperVerifiedSetup(sleeperSetupFingerprint(imported.settings));
+        setSleeperNow(receivedAt);
+        setSleeperPollError(null);
         setSleeper((previous) =>
           previous === null || previous.draftId !== sleeperPollDraftId
             ? previous
             : {
                 ...previous,
                 status: update.settings.status,
-                lastSyncedAt: Date.now(),
+                lastSyncedAt: receivedAt,
                 providerPicks: reconciled.history.providerPicks,
                 repairs: reconciled.history.repairs,
                 ownershipVerified: true,
@@ -675,6 +727,7 @@ export default function DraftPage() {
         return reconciled.cleanCompletion;
       },
       onError: (reason, retryInMs) => {
+        setSleeperPollError(reason);
         setSleeperMessage(`${reason} Retrying in ${Math.ceil(retryInMs / 1000)} seconds.`);
       },
     });
@@ -849,7 +902,7 @@ export default function DraftPage() {
     // primitive tuple; `config` is derived from exactly these two.
     playoffTeams,
     championshipWeek,
-  });
+  }) + (adviceBlock === null ? "" : "|advice-paused");
   useEffect(() => {
     recommender.retargetTo(fingerprint);
     // `recommender.retargetTo` is stable; depending on the whole object would loop.
@@ -870,7 +923,7 @@ export default function DraftPage() {
     // new league's: applied, not stale, and printed as championship odds with no marker on
     // them. Odds the code did not compute for the state on screen are the one thing this
     // project refuses to render, so the request waits for the board it belongs to.
-    if (boardPending) return;
+    if (boardPending || adviceBlock !== null) return;
     if (draftState.available.length === 0) return;
     // A finished draft still changes `draftState` on the last pick, and the pool is never
     // empty — drafted players are a small slice of the board — so without this the worker
@@ -880,7 +933,7 @@ export default function DraftPage() {
     recommender.request(draftState, config, SEED, CANDIDATES);
     // `recommender.request` is stable; depending on the whole object would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, draftState, config, draftComplete, boardPending]);
+  }, [started, draftState, config, draftComplete, boardPending, adviceBlock]);
 
   // Memoized rather than defaulted inline. `?? []` builds a new array on every render
   // where the draft state is absent, which makes it a fresh dependency each time and
@@ -1070,6 +1123,9 @@ export default function DraftPage() {
     setScoringId(imported.settings.scoringId);
     setTemplateId(imported.settings.templateId);
     setScoringConfirmed(true);
+    setSleeperVerifiedAt(null);
+    setSleeperVerifiedSetup(null);
+    setSleeperPollError(null);
     setSleeper({
       draftId,
       status: result.data.status,
@@ -1379,7 +1435,14 @@ export default function DraftPage() {
         className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]"
       >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
-          <Recommendations
+          {adviceBlock !== null ? (
+            <section className="rounded-xl border border-amber-500/50 bg-amber-500/5 p-5" role="alert">
+              <h2 className="font-semibold">Recommendations paused</h2>
+              <p className="mt-2 text-sm">{adviceBlock}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Your saved picks remain intact. Verify the recorded players and connected draft before relying on estimates.</p>
+              {sleeper === null ? null : <Button className="mt-3" variant="outline" onClick={() => setSleeperRetry((attempt) => attempt + 1)}>Retry Sleeper now</Button>}
+            </section>
+          ) : <Recommendations
             state={recommender}
             scenarios={scenarioBudget}
             candidates={CANDIDATES}
@@ -1391,7 +1454,7 @@ export default function DraftPage() {
             unrankedAdp={unrankedAdp}
             basisFor={basisFor}
             ownRecordOnlyPlayers={ownRecordOnlyPlayers}
-          />
+          />}
 
           <PlayerPool
             players={poolPlayers}
@@ -1492,9 +1555,9 @@ function SleeperConnect({
     <section className="rounded-xl border bg-card p-5 sm:p-6" aria-labelledby="sleeper-connect-title">
       <h2 id="sleeper-connect-title" className="text-sm font-medium">Connect Sleeper</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Paste the public draft ID from Sleeper. We prefill only an exact snake, roster, and
-        offensive PPR/Half PPR/Standard mapping. Kicker and D/ST scoring is not imported;
-        those positions stay market-priced.
+        Paste the public draft ID from Sleeper. League drafts are checked against their
+        actual offensive scoring rules, not just the PPR label. Unsupported rules block
+        import; mock drafts use their preset label. Kicker and D/ST scoring is not imported.
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <label className="sr-only" htmlFor="sleeper-draft-id">Sleeper draft ID</label>
@@ -1572,8 +1635,9 @@ function SleeperSyncStatus({
         </span>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Sleeper scoring sync covers offense. Kicker and D/ST rules are not imported; those
-        positions use market draft price and a generic historical range.
+        League scoring checks cover offense; standalone mocks use their preset label.
+        Kicker and D/ST rules are not imported: those positions use market draft price and
+        a generic historical range. Title estimates are not league-exact.
       </p>
       {message === null ? null : (
         <p className="mt-2 text-xs text-muted-foreground" role="status">
