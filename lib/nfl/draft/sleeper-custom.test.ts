@@ -68,8 +68,9 @@ describe("custom Sleeper draft history", () => {
   it("scores raw weekly statistics, preserves canonical team defenses, and measures bands", () => {
     const scored = buildSleeperCustomHistory(history(), profile);
     expect(scored.latestSeasonTotals.get(customDstId("T0"))).toBeGreaterThan(0);
-    expect(scored.bands.get("K")).toMatchObject({ p10: expect.any(Number), p90: expect.any(Number) });
-    expect(scored.bands.get("DST")?.p90).toBeGreaterThan(scored.bands.get("DST")!.p10);
+    expect(scored.bands.get("QB")).toMatchObject({ p10: expect.any(Number), p90: expect.any(Number) });
+    expect(scored.bands.has("K")).toBe(false);
+    expect(scored.bands.has("DST")).toBe(false);
     expect(scored.weeklyStdDev.get("DST")).toBeGreaterThan(0);
     for (const position of ["QB", "RB", "WR", "TE"] as const) {
       const ratios = scored.weeklyOutcomeRatios.get(position)!;
@@ -118,6 +119,33 @@ describe("custom Sleeper draft history", () => {
       additionalSources: [{ market: historicalPk, seasonTotals: scored.latestSeasonTotals }],
     });
     expect(curves.K.sampleSize).toBe(8);
+  });
+
+  it("rejects conflicting duplicate market matches rather than taking the first ADP row", () => {
+    const scored = buildSleeperCustomHistory(history(), profile);
+    const { current, market } = fixture();
+    const conflicting = { ...market[0], adp: market[0].adp + 100 };
+    expect(() => fitRequiredCustomCurves({
+      season: 2025,
+      current,
+      market: [...market, conflicting],
+      latestSeasonTotals: scored.latestSeasonTotals,
+    })).toThrow(/conflicting entries.*order-dependent/i);
+  });
+
+  it("keeps K/DST on additive residuals when every defense has a nonpositive mean", () => {
+    const negativeDefenseProfile = (() => {
+      const parsed = parseSleeperScoring({
+        pass_yd: 0.04, rush_yd: 0.1, rec: 1, rec_yd: 0.1,
+        fgm_20_29: 3, sack: -1,
+      });
+      if (!parsed.ok) throw new Error(parsed.unsupported.join(", "));
+      return parsed.profile;
+    })();
+    const scored = buildSleeperCustomHistory(history(), negativeDefenseProfile);
+    expect(scored.latestSeasonTotals.get(customDstId("T0"))).toBeLessThanOrEqual(0);
+    expect(scored.weeklyStdDev.get("DST")).toBeGreaterThan(0);
+    expect(scored.bands.has("DST")).toBe(false);
   });
 
   it("does not turn a signed custom defense curve into a zero-valued one", () => {

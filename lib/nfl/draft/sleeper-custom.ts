@@ -51,7 +51,7 @@ export interface SleeperCustomHistory {
   latestSeasonTotals: ReadonlyMap<string, number>;
   /** Games played in that same season, keyed by stable entity id. */
   latestSeasonGames: ReadonlyMap<string, number>;
-  /** Empirical weekly-score / own-season-mean ratios, by position. */
+  /** Empirical weekly-score / own-season-mean ratios for skill positions only. */
   bands: ReadonlyMap<Position, CustomQuantileBand>;
   /**
    * Additive, pooled weekly residual spread for positions whose score can be zero or
@@ -153,16 +153,17 @@ export function buildSleeperCustomHistory(
       for (const points of entry.points) bucket.push(points - mean);
       residuals.set(entry.position, bucket);
     }
-    // A zero own-season mean has no multiplicative spread. Dropping it is deliberate:
-    // dividing a zero-score K/DST season by zero would manufacture an infinite band.
-    if (mean <= 0) continue;
+    // K/DST use additive residuals above, including when their own-season mean is zero
+    // or negative. Only skill positions need a multiplicative distribution, where a
+    // nonpositive mean has no coherent ratio scale.
+    if (entry.position === "K" || entry.position === "DST" || mean <= 0) continue;
     const bucket = ratios.get(entry.position) ?? [];
     for (const points of entry.points) bucket.push(points / mean);
     ratios.set(entry.position, bucket);
   }
 
   const bands = new Map<Position, CustomQuantileBand>();
-  for (const position of ["QB", "RB", "WR", "TE", "K", "DST"] as const) {
+  for (const position of ["QB", "RB", "WR", "TE"] as const) {
     const values = ratios.get(position) ?? [];
     if (values.length < 2) {
       throw new Error(`Sleeper custom history has insufficient ${position} weekly scores to measure an outcome band.`);
@@ -238,6 +239,7 @@ export function fitRequiredCustomCurves(input: {
     ...(input.additionalSources ?? []),
   ];
   for (const [sourceIndex, source] of sources.entries()) {
+    const matchedMarket = new Map<string, CustomMarketEntry>();
     for (const entry of source.market) {
       const position = sleeperPosition(entry.position);
       if (position === null) continue;
@@ -252,6 +254,13 @@ export function fitRequiredCustomCurves(input: {
       }
       const current = candidates[0];
       if (!current) continue;
+      const matched = matchedMarket.get(current.playerId);
+      if (matched !== undefined && !sameMarketValue(matched, entry)) {
+        throw new Error(
+          `Custom market source ${sourceIndex + 1} has conflicting entries for ${current.name} (${position}); refusing order-dependent pricing.`,
+        );
+      }
+      matchedMarket.set(current.playerId, entry);
       const entity = position === "DST"
         ? current.team === null ? null : customDstId(current.team)
         : current.sleeperId;
@@ -274,6 +283,17 @@ export function fitRequiredCustomCurves(input: {
     );
   }
   return Object.fromEntries(required.map((position) => [position, fitted.byPosition[position]!])) as Record<Position, AdpCurve>;
+}
+
+/**
+ * A duplicate that produces the same published market fields is harmless. Anything else
+ * would let provider row order choose an ADP curve or an exposed `adpStdev`, so custom
+ * scoring fails closed instead of silently taking the first result.
+ */
+function sameMarketValue(left: CustomMarketEntry, right: CustomMarketEntry): boolean {
+  return left.adp === right.adp &&
+    left.stdev === right.stdev &&
+    left.bye === right.bye;
 }
 
 /**

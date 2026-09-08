@@ -1579,7 +1579,6 @@ export async function runBuildSleeperCustomDraftBoard(
         ? identity.team === null ? null : (defensesByTeam.get(identity.team) ?? null)
         : marketIndex.find(identity.name, position);
       const band = history.bands.get(position);
-      if (band === undefined) throw new Error(`No custom-scored ${position} outcome band was measured.`);
       const weeklyStdDev = position === "K" || position === "DST"
         ? history.weeklyStdDev.get(position)
         : undefined;
@@ -1591,6 +1590,9 @@ export async function runBuildSleeperCustomDraftBoard(
       }
       if ((position === "QB" || position === "RB" || position === "WR" || position === "TE") && weeklyOutcomeRatios === undefined) {
         throw new Error(`No custom-scored ${position} zero-inclusive outcome ratios were measured.`);
+      }
+      if ((position === "QB" || position === "RB" || position === "WR" || position === "TE") && band === undefined) {
+        throw new Error(`No custom-scored ${position} outcome band was measured.`);
       }
       const marketPoints = market === null
         ? null
@@ -1624,8 +1626,12 @@ export async function runBuildSleeperCustomDraftBoard(
         availability: position === "DST"
           ? 1
           : shrunkAvailability(games ?? 0, games !== undefined),
-        p10: band.p10,
-        p90: band.p90,
+        // K/DST use the measured additive standard deviation above. These legacy ratio
+        // fields remain neutral compatibility values and are ignored whenever
+        // `weeklyStdDev` is present; deriving ratios from a zero/negative season mean
+        // would fabricate a distribution.
+        p10: band?.p10 ?? 1,
+        p90: band?.p90 ?? 1,
         quantileProvenance: "measured" as const,
         historicalScoringSource: "sleeper-custom-stats" as const,
         ...(weeklyStdDev === undefined ? {} : { weeklyStdDev }),
