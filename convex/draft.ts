@@ -294,6 +294,25 @@ export const catalogRunState = internalQuery({
 });
 
 /**
+ * Custom boards register themselves by publishing a complete run. The scheduled refresh
+ * reads that durable, public board shape rather than a league name, user, or ad-hoc env
+ * variable, and ignores malformed IDs that could never be rebuilt safely.
+ */
+export const publishedCustomBoardShapes = internalQuery({
+  args: { season: v.number() },
+  handler: async (ctx, { season }) => {
+    const runs = await ctx.db
+      .query("draftBoardRuns")
+      .withIndex("by_season", (q) => q.eq("sport", "nfl").eq("season", season))
+      .collect();
+    return runs
+      .filter((run) => sleeperScoringFromId(run.scoringId) !== null)
+      .map((run) => ({ scoringId: run.scoringId, teams: run.teams }))
+      .sort((a, b) => a.scoringId.localeCompare(b.scoringId) || a.teams - b.teams);
+  },
+});
+
+/**
  * The `jobs.kind` a board build records itself under.
  *
  * One definition, used by the writer in `ingest.ts` and the reader above. They were the same

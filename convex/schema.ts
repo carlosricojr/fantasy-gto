@@ -280,7 +280,11 @@ export default defineSchema({
     historicalSeasons: v.optional(v.array(v.number())),
     /** When the historical source was successfully fetched for this published run. */
     sourceFetchedAt: v.optional(v.number()),
-  }).index("by_board", ["sport", "season", "scoringId", "teams"]),
+  })
+    .index("by_board", ["sport", "season", "scoringId", "teams"])
+    // Finds only already-published custom shapes for the scheduled refresh. A custom
+    // ruleset registers by successfully publishing once; no private league is hardcoded.
+    .index("by_season", ["sport", "season"]),
 
   /**
    * Complete, current identities for recording a draft.

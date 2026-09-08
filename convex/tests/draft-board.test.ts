@@ -278,6 +278,9 @@ describe("draft board publishing", () => {
       historicalSeasons: [2024, 2025],
       sourceFetchedAt: 900,
     });
+    expect(await t.query(internal.draft.publishedCustomBoardShapes, { season: SEASON })).toEqual([
+      { scoringId: customShape.scoringId, teams: TEAMS },
+    ]);
 
     // Legacy preset boards retain their published ID contract; this compatibility seam
     // runs only for canonical custom Sleeper profiles.

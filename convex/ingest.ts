@@ -1708,6 +1708,7 @@ export const refreshDraftBoards = internalAction({
     // twelve times inside a single action.
     const provider = new NflverseProvider();
     const adpProvider = new AdpProvider();
+    const customStatsProvider = new SleeperStatsProvider();
 
     let rebuilt = 0;
     let byeMismatches = 0;
@@ -1746,6 +1747,34 @@ export const refreshDraftBoards = internalAction({
         }
       }
     }
-    return { rebuilt, failed, attempted: plan.shapes.length, byeMismatches };
+    // A custom board becomes refreshable only after a complete initial build publishes its
+    // run. That is a durable registration keyed by public shape, not a hardcoded league or
+    // user. A failed custom build leaves the prior run registered and visible, so the next
+    // scheduled attempt can recover while its freshness query records the failed attempt.
+    const customShapes = await ctx.runQuery(internal.draft.publishedCustomBoardShapes, {
+      season: target,
+    });
+    for (const shape of customShapes) {
+      try {
+        await runBuildSleeperCustomDraftBoard(
+          ctx,
+          { season: target, scoringId: shape.scoringId, teams: shape.teams },
+          provider,
+          adpProvider,
+          customStatsProvider,
+        );
+        rebuilt += 1;
+      } catch (error) {
+        failed.push(
+          `${shape.scoringId}/${shape.teams}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return {
+      rebuilt,
+      failed,
+      attempted: plan.shapes.length + customShapes.length,
+      byeMismatches,
+    };
   },
 });
