@@ -28,6 +28,7 @@ import {
 import { boardHealth, describeBoardHealth } from "@/lib/nfl/draft/refresh-plan";
 import { adpSourceLabel } from "@/lib/nfl/draft/league-size";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { sleeperScoringLabel } from "@/lib/nfl/scoring/sleeper";
 import { basisForPosition, valueBasis } from "@/lib/nfl/draft/provenance";
 import { perGameRate } from "@/lib/nfl/draft/value";
 import {
@@ -45,7 +46,7 @@ import { importSleeperSetup } from "@/lib/nfl/draft/sleeper-import";
 import { missingDraftPlayerIds, missingSleeperSnapshotPicks, sleeperRecommendationBlock, sleeperSetupFingerprint, SLEEPER_STALE_AFTER_MS } from "@/lib/nfl/draft/sleeper-readiness";
 import { sleeperPickOwnership } from "@/lib/nfl/draft/sleeper-ownership";
 import type { PlayerIdentity } from "@/lib/nfl/draft/provider-identity";
-import { SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
+import { resolveSleeperDraftId, SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
 
 import { BoardGrid } from "./board-grid";
 import { describeTurn, nextPickFor, pickLabel, picksUntilTurn } from "./board-view";
@@ -123,6 +124,8 @@ const SCENARIOS = RECOMMEND_SCENARIOS;
 const CANDIDATES = RECOMMEND_CANDIDATES;
 
 interface BoardPlayer {
+  historicalScoringSource?: "sleeper-custom-stats";
+  weeklyStdDev?: number;
   playerId: string;
   sleeperId?: string;
   name: string;
@@ -435,6 +438,7 @@ export default function DraftPage() {
           // Points per game *played*, which is what `PlayerRisk.weeklyMean` means. See
           // `perGameRate` for why dividing by a full season here discounted twice.
           weeklyMean: perGameRate(row.blendedPoints, row.availability),
+          ...(row.weeklyStdDev === undefined ? {} : { weeklyStdDev: row.weeklyStdDev }),
           p10: row.p10,
           p90: row.p90,
           byeWeek: row.byeWeek,
@@ -483,6 +487,7 @@ export default function DraftPage() {
         name: row.name,
         position: row.position,
         weeklyMean: floor?.weeklyMean ?? 0.1,
+        ...(floor?.weeklyStdDev === undefined ? {} : { weeklyStdDev: floor.weeklyStdDev }),
         p10: row.p10,
         p90: row.p90,
         byeWeek: row.byeWeek,
@@ -801,6 +806,7 @@ export default function DraftPage() {
           byeWeek: row.byeWeek,
           seasonPoints: row.blendedPoints,
           modelPoints: row.modelPoints,
+          historicalScoringSource: row.historicalScoringSource,
           marketPoints: row.marketPoints,
           marketValueBasis: row.marketValueBasis,
           adp: row.adp,
@@ -860,6 +866,7 @@ export default function DraftPage() {
       id: `t${index}`,
       name: index === 0 ? "You" : `Seat ${seatForTeamIndex(index, setup.slot)}`,
       roster,
+      ...(sleeper === null ? {} : { draftRosterSize: [...pickOwners.values()].filter((owner) => owner === index).length }),
       remainingPicks: [...openPickOwners.entries()]
         .filter(([pick, team]) => team === index && pick >= currentPick)
         .map(([pick]) => pick)
@@ -872,7 +879,7 @@ export default function DraftPage() {
       available: pool.filter((p) => !taken.has(p.id)),
       rosterSize: setup.rounds,
     };
-  }, [pool, activePicks, pickOwners, openPickOwners, byId, setup, currentPick]);
+  }, [pool, activePicks, pickOwners, openPickOwners, byId, setup, currentPick, sleeper]);
 
   // Derived from the league's own final rather than written out. The literals this
   // replaces — weeks 1-14 with a three-week bracket — describe one real setting and were
@@ -1093,12 +1100,13 @@ export default function DraftPage() {
   }
 
   async function connectSleeper(): Promise<void> {
-    const draftId = sleeperDraftId.trim();
-    if (draftId === "") {
-      setSleeperMessage("Enter the Sleeper draft ID from its URL.");
+    setSleeperMessage("Checking Sleeper settings…");
+    const resolved = await resolveSleeperDraftId(sleeperDraftId);
+    if (!resolved.ok) {
+      setSleeperMessage(resolved.reason);
       return;
     }
-    setSleeperMessage("Checking Sleeper settings…");
+    const draftId = resolved.data;
     const provider = new SleeperDraftProvider();
     const [result, tradedPicks] = await Promise.all([
       provider.settings(draftId),
@@ -1266,7 +1274,7 @@ export default function DraftPage() {
       <PageShell title="Draft" subtitle="No board for this league">
         <p className="text-sm text-muted-foreground">
           No {season} board has been built for {setup.teams}-team{" "}
-          {scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from. Boards
+          {sleeperScoringLabel(scoringId) ?? scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from. Boards
           exist for {LEAGUE_SIZES.join(", ")}-team leagues.
         </p>
         <Button className="mt-6" variant="outline" onClick={() => setStarted(false)}>
@@ -1330,6 +1338,7 @@ export default function DraftPage() {
         >
           <Caveat
             freshness={freshness ?? null}
+            scoringId={scoringId}
             boardSize={board.length}
             teams={setup.teams}
             config={config}
@@ -1341,7 +1350,7 @@ export default function DraftPage() {
   }
 
   const scoringLabel =
-    SCORING_PRESETS.find((preset) => preset.id === scoringId)?.label ?? scoringId;
+    sleeperScoringLabel(scoringId) ?? SCORING_PRESETS.find((preset) => preset.id === scoringId)?.label ?? scoringId;
 
   return (
     <PageShell
@@ -1520,6 +1529,7 @@ export default function DraftPage() {
           />
           <Caveat
             freshness={freshness ?? null}
+            scoringId={scoringId}
             boardSize={board.length}
             teams={setup.teams}
             config={config}
@@ -1578,17 +1588,17 @@ function SleeperConnect({
     <section className="rounded-xl border bg-card p-5 sm:p-6" aria-labelledby="sleeper-connect-title">
       <h2 id="sleeper-connect-title" className="text-sm font-medium">Connect Sleeper</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Paste the public draft ID from Sleeper. League drafts are checked against their
-        actual offensive scoring rules, not just the PPR label. Unsupported rules block
-        import; mock drafts use their preset label. Kicker and D/ST scoring is not imported.
+        Paste a Sleeper draft ID, draft URL, or league predraft URL. League drafts use their
+        actual scoring and season rules and require a board built for those exact rules.
+        Unsupported rules block import; standalone mocks use their preset label.
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <label className="sr-only" htmlFor="sleeper-draft-id">Sleeper draft ID</label>
+        <label className="sr-only" htmlFor="sleeper-draft-id">Sleeper draft ID or league URL</label>
         <input
           id="sleeper-draft-id"
           value={draftId}
           onChange={(event) => onDraftIdChange(event.target.value)}
-          placeholder="Sleeper draft ID"
+          placeholder="Sleeper draft ID or league URL"
           className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
         />
         <Button type="button" onClick={onConnect}>Connect Sleeper</Button>
@@ -1658,9 +1668,9 @@ function SleeperSyncStatus({
         </span>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        League scoring checks cover offense; standalone mocks use their preset label.
-        Kicker and D/ST rules are not imported: those positions use market draft price and
-        a generic historical range. Title estimates are not league-exact.
+        League drafts require custom-scored historical inputs; standalone mocks use their
+        preset label. Season rules are verified on each poll. Title estimates remain
+        simulations, not calibrated predictions of your actual chance to win.
       </p>
       {message === null ? null : (
         <p className="mt-2 text-xs text-muted-foreground" role="status">
@@ -1895,12 +1905,14 @@ function BoardHealthNotice({
 
 function Caveat({
   freshness,
+  scoringId,
   boardSize,
   teams,
   config,
   pending,
 }: {
   freshness: BoardFreshness | null;
+  scoringId: string;
   boardSize: number;
   teams: number;
   /**
@@ -1947,6 +1959,18 @@ function Caveat({
     : freshness?.computedAt == null
       ? "No board has been built for this league size yet."
       : adpSourceLabel(teams, freshness.adpSourceTeams);
+
+  if (sleeperScoringLabel(scoringId) !== null) {
+    return <p className="text-xs text-muted-foreground">
+      {boardSize} identities. {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}
+      Historical production is rescored under your exact Sleeper coefficients, including
+      K/DST and special teams. ADP is a market input from the reception-format feed, not
+      custom-league ADP. Simulations cover {describeSeason(config)}
+      {config.extraMedianMatchup ? ", with an additional regular-season game against the weekly median" : ""}.
+      These title estimates are conditional on historical inputs, roster completion and
+      opponent assumptions; their real-world calibration and any edge over ADP are unmeasured.
+    </p>;
+  }
 
   return (
     <p className="text-xs text-muted-foreground">

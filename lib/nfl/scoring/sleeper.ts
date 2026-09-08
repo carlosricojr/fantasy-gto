@@ -52,6 +52,11 @@ export function sleeperScoringFromId(id: string): SleeperScoringProfile | null {
   } catch { return null; }
 }
 
+export function sleeperScoringLabel(id: string): string | null {
+  const profile = sleeperScoringFromId(id);
+  return profile === null ? null : `Custom Sleeper scoring (${profile.adpScoringId.replaceAll("_", " ")} ADP)`;
+}
+
 /**
  * Sparse absent event counts mean zero in a verified weekly stats row. In contrast,
  * missing DST tier coverage or incomplete kicker distance bands is a source failure.

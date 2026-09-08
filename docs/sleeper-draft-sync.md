@@ -95,3 +95,37 @@ and Sleeper's own weekly points/yards-allowed tier indicators. Missing defensive
 coverage or incomplete kicker distance splits throw. It must not be applied to Sleeper's
 season projections, which omit required fields. Canonical nonzero coefficients form the
 exact board identity; the ADP source remains separately labelled PPR/half-PPR/standard.
+
+### Custom league simulation
+
+League and predraft URLs resolve through the fixed public Sleeper API; arbitrary hosts
+are never fetched. Custom scoring IDs round-trip through session storage with canonical
+coefficient validation. A custom connection cannot use a preset board while its own board
+loads. The UI labels custom-scored history and market provenance separately and does not
+transfer the preset model's validation claims to this new path.
+
+Custom K/DST weekly outcomes use an additive-normal distribution centered on each board
+row's weekly mean, with a historical residual spread supplied by the board. This permits
+negative points and preserves the expected mean. These positions are selected using their
+pre-game mean before the signed score is revealed: selecting on realized scores would
+silently bench every negative defense result. Normality is an explicit approximation,
+not measured tail calibration. Preset rows retain their prior lognormal behavior.
+
+Sleeper permits drafting above the roster limit after pick trades, then requires cuts
+([official rule](https://support.sleeper.com/en/articles/3956140-can-a-team-go-over-the-roster-limit)).
+The rollout consumes every verified owned selection, keeps those players unavailable to
+other drafters, then cuts overfull simulated rosters before the season. The cut policy
+preserves mean-optimal starters and highest-value remaining depth. Underfull rosters are
+not granted fictional extra draft picks; post-draft waiver acquisitions are not simulated.
+Existing waiver-coverage fractions remain the disclosed streaming assumption, applied to
+replacement levels derived from the custom board rather than preset points.
+
+Run the read-only rehearsal against a published custom board:
+
+```sh
+pnpm exec tsx scripts/sleeper-rehearsal.ts <Sleeper-league-URL> <Sleeper-user-id>
+```
+
+It checks the exact scoring board, 32 defense identities, keeper resolution, traded
+ownership, signed distributions, roster completion/cuts, normalized title probabilities,
+and exclusion of drafted players from advice. It never sends a pick to Sleeper.

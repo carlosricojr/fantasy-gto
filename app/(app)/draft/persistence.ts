@@ -26,6 +26,7 @@ import {
 } from "@/lib/nfl/league-rules";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { sleeperScoringFromId } from "@/lib/nfl/scoring/sleeper";
 import type { IdentityRepair } from "@/lib/nfl/draft/provider-identity";
 import type { SleeperSyncPick } from "@/lib/nfl/draft/sleeper-sync";
 import type { SleeperTradedPick } from "@/lib/sources/sleeper";
@@ -221,7 +222,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (typeof started !== "boolean") return null;
   // An unknown preset would silently fall back to the default, scoring the whole board
   // under rules the user did not choose.
-  if (!SCORING_PRESETS.some((preset) => preset.id === scoringId)) return null;
+  if (!SCORING_PRESETS.some((preset) => preset.id === scoringId) && sleeperScoringFromId(scoringId) === null) return null;
   if (!ROSTER_TEMPLATES.some((template) => template.id === templateId)) return null;
 
   const picks = parsePicks(row.picks, teams * rounds);

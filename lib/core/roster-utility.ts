@@ -35,6 +35,8 @@ export interface PlayerRisk {
   position: string;
   /** Expected fantasy points in a week he plays. */
   weeklyMean: number;
+  /** Optional additive-normal spread in points; supports signed custom-scored outcomes. */
+  weeklyStdDev?: number;
   /**
    * Measured spread of actual/projected, as ratio quantiles. These come from the weekly
    * model's own backtest rather than being assumed.
@@ -158,6 +160,12 @@ function playerStream(playerId: string, seed: number, scenario: number): Rng {
 
 /** Draws one week's points for a player who is playing. */
 function drawPoints(player: PlayerRisk, rng: Rng): number {
+  if (player.weeklyStdDev !== undefined) {
+    if (!Number.isFinite(player.weeklyStdDev) || player.weeklyStdDev < 0 || !Number.isFinite(player.weeklyMean)) {
+      throw new Error("Signed weekly scoring requires a finite mean and nonnegative standard deviation.");
+    }
+    return player.weeklyMean + player.weeklyStdDev * standardNormal(rng);
+  }
   const { mu, sigma } = fitLognormal(player.p10, player.p90);
   const ratio = Math.exp(mu + sigma * standardNormal(rng));
   // Renormalize so E[ratio] is 1 and therefore E[points] is the projection.
@@ -286,6 +294,7 @@ export function drawWeek(
     return { player, available, points };
   });
 
+  const signed = draws.some((entry) => entry.player.weeklyStdDev !== undefined);
   return weeks.map((_, w) => {
     const playing = draws
       .filter((entry) => entry.available[w])
@@ -293,10 +302,17 @@ export function drawWeek(
         id: entry.player.id,
         name: entry.player.name,
         position: entry.player.position,
-        projectedPoints: entry.points[w],
+        // Signed positions are selected on their pre-game mean, never on knowledge of
+        // this week's draw. Otherwise the zero-valued empty-slot option erases every
+        // negative defense result after the fact and a second DST becomes an oracle.
+        projectedPoints: entry.player.weeklyStdDev === undefined ? entry.points[w] : entry.player.weeklyMean,
         availability: "active" as const,
       }));
-    return solveLineup(slots, playing).totalPoints;
+    const lineup = solveLineup(slots, playing);
+    if (!signed) return lineup.totalPoints; // Preserve preset behavior exactly.
+    const realized = new Map(draws.map((entry) => [entry.player.id, entry.points[w]]));
+    return round2(lineup.assignments.reduce((total, assignment) => total +
+      (assignment.competitorId === null ? 0 : realized.get(assignment.competitorId) ?? 0), 0));
   });
 }
 
@@ -436,7 +452,7 @@ function countEmptySlots(
         // Any constant does; only which slots fill is being counted, and `solveLineup`
         // seats an eligible player whatever he is worth. Deliberately not the player's
         // projection, so this cannot be misread as a points calculation.
-        projectedPoints: 1,
+        projectedPoints: entry.player.weeklyStdDev === undefined ? 1 : entry.player.weeklyMean,
         availability: "active" as const,
       }));
     empty += solveLineup(slots, playing).assignments.filter(

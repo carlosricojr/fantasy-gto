@@ -62,6 +62,8 @@ export interface DraftTeam {
   roster: PlayerRisk[];
   /** Overall pick numbers this team still owns, ascending. */
   remainingPicks: number[];
+  /** Verified total owned draft selections, which may exceed the season roster limit. */
+  draftRosterSize?: number;
 }
 
 export interface DraftPolicyState {
@@ -1187,6 +1189,7 @@ export function completeDraft(
 ): PlayerRisk[][] {
   const { slots } = league;
   const rosters = state.teams.map((t) => [...t.roster]);
+  const limits = state.teams.map((team) => team.draftRosterSize ?? state.rosterSize);
   const taken = new Set(rosters.flat().map((p) => p.id));
   // Same three checks as `completeOwnRoster`, for the same reason: this branch bypasses
   // the loop below, so nothing else applies them. Seating a player who is already on a
@@ -1195,7 +1198,7 @@ export function completeDraft(
   if (
     forcedFirstPick !== null &&
     !taken.has(forcedFirstPick.id) &&
-    rosters[state.myTeamIndex].length < state.rosterSize
+    rosters[state.myTeamIndex].length < limits[state.myTeamIndex]
   ) {
     rosters[state.myTeamIndex].push(forcedFirstPick);
     taken.add(forcedFirstPick.id);
@@ -1214,7 +1217,7 @@ export function completeDraft(
   // the team that just picked can have changed.
   const unfilledByTeam = rosters.map((roster) => ownUnfilledSlots(roster, slots));
   for (const { team } of order) {
-    if (rosters[team].length >= state.rosterSize) continue;
+    if (rosters[team].length >= limits[team]) continue;
     if (pool.length === 0) break;
     const pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
     if (pick === null) break;
@@ -1222,7 +1225,17 @@ export function completeDraft(
     unfilledByTeam[team] = ownUnfilledSlots(rosters[team], slots);
     pool = pool.filter((p) => p.id !== pick.id);
   }
+  // Keep every drafted player claimed until the draft ends. Cutting here would let
+  // our rollout take an opponent's eventual cut *during* the draft.
   return rosters;
+}
+
+/** Preseason cut assumption: preserve the mean-optimal starters, then highest-value depth. */
+export function trimDraftRoster(roster: readonly PlayerRisk[], limit: number, slots: readonly RosterSlot[]): PlayerRisk[] {
+  if (roster.length <= limit) return [...roster];
+  const starters = new Set(solveLineup(slots, roster.map(toCompetitor)).assignments.map((a) => a.competitorId));
+  return [...roster].sort((a, b) => Number(starters.has(b.id)) - Number(starters.has(a.id)) ||
+    marketValue(b) - marketValue(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, limit);
 }
 
 /**
@@ -1320,6 +1333,9 @@ export function recommendByChampionship(
   const opponentRosters = baselineRosters.filter(
     (_, index) => index !== state.myTeamIndex,
   );
+  const opponentTeams = state.teams.filter((_, index) => index !== state.myTeamIndex);
+  const seasonRoster = (roster: PlayerRisk[], index: number) => opponentTeams[index].draftRosterSize === undefined
+    ? roster : trimDraftRoster(roster, state.rosterSize, config.slots);
   // One definition, used by both places that sample an opponent. The baseline samples every
   // opponent once and a candidate held by an opponent resamples that one team; the two must
   // draw from the same stream, or the comparison between them carries a change to an
@@ -1328,7 +1344,7 @@ export function recommendByChampionship(
   // error.
   const opponentSeed = (index: number) => seed + 1000 + index;
   const baselineOpponentScores = opponentRosters.map((roster, index) =>
-    sampleTeamWeeklyScores(roster, config, opponentSeed(index)),
+    sampleTeamWeeklyScores(seasonRoster(roster, index), config, opponentSeed(index)),
   );
 
   // What the rest of the league is expected to take, so our own rollout draws from the
@@ -1376,7 +1392,7 @@ export function recommendByChampionship(
     );
     const scores = [...baselineOpponentScores];
     scores[owner] = sampleTeamWeeklyScores(
-      replacement === null ? without : [...without, replacement],
+      seasonRoster(replacement === null ? without : [...without, replacement], owner),
       config,
       opponentSeed(owner),
     );
@@ -1405,7 +1421,7 @@ export function recommendByChampionship(
         : poolForUs.filter((p) => p.id !== replacementId),
       league,
       forced,
-      state.rosterSize,
+      me.draftRosterSize ?? state.rosterSize,
       // The opponents are complete by this point, so whatever they still cannot start is a
       // hole they will carry into the season rather than demand they can spend. Their
       // remaining slots stay in the total because a slot nobody can fill is still a slot
@@ -1413,7 +1429,7 @@ export function recommendByChampionship(
       // stopped drafting.
       opponentRosters.flatMap((roster) => ownUnfilledSlots(roster, config.slots)),
     );
-    const mine = sampleTeamWeeklyScores(mineRoster, config, seed);
+    const mine = sampleTeamWeeklyScores(me.draftRosterSize === undefined ? mineRoster : trimDraftRoster(mineRoster, state.rosterSize, config.slots), config, seed);
     // Scenario by scenario, not only the rate. Every candidate is evaluated over the same
     // seasons, so which of them a candidate wins is the informative quantity and it is only
     // visible before the sum.

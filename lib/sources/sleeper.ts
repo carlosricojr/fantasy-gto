@@ -1,7 +1,7 @@
 import { MAX_DRAFT_ROUNDS, MAX_LEAGUE_TEAMS } from "../core/draft";
 import { type ProviderResult, failed, ok } from "../core/providers";
 import { normalizeTeam } from "../nfl/teams";
-import { unsupportedSleeperScoring } from "../nfl/draft/sleeper-scoring";
+import { parseSleeperScoring } from "../nfl/scoring/sleeper";
 import { parseSleeperSeasonRules, type SleeperSeasonRules } from "../nfl/draft/sleeper-league";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
@@ -72,6 +72,28 @@ export function playersUrl(): string {
 export function leagueUrl(leagueId: string, freshnessToken?: string): string {
   const url = `${BASE}/league/${encodeURIComponent(leagueId)}`;
   return freshnessToken === undefined ? url : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
+}
+
+/** Accept the league predraft link people actually share, without fetching arbitrary URLs. */
+export async function resolveSleeperDraftId(input: string, fetchText: TextFetcher = httpTextFetcher): Promise<ProviderResult<string>> {
+  const value = input.trim();
+  if (/^[a-zA-Z0-9_-]+$/.test(value)) return ok(value);
+  let url: URL;
+  try { url = new URL(value); } catch { return failed("Paste a Sleeper draft ID, draft URL, or league predraft URL."); }
+  if (url.protocol !== "https:" || !["sleeper.com", "sleeper.app", "www.sleeper.com"].includes(url.hostname) || url.username || url.password || url.port) {
+    return failed("Use a public https://sleeper.com draft or league URL.");
+  }
+  const draft = /^\/draft\/(?:nfl\/)?(\d+)\/?$/.exec(url.pathname);
+  if (draft !== null) return ok(draft[1]);
+  const league = /^\/leagues\/(\d+)(?:\/predraft)?\/?$/.exec(url.pathname);
+  if (league === null) return failed("This Sleeper link does not identify a draft or league.");
+  const result = await sleeperJson(fetchText, leagueUrl(league[1]), "league", "Sleeper did not return this league.");
+  if (!result.ok) return result;
+  const row = record(result.data);
+  if (row.league_id !== league[1] || typeof row.draft_id !== "string" || !/^\d+$/.test(row.draft_id)) {
+    return failed("This Sleeper league has no verified draft ID yet.");
+  }
+  return ok(row.draft_id);
 }
 
 export interface SleeperDraftSettings {
@@ -160,11 +182,12 @@ export class SleeperDraftProvider {
         return failed(`Sleeper league scoring could not be verified for draft ${draftId}. Retry before using recommendations.`);
       }
       const seasonRules = parseSleeperSeasonRules(source.settings);
+      const customScoring = parseSleeperScoring(source.scoring_settings);
       return ok({
         ...settings,
         ...(seasonRules.ok ? { seasonRules: seasonRules.rules } : {}),
-        scoring: { ...settings.scoring, metadata: { ...settings.scoring.metadata, league_scoring_settings: source.scoring_settings } },
-        unsupported: [...settings.unsupported, ...unsupportedSleeperScoring(settings.scoring.identity, source.scoring_settings), ...(seasonRules.ok ? [] : seasonRules.unsupported)],
+        scoring: { identity: customScoring.ok ? customScoring.profile.id : null, metadata: { ...settings.scoring.metadata, league_scoring_settings: source.scoring_settings } },
+        unsupported: [...settings.unsupported, ...(customScoring.ok ? [] : customScoring.unsupported), ...(seasonRules.ok ? [] : seasonRules.unsupported)],
       });
     }
     return ok(settings);

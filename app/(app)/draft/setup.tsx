@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { snakePicks } from "@/lib/core/draft";
+import { sleeperScoringLabel } from "@/lib/nfl/scoring/sleeper";
 import { cn } from "@/lib/utils";
 import { LeagueForm, type LeagueSettings } from "./league-form";
 
@@ -102,7 +103,7 @@ export function DraftSetup({
         // told an end user to run an internal command.
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
           No {season} board has been built for {settings.teams}-team{" "}
-          {settings.scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from.
+          {sleeperScoringLabel(settings.scoringId) ?? settings.scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from.
           Choose another size or scoring format above; boards exist for{" "}
           {leagueSizes.join(", ")}-team leagues.
         </p>

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { seasonSummary } from "./season-label";
 import { ROSTER_TEMPLATES, rosterTemplateById, slotSummary } from "@/lib/nfl/roster";
 import { SCORING_PRESETS, scoringPresetById } from "@/lib/nfl/scoring/presets";
+import { sleeperScoringLabel } from "@/lib/nfl/scoring/sleeper";
 import {
   CHAMPIONSHIP_WEEKS,
   LEAGUE_SIZES,
@@ -152,10 +153,10 @@ export function LeagueForm({
           label="Scoring"
           value={value.scoringId}
           onChange={(scoringId) => onChange({ scoringId })}
-          options={SCORING_PRESETS.map((preset) => ({
+          options={[...(sleeperScoringLabel(value.scoringId) === null ? [] : [{ value: value.scoringId, label: "Sleeper custom" }]), ...SCORING_PRESETS.map((preset) => ({
             value: preset.id,
             label: preset.label,
-          }))}
+          }))]}
         />
         <p
           id="scoring-confirmation-hint"
@@ -165,7 +166,7 @@ export function LeagueForm({
           )}
         >
           {scoringConfirmed
-            ? `${scoringPresetById(value.scoringId).label} · ${
+            ? sleeperScoringLabel(value.scoringId) ?? `${scoringPresetById(value.scoringId).label} · ${
                 scoringPresetById(value.scoringId).offense.receptionPoints
               } point${
                 scoringPresetById(value.scoringId).offense.receptionPoints === 1 ? "" : "s"

@@ -371,13 +371,15 @@ describe("SleeperDraftProvider", () => {
     const instance = new SleeperDraftProvider(async (url) => {
       calls.push(url);
       if (url === draftUrl("abc", "fresh")) return JSON.stringify({ ...DRAFT, league_id: "league", metadata: { scoring_type: "ppr" } });
-      if (url === leagueUrl("league", "fresh")) return JSON.stringify({ league_id: "league", scoring_settings: { pass_td: 6, rec: 1 } });
+      if (url === leagueUrl("league", "fresh")) return JSON.stringify({ league_id: "league", scoring_settings: { pass_td: 6, rec: 1 }, settings: { playoff_teams: 6, playoff_week_start: 15, start_week: 1, league_average_match: 1 } });
       throw new Error("unexpected request");
     });
     const result = await instance.settings("abc", "fresh");
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.unsupported).toContain("scoring.pass_td: 6 (board 4)");
+      expect(result.data.unsupported).toEqual([]);
+      expect(result.data.scoring.identity).toBe('sleeper-v1:{"pass_td":6,"rec":1}');
+      expect(result.data.seasonRules).toEqual({ playoffTeams: 6, championshipWeek: 17, extraMedianMatchup: true });
       expect(result.data.scoring.metadata.league_scoring_settings).toEqual({ pass_td: 6, rec: 1 });
     }
     expect(calls).toEqual([draftUrl("abc", "fresh"), leagueUrl("league", "fresh")]);

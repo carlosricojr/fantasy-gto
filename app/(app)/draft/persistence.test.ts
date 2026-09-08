@@ -69,6 +69,12 @@ describe("the queue is read leniently, and it is the only field that is", () => 
 });
 
 describe("parsePersistedDraft", () => {
+  it("round-trips exact custom scoring and refuses malformed canonical IDs", () => {
+    const scoringId = 'sleeper-v1:{"pass_td":6,"rec":0.5}';
+    expect(parsePersistedDraft(stored({ scoringId }))?.scoringId).toBe(scoringId);
+    expect(parsePersistedDraft(stored({ scoringId: 'sleeper-v1:{"rec":0.5,"pass_td":6}' }))).toBeNull();
+    expect(parsePersistedDraft(stored({ scoringId: 'sleeper-v1:{"unmodeled":1}' }))).toBeNull();
+  });
   it("restores median games without changing legacy head-to-head drafts", () => {
     expect(parsePersistedDraft(stored())?.extraMedianMatchup).toBe(false);
     expect(parsePersistedDraft(stored({ extraMedianMatchup: true }))?.extraMedianMatchup).toBe(true);
