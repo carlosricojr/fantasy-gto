@@ -1,8 +1,11 @@
 import { SUPPORTED_LEAGUE_SIZES } from "./league-size";
 import { templateForRoster } from "../roster";
+import type { SleeperSeasonRules } from "./sleeper-league";
+import { sleeperScoringFromId } from "../scoring/sleeper";
 
 /** Structural view of the parsed adapter settings; no provider I/O belongs in this module. */
 export interface SleeperImportSettings {
+  seasonRules?: SleeperSeasonRules;
   teams: number;
   rounds: number;
   type: string;
@@ -17,9 +20,10 @@ export interface SleeperSetupImport {
   settings: {
     teams: number;
     rounds: number;
-    scoringId: "ppr" | "half_ppr" | "standard";
+    scoringId: string;
     templateId: string;
     pickTimerSeconds: number | null;
+    seasonRules?: SleeperSeasonRules;
   } | null;
   /** Each field that prevented an exact local representation, shown rather than guessed. */
   unsupported: readonly string[];
@@ -72,7 +76,8 @@ export function importSleeperSetup(source: SleeperImportSettings): SleeperSetupI
   const scoringId =
     source.scoring.identity === "ppr" ||
     source.scoring.identity === "half_ppr" ||
-    source.scoring.identity === "standard"
+    source.scoring.identity === "standard" ||
+    (source.scoring.identity !== null && sleeperScoringFromId(source.scoring.identity) !== null)
       ? source.scoring.identity
       : null;
   if (scoringId === null) {
@@ -91,6 +96,7 @@ export function importSleeperSetup(source: SleeperImportSettings): SleeperSetupI
       scoringId,
       templateId: template.id,
       pickTimerSeconds: source.pickTimerSeconds,
+      ...(source.seasonRules === undefined ? {} : { seasonRules: source.seasonRules }),
     },
     unsupported: [],
   };

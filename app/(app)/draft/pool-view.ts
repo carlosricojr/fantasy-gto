@@ -22,6 +22,7 @@ import { isRecommendationEligible } from "@/lib/nfl/draft/status";
 
 /** A player as the pool presents them, board facts and draft state together. */
 export interface PoolPlayer {
+  historicalScoringSource?: "sleeper-custom-stats";
   id: string;
   name: string;
   position: string;

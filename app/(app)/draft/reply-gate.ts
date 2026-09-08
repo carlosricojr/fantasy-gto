@@ -158,6 +158,7 @@ export function leagueFingerprint(league: {
   rounds: number;
   playoffTeams: number;
   championshipWeek: number;
+  extraMedianMatchup?: boolean;
 }): string {
   return JSON.stringify([
     league.season,
@@ -167,5 +168,6 @@ export function leagueFingerprint(league: {
     league.rounds,
     league.playoffTeams,
     league.championshipWeek,
+    league.extraMedianMatchup === true,
   ]);
 }

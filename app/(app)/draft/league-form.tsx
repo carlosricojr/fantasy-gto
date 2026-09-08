@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { seasonSummary } from "./season-label";
 import { ROSTER_TEMPLATES, rosterTemplateById, slotSummary } from "@/lib/nfl/roster";
 import { SCORING_PRESETS, scoringPresetById } from "@/lib/nfl/scoring/presets";
+import { sleeperScoringLabel } from "@/lib/nfl/scoring/sleeper";
 import {
   CHAMPIONSHIP_WEEKS,
   LEAGUE_SIZES,
@@ -36,6 +37,7 @@ export interface LeagueSettings {
   rounds: number;
   slot: number;
   playoffTeams: number;
+  extraMedianMatchup?: boolean;
   /** The week the final is played. With the field size, it fixes every week of the season. */
   championshipWeek: number;
   scoringId: string;
@@ -135,15 +137,26 @@ export function LeagueForm({
         league that plays standard and drafts off the PPR board is reading prices for a game
         it is not playing.
       */}
+      <Field label="Regular-season standings" hint="Median games do not apply during the playoffs">
+        <SegmentedControl
+          label="Regular-season standings"
+          value={value.extraMedianMatchup === true ? "median" : "head-to-head"}
+          onChange={(mode) => onChange({ extraMedianMatchup: mode === "median" })}
+          options={[
+            { value: "head-to-head", label: "Head-to-head" },
+            { value: "median", label: "+ League median" },
+          ]}
+        />
+      </Field>
       <Field label="Scoring">
         <SegmentedControl
           label="Scoring"
           value={value.scoringId}
           onChange={(scoringId) => onChange({ scoringId })}
-          options={SCORING_PRESETS.map((preset) => ({
+          options={[...(sleeperScoringLabel(value.scoringId) === null ? [] : [{ value: value.scoringId, label: "Sleeper custom" }]), ...SCORING_PRESETS.map((preset) => ({
             value: preset.id,
             label: preset.label,
-          }))}
+          }))]}
         />
         <p
           id="scoring-confirmation-hint"
@@ -153,7 +166,7 @@ export function LeagueForm({
           )}
         >
           {scoringConfirmed
-            ? `${scoringPresetById(value.scoringId).label} · ${
+            ? sleeperScoringLabel(value.scoringId) ?? `${scoringPresetById(value.scoringId).label} · ${
                 scoringPresetById(value.scoringId).offense.receptionPoints
               } point${
                 scoringPresetById(value.scoringId).offense.receptionPoints === 1 ? "" : "s"

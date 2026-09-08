@@ -26,6 +26,7 @@ import {
 } from "@/lib/nfl/league-rules";
 import { ROSTER_TEMPLATES } from "@/lib/nfl/roster";
 import { SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
+import { sleeperScoringFromId } from "@/lib/nfl/scoring/sleeper";
 import type { IdentityRepair } from "@/lib/nfl/draft/provider-identity";
 import type { SleeperSyncPick } from "@/lib/nfl/draft/sleeper-sync";
 import type { SleeperTradedPick } from "@/lib/sources/sleeper";
@@ -114,6 +115,7 @@ export interface PersistedDraft {
    */
   scoringConfirmed: boolean;
   playoffTeams: number;
+  extraMedianMatchup?: boolean;
   /**
    * The week the league's final is played, which fixes both halves of the season.
    *
@@ -202,6 +204,8 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   }
 
   const { scoringId, templateId, started } = row;
+  const extraMedianMatchup = row.extraMedianMatchup === undefined ? false : row.extraMedianMatchup;
+  if (typeof extraMedianMatchup !== "boolean") return null;
   // Absent means "not confirmed", which is the safe reading of a payload written before the
   // field existed. Anything else present but not a boolean is malformed and refused with the
   // rest of the payload rather than coerced.
@@ -218,7 +222,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
   if (typeof started !== "boolean") return null;
   // An unknown preset would silently fall back to the default, scoring the whole board
   // under rules the user did not choose.
-  if (!SCORING_PRESETS.some((preset) => preset.id === scoringId)) return null;
+  if (!SCORING_PRESETS.some((preset) => preset.id === scoringId) && sleeperScoringFromId(scoringId) === null) return null;
   if (!ROSTER_TEMPLATES.some((template) => template.id === templateId)) return null;
 
   const picks = parsePicks(row.picks, teams * rounds);
@@ -236,6 +240,7 @@ export function parsePersistedDraft(raw: string | null): PersistedDraft | null {
     templateId,
     scoringConfirmed,
     playoffTeams,
+    extraMedianMatchup,
     championshipWeek,
     started,
     picks,

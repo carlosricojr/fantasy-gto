@@ -702,11 +702,13 @@ Public and unauthenticated. `/v1/state/nfl` confirmed live, reporting the 2026 p
 with a season start of 2026-08-06.
 
 The league endpoint is documented by [Sleeper's API](https://docs.sleeper.com/#get-a-specific-league)
-as the source of `scoring_settings`. The adapter now checks that object, rather than
-mistaking the draft metadata's reception-format label for complete offensive rules.
+as the source of `scoring_settings`. The league adapter now parses supported coefficients
+into an exact custom profile, rather than mistaking the draft metadata's reception-format
+label for complete rules. League season settings are imported separately.
 Coefficient and unsupported-bonus tests use explicitly synthetic payloads; they do not
 by themselves verify any particular live league. A missing league response blocks
-import. K/DST coefficients remain outside this check and their limitations stay visible.
+import. Custom profiles require their own published board, including K/DST scoring; they
+cannot silently read a preset board. Standalone mocks retain preset-label behavior.
 
 **Live-verified 2026-09-03.** A 10-team, 16-round league mock was followed from its two
 commissioner-set keeper squares through all 160 picks and a clean provider completion. The

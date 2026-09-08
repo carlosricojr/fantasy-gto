@@ -13,6 +13,12 @@ const source = {
 } as const;
 
 describe("importSleeperSetup", () => {
+  it("keeps canonical custom coefficients and median rules instead of selecting a preset", () => {
+    const identity = 'sleeper-v1:{"pass_td":6,"rec":0.5}';
+    const seasonRules = { playoffTeams: 6, championshipWeek: 17, extraMedianMatchup: true };
+    expect(importSleeperSetup({ ...source, scoring: { identity, metadata: {} }, seasonRules })).toMatchObject({ exact: true, settings: { scoringId: identity, seasonRules } });
+    expect(importSleeperSetup({ ...source, scoring: { identity: 'sleeper-v1:{"unknown_bonus":1}', metadata: {} } }).exact).toBe(false);
+  });
   it("imports standard scoring only with an exact standard roster mapping", () => {
     expect(importSleeperSetup(source)).toEqual({
       exact: true,
