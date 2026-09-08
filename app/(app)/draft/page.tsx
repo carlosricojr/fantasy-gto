@@ -1335,6 +1335,7 @@ export default function DraftPage() {
           onChange={applySettings}
           onStart={() => setStarted(true)}
           boardSize={customBlock === null ? board.length : 0}
+          boardBlock={customBlock}
           boardPending={boardPending}
           season={season}
           leagueSizes={LEAGUE_SIZES}

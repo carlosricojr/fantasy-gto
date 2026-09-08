@@ -27,6 +27,7 @@ export function DraftSetup({
   onStart,
   boardSize,
   boardPending,
+  boardBlock,
   season,
   leagueSizes,
   scoringConfirmed,
@@ -39,6 +40,8 @@ export function DraftSetup({
   boardSize: number;
   /** True while `boardSize` is the previous selection's — see the page's `useStableQuery`. */
   boardPending?: boolean;
+  /** Exact-profile readiness failure; do not suggest changing verified league rules. */
+  boardBlock?: string | null;
   season: number;
   leagueSizes: readonly number[];
   /** False until the scoring format has been chosen rather than merely preselected. */
@@ -102,10 +105,12 @@ export function DraftSetup({
         // screen took the controls away with it, leaving no way back except a reload — and
         // told an end user to run an internal command.
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          {boardBlock ? boardBlock : <>
           No {season} board has been built for {settings.teams}-team{" "}
           {sleeperScoringLabel(settings.scoringId) ?? settings.scoringId.replaceAll("_", " ")} yet, so there is nothing to draft from.
           Choose another size or scoring format above; boards exist for{" "}
           {leagueSizes.join(", ")}-team leagues.
+          </>}
         </p>
       ) : (
         <div className="sticky bottom-[calc(var(--app-tabbar-h)+0.75rem)] z-10 sm:static">
