@@ -19,15 +19,20 @@ function stats(position: string, multiplier: number) {
   return { gp: 1, sack: multiplier };
 }
 
-const roster = positions.flatMap((position) =>
-  Array.from({ length: 8 }, (_, index) => ({
-    playerId: `${position}-${index}`,
-    sleeperId: `${position}-${index}`,
-    name: `${position} Player ${index}`,
-    position,
-    team: teams[index],
-  })),
-);
+const roster = [
+  ...positions.flatMap((position) =>
+    Array.from({ length: 8 }, (_, index) => ({
+      playerId: `${position}-${index}`,
+      sleeperId: `${position}-${index}`,
+      name: `${position} Player ${index}`,
+      position,
+      team: teams[index],
+    })),
+  ),
+  // Current and recordable, but absent from market ADP. The custom path must preserve the
+  // absence as `null`, not turn it into the legacy blend's numeric zero.
+  { playerId: "QB-unpriced", sleeperId: "QB-unpriced", name: "QB Unpriced", position: "QB", team: teams[9] },
+];
 
 const history: SleeperHistoricalWeek[] = [
   ...positions.flatMap((position, positionIndex) =>
@@ -53,7 +58,7 @@ const history: SleeperHistoricalWeek[] = [
 ];
 
 const adp: AdpEntry[] = [
-  ...roster.map((player, index) => ({
+  ...roster.filter((player) => player.playerId !== "QB-unpriced").map((player, index) => ({
     name: player.name, position: player.position, team: player.team,
     adp: index + 1, stdev: 4, timesDrafted: 20, bye: 9,
   })),
@@ -109,7 +114,7 @@ describe("custom Sleeper board build", () => {
       adpProvider,
       statsProvider,
     );
-    expect(result).toMatchObject({ players: 72, historySeasons: [2024, 2025] });
+    expect(result).toMatchObject({ players: 73, unpriced: 1, historySeasons: [2024, 2025] });
     const rows = writes.filter((write) => write.name.endsWith("draft:upsertBoardBatch"))
       .flatMap((write) => write.args.rows as Array<Record<string, unknown>>);
     const defenses = rows.filter((row) => row.position === "DST");
@@ -118,6 +123,10 @@ describe("custom Sleeper board build", () => {
     expect(defenses.every((row) => row.historicalScoringSource === "sleeper-custom-stats")).toBe(true);
     expect(defenses.every((row) => typeof row.weeklyStdDev === "number" && row.weeklyStdDev > 0)).toBe(true);
     expect(rows.every((row) => row.modelPoints === null)).toBe(true);
+    expect(rows.find((row) => row.playerId === "QB-unpriced")).toMatchObject({
+      marketPoints: null,
+      blendedPoints: null,
+    });
     expect(writes.find((write) => write.name.endsWith("draft:publishBoard"))?.args).toMatchObject({
       historicalScoringSource: "sleeper-custom-stats",
       historicalSeasons: [2024, 2025],

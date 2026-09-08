@@ -10,8 +10,9 @@ import { type TextFetcher, httpTextFetcher } from "./nflverse";
  */
 const BASE = "https://api.sleeper.com/stats/nfl";
 
-export function sleeperSeasonStatsUrl(season: number): string {
-  return `${BASE}/${season}?season_type=regular`;
+/** The season endpoint aggregates totals; only this endpoint carries one game-week. */
+export function sleeperWeekStatsUrl(season: number, week: number): string {
+  return `${BASE}/${season}/${week}?season_type=regular`;
 }
 
 export interface SleeperHistoricalWeek {
@@ -29,24 +30,50 @@ export interface SleeperHistoricalWeek {
 export class SleeperStatsProvider {
   constructor(private readonly fetchText: TextFetcher = httpTextFetcher) {}
 
+  private readonly cache = new Map<number, ProviderResult<SleeperHistoricalWeek[]>>();
+  private readonly inFlight = new Map<number, Promise<ProviderResult<SleeperHistoricalWeek[]>>>();
+
   async seasonWeeks(season: number): Promise<ProviderResult<SleeperHistoricalWeek[]>> {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(await this.fetchText(sleeperSeasonStatsUrl(season)));
-    } catch (cause) {
-      return failed(
-        `Sleeper historical statistics for ${season} could not be fetched or parsed.`,
-        cause,
-      );
+    const cached = this.cache.get(season);
+    if (cached !== undefined) return cached;
+    let pending = this.inFlight.get(season);
+    if (pending === undefined) {
+      pending = this.fetchSeasonWeeks(season).finally(() => this.inFlight.delete(season));
+      this.inFlight.set(season, pending);
     }
-    const parsed = parseSleeperSeasonStats(raw, season);
-    return parsed.ok ? ok(parsed.data) : parsed;
+    const result = await pending;
+    if (result.ok) this.cache.set(season, result);
+    return result;
+  }
+
+  private async fetchSeasonWeeks(season: number): Promise<ProviderResult<SleeperHistoricalWeek[]>> {
+    const parsedWeeks = await Promise.all(
+      Array.from({ length: 18 }, async (_, index) => {
+        const week = index + 1;
+        try {
+          const raw: unknown = JSON.parse(await this.fetchText(sleeperWeekStatsUrl(season, week)));
+          return parseSleeperSeasonStats(raw, season, week);
+        } catch (cause) {
+          return failed<SleeperHistoricalWeek[]>(
+            `Sleeper historical statistics for ${season} week ${week} could not be fetched or parsed.`,
+            cause,
+          );
+        }
+      }),
+    );
+    const weeks: SleeperHistoricalWeek[] = [];
+    for (const result of parsedWeeks) {
+      if (!result.ok) return result;
+      weeks.push(...result.data);
+    }
+    return ok(weeks);
   }
 }
 
 export function parseSleeperSeasonStats(
   raw: unknown,
   expectedSeason: number,
+  expectedWeek?: number,
 ): ProviderResult<SleeperHistoricalWeek[]> {
   if (!Array.isArray(raw)) {
     return failed(`Sleeper historical statistics for ${expectedSeason} were not an array.`);
@@ -70,6 +97,11 @@ export function parseSleeperSeasonStats(
     // turn an absent player into a historical sample or dilute a player's availability.
     if (player === null || playerId === null || position === null || week === null || stats === null || gp === null || gp <= 0) {
       continue;
+    }
+    if (expectedWeek !== undefined && week !== expectedWeek) {
+      return failed(
+        `Sleeper historical statistics for ${expectedSeason} week ${expectedWeek} contain a row for week ${week}.`,
+      );
     }
     const key = `${playerId}|${expectedSeason}|${week}`;
     if (keys.has(key)) {

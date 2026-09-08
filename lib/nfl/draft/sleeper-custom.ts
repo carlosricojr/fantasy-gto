@@ -183,9 +183,16 @@ export function fitRequiredCustomCurves(input: {
   latestSeasonTotals: ReadonlyMap<string, number>;
 }): Readonly<Record<Position, AdpCurve>> {
   const byNamePosition = new Map<string, CustomBoardIdentity[]>();
+  const defensesByTeam = new Map<string, CustomBoardIdentity[]>();
   for (const identity of input.current) {
     const position = sleeperPosition(identity.position);
     if (position === null) continue;
+    if (position === "DST") {
+      if (identity.team === null) continue;
+      const team = identity.team.trim().toUpperCase();
+      defensesByTeam.set(team, [...(defensesByTeam.get(team) ?? []), identity]);
+      continue;
+    }
     const key = `${normalizeName(identity.name)}|${position}`;
     byNamePosition.set(key, [...(byNamePosition.get(key) ?? []), identity]);
   }
@@ -194,8 +201,12 @@ export function fitRequiredCustomCurves(input: {
   for (const entry of input.market) {
     const position = sleeperPosition(entry.position);
     if (position === null) continue;
-    const key = `${normalizeName(entry.name)}|${position}`;
-    const candidates = byNamePosition.get(key) ?? [];
+    // A defense's stable identity is its NFL team, not its provider display name. Market
+    // labels change across seasons (and sometimes within one), while the canonical custom
+    // board ID remains `dst-${team}`. Skill positions retain the stricter name join.
+    const candidates = position === "DST"
+      ? entry.team === null ? [] : defensesByTeam.get(entry.team.trim().toUpperCase()) ?? []
+      : byNamePosition.get(`${normalizeName(entry.name)}|${position}`) ?? [];
     if (candidates.length > 1) {
       throw new Error(`Custom market identity ${entry.name} (${position}) matches multiple current roster identities.`);
     }
@@ -221,6 +232,24 @@ export function fitRequiredCustomCurves(input: {
     );
   }
   return Object.fromEntries(required.map((position) => [position, fitted.byPosition[position]!])) as Record<Position, AdpCurve>;
+}
+
+/**
+ * Custom scoring can assign a negative season value to a defense. The preset-board
+ * helper intentionally clips to zero because its historical scoring cannot represent
+ * those outcomes; applying that policy here would invent a more favorable custom price.
+ */
+export function customAdpImpliedPoints(
+  adp: number,
+  position: Position,
+  curves: Readonly<Record<Position, AdpCurve>>,
+): number | null {
+  if (!Number.isFinite(adp)) return null;
+  if (adp <= 0) return 0;
+  const curve = curves[position];
+  if (curve === undefined) return null;
+  const value = curve.intercept + curve.slope * Math.log(adp);
+  return Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
 }
 
 function quantile(values: readonly number[], probability: number): number {

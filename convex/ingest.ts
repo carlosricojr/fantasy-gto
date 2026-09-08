@@ -54,6 +54,7 @@ import type { PlayerWeek } from "../lib/nfl/stats/parse";
 import { SleeperStatsProvider } from "../lib/sources/sleeper-stats";
 import {
   buildSleeperCustomHistory,
+  customAdpImpliedPoints,
   customDstId,
   fitRequiredCustomCurves,
   sleeperPosition,
@@ -1577,7 +1578,7 @@ export async function runBuildSleeperCustomDraftBoard(
       }
       const marketPoints = market === null
         ? null
-        : adpImpliedPoints(market.adp, position, curveSet);
+        : customAdpImpliedPoints(market.adp, position, curves);
       const entity = position === "DST"
         ? identity.team === null ? null : customDstId(identity.team)
         : identity.sleeperId;
@@ -1595,7 +1596,9 @@ export async function runBuildSleeperCustomDraftBoard(
         modelPoints: null,
         marketPoints,
         marketValueBasis: marketPoints === null ? null : marketValueBasis(position, curveSet),
-        blendedPoints: blendedSeasonValue(null, marketPoints),
+        // Preserve missing custom-market coverage as missing. The legacy blender's
+        // numeric zero is not an observed Sleeper custom value.
+        blendedPoints: marketPoints === null ? null : blendedSeasonValue(null, marketPoints),
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
         byeWeek: identity.team === null ? null : (byes.get(identity.team) ?? null),

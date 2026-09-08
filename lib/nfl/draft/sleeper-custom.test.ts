@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseSleeperScoring } from "../scoring/sleeper";
 import {
   buildSleeperCustomHistory,
+  customAdpImpliedPoints,
   customDstId,
   fitRequiredCustomCurves,
   type CustomBoardIdentity,
@@ -79,11 +80,29 @@ describe("custom Sleeper draft history", () => {
     });
     expect(curves.K.sampleSize).toBe(8);
     expect(curves.DST.sampleSize).toBe(8);
+    // D/ST market labels are not stable across seasons; the team identity is. A label
+    // refresh must not erase the custom defense curve or change its canonical IDs.
+    const renamedDefenses = market.map((entry) => entry.position === "DEF"
+      ? { ...entry, name: `Prior season ${entry.name}` }
+      : entry);
+    expect(fitRequiredCustomCurves({
+      season: 2025, current, market: renamedDefenses, latestSeasonTotals: scored.latestSeasonTotals,
+    }).DST.sampleSize).toBe(8);
     expect(() => fitRequiredCustomCurves({
       season: 2025,
       current,
       market: market.filter((entry) => entry.position !== "DEF"),
       latestSeasonTotals: scored.latestSeasonTotals,
     })).toThrow(/DST/);
+  });
+
+  it("does not turn a signed custom defense curve into a zero-valued one", () => {
+    const curves = Object.fromEntries(positions.map((position) => [position, {
+      intercept: position === "DST" ? -20 : 100,
+      slope: 0,
+      sampleSize: 8,
+      season: 2025,
+    }])) as Record<(typeof positions)[number], { intercept: number; slope: number; sampleSize: number; season: number }>;
+    expect(customAdpImpliedPoints(12, "DST", curves)).toBe(-20);
   });
 });
