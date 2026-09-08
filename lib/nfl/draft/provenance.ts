@@ -37,6 +37,8 @@ import type { MarketValueBasis } from "./value";
 
 /** What produced the value on a board row. */
 export type ValueBasis =
+  /** Market curve calibrated to exact custom-scored history, not a player projection. */
+  | "market-only-custom"
   /** Both halves: the model's projection blended with the market's price. */
   | "blend"
   /** The market has no price for him — an undrafted player the model can still see. */
@@ -96,7 +98,11 @@ export function valueBasis(row: {
   modelPoints: number | null;
   marketPoints: number | null;
   marketValueBasis?: MarketValueBasis | null;
+  historicalScoringSource?: string;
 }): ValueBasis {
+  if (row.historicalScoringSource === "sleeper-custom-stats") {
+    return row.marketPoints === null ? "unpriced" : "market-only-custom";
+  }
   if (!isModeledPosition(row.position)) {
     return row.marketPoints === null
       ? "unpriced"
@@ -126,6 +132,8 @@ export function isMarketOnly(basis: ValueBasis): boolean {
  */
 export function basisBadge(basis: ValueBasis): string | null {
   switch (basis) {
+    case "market-only-custom":
+      return "custom history";
     case "market-only-position":
       return "market only";
     case "market-only-history":
@@ -199,6 +207,8 @@ export function marketEstimateExplanation(
  */
 export function basisExplanation(basis: ValueBasis): string {
   switch (basis) {
+    case "market-only-custom":
+      return "Market-input value fitted to historical points under this league's exact scoring. Not an individual player projection or custom-league ADP; season simulation accuracy is unmeasured.";
     case "market-only-position":
       return (
         "Market price only. The projection model does not cover this position, so there " +

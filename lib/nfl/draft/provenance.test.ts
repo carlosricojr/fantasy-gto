@@ -60,6 +60,14 @@ describe("isModeledPosition", () => {
 });
 
 describe("valueBasis", () => {
+  it("labels custom-scored market history without claiming a veteran has no prior games", () => {
+    const custom = { ...row("RB", null, 200), historicalScoringSource: "sleeper-custom-stats" };
+    expect(valueBasis(custom)).toBe("market-only-custom");
+    expect(valueBasis({ ...custom, marketPoints: null })).toBe("unpriced");
+    expect(basisBadge(valueBasis(custom))).toBe("custom history");
+    expect(basisExplanation(valueBasis(custom))).not.toMatch(/No prior games/i);
+    expect(isMarketOnly(valueBasis(custom))).toBe(true);
+  });
   it("names the position case before the history case", () => {
     // A veteran kicker has a history row per game and every one of them scores zero, so
     // "has history" once said the model had an opinion when the position was about to

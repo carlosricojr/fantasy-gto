@@ -1386,6 +1386,7 @@ export default function DraftPage() {
         turn={turn}
         pickLabel={draftComplete ? null : pickLabel(currentPick, setup.teams)}
         currentPick={currentPick}
+        recordedCount={Object.keys(activePicks).length}
         totalPicks={totalPicks}
         picksUntilTurn={untilTurn}
         nextOwnPickLabel={nextOwnPick === null ? null : pickLabel(nextOwnPick, setup.teams)}

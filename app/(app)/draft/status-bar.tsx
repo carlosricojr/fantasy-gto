@@ -23,6 +23,7 @@ export function StatusBar({
   turn,
   pickLabel,
   currentPick,
+  recordedCount,
   totalPicks,
   picksUntilTurn,
   nextOwnPickLabel,
@@ -35,6 +36,8 @@ export function StatusBar({
   /** "3.07" for the pick on the clock. */
   pickLabel: string | null;
   currentPick: number;
+  /** Includes future-round keepers, not just picks before the first empty square. */
+  recordedCount?: number;
   totalPicks: number;
   /** Picks before your next turn; 0 when it is yours, `null` when you have none left. */
   picksUntilTurn: number | null;
@@ -52,7 +55,7 @@ export function StatusBar({
    */
   reloading?: boolean;
 }) {
-  const made = Math.min(currentPick - 1, totalPicks);
+  const made = Math.min(recordedCount ?? currentPick - 1, totalPicks);
   const progress = totalPicks === 0 ? 0 : (made / totalPicks) * 100;
 
   return (
