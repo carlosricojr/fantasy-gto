@@ -122,6 +122,16 @@ describe("custom Sleeper board build", () => {
     expect(defenses.every((row) => /^dst-T\d\d$/.test(String(row.playerId)))).toBe(true);
     expect(defenses.every((row) => row.historicalScoringSource === "sleeper-custom-stats")).toBe(true);
     expect(defenses.every((row) => typeof row.weeklyStdDev === "number" && row.weeklyStdDev > 0)).toBe(true);
+    const customSkills = rows.filter((row) => ["QB", "RB", "WR", "TE"].includes(String(row.position)));
+    expect(customSkills).not.toHaveLength(0);
+    expect(customSkills.every((row) => {
+      const ratios = row.weeklyOutcomeRatios;
+      return Array.isArray(ratios) &&
+        ratios.length === 100 &&
+        ratios.every((value) => typeof value === "number" && Number.isFinite(value)) &&
+        Math.abs(ratios.reduce((sum, value) => sum + Number(value), 0) / ratios.length - 1) < 1e-9;
+    })).toBe(true);
+    expect(defenses.every((row) => row.weeklyOutcomeRatios === undefined)).toBe(true);
     expect(rows.every((row) => row.modelPoints === null)).toBe(true);
     expect(rows.find((row) => row.playerId === "QB-unpriced")).toMatchObject({
       marketPoints: null,

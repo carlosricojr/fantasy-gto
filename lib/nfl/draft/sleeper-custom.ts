@@ -60,7 +60,16 @@ export interface SleeperCustomHistory {
    * season total was zero or below.
    */
   weeklyStdDev: ReadonlyMap<"K" | "DST", number>;
+  /**
+   * A bounded, zero-inclusive empirical distribution for custom skill positions. Values
+   * are midpoint quantile knots whose arithmetic mean is one, so callers can multiply a
+   * player's weekly mean without replacing it with a distributional average.
+   */
+  weeklyOutcomeRatios: ReadonlyMap<"QB" | "RB" | "WR" | "TE", number[]>;
 }
+
+/** Fixed support size makes custom outcome draws deterministic and independently testable. */
+export const CUSTOM_SKILL_OUTCOME_KNOTS = 100;
 
 /** Custom-board D/ST IDs never depend on a market provider's display name. */
 export function customDstId(team: string): string {
@@ -172,7 +181,18 @@ export function buildSleeperCustomHistory(
     }
     weeklyStdDev.set(position, spread);
   }
-  return { seasonTotals, latestSeasonTotals, latestSeasonGames, bands, weeklyStdDev };
+  const weeklyOutcomeRatios = new Map<"QB" | "RB" | "WR" | "TE", number[]>();
+  for (const position of ["QB", "RB", "WR", "TE"] as const) {
+    weeklyOutcomeRatios.set(position, midpointOutcomeRatios(ratios.get(position) ?? [], position));
+  }
+  return {
+    seasonTotals,
+    latestSeasonTotals,
+    latestSeasonGames,
+    bands,
+    weeklyStdDev,
+    weeklyOutcomeRatios,
+  };
 }
 
 /**
@@ -281,4 +301,20 @@ function quantile(values: readonly number[], probability: number): number {
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
   return ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower);
+}
+
+function midpointOutcomeRatios(values: readonly number[], position: string): number[] {
+  const usable = values.filter(Number.isFinite);
+  if (usable.length < 2) {
+    throw new Error(`Sleeper custom history has insufficient ${position} weekly scores to measure outcome ratios.`);
+  }
+  const knots = Array.from(
+    { length: CUSTOM_SKILL_OUTCOME_KNOTS },
+    (_, index) => quantile(usable, (index + 0.5) / CUSTOM_SKILL_OUTCOME_KNOTS),
+  );
+  const mean = knots.reduce((sum, value) => sum + value, 0) / knots.length;
+  if (!Number.isFinite(mean) || mean <= 0) {
+    throw new Error(`Sleeper custom history has no positive ${position} outcome-ratio mean.`);
+  }
+  return knots.map((value) => value / mean);
 }

@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
-import { customDstId } from "../lib/nfl/draft/sleeper-custom";
+import { CUSTOM_SKILL_OUTCOME_KNOTS, customDstId } from "../lib/nfl/draft/sleeper-custom";
 import { sleeperScoringFromId } from "../lib/nfl/scoring/sleeper";
 
 /**
@@ -40,6 +40,7 @@ const boardRowValidator = v.object({
   quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
   historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
   weeklyStdDev: v.optional(v.number()),
+  weeklyOutcomeRatios: v.optional(v.array(v.number())),
 });
 
 const rosterStatusValidator = v.union(
@@ -159,6 +160,9 @@ export const board = query({
           ? {}
           : { historicalScoringSource: row.historicalScoringSource }),
         ...(row.weeklyStdDev === undefined ? {} : { weeklyStdDev: row.weeklyStdDev }),
+        ...(row.weeklyOutcomeRatios === undefined
+          ? {}
+          : { weeklyOutcomeRatios: row.weeklyOutcomeRatios }),
         rosterStatus,
         rosterStatusCode:
           current?.rosterStatusCode ?? (isDefense ? "TEAM" : null),
@@ -503,6 +507,7 @@ export const upsertBoardBatch = internalMutation({
   handler: async (ctx, { season, scoringId, teams, computedAt, rows }) => {
     let written = 0;
     for (const row of rows) {
+      validateCustomOutcomeShape(row);
       // Matched on the run as well as the player. Patching whichever row already existed
       // for this player overwrote the *live* board with a run that had not been published
       // yet — so a rebuild that failed halfway had already destroyed the rows it was going
@@ -532,6 +537,34 @@ export const upsertBoardBatch = internalMutation({
     return { written };
   },
 });
+
+function validateCustomOutcomeShape(row: {
+  position: string;
+  historicalScoringSource?: "sleeper-custom-stats";
+  weeklyStdDev?: number;
+  weeklyOutcomeRatios?: number[];
+}): void {
+  const skill = ["QB", "RB", "WR", "TE"].includes(row.position);
+  const ratios = row.weeklyOutcomeRatios;
+  if (ratios !== undefined) {
+    const mean = ratios.reduce((sum, value) => sum + value, 0) / ratios.length;
+    if (
+      row.historicalScoringSource !== "sleeper-custom-stats" ||
+      !skill ||
+      row.weeklyStdDev !== undefined ||
+      ratios.length !== CUSTOM_SKILL_OUTCOME_KNOTS ||
+      ratios.some((value) => !Number.isFinite(value)) ||
+      !Number.isFinite(mean) ||
+      mean <= 0 ||
+      Math.abs(mean - 1) > 1e-9
+    ) {
+      throw new Error("Custom skill outcome ratios must be 100 finite, mean-normalized knots.");
+    }
+  }
+  if (row.historicalScoringSource === "sleeper-custom-stats" && skill && ratios === undefined) {
+    throw new Error("Custom QB/RB/WR/TE rows require measured outcome ratios.");
+  }
+}
 
 /** Writes one run-scoped batch of the complete draft player catalog. */
 export const upsertCatalogBatch = internalMutation({

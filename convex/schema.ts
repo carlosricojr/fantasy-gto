@@ -228,6 +228,12 @@ export default defineSchema({
     historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
     /** Additive historical weekly residual spread for custom K/DST, never a preset band. */
     weeklyStdDev: v.optional(v.number()),
+    /**
+     * Zero-inclusive, mean-normalized empirical outcome knots for custom QB/RB/WR/TE.
+     * Optional preserves preset boards and is deliberately absent for custom K/DST,
+     * whose signed outcomes use `weeklyStdDev` instead.
+     */
+    weeklyOutcomeRatios: v.optional(v.array(v.number())),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])

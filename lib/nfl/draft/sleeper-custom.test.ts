@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseSleeperScoring } from "../scoring/sleeper";
 import {
   buildSleeperCustomHistory,
+  CUSTOM_SKILL_OUTCOME_KNOTS,
   customAdpImpliedPoints,
   customDstId,
   fitRequiredCustomCurves,
@@ -70,6 +71,12 @@ describe("custom Sleeper draft history", () => {
     expect(scored.bands.get("K")).toMatchObject({ p10: expect.any(Number), p90: expect.any(Number) });
     expect(scored.bands.get("DST")?.p90).toBeGreaterThan(scored.bands.get("DST")!.p10);
     expect(scored.weeklyStdDev.get("DST")).toBeGreaterThan(0);
+    for (const position of ["QB", "RB", "WR", "TE"] as const) {
+      const ratios = scored.weeklyOutcomeRatios.get(position)!;
+      expect(ratios).toHaveLength(CUSTOM_SKILL_OUTCOME_KNOTS);
+      expect(ratios.every(Number.isFinite)).toBe(true);
+      expect(ratios.reduce((sum, value) => sum + value, 0) / ratios.length).toBeCloseTo(1, 12);
+    }
   });
 
   it("requires a position-specific custom curve instead of pooling K/DST with PPR skill players", () => {

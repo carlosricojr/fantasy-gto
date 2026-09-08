@@ -1583,8 +1583,14 @@ export async function runBuildSleeperCustomDraftBoard(
       const weeklyStdDev = position === "K" || position === "DST"
         ? history.weeklyStdDev.get(position)
         : undefined;
+      const weeklyOutcomeRatios = position === "QB" || position === "RB" || position === "WR" || position === "TE"
+        ? history.weeklyOutcomeRatios.get(position)
+        : undefined;
       if ((position === "K" || position === "DST") && weeklyStdDev === undefined) {
         throw new Error(`No custom-scored ${position} additive weekly spread was measured.`);
+      }
+      if ((position === "QB" || position === "RB" || position === "WR" || position === "TE") && weeklyOutcomeRatios === undefined) {
+        throw new Error(`No custom-scored ${position} zero-inclusive outcome ratios were measured.`);
       }
       const marketPoints = market === null
         ? null
@@ -1618,6 +1624,7 @@ export async function runBuildSleeperCustomDraftBoard(
         quantileProvenance: "measured" as const,
         historicalScoringSource: "sleeper-custom-stats" as const,
         ...(weeklyStdDev === undefined ? {} : { weeklyStdDev }),
+        ...(weeklyOutcomeRatios === undefined ? {} : { weeklyOutcomeRatios }),
       });
     }
     const customDefenses = rows.filter((row) => row.position === "DST");

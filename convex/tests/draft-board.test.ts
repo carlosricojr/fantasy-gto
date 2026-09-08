@@ -68,6 +68,42 @@ function catalogRow(
 }
 
 describe("draft board publishing", () => {
+  it("serves the complete measured custom skill distribution and rejects malformed knots", async () => {
+    const t = convexTest(schema, modules);
+    const customShape = {
+      season: SEASON,
+      scoringId: 'sleeper-v1:{"rec":0.5}',
+      teams: TEAMS,
+    };
+    const customRow = {
+      ...row("custom-rb", 150),
+      historicalScoringSource: "sleeper-custom-stats" as const,
+      weeklyOutcomeRatios: Array.from({ length: 100 }, () => 1),
+    };
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...customShape,
+      computedAt: 1_000,
+      rows: [customRow],
+    });
+    await t.mutation(internal.draft.publishBoard, {
+      ...customShape,
+      computedAt: 1_000,
+      adpSourceTeams: 12,
+      historicalScoringSource: "sleeper-custom-stats",
+    });
+    expect((await t.query(api.draft.board, customShape))[0]).toMatchObject({
+      playerId: "custom-rb",
+      historicalScoringSource: "sleeper-custom-stats",
+      weeklyOutcomeRatios: Array.from({ length: 100 }, () => 1),
+    });
+
+    await expect(t.mutation(internal.draft.upsertBoardBatch, {
+      ...customShape,
+      computedAt: 2_000,
+      rows: [{ ...customRow, playerId: "bad-custom-rb", weeklyOutcomeRatios: [1] }],
+    })).rejects.toThrow(/100 finite, mean-normalized knots/);
+  });
+
   it("joins a complete catalog without inventing a valuation", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(internal.draft.upsertBoardBatch, {
