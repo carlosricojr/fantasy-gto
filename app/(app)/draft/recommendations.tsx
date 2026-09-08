@@ -12,6 +12,13 @@ import { BasisBadge } from "./basis-badge";
 import type { useRecommendations } from "./use-recommendations";
 import { positionChipClass, positionLabel } from "./positions";
 
+/** A drafted identity the board can record but cannot value as a normal candidate. */
+export interface RecordOnlyRosterPlayer {
+  id: string;
+  name: string;
+  position: string;
+}
+
 /**
  * What to take, and why.
  *
@@ -40,6 +47,7 @@ export function Recommendations({
   waitPickLabel,
   unrankedAdp,
   basisFor,
+  ownRecordOnlyPlayers,
 }: {
   state: ReturnType<typeof useRecommendations>;
   scenarios: number;
@@ -54,6 +62,8 @@ export function Recommendations({
   unrankedAdp: number;
   /** Where a candidate's number came from, resolved against the board. */
   basisFor: (player: { id: string; position: string }) => ValueBasis;
+  /** Your recorded players represented by a positional floor rather than their own value. */
+  ownRecordOnlyPlayers: readonly RecordOnlyRosterPlayer[];
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -69,6 +79,7 @@ export function Recommendations({
         <p className="p-4 text-sm text-muted-foreground">
           The draft is over — every pick is recorded. Your team is on the right.
         </p>
+        <RecordOnlyWarning players={ownRecordOnlyPlayers} completed />
       </Panel>
     );
   }
@@ -259,6 +270,7 @@ export function Recommendations({
           A conditional simulation estimate, not a team grade: it assumes this pick, the
           picks already recorded, and a default policy completing the rest of the draft.
         </p>
+        <RecordOnlyWarning players={ownRecordOnlyPlayers} />
         {tiedAlternatives.length > 0 ? (
           <aside
             className="mt-3 rounded-lg border border-brand/30 bg-brand/5 p-3 text-sm"
@@ -475,6 +487,43 @@ function Figure({
       <span className="block text-xs text-muted-foreground">{label}</span>
       {note === undefined ? null : <span className="block text-xs text-muted-foreground">{note}</span>}
     </span>
+  );
+}
+
+function RecordOnlyWarning({
+  players,
+  completed = false,
+}: {
+  players: readonly RecordOnlyRosterPlayer[];
+  completed?: boolean;
+}) {
+  if (players.length === 0) return null;
+
+  const names = players.map((player) => `${player.name} (${positionLabel(player.position)})`).join(", ");
+
+  return (
+    <aside
+      className={cn(
+        "rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm",
+        completed ? "mx-4 mb-4" : "mt-3",
+      )}
+      role="alert"
+      aria-label="Roster valuation warning"
+    >
+      <p className="font-medium text-foreground">
+        {players.length === 1
+          ? "Roster player without an active valuation"
+          : "Roster players without active valuations"}
+      </p>
+      <p className="mt-1 leading-5 text-muted-foreground">
+        {names} {players.length === 1 ? "is" : "are"} record-only on this board, without an active
+        valuation. That can mean a player is unavailable or otherwise outside the valued pool. The
+        simulation substitutes the lowest current value at each player&apos;s position when one is
+        available (otherwise a fallback) as bookkeeping, not a personal projection. {completed
+          ? "Any title estimate from this draft is incomplete rather than decision-ready until these roster values are resolved."
+          : "Treat the title chance above as incomplete rather than pick-ready until these roster values are resolved."}
+      </p>
+    </aside>
   );
 }
 

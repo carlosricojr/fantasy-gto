@@ -72,7 +72,7 @@ import {
 import { QueuePanel } from "./queue-panel";
 import { describeSeason } from "./season-label";
 import { leagueFingerprint } from "./reply-gate";
-import { Recommendations } from "./recommendations";
+import { Recommendations, type RecordOnlyRosterPlayer } from "./recommendations";
 import { SettingsDialog } from "./settings-dialog";
 import { DraftSetup } from "./setup";
 import { StatusBar } from "./status-bar";
@@ -445,7 +445,7 @@ export default function DraftPage() {
    * replacement value. He is still never recommended, and the UI never presents this
    * internal bookkeeping value as his projection.
    */
-  const byId = useMemo(() => {
+  const recordablePlayers = useMemo(() => {
     const valued = new Map(pool.map((player) => [player.id, player]));
     const floorByPosition = new Map<string, PlayerRisk>();
     for (const player of pool) {
@@ -460,12 +460,14 @@ export default function DraftPage() {
     }
 
     const recordable = new Map<string, PlayerRisk>();
+    const recordOnlyIds = new Set<string>();
     for (const row of (board ?? []) as BoardPlayer[]) {
       const priced = valued.get(row.playerId);
       if (priced !== undefined) {
         recordable.set(row.playerId, priced);
         continue;
       }
+      recordOnlyIds.add(row.playerId);
       const floor = floorByPosition.get(row.position);
       recordable.set(row.playerId, {
         id: row.playerId,
@@ -480,8 +482,9 @@ export default function DraftPage() {
         adpStdev: row.adpStdev,
       });
     }
-    return recordable;
+    return { byId: recordable, recordOnlyIds };
   }, [board, pool]);
+  const { byId, recordOnlyIds } = recordablePlayers;
 
   const boardIdentities = useMemo<PlayerIdentity[]>(
     () =>
@@ -566,6 +569,29 @@ export default function DraftPage() {
     [picks, sleeperReconciliation],
   );
   const currentPick = useMemo(() => nextPick(activePicks, totalPicks), [activePicks, totalPicks]);
+
+  /**
+   * The simulation uses a positional floor for record-only identities. That prevents an
+   * unpriced opponent from becoming a zero, but it must be visible when it is *your*
+   * roster: otherwise the title estimate reads as though every listed player had a
+   * personal valuation.
+   */
+  const ownRecordOnlyPlayers = useMemo<readonly RecordOnlyRosterPlayer[]>(
+    () =>
+      Object.entries(activePicks)
+        .sort(([left], [right]) => Number(left) - Number(right))
+        .flatMap(([pick, playerId]) => {
+          if (pickOwners.get(Number(pick)) !== 0) {
+            return [];
+          }
+          if (!recordOnlyIds.has(playerId)) return [];
+          const player = byId.get(playerId);
+          return player === undefined
+            ? []
+            : [{ id: player.id, name: player.name, position: player.position }];
+        }),
+    [activePicks, pickOwners, recordOnlyIds, byId],
+  );
 
   const sleeperPollDraftId = sleeper?.draftId ?? null;
   const sleeperPollRepairKey = sleeper?.repairs
@@ -1364,6 +1390,7 @@ export default function DraftPage() {
             waitPickLabel={waitPickLabel}
             unrankedAdp={unrankedAdp}
             basisFor={basisFor}
+            ownRecordOnlyPlayers={ownRecordOnlyPlayers}
           />
 
           <PlayerPool
@@ -1395,6 +1422,7 @@ export default function DraftPage() {
             // disagreeing would be a screen contradicting the numbers beside it.
             playoffWeeks={config.playoffWeeks}
             basisFor={basisFor}
+            ownRecordOnlyPlayers={ownRecordOnlyPlayers}
           />
           <QueuePanel
             queue={queue}

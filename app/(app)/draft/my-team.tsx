@@ -10,6 +10,7 @@ import { BasisBadge } from "./basis-badge";
 import { pickLabel } from "./board-view";
 import { byeGaps, solveRoster } from "./pool-view";
 import { positionChipClass, positionLabel } from "./positions";
+import type { RecordOnlyRosterPlayer } from "./recommendations";
 
 /**
  * The roster, by slot.
@@ -30,6 +31,7 @@ export function MyTeam({
   teams,
   playoffWeeks,
   basisFor,
+  ownRecordOnlyPlayers,
 }: {
   slots: readonly RosterSlot[];
   roster: readonly PlayerRisk[];
@@ -46,6 +48,8 @@ export function MyTeam({
   playoffWeeks: readonly number[];
   /** Where each player's number came from, so a market-only starter is marked here too. */
   basisFor: (player: { id: string; position: string }) => ValueBasis;
+  /** Your roster players represented by a positional floor rather than their own value. */
+  ownRecordOnlyPlayers: readonly RecordOnlyRosterPlayer[];
 }) {
   const byId = useMemo(() => new Map(roster.map((player) => [player.id, player])), [roster]);
 
@@ -123,6 +127,15 @@ export function MyTeam({
           Starters project {solution.totalPoints.toFixed(1)} points in a week they all play.
           The slot assignment is solved exactly — no legal arrangement of these players
           scores higher.
+          {ownRecordOnlyPlayers.length === 0 ? null : (
+            <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 leading-5">
+              {ownRecordOnlyPlayers.map((player) => player.name).join(", ")} use
+              {ownRecordOnlyPlayers.length === 1 ? "s" : ""} positional-floor or fallback
+              bookkeeping value{ownRecordOnlyPlayers.length === 1 ? "" : "s"}, not a personal
+              projection. This starter total and exact-arrangement claim apply to those substitute
+              values.
+            </p>
+          )}
         </footer>
       )}
 
