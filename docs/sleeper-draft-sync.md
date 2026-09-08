@@ -129,6 +129,22 @@ not granted fictional extra draft picks; post-draft waiver acquisitions are not 
 Existing waiver-coverage fractions remain the disclosed streaming assumption, applied to
 replacement levels derived from the custom board rather than preset points.
 
+Initial custom-board provisioning is intentionally an operator action, not a public client
+endpoint: a canonical profile causes 36 public historical-stat fetches and an arbitrary
+profile/size must not let an unauthenticated browser create that work. Until an operator
+publishes the exact shape, the connection stays paused rather than borrowing a preset
+board. Bootstrap a verified import once with its canonical scoring ID and league size;
+successful publication registers that public shape for later scheduled refreshes:
+
+```sh
+pnpm exec convex run --prod ingest:buildSleeperCustomDraftBoard \
+  '{"season":2026,"scoringId":"sleeper-v1:{...canonical imported coefficients...}","teams":10}'
+```
+
+The placeholder is not a usable scoring ID: copy the exact canonical ID from the verified
+Sleeper import. The build fails closed on incomplete history, ambiguous current market
+matches, or missing required position coverage and leaves an older published board intact.
+
 Run the read-only rehearsal against a published custom board:
 
 ```sh

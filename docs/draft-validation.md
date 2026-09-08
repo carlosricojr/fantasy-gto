@@ -583,12 +583,28 @@ so `pnpm draft-mock` replays the August-2026 bands. `pnpm draft-mock -- --curren
 replays the same two modes with every row re-banded from `OUTCOME_QUANTILES` and enforces
 the same nine checks: both finish 9/9, on a different sixteen players.
 
-**Not handled: custom scoring.** Only PPR, half-PPR, and standard are supported. This is a
-harder limit than it looks, because it binds on both halves of the valuation at once — the
-projection would need re-scoring, and the market half simply does not exist, since ADP is
-only published for those three formats. A league with six-point passing touchdowns or a
-tight-end premium is *approximated* by the nearest preset, and the interface should say so
-rather than imply the board was built for it.
+**Custom Sleeper scoring is a separate historical board, not a calibrated projection.** A
+canonical imported Sleeper ruleset is accepted only when every nonzero coefficient is one
+the raw completed weekly-stat feed can score. Its player values come from position-specific
+ADP-to-*historical custom-score* curves. PPR, half-PPR, or standard selects the available
+ADP source from the reception coefficient alone; it does not relabel a custom league as a
+preset. Missing K/DST coverage fails the build rather than borrowing a pooled skill-player
+or preset curve. The 32 custom defenses use `dst-<team>` identities, independent of a
+market display name; legacy display-name IDs remain only for preset saved drafts.
+
+Custom weekly bands are descriptive. They are pooled quantiles of a scored week divided by
+that entity's own completed-season mean, so they are neither player forecasts nor evidence
+that the season simulation's title percentages are calibrated to that league. K/DST also
+carry an additive residual standard deviation measured from **all** scored entity-weeks,
+including zero- or negative-mean defenses. A normal draw uses that additive spread rather
+than forcing a negative custom outcome through the preset lognormal band. This is a
+distributional assumption for simulation, not a claim that rare defensive outcomes are
+fully modeled or that title odds have been externally validated.
+
+The ordinary `pnpm backtest` run on 2026-09-07 is unchanged by this isolated custom-board
+path: development MAE 5.8818 versus 6.0099 prior-games mean, and tuning MAE 5.7706 versus
+5.9453. Those PPR model figures are a regression check only; they do not validate the
+custom historical curves or custom title simulation.
 
 ### Cost of repeated positions
 

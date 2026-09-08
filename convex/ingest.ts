@@ -51,6 +51,15 @@ import { weeksBetween } from "../lib/nfl/season";
 import { planDraftRefresh } from "../lib/nfl/draft/refresh-plan";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import type { PlayerWeek } from "../lib/nfl/stats/parse";
+import { SleeperStatsProvider } from "../lib/sources/sleeper-stats";
+import {
+  buildSleeperCustomHistory,
+  customAdpImpliedPoints,
+  customDstId,
+  fitRequiredCustomCurves,
+  sleeperPosition,
+} from "../lib/nfl/draft/sleeper-custom";
+import { sleeperScoringFromId } from "../lib/nfl/scoring/sleeper";
 
 /**
  * Projection ingest.
@@ -1417,6 +1426,290 @@ export async function runBuildDraftBoard(
 }
 
 /**
+ * Builds one custom Sleeper-scored board from raw completed weekly statistics.
+ *
+ * This is intentionally separate from `runBuildDraftBoard`: preset boards retain their
+ * nflverse model, legacy D/ST IDs, and published validation surface. A custom score is
+ * not treated as a PPR alias. It uses PPR/half/standard only to choose the closest
+ * *market ADP source* validated by `parseSleeperScoring`; player values and outcome bands
+ * are re-scored from historical Sleeper counters under the exact imported coefficients.
+ */
+export const buildSleeperCustomDraftBoard = internalAction({
+  args: {
+    season: v.number(),
+    scoringId: v.string(),
+    teams: v.optional(v.number()),
+  },
+  handler: (ctx, args) =>
+    runBuildSleeperCustomDraftBoard(
+      ctx,
+      args,
+      new NflverseProvider(),
+      new AdpProvider(),
+      new SleeperStatsProvider(),
+    ),
+});
+
+export async function runBuildSleeperCustomDraftBoard(
+  ctx: ProjectWriteCtx,
+  { season, scoringId, teams = 12 }: { season: number; scoringId: string; teams?: number },
+  rosterProvider: NflverseProvider,
+  adpProvider: AdpProvider,
+  statsProvider: SleeperStatsProvider,
+): Promise<{
+  players: number;
+  withMarketPrice: number;
+  unpriced: number;
+  historySeasons: number[];
+}> {
+  const profile = sleeperScoringFromId(scoringId);
+  if (profile === null) {
+    throw new Error("Custom draft-board scoringId is not a canonical Sleeper scoring profile.");
+  }
+  const jobId = await ctx.runMutation(internal.jobs.start, {
+    kind: boardJobKind(season, scoringId, teams),
+    detail: `Building ${season} custom Sleeper draft board (${teams}-team)`,
+  });
+  try {
+    const [rosterResult, contestsResult, oldestHistory, latestHistory] = await Promise.all([
+      rosterProvider.seasonRoster(season),
+      rosterProvider.allContests(),
+      statsProvider.seasonWeeks(season - 2),
+      statsProvider.seasonWeeks(season - 1),
+    ]);
+    if (!rosterResult.ok) throw new Error(rosterResult.reason);
+    if (!contestsResult.ok) throw new Error(contestsResult.reason);
+    if (!oldestHistory.ok) throw new Error(oldestHistory.reason);
+    if (!latestHistory.ok) throw new Error(latestHistory.reason);
+    const sourceFetchedAt = Date.now();
+    const historySeasons = [season - 2, season - 1];
+    const history = buildSleeperCustomHistory(
+      [...oldestHistory.data, ...latestHistory.data],
+      profile,
+    );
+
+    const byes = teamByeWeeks(contestsResult.data, season);
+    const scheduleTeams = new Set<string>();
+    for (const contest of contestsResult.data) {
+      if (contest.period.season !== season) continue;
+      scheduleTeams.add(contest.homeTeam);
+      scheduleTeams.add(contest.awayTeam);
+    }
+    if (scheduleTeams.size !== 32 || byes.size !== 32) {
+      throw new Error(
+        `Custom board requires all 32 teams and byes from the ${season} schedule; found ${scheduleTeams.size} teams and ${byes.size} byes.`,
+      );
+    }
+
+    const adpSource = adpSourceFor(teams);
+    const currentMarket = await adpProvider.forSeason(
+      season,
+      profile.adpScoringId,
+      adpSource.sourceTeams,
+    );
+    if (!currentMarket.ok) throw new Error(currentMarket.reason);
+    const curveMarkets = await Promise.all(historySeasons.map(async (historySeason) => ({
+      season: historySeason,
+      result: await adpProvider.forSeason(
+        historySeason,
+        profile.adpScoringId,
+        adpSource.sourceTeams,
+      ),
+    })));
+    const curveMarketData = curveMarkets.map((curveMarket) => {
+      if (!curveMarket.result.ok) {
+        throw new Error(
+          `Custom board needs the completed ${curveMarket.season} ${profile.adpScoringId} ADP board to value the current market: ${curveMarket.result.reason}`,
+        );
+      }
+      return curveMarket.result.data;
+    });
+
+    const defensesByTeam = new Map<string, (typeof currentMarket.data)[number]>();
+    for (const entry of currentMarket.data) {
+      if (normalizeMarketPosition(entry.position) !== "DST" || entry.team === null) continue;
+      const team = entry.team.trim().toUpperCase();
+      if (defensesByTeam.has(team)) {
+        throw new Error(`Custom current ADP has duplicate D/ST entries for ${team}.`);
+      }
+      defensesByTeam.set(team, entry);
+    }
+    const current = rosterResult.data
+      .filter((entry) => sleeperPosition(entry.position) !== null)
+      .map((entry) => ({
+        playerId: entry.playerId,
+        sleeperId: entry.sleeperId,
+        name: entry.name,
+        position: entry.position,
+        team: entry.team,
+      }));
+    for (const team of [...scheduleTeams].sort()) {
+      const market = defensesByTeam.get(team);
+      current.push({
+        playerId: customDstId(team),
+        sleeperId: team,
+        name: market?.name ?? `${team} D/ST`,
+        position: "DST",
+        team,
+      });
+    }
+
+    const curves = fitRequiredCustomCurves({
+      season: season - 1,
+      current,
+      market: curveMarketData[1],
+      latestSeasonTotals: history.latestSeasonTotals,
+      additionalSources: [{
+        market: curveMarketData[0],
+        seasonTotals: history.seasonTotals.get(historySeasons[0]) ?? new Map(),
+      }],
+    });
+    const curveSet: AdpCurveSet = {
+      byPosition: curves,
+      pooled: null,
+      season: season - 1,
+    };
+    const marketIndex = buildMarketIndex(currentMarket.data, normalizeMarketPosition);
+    // `buildMarketIndex` proves that a lookup does not choose between *market* rows. It
+    // cannot see a different ambiguity in this custom path: two current players can both
+    // normalize to one market row (for example a suffix that one source omits). Pricing
+    // both from that one ADP would publish a plausible but false valuation, so reject the
+    // entire build before any rows are written.
+    const currentMatches = new Map<(typeof currentMarket.data)[number], (typeof current)[number]>();
+    for (const identity of current) {
+      const position = sleeperPosition(identity.position);
+      if (position === null || position === "DST") continue;
+      const market = marketIndex.find(identity.name, position);
+      if (market === null) continue;
+      const prior = currentMatches.get(market);
+      if (prior !== undefined && prior.playerId !== identity.playerId) {
+        throw new Error(
+          `Custom current ADP entry ${market.name} (${position}) matches multiple current roster identities: ${prior.name} and ${identity.name}.`,
+        );
+      }
+      currentMatches.set(market, identity);
+    }
+    const rows = [];
+    let withMarketPrice = 0;
+    for (const identity of current) {
+      const position = sleeperPosition(identity.position);
+      if (position === null) continue;
+      const market = position === "DST"
+        ? identity.team === null ? null : (defensesByTeam.get(identity.team) ?? null)
+        : marketIndex.find(identity.name, position);
+      const band = history.bands.get(position);
+      const weeklyStdDev = position === "K" || position === "DST"
+        ? history.weeklyStdDev.get(position)
+        : undefined;
+      const weeklyOutcomeRatios = position === "QB" || position === "RB" || position === "WR" || position === "TE"
+        ? history.weeklyOutcomeRatios.get(position)
+        : undefined;
+      if ((position === "K" || position === "DST") && weeklyStdDev === undefined) {
+        throw new Error(`No custom-scored ${position} additive weekly spread was measured.`);
+      }
+      if ((position === "QB" || position === "RB" || position === "WR" || position === "TE") && weeklyOutcomeRatios === undefined) {
+        throw new Error(`No custom-scored ${position} zero-inclusive outcome ratios were measured.`);
+      }
+      if ((position === "QB" || position === "RB" || position === "WR" || position === "TE") && band === undefined) {
+        throw new Error(`No custom-scored ${position} outcome band was measured.`);
+      }
+      const marketPoints = market === null
+        ? null
+        : customAdpImpliedPoints(market.adp, position, curves);
+      const entity = position === "DST"
+        ? identity.team === null ? null : customDstId(identity.team)
+        : identity.sleeperId;
+      const games = entity === null ? undefined : history.latestSeasonGames.get(entity);
+      if (marketPoints !== null) withMarketPrice += 1;
+      rows.push({
+        playerId: identity.playerId,
+        ...(identity.sleeperId === null ? {} : { sleeperId: identity.sleeperId }),
+        name: identity.name,
+        position,
+        team: identity.team,
+        // These are market values calibrated to raw historical custom scores, not a new
+        // player projection model. Leaving `modelPoints` null keeps that distinction in
+        // the stored contract and prevents a custom board from borrowing preset forecasts.
+        modelPoints: null,
+        marketPoints,
+        marketValueBasis: marketPoints === null ? null : marketValueBasis(position, curveSet),
+        // Preserve missing custom-market coverage as missing. The legacy blender's
+        // numeric zero is not an observed Sleeper custom value.
+        blendedPoints: marketPoints === null ? null : blendedSeasonValue(null, marketPoints),
+        adp: scalePick(market?.adp ?? null, adpSource),
+        adpStdev: scalePick(market?.stdev ?? null, adpSource),
+        byeWeek: identity.team === null ? null : (byes.get(identity.team) ?? null),
+        // A team defense plays whenever it is not on its bye. Historical team rows are
+        // useful for its custom-score distribution, not player-style availability; using
+        // their game count would make D/ST depth depend on which board flavor was built.
+        availability: position === "DST"
+          ? 1
+          : shrunkAvailability(games ?? 0, games !== undefined),
+        // K/DST use the measured additive standard deviation above. These legacy ratio
+        // fields remain neutral compatibility values and are ignored whenever
+        // `weeklyStdDev` is present; deriving ratios from a zero/negative season mean
+        // would fabricate a distribution.
+        p10: band?.p10 ?? 1,
+        p90: band?.p90 ?? 1,
+        quantileProvenance: "measured" as const,
+        historicalScoringSource: "sleeper-custom-stats" as const,
+        ...(weeklyStdDev === undefined ? {} : { weeklyStdDev }),
+        ...(weeklyOutcomeRatios === undefined ? {} : { weeklyOutcomeRatios }),
+      });
+    }
+    const customDefenses = rows.filter((row) => row.position === "DST");
+    if (customDefenses.length !== 32 || new Set(customDefenses.map((row) => row.playerId)).size !== 32) {
+      throw new Error("Custom board failed to produce exactly 32 canonical D/ST identities.");
+    }
+    if (rows.length === 0) throw new Error(`No custom-scored draftable identities resolved for ${season}.`);
+
+    const computedAt = Date.now();
+    for (const batch of chunk(rows, WRITE_BATCH)) {
+      await ctx.runMutation(internal.draft.upsertBoardBatch, {
+        season,
+        scoringId,
+        teams,
+        computedAt,
+        rows: batch,
+      });
+    }
+    await ctx.runMutation(internal.draft.publishBoard, {
+      season,
+      scoringId,
+      teams,
+      computedAt,
+      adpSourceTeams: adpSource.sourceTeams,
+      historicalScoringSource: "sleeper-custom-stats",
+      historicalSeasons: historySeasons,
+      sourceFetchedAt,
+    });
+    for (;;) {
+      const pruned = await ctx.runMutation(internal.draft.pruneBoard, {
+        season,
+        scoringId,
+        teams,
+        computedBefore: computedAt,
+      });
+      if (!pruned.more) break;
+    }
+    await ctx.runMutation(internal.jobs.finish, { jobId, status: "succeeded", error: null });
+    return {
+      players: rows.length,
+      withMarketPrice,
+      unpriced: rows.length - withMarketPrice,
+      historySeasons,
+    };
+  } catch (error) {
+    await ctx.runMutation(internal.jobs.finish, {
+      jobId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/**
  * Rebuilds the draft boards the interface offers.
  *
  * Separate from the weekly refresh because it tracks a different clock. A projection moves
@@ -1465,6 +1758,7 @@ export const refreshDraftBoards = internalAction({
     // twelve times inside a single action.
     const provider = new NflverseProvider();
     const adpProvider = new AdpProvider();
+    const customStatsProvider = new SleeperStatsProvider();
 
     let rebuilt = 0;
     let byeMismatches = 0;
@@ -1503,6 +1797,34 @@ export const refreshDraftBoards = internalAction({
         }
       }
     }
-    return { rebuilt, failed, attempted: plan.shapes.length, byeMismatches };
+    // A custom board becomes refreshable only after a complete initial build publishes its
+    // run. That is a durable registration keyed by public shape, not a hardcoded league or
+    // user. A failed custom build leaves the prior run registered and visible, so the next
+    // scheduled attempt can recover while its freshness query records the failed attempt.
+    const customShapes = await ctx.runQuery(internal.draft.publishedCustomBoardShapes, {
+      season: target,
+    });
+    for (const shape of customShapes) {
+      try {
+        await runBuildSleeperCustomDraftBoard(
+          ctx,
+          { season: target, scoringId: shape.scoringId, teams: shape.teams },
+          provider,
+          adpProvider,
+          customStatsProvider,
+        );
+        rebuilt += 1;
+      } catch (error) {
+        failed.push(
+          `${shape.scoringId}/${shape.teams}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return {
+      rebuilt,
+      failed,
+      attempted: plan.shapes.length + customShapes.length,
+      byeMismatches,
+    };
   },
 });
