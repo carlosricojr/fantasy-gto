@@ -22,6 +22,7 @@ describe("Sleeper authoritative season rules", () => {
     { league_average_match: "1" }, { league_average_match: undefined },
     { best_ball: 1 }, { playoff_round_type: 1 }, { playoff_seed_type: 1 },
     { max_subs: 1 },
+    { max_subs: undefined }, { best_ball: null }, { playoff_type: undefined },
   ])("refuses unsupported or unknown rules %j", (patch) => {
     expect(parseSleeperSeasonRules({ ...actual, ...patch }).ok).toBe(false);
   });

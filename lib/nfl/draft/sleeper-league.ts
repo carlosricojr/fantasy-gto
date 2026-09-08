@@ -21,7 +21,7 @@ export function parseSleeperSeasonRules(raw: unknown):
   const championshipWeek = typeof start === "number" && typeof playoffTeams === "number" ? start + (playoffTeams === 6 ? 2 : 1) : NaN;
   if (!(CHAMPIONSHIP_WEEKS as readonly number[]).includes(championshipWeek)) unsupported.push("league.playoff_week_start: unsupported championship week");
   for (const key of ["best_ball", "playoff_type", "playoff_round_type", "playoff_seed_type", "max_subs"]) {
-    if ((row[key] ?? 0) !== 0) unsupported.push(`league.${key}: ${String(row[key])} is not modeled`);
+    if (row[key] !== 0) unsupported.push(`league.${key}: ${String(row[key])} is not modeled`);
   }
   if (row.start_week !== 1) unsupported.push("league.start_week: only week one supported");
   if (row.league_average_match !== 0 && row.league_average_match !== 1) unsupported.push("league.league_average_match: missing or invalid");

@@ -10,11 +10,13 @@ import { completeDraft, trimDraftRoster, recommendByChampionship, type DraftPoli
 import { fantasySeasonWeeks, sampleTeamWeeklyScores, simulateLeague, type LeagueConfig } from "../lib/core/season-sim";
 import type { PlayerRisk } from "../lib/core/roster-utility";
 import type { RosterStatus } from "../lib/nfl/weekly-roster";
+import { customBoardBlock } from "../lib/nfl/draft/custom-board-readiness";
 
 interface Row {
   playerId: string; sleeperId?: string; name: string; position: string; team: string | null;
   blendedPoints: number | null; availability: number | null; p10: number; p90: number;
   weeklyStdDev?: number; byeWeek: number | null; adp: number | null; adpStdev: number | null;
+  weeklyOutcomeRatios?: number[];
   rosterStatus: RosterStatus | null; historicalScoringSource?: string;
 }
 
@@ -44,6 +46,8 @@ async function main(): Promise<void> {
   const result = await response.json() as { status: string; value?: Row[] };
   if (!response.ok || result.status !== "success" || !Array.isArray(result.value) || result.value.length === 0) throw new Error("No published board for this exact custom scoring profile.");
   const rows = result.value;
+  const block = customBoardBlock(setup.scoringId, rows);
+  if (block !== null) throw new Error(block);
   if (new Set(rows.map((r) => r.playerId)).size !== rows.length) throw new Error("Duplicate board identities.");
   if (new Set(rows.filter((r) => r.position === "DST").map((r) => r.sleeperId)).size !== 32) throw new Error("Custom board does not represent all 32 defenses.");
   const reconciliation = reconcileSleeperDraft({
@@ -56,7 +60,7 @@ async function main(): Promise<void> {
   if (valued.some((r) => r.historicalScoringSource !== "sleeper-custom-stats")) throw new Error("Mixed preset and custom-scored valuations.");
   const risks = new Map<string, PlayerRisk>(valued.map((r) => [r.playerId, {
     id: r.playerId, name: r.name, position: r.position, weeklyMean: perGameRate(r.blendedPoints!, r.availability!),
-    p10: r.p10, p90: r.p90, weeklyStdDev: r.weeklyStdDev, availability: r.availability!, byeWeek: r.byeWeek, adp: r.adp, adpStdev: r.adpStdev,
+    p10: r.p10, p90: r.p90, weeklyStdDev: r.weeklyStdDev, weeklyOutcomeRatios: r.weeklyOutcomeRatios, availability: r.availability!, byeWeek: r.byeWeek, adp: r.adp, adpStdev: r.adpStdev,
   }]));
   const taken = new Set(Object.values(reconciliation.acceptedPicks));
   for (const id of taken) if (!risks.has(id)) throw new Error(`Recorded player ${id} has no active valuation; review explicitly before interpreting estimates.`);
@@ -68,6 +72,7 @@ async function main(): Promise<void> {
   const slots = slotsForTemplate(setup.templateId);
   const config: LeagueConfig = { slots, ...fantasySeasonWeeks(seasonRules.championshipWeek, seasonRules.playoffTeams), ...seasonRules, scenarios: 32, meanAbsenceWeeks: 3, wireCover: waiverWireCover(setup.teams, slots), unprojectedPositions: UNPROJECTED_POSITIONS };
   const completed = completeDraft(state, config, null);
+  if (completed.some((roster, index) => roster.length !== state.teams[index].draftRosterSize)) throw new Error("Draft completion did not consume every owned pick.");
   const ids = completed.flat().map((p) => p.id);
   if (new Set(ids).size !== ids.length) throw new Error("Rehearsal duplicated a drafted player.");
   const seasonRosters = completed.map((roster) => trimDraftRoster(roster, state.rosterSize, slots));
@@ -75,6 +80,7 @@ async function main(): Promise<void> {
   const total = outcomes.reduce((sum, item) => sum + item.championshipProbability, 0);
   if (Math.abs(total - 1) > 1e-9 || outcomes.some((item) => !Number.isFinite(item.expectedWins))) throw new Error("Invalid simulated league outcomes.");
   const advice = state.teams[0].remainingPicks.length === 0 ? [] : recommendByChampionship(state, config, 7319, 3);
+  if (state.teams[0].remainingPicks.length > 0 && advice.length === 0) throw new Error("No recommendations despite remaining owned picks.");
   if (advice.some((r) => taken.has(r.player.id))) throw new Error("Optimizer recommended a drafted player.");
   console.log(JSON.stringify({ readOnly: true, draftId: resolved.data, season, seat: slot, teams: setup.teams, rounds: setup.rounds, ...seasonRules, sourcePicks: picks.data.length, reconciledPicks: taken.size, keeperCount: picks.data.filter((p) => p.isKeeper).length, tradedSquares: ownership.reassignedPicks.length, ownedPickCounts: state.teams.map((t) => t.draftRosterSize), ownRemainingPicks: state.teams[0].remainingPicks.length, customValuedPlayers: valued.length, draftRosterSizes: completed.map((r) => r.length), simulatedRosterSizes: seasonRosters.map((r) => r.length), normalizedTitleProbabilities: Math.abs(total - 1) < 1e-9, recommendationCount: advice.length }, null, 2));
 }

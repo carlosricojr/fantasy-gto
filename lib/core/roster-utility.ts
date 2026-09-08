@@ -37,6 +37,8 @@ export interface PlayerRisk {
   weeklyMean: number;
   /** Optional additive-normal spread in points; supports signed custom-scored outcomes. */
   weeklyStdDev?: number;
+  /** Equal-weight empirical outcome ratios, normalized to mean one; includes zero weeks. */
+  weeklyOutcomeRatios?: readonly number[];
   /**
    * Measured spread of actual/projected, as ratio quantiles. These come from the weekly
    * model's own backtest rather than being assumed.
@@ -160,6 +162,10 @@ function playerStream(playerId: string, seed: number, scenario: number): Rng {
 
 /** Draws one week's points for a player who is playing. */
 function drawPoints(player: PlayerRisk, rng: Rng): number {
+  if (player.weeklyOutcomeRatios !== undefined) {
+    const ratios = player.weeklyOutcomeRatios;
+    return player.weeklyMean * ratios[Math.floor(rng.next() * ratios.length)];
+  }
   if (player.weeklyStdDev !== undefined) {
     if (!Number.isFinite(player.weeklyStdDev) || player.weeklyStdDev < 0 || !Number.isFinite(player.weeklyMean)) {
       throw new Error("Signed weekly scoring requires a finite mean and nonnegative standard deviation.");
@@ -171,6 +177,11 @@ function drawPoints(player: PlayerRisk, rng: Rng): number {
   // Renormalize so E[ratio] is 1 and therefore E[points] is the projection.
   const meanRatio = Math.exp(mu + (sigma * sigma) / 2);
   return Math.max(0, (player.weeklyMean * ratio) / meanRatio);
+}
+
+export function validWeeklyOutcomeRatios(ratios: readonly number[] | undefined): boolean {
+  return ratios !== undefined && ratios.length === 100 && ratios.every(Number.isFinite) &&
+    Math.abs(ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length - 1) < 1e-8;
 }
 
 /**
@@ -282,6 +293,11 @@ export function drawWeek(
   // would make how much randomness he consumes depend on the result of the randomness, and
   // that is precisely what desynchronized the comparison.
   const draws = roster.map((player) => {
+    // Validate once per player/scenario, not once for every simulated week.
+    if (player.weeklyOutcomeRatios !== undefined &&
+      (player.weeklyStdDev !== undefined || !validWeeklyOutcomeRatios(player.weeklyOutcomeRatios) || !Number.isFinite(player.weeklyMean))) {
+      throw new Error("Empirical weekly scoring requires finite mean-one ratios and no additive spread.");
+    }
     const rng = playerStream(player.id, seed, scenario);
     const available = simulateAvailability(
       player,
@@ -294,7 +310,8 @@ export function drawWeek(
     return { player, available, points };
   });
 
-  const signed = draws.some((entry) => entry.player.weeklyStdDev !== undefined);
+  const custom = (player: PlayerRisk) => player.weeklyStdDev !== undefined || player.weeklyOutcomeRatios !== undefined;
+  const signed = draws.some((entry) => custom(entry.player));
   return weeks.map((_, w) => {
     const playing = draws
       .filter((entry) => entry.available[w])
@@ -302,10 +319,12 @@ export function drawWeek(
         id: entry.player.id,
         name: entry.player.name,
         position: entry.player.position,
-        // Signed positions are selected on their pre-game mean, never on knowledge of
+        // Custom positions are selected on their pre-game mean, never on knowledge of
         // this week's draw. Otherwise the zero-valued empty-slot option erases every
-        // negative defense result after the fact and a second DST becomes an oracle.
-        projectedPoints: entry.player.weeklyStdDev === undefined ? entry.points[w] : entry.player.weeklyMean,
+        // negative defense result after the fact and a backup becomes an oracle.
+        // A negative PRE-GAME mean can still be benched; forcing that start would be
+        // a different lineup policy from this optimizer's allowed empty-slot option.
+        projectedPoints: custom(entry.player) ? entry.player.weeklyMean : entry.points[w],
         availability: "active" as const,
       }));
     const lineup = solveLineup(slots, playing);
@@ -452,7 +471,7 @@ function countEmptySlots(
         // Any constant does; only which slots fill is being counted, and `solveLineup`
         // seats an eligible player whatever he is worth. Deliberately not the player's
         // projection, so this cannot be misread as a points calculation.
-        projectedPoints: entry.player.weeklyStdDev === undefined ? 1 : entry.player.weeklyMean,
+        projectedPoints: 1,
         availability: "active" as const,
       }));
     empty += solveLineup(slots, playing).assignments.filter(

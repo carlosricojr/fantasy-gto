@@ -111,7 +111,7 @@ export function playerFingerprint(p: PlayerRisk): string {
   return (
     `${p.id}:${p.position}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:` +
     `${p.byeWeek ?? "-"}:${p.availability.toFixed(4)}:${p.adp ?? "-"}:` +
-    `${p.adpStdev ?? "-"}:signed-sd=${p.weeklyStdDev ?? "-"}`
+    `${p.adpStdev ?? "-"}:signed-sd=${p.weeklyStdDev ?? "-"}:empirical=${p.weeklyOutcomeRatios?.join(",") ?? "-"}`
   );
 }
 

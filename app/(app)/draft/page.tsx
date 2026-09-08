@@ -45,6 +45,7 @@ import {
 import { importSleeperSetup } from "@/lib/nfl/draft/sleeper-import";
 import { missingDraftPlayerIds, missingSleeperSnapshotPicks, sleeperRecommendationBlock, sleeperSetupFingerprint, SLEEPER_STALE_AFTER_MS } from "@/lib/nfl/draft/sleeper-readiness";
 import { sleeperPickOwnership } from "@/lib/nfl/draft/sleeper-ownership";
+import { customBoardBlock } from "@/lib/nfl/draft/custom-board-readiness";
 import type { PlayerIdentity } from "@/lib/nfl/draft/provider-identity";
 import { resolveSleeperDraftId, SleeperDraftPoller, SleeperDraftProvider } from "@/lib/sources/sleeper";
 
@@ -126,6 +127,7 @@ const CANDIDATES = RECOMMEND_CANDIDATES;
 interface BoardPlayer {
   historicalScoringSource?: "sleeper-custom-stats";
   weeklyStdDev?: number;
+  weeklyOutcomeRatios?: number[];
   playerId: string;
   sleeperId?: string;
   name: string;
@@ -439,6 +441,7 @@ export default function DraftPage() {
           // `perGameRate` for why dividing by a full season here discounted twice.
           weeklyMean: perGameRate(row.blendedPoints, row.availability),
           ...(row.weeklyStdDev === undefined ? {} : { weeklyStdDev: row.weeklyStdDev }),
+          ...(row.weeklyOutcomeRatios === undefined ? {} : { weeklyOutcomeRatios: row.weeklyOutcomeRatios }),
           p10: row.p10,
           p90: row.p90,
           byeWeek: row.byeWeek,
@@ -488,6 +491,7 @@ export default function DraftPage() {
         position: row.position,
         weeklyMean: floor?.weeklyMean ?? 0.1,
         ...(floor?.weeklyStdDev === undefined ? {} : { weeklyStdDev: floor.weeklyStdDev }),
+        ...(floor?.weeklyOutcomeRatios === undefined ? {} : { weeklyOutcomeRatios: floor.weeklyOutcomeRatios }),
         p10: row.p10,
         p90: row.p90,
         byeWeek: row.byeWeek,
@@ -626,7 +630,8 @@ export default function DraftPage() {
     reconciliation: sleeperReconciliation,
   });
   const missingPlayerIds = missingDraftPlayerIds(activePicks, byId);
-  const adviceBlock = sleeperBlock ?? (missingPlayerIds.length > 0
+  const customBlock = customBoardBlock(scoringId, (board ?? []) as BoardPlayer[]);
+  const adviceBlock = customBlock ?? sleeperBlock ?? (missingPlayerIds.length > 0
     ? "Recorded players are missing from the catalog. Their picks are preserved, but roster estimates and recommendations are incomplete until their identities are restored."
     : null);
   const sleeperPollRepairKey = sleeper?.repairs
@@ -1329,7 +1334,7 @@ export default function DraftPage() {
           settings={settings}
           onChange={applySettings}
           onStart={() => setStarted(true)}
-          boardSize={board.length}
+          boardSize={customBlock === null ? board.length : 0}
           boardPending={boardPending}
           season={season}
           leagueSizes={LEAGUE_SIZES}
@@ -1960,6 +1965,11 @@ function Caveat({
       ? "No board has been built for this league size yet."
       : adpSourceLabel(teams, freshness.adpSourceTeams);
 
+  if (pending) {
+    return <p className="text-xs text-muted-foreground">
+      The selected board is loading. Figures still shown belong to the previous selection. {provenance}
+    </p>;
+  }
   if (sleeperScoringLabel(scoringId) !== null) {
     return <p className="text-xs text-muted-foreground">
       {boardSize} identities. {builtAt === null ? "Freshness unknown." : `Board built ${builtAt}.`} {provenance}{" "}

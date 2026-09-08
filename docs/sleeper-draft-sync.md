@@ -6,11 +6,11 @@ an exact import, not a best-effort setup guess.
 ## Supported setup
 
 The board imports only a snake draft whose team count, round count, starter slots, and
-offensive scoring the board can represent. For a league draft, the adapter also reads
+scoring the board can represent. For a league draft, the adapter also reads
 `/v1/league/{league_id}` and compares `scoring_settings` against the local coefficients.
 The draft's `ppr`, `half_ppr`, or `standard` label alone is not verification: six-point
-passing touchdowns, reception bonuses, and other unmodeled nonzero player scoring block
-import. Missing or unreadable league rules fail closed. Standalone mocks have no league
+passing touchdowns are handled by an exact custom profile, while unknown nonzero scoring
+keys block import. Missing or unreadable league rules fail closed. Standalone mocks have no league
 endpoint and retain their declared preset; that is not verified league scoring.
 Sleeper starter slots map only
 when their counts select one existing roster template; bench length remains exact through
@@ -20,11 +20,12 @@ an otherwise exact league. The adapter exposes the provider timer, draft/league
 IDs, draft order, and raw roster slots for the current import. The persisted sync state
 stores only the draft ID, provider status, browser receipt time, provider picks, and repairs.
 
-Linear and auction drafts, custom or missing scoring, unknown or custom roster slots,
+Linear and auction drafts, unsupported or missing scoring, unknown or custom roster slots,
 unsupported settings, and unsupported league sizes are listed to the user and block setup
 import. They never select a nearby local preset. Keeper flags are retained as provider
-history only; this feature does not model keeper cost semantics, custom scoring, auction,
-ownership, archives, or multiple draft sessions.
+history at their verified overall pick coordinates, including traded ownership. Keeper
+costs are not optimized before assignment; auction, archives and multiple saved draft
+sessions are not modeled.
 
 ## Identity and reconciliation
 
@@ -83,13 +84,12 @@ cannot leave advice computed for the prior season rules on screen. Standalone mo
 retain the manually selected season rules. Unsupported brackets, non-week-one starts,
 best ball and automatic substitutions are rejected rather than approximated.
 
-Kicker/DST rules and other unmodeled league details still limit title estimates until a
-custom-scored board has been published. The offensive compatibility check can reject ordinary platform rules
-that this model does not score, such as individual fumble-recovery touchdowns; it does
-not silently ignore them or claim every Sleeper league is supported.
+No title estimates are enabled for a custom league until its exact custom-scored board
+and weekly distributions have been published. Catalog-only identities cannot enable
+recommendations. Unknown nonzero scoring keys fail closed; this is not support for every
+possible Sleeper rule.
 
-The pure custom scorer in `lib/nfl/scoring/sleeper.ts` is a separate foundation, not a
-flag that enables unsupported boards. It scores sparse *weekly stats*, including individual
+The pure custom scorer in `lib/nfl/scoring/sleeper.ts` scores sparse *weekly stats*, including individual
 special-teams events, distance-specific kicking, defensive forced fumbles/blocked kicks,
 and Sleeper's own weekly points/yards-allowed tier indicators. Missing defensive tier
 coverage or incomplete kicker distance splits throw. It must not be applied to Sleeper's
@@ -109,7 +109,16 @@ row's weekly mean, with a historical residual spread supplied by the board. This
 negative points and preserves the expected mean. These positions are selected using their
 pre-game mean before the signed score is revealed: selecting on realized scores would
 silently bench every negative defense result. Normality is an explicit approximation,
-not measured tail calibration. Preset rows retain their prior lognormal behavior.
+not measured tail calibration. A negative pre-game expected score can still be benched;
+negative realized scores from a selected positive-mean starter are never erased.
+
+Custom QB/RB/WR/TE distributions use 100 equally weighted midpoint quantiles of measured
+weekly-points / own-season-mean ratios, normalized to mean one. This preserves zero and
+negative weeks without a pathological lognormal floor. Sampling is discrete, tails are
+bounded by the quantile representation, and position-pooled ratios are not player-specific
+forecasts. Custom skill starters are also chosen by their pre-game mean, not realized
+outcomes. These choices are uncalibrated season-model assumptions. Preset rows retain
+their prior lognormal and lineup behavior.
 
 Sleeper permits drafting above the roster limit after pick trades, then requires cuts
 ([official rule](https://support.sleeper.com/en/articles/3956140-can-a-team-go-over-the-roster-limit)).
