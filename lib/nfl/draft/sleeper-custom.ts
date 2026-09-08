@@ -45,6 +45,8 @@ export interface CustomQuantileBand {
 }
 
 export interface SleeperCustomHistory {
+  /** Scored totals by completed historical season, keyed by stable entity id. */
+  seasonTotals: ReadonlyMap<number, ReadonlyMap<string, number>>;
   /** Scored total in the latest supplied historical season, keyed by stable entity id. */
   latestSeasonTotals: ReadonlyMap<string, number>;
   /** Games played in that same season, keyed by stable entity id. */
@@ -69,6 +71,7 @@ export function customDstId(team: string): string {
 export function sleeperPosition(position: string): Position | null {
   const normalized = position.trim().toUpperCase();
   if (normalized === "DEF" || normalized === "D/ST") return "DST";
+  if (normalized === "PK") return "K";
   return (["QB", "RB", "WR", "TE", "K", "DST"] as const).includes(
     normalized as Position,
   )
@@ -121,6 +124,7 @@ export function buildSleeperCustomHistory(
   const latestSeason = Math.max(...weeks.map((week) => week.season));
   const latestSeasonTotals = new Map<string, number>();
   const latestSeasonGames = new Map<string, number>();
+  const seasonTotals = new Map<number, Map<string, number>>();
   const ratios = new Map<Position, number[]>();
   const residuals = new Map<"K" | "DST", number[]>();
   for (const [key, entry] of bySeasonEntity) {
@@ -128,6 +132,9 @@ export function buildSleeperCustomHistory(
     const season = Number(seasonText);
     const total = entry.points.reduce((sum, points) => sum + points, 0);
     const mean = total / entry.points.length;
+    const totals = seasonTotals.get(season) ?? new Map<string, number>();
+    totals.set(entity, total);
+    seasonTotals.set(season, totals);
     if (season === latestSeason) {
       latestSeasonTotals.set(entity, total);
       latestSeasonGames.set(entity, entry.points.length);
@@ -165,7 +172,7 @@ export function buildSleeperCustomHistory(
     }
     weeklyStdDev.set(position, spread);
   }
-  return { latestSeasonTotals, latestSeasonGames, bands, weeklyStdDev };
+  return { seasonTotals, latestSeasonTotals, latestSeasonGames, bands, weeklyStdDev };
 }
 
 /**
@@ -181,6 +188,14 @@ export function fitRequiredCustomCurves(input: {
   current: readonly CustomBoardIdentity[];
   market: readonly CustomMarketEntry[];
   latestSeasonTotals: ReadonlyMap<string, number>;
+  /**
+   * Older completed ADP/score pairs, retained for sparse K/DST markets. Each source is
+   * matched independently so no season's ADP is paired with another season's outcome.
+   */
+  additionalSources?: readonly {
+    market: readonly CustomMarketEntry[];
+    seasonTotals: ReadonlyMap<string, number>;
+  }[];
 }): Readonly<Record<Position, AdpCurve>> {
   const byNamePosition = new Map<string, CustomBoardIdentity[]>();
   const defensesByTeam = new Map<string, CustomBoardIdentity[]>();
@@ -198,27 +213,34 @@ export function fitRequiredCustomCurves(input: {
   }
   const samples: AdpCurveSample[] = [];
   const sampled = new Set<string>();
-  for (const entry of input.market) {
-    const position = sleeperPosition(entry.position);
-    if (position === null) continue;
-    // A defense's stable identity is its NFL team, not its provider display name. Market
-    // labels change across seasons (and sometimes within one), while the canonical custom
-    // board ID remains `dst-${team}`. Skill positions retain the stricter name join.
-    const candidates = position === "DST"
-      ? entry.team === null ? [] : defensesByTeam.get(entry.team.trim().toUpperCase()) ?? []
-      : byNamePosition.get(`${normalizeName(entry.name)}|${position}`) ?? [];
-    if (candidates.length > 1) {
-      throw new Error(`Custom market identity ${entry.name} (${position}) matches multiple current roster identities.`);
+  const sources = [
+    { market: input.market, seasonTotals: input.latestSeasonTotals },
+    ...(input.additionalSources ?? []),
+  ];
+  for (const [sourceIndex, source] of sources.entries()) {
+    for (const entry of source.market) {
+      const position = sleeperPosition(entry.position);
+      if (position === null) continue;
+      // A defense's stable identity is its NFL team, not its provider display name. Market
+      // labels change across seasons (and sometimes within one), while the canonical custom
+      // board ID remains `dst-${team}`. Skill positions retain the stricter name join.
+      const candidates = position === "DST"
+        ? entry.team === null ? [] : defensesByTeam.get(entry.team.trim().toUpperCase()) ?? []
+        : byNamePosition.get(`${normalizeName(entry.name)}|${position}`) ?? [];
+      if (candidates.length > 1) {
+        throw new Error(`Custom market identity ${entry.name} (${position}) matches multiple current roster identities.`);
+      }
+      const current = candidates[0];
+      if (!current) continue;
+      const entity = position === "DST"
+        ? current.team === null ? null : customDstId(current.team)
+        : current.sleeperId;
+      const total = entity === null ? undefined : source.seasonTotals.get(entity);
+      const sampleKey = `${sourceIndex}|${current.playerId}`;
+      if (total === undefined || sampled.has(sampleKey)) continue;
+      sampled.add(sampleKey);
+      samples.push({ adp: entry.adp, actualSeasonPoints: total, position });
     }
-    const current = candidates[0];
-    if (!current) continue;
-    const entity = position === "DST"
-      ? current.team === null ? null : customDstId(current.team)
-      : current.sleeperId;
-    const total = entity === null ? undefined : input.latestSeasonTotals.get(entity);
-    if (total === undefined || sampled.has(current.playerId)) continue;
-    sampled.add(current.playerId);
-    samples.push({ adp: entry.adp, actualSeasonPoints: total, position });
   }
   const fitted = fitAdpCurves(samples, input.season);
   if (fitted.pooled === null) {

@@ -1508,16 +1508,22 @@ export async function runBuildSleeperCustomDraftBoard(
       adpSource.sourceTeams,
     );
     if (!currentMarket.ok) throw new Error(currentMarket.reason);
-    const curveMarket = await adpProvider.forSeason(
-      season - 1,
-      profile.adpScoringId,
-      adpSource.sourceTeams,
-    );
-    if (!curveMarket.ok) {
-      throw new Error(
-        `Custom board needs the completed ${season - 1} ${profile.adpScoringId} ADP board to value the current market: ${curveMarket.reason}`,
-      );
-    }
+    const curveMarkets = await Promise.all(historySeasons.map(async (historySeason) => ({
+      season: historySeason,
+      result: await adpProvider.forSeason(
+        historySeason,
+        profile.adpScoringId,
+        adpSource.sourceTeams,
+      ),
+    })));
+    const curveMarketData = curveMarkets.map((curveMarket) => {
+      if (!curveMarket.result.ok) {
+        throw new Error(
+          `Custom board needs the completed ${curveMarket.season} ${profile.adpScoringId} ADP board to value the current market: ${curveMarket.result.reason}`,
+        );
+      }
+      return curveMarket.result.data;
+    });
 
     const defensesByTeam = new Map<string, (typeof currentMarket.data)[number]>();
     for (const entry of currentMarket.data) {
@@ -1551,8 +1557,12 @@ export async function runBuildSleeperCustomDraftBoard(
     const curves = fitRequiredCustomCurves({
       season: season - 1,
       current,
-      market: curveMarket.data,
+      market: curveMarketData[1],
       latestSeasonTotals: history.latestSeasonTotals,
+      additionalSources: [{
+        market: curveMarketData[0],
+        seasonTotals: history.seasonTotals.get(historySeasons[0]) ?? new Map(),
+      }],
     });
     const curveSet: AdpCurveSet = {
       byPosition: curves,

@@ -96,6 +96,23 @@ describe("custom Sleeper draft history", () => {
     })).toThrow(/DST/);
   });
 
+  it("uses each completed ADP/score season independently for sparse PK coverage", () => {
+    const scored = buildSleeperCustomHistory(history(), profile);
+    const { current, market } = fixture();
+    const latestWithoutK = market.filter((entry) => entry.position !== "K");
+    const historicalPk = market.map((entry) => entry.position === "K"
+      ? { ...entry, position: "PK" }
+      : entry);
+    const curves = fitRequiredCustomCurves({
+      season: 2025,
+      current,
+      market: latestWithoutK,
+      latestSeasonTotals: scored.latestSeasonTotals,
+      additionalSources: [{ market: historicalPk, seasonTotals: scored.latestSeasonTotals }],
+    });
+    expect(curves.K.sampleSize).toBe(8);
+  });
+
   it("does not turn a signed custom defense curve into a zero-valued one", () => {
     const curves = Object.fromEntries(positions.map((position) => [position, {
       intercept: position === "DST" ? -20 : 100,
