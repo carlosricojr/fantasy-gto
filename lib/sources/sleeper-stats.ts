@@ -1,4 +1,5 @@
 import { type ProviderResult, failed, ok } from "../core/providers";
+import { normalizeTeam } from "../nfl/teams";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
 /**
@@ -113,7 +114,10 @@ export function parseSleeperSeasonStats(
     rows.push({
       playerId,
       position,
-      team: asNonEmptyString(row.team),
+      // Keep Sleeper's LAR/WSH-style spellings on the same canonical team keys used by
+      // the schedule, catalog, and custom `dst-<team>` IDs. Without this, a historical
+      // Rams defense is priced under `dst-LAR` while the current board writes `dst-LA`.
+      team: normalizeTeam(asNonEmptyString(row.team)),
       name: asNonEmptyString(player.full_name) ?? asNonEmptyString(player.first_name),
       season: expectedSeason,
       week,

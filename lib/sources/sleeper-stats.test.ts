@@ -7,7 +7,7 @@ describe("Sleeper historical stats adapter", () => {
     const parsed = parseSleeperSeasonStats([
       {
         category: "stat", season_type: "regular", season: "2024", week: 1,
-        player_id: "10", team: "CHI", player: { position: "DEF" }, stats: { gp: 1 },
+        player_id: "10", team: "LAR", player: { position: "DEF" }, stats: { gp: 1 },
       },
       {
         category: "projection", season_type: "regular", season: 2024, week: 1,
@@ -24,7 +24,7 @@ describe("Sleeper historical stats adapter", () => {
     ], 2024);
     expect(parsed).toMatchObject({
       ok: true,
-      data: [{ playerId: "10", position: "DEF", team: "CHI", name: null, season: 2024, week: 1, stats: { gp: 1 } }],
+      data: [{ playerId: "10", position: "DEF", team: "LA", name: null, season: 2024, week: 1, stats: { gp: 1 } }],
     });
 
     const duplicate = parseSleeperSeasonStats([
