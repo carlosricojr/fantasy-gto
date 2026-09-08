@@ -39,6 +39,12 @@ function rosterCsv(activeCount: number): string {
 function provider(activeCount: number): NflverseProvider {
   return new NflverseProvider(async (url) => {
     if (url === seasonRosterUrl(SEASON)) return rosterCsv(activeCount);
+    if (url === seasonRosterUrl(SEASON - 1)) {
+      return [
+        "season,team,position,status,full_name,gsis_id,sleeper_id,rookie_year",
+        "2025,KC,RB,ACT,Kareem Hunt,00-0030707,1234,2017",
+      ].join("\n");
+    }
     if (url === schedulesUrl()) {
       return "game_id,season,game_type,week,gameday,gametime,away_team,home_team";
     }
@@ -70,7 +76,7 @@ describe("runRefreshDraftPlayerCatalog", () => {
 
     // 300 ordinary active players plus the active no-GSIS kicker.
     expect(result.active).toBe(301);
-    expect(result.players).toBe(304);
+    expect(result.players).toBe(305);
     expect(result.unknownStatuses).toEqual([{ code: "W04", count: 1 }]);
     expect(result.unchanged).toBe(false);
 
@@ -84,6 +90,13 @@ describe("runRefreshDraftPlayerCatalog", () => {
     expect(catalogRows.find((row) => row.name === "Exempt Veteran")).toMatchObject({
       rosterStatus: "reserve",
       rosterStatusCode: "EXE",
+    });
+    expect(catalogRows.find((row) => row.name === "Kareem Hunt")).toMatchObject({
+      playerId: "00-0030707",
+      sleeperId: "1234",
+      team: null,
+      rosterStatus: "unknown",
+      rosterStatusCode: "DERIVED_ABSENT_FROM_CURRENT_ROSTER",
     });
 
     const order = calls.map((call) => call.fn);
