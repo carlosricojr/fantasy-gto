@@ -339,7 +339,13 @@ measured improvement over ADP that survives out-of-sample. Draft capital is alre
 so college production has to beat the crowd's reading of it, not merely correlate with
 outcomes.
 
-### Cost, and the budget derived from it
+### Historical fixed-baseline cost and budget
+
+The table and speculative-cost analysis in this section measured the removed fixed-baseline
+continuation, not the current chronological implementation. Current diagnostics are recorded
+in the 2026-09-08 audit below: three cold, ten-candidate, 600-scenario calls took
+6.048–7.335 seconds on an M4 Max. Those three observations are not a p95 estimate, and mobile
+latency remains unmeasured.
 
 `pnpm draft-latency` prints the distribution with the environment it was measured in. A
 displayed elapsed time is not a budget: it says how long one call took on one machine, tells
@@ -362,10 +368,9 @@ percentiles by nearest rank
 Twelve samples per row except `prepare`, which is three — each of those solves four positions
 from scratch. Every row prints its own `n`.
 
-**The budget is the worst cold p95: 3949 ms at 1000 scenarios, against a two-minute pick
-clock. That is 3.29% of the clock — a margin of 30×.** At the shipped default of 600 it is
-2429 ms, or 2.02%. Read off the measurement rather than chosen before it, which is why the
-row it comes from is in the table.
+The historical worst cold p95 was 3949 ms at 1000 scenarios, against a two-minute pick
+clock: 3.29% of the clock, or a margin of 30×. At 600 scenarios it was 2429 ms, or 2.02%.
+These measurements do not establish the current implementation's latency budget.
 
 #### What the speculative rows say about whether to wire it
 
@@ -423,8 +428,9 @@ measurements of the primitives, not of the product.
 This section previously said otherwise: that "the board requests a recommendation
 speculatively while opponents are on the clock" and "takes a precomputed answer only when the
 board that arrives matches one of them exactly". The first half described the ordinary
-recompute and the second described code nothing calls. Wiring it is #58, and the numbers
-above are the reason it is not urgent: a 30× margin on the path that *is* wired.
+recompute and the second described code nothing calls. Wiring it is #58. The historical
+30× margin is no longer evidence about its urgency; any decision needs current tail-latency
+and contention measurements, including on mobile.
 
 ### League rules
 
