@@ -1618,7 +1618,12 @@ export async function runBuildSleeperCustomDraftBoard(
         adp: scalePick(market?.adp ?? null, adpSource),
         adpStdev: scalePick(market?.stdev ?? null, adpSource),
         byeWeek: identity.team === null ? null : (byes.get(identity.team) ?? null),
-        availability: shrunkAvailability(games ?? 0, games !== undefined),
+        // A team defense plays whenever it is not on its bye. Historical team rows are
+        // useful for its custom-score distribution, not player-style availability; using
+        // their game count would make D/ST depth depend on which board flavor was built.
+        availability: position === "DST"
+          ? 1
+          : shrunkAvailability(games ?? 0, games !== undefined),
         p10: band.p10,
         p90: band.p90,
         quantileProvenance: "measured" as const,

@@ -122,6 +122,7 @@ describe("custom Sleeper board build", () => {
     expect(defenses.every((row) => /^dst-T\d\d$/.test(String(row.playerId)))).toBe(true);
     expect(defenses.every((row) => row.historicalScoringSource === "sleeper-custom-stats")).toBe(true);
     expect(defenses.every((row) => typeof row.weeklyStdDev === "number" && row.weeklyStdDev > 0)).toBe(true);
+    expect(defenses.every((row) => row.availability === 1)).toBe(true);
     const customSkills = rows.filter((row) => ["QB", "RB", "WR", "TE"].includes(String(row.position)));
     expect(customSkills).not.toHaveLength(0);
     expect(customSkills.every((row) => {
