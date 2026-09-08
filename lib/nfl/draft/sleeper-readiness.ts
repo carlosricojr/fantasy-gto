@@ -3,8 +3,8 @@ import type { SleeperReconciliation, SleeperSyncPick } from "./sleeper-sync";
 /** Operational freshness guard: five missed four-second polls, not model uncertainty. */
 export const SLEEPER_STALE_AFTER_MS = 20_000;
 
-export function sleeperSetupFingerprint(setup: { teams: number; rounds: number; scoringId: string; templateId: string }): string {
-  return JSON.stringify([setup.teams, setup.rounds, setup.scoringId, setup.templateId]);
+export function sleeperSetupFingerprint(setup: { teams: number; rounds: number; scoringId: string; templateId: string; playoffTeams?: number; championshipWeek?: number; extraMedianMatchup?: boolean }): string {
+  return JSON.stringify([setup.teams, setup.rounds, setup.scoringId, setup.templateId, setup.playoffTeams ?? 6, setup.championshipWeek ?? 17, setup.extraMedianMatchup === true]);
 }
 
 export function missingDraftPlayerIds(picks: Readonly<Record<number, string>>, known: ReadonlyMap<string, unknown>): string[] {

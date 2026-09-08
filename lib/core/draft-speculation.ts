@@ -111,7 +111,7 @@ export function playerFingerprint(p: PlayerRisk): string {
   return (
     `${p.id}:${p.position}:${p.weeklyMean.toFixed(4)}:${p.p10}:${p.p90}:` +
     `${p.byeWeek ?? "-"}:${p.availability.toFixed(4)}:${p.adp ?? "-"}:` +
-    `${p.adpStdev ?? "-"}`
+    `${p.adpStdev ?? "-"}:signed-sd=${p.weeklyStdDev ?? "-"}:empirical=${p.weeklyOutcomeRatios?.join(",") ?? "-"}`
   );
 }
 
@@ -152,7 +152,7 @@ export function stateSignature(state: CanonicalState): string {
     .map((team, index) => {
       const roster = digestPlayers(team.roster);
       const picks = team.remainingPicks.join(",");
-      return `${index}:${roster}|${picks}`;
+      return `${index}:${roster}|${picks}|draft-cap=${team.draftRosterSize ?? "-"}`;
     })
     .join(";");
   const pool = digestPlayers(state.available);
@@ -183,6 +183,7 @@ export interface SpeculativeEntry {
   context: {
     myTeamIndex: number;
     rosterSize: number;
+    draftCapacities?: string;
     rosterSignatures: string[];
     availableIds: string[];
     /**
@@ -411,6 +412,9 @@ function contextOf(state: CanonicalState): SpeculativeEntry["context"] {
     rosterSignatures: state.teams.map(
       (team) => `${team.roster.map((p) => p.id).join(",")}|${team.remainingPicks.join(",")}`,
     ),
+    ...(state.teams.some((team) => team.draftRosterSize !== undefined) ? {
+      draftCapacities: state.teams.map((team) => team.draftRosterSize ?? "-").join(","),
+    } : {}),
     availableIds: state.available.map((p) => p.id),
     fingerprints,
   };
@@ -470,6 +474,7 @@ export function resolveFromCache(
     const context = entry.context;
     if (context.myTeamIndex !== here.myTeamIndex) continue;
     if (context.rosterSize !== here.rosterSize) continue;
+    if (context.draftCapacities !== here.draftCapacities) continue;
     // Our own roster and remaining picks must match exactly: they are the position.
     if (
       context.rosterSignatures[here.myTeamIndex] !==

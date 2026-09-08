@@ -109,7 +109,7 @@ export function PlayerDetail({
                 {pending
                   ? "These are the previous selection\u2019s figures — the board you have selected is still loading."
                   : `Under ${scoringLabel} scoring.`}{" "}
-                Two independent estimates and the blend the board is ranked by.
+                {player.historicalScoringSource === "sleeper-custom-stats" ? "Market value fitted against custom-scored historical production." : "Two independent estimates and the blend the board is ranked by."}
               </p>
               <dl className="mt-3 space-y-2">
                 <Estimate
@@ -120,20 +120,20 @@ export function PlayerDetail({
                   )}
                   value={player.marketPoints}
                 />
-                <Estimate
+                {player.historicalScoringSource === "sleeper-custom-stats" ? null : <Estimate
                   term="Our model"
                   detail="From his own per-game production and how many games he is expected to play."
                   value={player.modelPoints}
-                />
-                <Estimate term="Blend" detail="What the ranking uses." value={player.seasonPoints} emphasis />
+                />}
+                <Estimate term={player.historicalScoringSource === "sleeper-custom-stats" ? "Board value" : "Blend"} detail="What the ranking uses." value={player.seasonPoints} emphasis />
               </dl>
-              <p className="mt-3 text-xs text-muted-foreground">{basisExplanation(player.basis)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="mt-3 text-xs text-muted-foreground">{player.historicalScoringSource === "sleeper-custom-stats" ? "Custom-scored historical values and ranges. The market source uses the league’s reception format; it is not custom-league ADP." : basisExplanation(player.basis)}</p>
+              {player.historicalScoringSource === "sleeper-custom-stats" ? <p className="mt-2 text-xs text-muted-foreground">Real-world calibration and ranking edge for this custom-scored board have not been measured.</p> : <p className="mt-2 text-xs text-muted-foreground">
                 Measured out of sample, the market ranks players better than our model does
                 and the blend does not beat the market. It is kept because it wins on total
                 points among each method&rsquo;s top 24 and one evaluation season cannot
                 settle the disagreement. No ranking edge over the market is claimed.
-              </p>
+              </p>}
             </section>
 
             <section className="border-t pt-4">

@@ -69,8 +69,19 @@ describe("the queue is read leniently, and it is the only field that is", () => 
 });
 
 describe("parsePersistedDraft", () => {
+  it("round-trips exact custom scoring and refuses malformed canonical IDs", () => {
+    const scoringId = 'sleeper-v1:{"pass_td":6,"rec":0.5}';
+    expect(parsePersistedDraft(stored({ scoringId }))?.scoringId).toBe(scoringId);
+    expect(parsePersistedDraft(stored({ scoringId: 'sleeper-v1:{"rec":0.5,"pass_td":6}' }))).toBeNull();
+    expect(parsePersistedDraft(stored({ scoringId: 'sleeper-v1:{"unmodeled":1}' }))).toBeNull();
+  });
+  it("restores median games without changing legacy head-to-head drafts", () => {
+    expect(parsePersistedDraft(stored())?.extraMedianMatchup).toBe(false);
+    expect(parsePersistedDraft(stored({ extraMedianMatchup: true }))?.extraMedianMatchup).toBe(true);
+    for (const bad of [null, "true", 1]) expect(parsePersistedDraft(stored({ extraMedianMatchup: bad }))).toBeNull();
+  });
   it("round-trips a draft it wrote", () => {
-    expect(parsePersistedDraft(stored())).toEqual(VALID);
+    expect(parsePersistedDraft(stored())).toEqual({ ...VALID, extraMedianMatchup: false });
   });
 
   it("refuses malformed Sleeper sync while retaining absent legacy sync", () => {
@@ -157,7 +168,7 @@ describe("parsePersistedDraft", () => {
       picks: { 1: "player-a" },
       sleeper: null,
     };
-    expect(parsePersistedDraft(JSON.stringify(mock))).toEqual(mock);
+    expect(parsePersistedDraft(JSON.stringify(mock))).toEqual({ ...mock, extraMedianMatchup: false });
   });
 
   it("round-trips every shipped roster template at its own round count", () => {
@@ -169,7 +180,7 @@ describe("parsePersistedDraft", () => {
         templateId: template.id,
         rounds: template.rounds,
       };
-      expect(parsePersistedDraft(JSON.stringify(payload))).toEqual(payload);
+      expect(parsePersistedDraft(JSON.stringify(payload))).toEqual({ ...payload, extraMedianMatchup: false });
     }
   });
 

@@ -145,7 +145,7 @@ describe("what is stored comes back as the season it was drafted against", () =>
     for (const { championshipWeek, playoffTeams } of SHAPES) {
       const payload: PersistedDraft = { ...base, championshipWeek, playoffTeams };
       const restored = parsePersistedDraft(JSON.stringify(payload));
-      expect(restored).toEqual(payload);
+      expect(restored).toEqual({ ...payload, extraMedianMatchup: false });
       // And the restored pair still lays out a season, rather than restoring into a config
       // that throws on the next render.
       expect(() =>
