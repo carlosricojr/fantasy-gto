@@ -177,7 +177,10 @@ export function buildSleeperCustomHistory(
       throw new Error(`Sleeper custom history has insufficient ${position} residuals for additive weekly spread.`);
     }
     const spread = (quantile(values, 0.9) - quantile(values, 0.1)) / (2 * 1.2815515655446004);
-    if (!(spread > 0) || !Number.isFinite(spread)) {
+    // A league may deliberately score K or D/ST at zero. That is a measured,
+    // deterministic distribution, not missing coverage; the signed simulator accepts a
+    // zero additive deviation. Only a negative/non-finite result is unusable.
+    if (spread < 0 || !Number.isFinite(spread)) {
       throw new Error(`Sleeper custom history has no usable ${position} additive weekly spread.`);
     }
     weeklyStdDev.set(position, spread);

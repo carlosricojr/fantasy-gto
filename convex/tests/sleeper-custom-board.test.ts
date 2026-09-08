@@ -143,4 +143,42 @@ describe("custom Sleeper board build", () => {
       historicalSeasons: [2024, 2025],
     });
   });
+
+  it("fails closed when one current market identity would price two roster players", async () => {
+    const duplicateNameRoster = [
+      ...roster,
+      { playerId: "wr-john-smith", sleeperId: "wr-john-smith", name: "John Smith", position: "WR", team: teams[0] },
+      { playerId: "wr-john-smith-jr", sleeperId: "wr-john-smith-jr", name: "John Smith Jr.", position: "WR", team: teams[1] },
+    ];
+    const currentMarket = [
+      ...adp,
+      { name: "John Smith", position: "WR", team: teams[0], adp: 50, stdev: 4, timesDrafted: 20, bye: 9 },
+    ];
+    const ctx = {
+      runMutation: async (reference: unknown) => {
+        const name = getFunctionName(reference as never);
+        if (name.endsWith("jobs:start")) return "job";
+        if (name.endsWith("draft:pruneBoard")) return { more: false };
+        return { written: 0 };
+      },
+    };
+    const rosterProvider = {
+      seasonRoster: async () => ({ ok: true as const, data: duplicateNameRoster }),
+      allContests: async () => ({ ok: true as const, data: contests() }),
+    } as unknown as NflverseProvider;
+    const statsProvider = {
+      seasonWeeks: async (year: number) => ({ ok: true as const, data: year === SEASON - 1 ? history : [] }),
+    } as unknown as SleeperStatsProvider;
+    const adpProvider = {
+      forSeason: async (year: number) => ({ ok: true as const, data: year === SEASON ? currentMarket : adp }),
+    } as unknown as AdpProvider;
+
+    await expect(runBuildSleeperCustomDraftBoard(
+      ctx as never,
+      { season: SEASON, scoringId, teams: 12 },
+      rosterProvider,
+      adpProvider,
+      statsProvider,
+    )).rejects.toThrow(/matches multiple current roster identities/);
+  });
 });

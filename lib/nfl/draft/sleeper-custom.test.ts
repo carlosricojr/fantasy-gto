@@ -148,6 +148,19 @@ describe("custom Sleeper draft history", () => {
     expect(scored.bands.has("DST")).toBe(false);
   });
 
+  it("keeps a zero-scoring K/DST profile as a measured deterministic distribution", () => {
+    const zeroSpecialTeamsProfile = (() => {
+      const parsed = parseSleeperScoring({
+        pass_yd: 0.04, rush_yd: 0.1, rec: 1, rec_yd: 0.1,
+      });
+      if (!parsed.ok) throw new Error(parsed.unsupported.join(", "));
+      return parsed.profile;
+    })();
+    const scored = buildSleeperCustomHistory(history(), zeroSpecialTeamsProfile);
+    expect(scored.weeklyStdDev.get("K")).toBe(0);
+    expect(scored.weeklyStdDev.get("DST")).toBe(0);
+  });
+
   it("does not turn a signed custom defense curve into a zero-valued one", () => {
     const curves = Object.fromEntries(positions.map((position) => [position, {
       intercept: position === "DST" ? -20 : 100,

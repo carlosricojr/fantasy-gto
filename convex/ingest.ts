@@ -1570,6 +1570,25 @@ export async function runBuildSleeperCustomDraftBoard(
       season: season - 1,
     };
     const marketIndex = buildMarketIndex(currentMarket.data, normalizeMarketPosition);
+    // `buildMarketIndex` proves that a lookup does not choose between *market* rows. It
+    // cannot see a different ambiguity in this custom path: two current players can both
+    // normalize to one market row (for example a suffix that one source omits). Pricing
+    // both from that one ADP would publish a plausible but false valuation, so reject the
+    // entire build before any rows are written.
+    const currentMatches = new Map<(typeof currentMarket.data)[number], (typeof current)[number]>();
+    for (const identity of current) {
+      const position = sleeperPosition(identity.position);
+      if (position === null || position === "DST") continue;
+      const market = marketIndex.find(identity.name, position);
+      if (market === null) continue;
+      const prior = currentMatches.get(market);
+      if (prior !== undefined && prior.playerId !== identity.playerId) {
+        throw new Error(
+          `Custom current ADP entry ${market.name} (${position}) matches multiple current roster identities: ${prior.name} and ${identity.name}.`,
+        );
+      }
+      currentMatches.set(market, identity);
+    }
     const rows = [];
     let withMarketPrice = 0;
     for (const identity of current) {
