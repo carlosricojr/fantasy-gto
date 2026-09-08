@@ -8,9 +8,10 @@ const alias = { "@": fileURLToPath(new URL(".", import.meta.url)) };
  *
  * `domain` covers `lib/` — pure TypeScript with no network, filesystem, or framework
  * dependency, so it runs in plain Node with no setup file and no mocking infrastructure.
- * It also picks up the handful of `app/` modules that are pure in the same sense: the
- * draft's stored-state parser is one, and it was written and shipped untested because the
- * include list stopped at `lib/`. A test file that never runs is worse than none.
+ * It also picks up `app/` tests that need no browser runtime: the draft's stored-state
+ * parser and server-rendered recommendation interpretation are examples. The parser was
+ * once written and shipped untested because the include list stopped at `lib/`; a test file
+ * that never runs is worse than none.
  *
  * `convex` covers `convex/` through `convex-test`, which executes functions against an
  * in-memory backend. That needs the edge runtime, which is slower to start, so it is a
@@ -28,6 +29,9 @@ export default defineConfig({
     projects: [
       {
         resolve: { alias },
+        // The draft interpretation contract is rendered in TSX. Vitest otherwise honors
+        // Next's `jsx: preserve` and cannot import a component for server-rendered tests.
+        oxc: { jsx: { runtime: "automatic" } },
         test: {
           name: "domain",
           environment: "node",
