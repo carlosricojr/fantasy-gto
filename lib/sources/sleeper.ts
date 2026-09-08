@@ -1,6 +1,7 @@
 import { MAX_DRAFT_ROUNDS, MAX_LEAGUE_TEAMS } from "../core/draft";
 import { type ProviderResult, failed, ok } from "../core/providers";
 import { normalizeTeam } from "../nfl/teams";
+import { unsupportedSleeperScoring } from "../nfl/draft/sleeper-scoring";
 import { type TextFetcher, httpTextFetcher } from "./nflverse";
 
 /**
@@ -65,6 +66,11 @@ export function draftTradedPicksUrl(draftId: string, freshnessToken?: string): s
 
 export function playersUrl(): string {
   return `${BASE}/players/nfl`;
+}
+
+export function leagueUrl(leagueId: string, freshnessToken?: string): string {
+  const url = `${BASE}/league/${encodeURIComponent(leagueId)}`;
+  return freshnessToken === undefined ? url : `${url}?fantasy_gto_poll=${encodeURIComponent(freshnessToken)}`;
 }
 
 export interface SleeperDraftSettings {
@@ -141,6 +147,20 @@ export class SleeperDraftProvider {
       return failed(
         `Sleeper settings sync for draft ${draftId} could not read a supported response. Check the draft ID and retry.`,
       );
+    }
+    if (settings.leagueId !== null) {
+      const league = await sleeperJson(this.fetchText, leagueUrl(settings.leagueId, freshnessToken),
+        "league scoring", "Sleeper did not return this draft's league scoring.");
+      if (!league.ok) return draftFailure(draftId, "settings", league);
+      const source = record(league.data);
+      if (source.league_id !== settings.leagueId) {
+        return failed(`Sleeper league scoring could not be verified for draft ${draftId}. Retry before using recommendations.`);
+      }
+      return ok({
+        ...settings,
+        scoring: { ...settings.scoring, metadata: { ...settings.scoring.metadata, league_scoring_settings: source.scoring_settings } },
+        unsupported: [...settings.unsupported, ...unsupportedSleeperScoring(settings.scoring.identity, source.scoring_settings)],
+      });
     }
     return ok(settings);
   }

@@ -9,6 +9,7 @@ import {
   draftPicksUrl,
   draftTradedPicksUrl,
   draftUrl,
+  leagueUrl,
   parsePicks,
   parsePlayersDump,
   parseSettings,
@@ -363,6 +364,33 @@ describe("SleeperDraftProvider", () => {
     const result = await provider(JSON.stringify(DRAFT)).settings("abc");
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.teams).toBe(12);
+  });
+
+  it("checks a real league's scoring with the poll freshness token", async () => {
+    const calls: string[] = [];
+    const instance = new SleeperDraftProvider(async (url) => {
+      calls.push(url);
+      if (url === draftUrl("abc", "fresh")) return JSON.stringify({ ...DRAFT, league_id: "league", metadata: { scoring_type: "ppr" } });
+      if (url === leagueUrl("league", "fresh")) return JSON.stringify({ league_id: "league", scoring_settings: { pass_td: 6, rec: 1 } });
+      throw new Error("unexpected request");
+    });
+    const result = await instance.settings("abc", "fresh");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.unsupported).toContain("scoring.pass_td: 6 (board 4)");
+      expect(result.data.scoring.metadata.league_scoring_settings).toEqual({ pass_td: 6, rec: 1 });
+    }
+    expect(calls).toEqual([draftUrl("abc", "fresh"), leagueUrl("league", "fresh")]);
+  });
+
+  it("does not fall back to the draft label when league scoring cannot be fetched", async () => {
+    const instance = new SleeperDraftProvider(async (url) => {
+      if (url === draftUrl("abc")) return JSON.stringify({ ...DRAFT, league_id: "league", metadata: { scoring_type: "ppr" } });
+      return "null";
+    });
+    const result = await instance.settings("abc");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/league scoring/);
   });
 
   it("reports an unknown draft id clearly", async () => {

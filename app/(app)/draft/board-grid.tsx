@@ -211,7 +211,13 @@ function Round({
               onTheClock && "bg-brand/15 ring-2 ring-brand ring-inset",
             )}
           >
-            {player === undefined ? (
+            {player === undefined && playerId !== undefined ? (
+              <div className="text-amber-800 dark:text-amber-200" title={playerId}>
+                <span className="font-medium">{playerId.startsWith("unlisted:") ? playerId.slice("unlisted:".length) || "Unlisted player" : "Unlisted player"}</span>
+                <span className="mt-1 block text-[0.625rem]">Recorded · no valuation</span>
+                <span className="sr-only">Pick {pickLabel(cell.pick, teams)}, {owner === null ? "ownership unknown" : seatName(owner.teamIndex, owner.seat)}. This pick is occupied; its player is missing from the catalog.</span>
+              </div>
+            ) : player === undefined ? (
               <span
                 className={cn(
                   // Full-strength muted. `/70` over the card measures about 2.9:1, and a
