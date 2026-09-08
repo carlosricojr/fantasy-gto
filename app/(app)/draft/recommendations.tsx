@@ -180,6 +180,15 @@ export function Recommendations({
   }
 
   const [leader, ...rest] = state.recommendations;
+  const tiedAlternatives = rest.filter((rec) => rec.tiedWithLeader);
+  const evenChance = state.teams === null ? null : 100 / state.teams;
+  const tiedNames = tiedAlternatives.slice(0, 2).map((rec) => rec.player.name);
+  const tiedNamesLabel =
+    tiedAlternatives.length === 1
+      ? tiedNames[0]
+      : tiedAlternatives.length === 2
+        ? `${tiedNames[0]} and ${tiedNames[1]}`
+        : `${tiedNames.join(", ")}, and ${tiedAlternatives.length - tiedNames.length} more`;
 
   return (
     <Panel className={onTheClock ? "ring-2 ring-brand/40" : undefined}>
@@ -226,8 +235,9 @@ export function Recommendations({
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-y-1 3xl:grid 3xl:gap-y-3">
           <Figure
             value={`${(leader.championshipProbability * 100).toFixed(1)}%`}
-            unit={`± ${(leader.standardError * 100).toFixed(1)}`}
-            label="to win the league"
+            unit={`± ${(leader.standardError * 100).toFixed(1)} pp`}
+            label="simulated title chance"
+            note="sampling error only"
             emphasis
           />
           <Figure
@@ -237,13 +247,33 @@ export function Recommendations({
           <Figure
             value={`${leader.deltaVsBaseline >= 0 ? "+" : ""}${(leader.deltaVsBaseline * 100).toFixed(1)}`}
             unit="pp"
-            label="title odds vs. best available"
+            label="vs. default policy pick"
+            note="not vs. equal odds"
           />
           <Figure
             value={leader.expectedPoints.toFixed(0)}
             label="points your team scores, season"
           />
         </div>
+        <p className="mt-3 text-sm leading-5 text-muted-foreground">
+          A conditional simulation estimate, not a team grade: it assumes this pick, the
+          picks already recorded, and a default policy completing the rest of the draft.
+        </p>
+        {tiedAlternatives.length > 0 ? (
+          <aside
+            className="mt-3 rounded-lg border border-brand/30 bg-brand/5 p-3 text-sm"
+            aria-label="Viable alternatives"
+          >
+            <p className="font-medium">
+              {tiedAlternatives.length === 1 ? "Viable alternative" : "Viable alternatives"}
+            </p>
+            <p className="mt-1 leading-5 text-muted-foreground">
+              {tiedNamesLabel} {tiedAlternatives.length === 1 ? "is" : "are"} tied with {leader.player.name}
+              {" "}in these simulations. The displayed order preserves the estimated title
+              chance, but these simulations do not reliably separate the choices.
+            </p>
+          </aside>
+        ) : null}
         {onTheClock ? (
           <Button className="mt-3 w-full" onClick={() => onPick(leader.player.id)}>
             Take {leader.player.name}
@@ -294,13 +324,29 @@ export function Recommendations({
       )}
 
       <footer className="border-t p-3 text-xs text-muted-foreground">
-        Ranked by the probability of winning the league, simulated over {scenarios} seasons
-        against the picks your opponents have actually made — their unfilled spots are
-        completed by a simple best-available rule, so an early-round answer leans on that
-        assumption more than a late one. Every candidate is simulated over the same
-        seasons, so each row&apos;s vs-leader line measures its gap to the leader directly;
-        rows whose gap spans zero are marked tied — these seasons do not separate them —
-        and a tie is a label, never a reordering: the list descends by title odds.
+        <details>
+          <summary className="cursor-pointer font-medium text-foreground">How to read these estimates</summary>
+          <div className="mt-2 space-y-2 leading-5">
+            {state.teams === null || evenChance === null ? null : (
+              <p>
+                An even pre-draft reference in a {state.teams}-team league is {evenChance.toFixed(1)}%
+                (1 in {state.teams}), but that assumes identical teams. It is neither this panel&apos;s
+                comparison nor a forecast of real-world title odds.
+              </p>
+            )}
+            <p>
+              The ± figure is one standard error from {scenarios} simulated seasons, not all
+              uncertainty. Real outcomes and how managers actually finish the draft can differ
+              from this simulation. The paired range compares each row with the top estimate;
+              a viable alternative is one whose paired range spans zero.
+            </p>
+            <p>
+              The pp figure compares this pick with the default policy&apos;s available pick under
+              the same completion policy. It does not compare your team with an equal-chance
+              baseline.
+            </p>
+          </div>
+        </details>
         {state.lastElapsedMs === null
           ? null
           : ` Computed in ${state.lastElapsedMs}ms${state.lastFromCache ? " (cached)" : ""}.`}
@@ -356,10 +402,14 @@ function Row({
           <span className="truncate">{rec.player.name}</span>
           <BasisBadge basis={basisFor(rec.player)} />
         </span>
-        <span className="block truncate text-xs text-muted-foreground tabular-nums">
+        {rec.tiedWithLeader ? (
+          <span className="mt-1 inline-flex rounded bg-brand/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-brand">
+            Viable alternative · tied in this simulation
+          </span>
+        ) : null}
+        <span className="block text-xs leading-4 text-muted-foreground tabular-nums">
           {(rec.championshipProbability * 100).toFixed(1)}% ±
-          {(rec.standardError * 100).toFixed(1)}
-          {rec.tiedWithLeader ? " · tied with the leader" : ""}
+          {(rec.standardError * 100).toFixed(1)} pp sampling error
           {survival === null ? "" : ` · ${(survival * 100).toFixed(0)}% lasts to ${waitPickLabel}`}
         </span>
         {/* The paired comparison against the leader, which is the only interval on this
@@ -367,12 +417,11 @@ function Row({
             its own. Descriptive, not inferential — the leader was chosen as the maximum of
             the same sample, and `draft-policy.ts` says so at length. */}
         {rec.vsLeader === null ? null : (
-          <span className="block truncate text-xs text-muted-foreground tabular-nums">
-            vs leader {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
-            {(rec.vsLeader.meanDifference * 100).toFixed(1)} pts,{" "}
-            {rec.vsLeader.confidenceLevel}% range{" "}
-            {(rec.vsLeader.interval[0] * 100).toFixed(1)} to{" "}
-            {(rec.vsLeader.interval[1] * 100).toFixed(1)}
+          <span className="block text-xs leading-4 text-muted-foreground tabular-nums">
+            vs top estimate {rec.vsLeader.meanDifference >= 0 ? "+" : ""}
+            {(rec.vsLeader.meanDifference * 100).toFixed(1)} pp; paired{" "}
+            {rec.vsLeader.confidenceLevel}% range {(rec.vsLeader.interval[0] * 100).toFixed(1)} to{" "}
+            {(rec.vsLeader.interval[1] * 100).toFixed(1)} pp
           </span>
         )}
         {/* The badge alone does not say that the number *above* it is the thing affected. */}
@@ -400,11 +449,14 @@ function Figure({
   value,
   unit,
   label,
+  note,
   emphasis,
 }: {
   value: string;
   unit?: string;
   label: string;
+  /** A qualifier attached to this number, rather than a blanket disclaimer. */
+  note?: string;
   emphasis?: boolean;
 }) {
   return (
@@ -421,6 +473,7 @@ function Figure({
         <span className="ml-1 text-xs text-muted-foreground tabular-nums">{unit}</span>
       )}
       <span className="block text-xs text-muted-foreground">{label}</span>
+      {note === undefined ? null : <span className="block text-xs text-muted-foreground">{note}</span>}
     </span>
   );
 }
