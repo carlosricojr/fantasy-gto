@@ -109,8 +109,7 @@ handicapping the baseline.**
 
 ## What is *not* measured
 
-- **The pick recommendations have never been backtested, and have a known planning
-  flaw.** Everything above is about ranking players. Whether following the recommendations
+- **The pick recommendations have never been backtested.** Everything above is about ranking players. Whether following the recommendations
   produces a better final roster than following ADP is not something this repository has
   measured. Doing it honestly needs simulated opponents, and a simulation that assumed
   opponents draft by ADP would largely be marking its own homework.
@@ -123,7 +122,11 @@ handicapping the baseline.**
   by playing the season out, which is precisely the fix that paragraph said had not been
   made, and the unfilled-slot case is now a test.
 
-  What remains is an approximation, and a smaller one. The completion is greedy: our own
+  Each candidate now receives a separate chronological completion, with opponents
+  responding to the board left by every selection. The earlier fixed-baseline shortcut
+  reserved future players for us and failed a live London/Wilson comparison on
+  2026-09-08; the regression and bounded diagnostics are recorded below.
+  What remains is an approximation. The completion is greedy: our own
   remaining picks and every opponent's are filled by `basePolicyPick`, best available by
   value over replacement, rather than by anything that looks ahead. Opponents who draft
   differently from that produce a different board than the one each candidate was scored
@@ -206,8 +209,8 @@ That change removes the weighting problem rather than solving it. There is no co
 deciding what a bye collision is worth against a point of projection, or depth against a
 starter: byes, injuries, weekly variance, the head-to-head schedule, and the actual
 rosters your opponents have drafted all resolve into one number because the simulation
-plays them out. **Opponents are observed, not assumed** — a draft board records every
-team's picks, so by the middle rounds the league is largely known.
+plays them out. Recorded opponent picks are observed; every unfilled selection is
+assumed under the completion policy. More of the league becomes known as picks arrive.
 
 Two findings from that simulation that a points-based valuation cannot produce:
 
@@ -395,11 +398,11 @@ ranking therefore descends by title odds with the unresolved gaps flagged rather
 re-ordered, and 600 is a draft-clock budget: more scenarios narrow the intervals but cost
 seconds a pick does not have.
 
-Two optimizations got the cold path from 7.8s. The rollout was completing all twelve teams
-for every candidate while only ever reading our own — the other eleven come from the
-baseline, which is computed once. And the base policy was re-solving the roster's own lineup
-for every one of forty contenders at every remaining pick, when that value does not depend on
-the contender.
+Those timings describe the earlier fixed-baseline continuation. Its reuse of opponent
+rosters was removed after the 2026-09-08 audit below showed it reserved future players
+for us. Current diagnostics recompute the full draft for every candidate and cache only
+identical finished rosters at the same team's seed. The base policy still computes the
+current roster's lineup once per pick rather than once per contender.
 
 #### What is wired, and what is not
 
@@ -873,6 +876,61 @@ dedicated modeled starter and one shared reserve if it participates in FLEX. The
 measured by scheduled mode's seven RBs against four RB/FLEX starts; market-only K/D/ST get
 no reserve. The former three-QB roster exceeds one QB start plus one reserve.
 
+## September 8, 2026 — chronological continuation regression
+
+The frozen `tests/fixtures/sleeper-pick16-continuation.json` reconstructs a live
+10-team custom-scored Sleeper draft before overall pick 16, including all 20 keepers
+and traded ownership. It contains 31 recorded players and 176 available valued players.
+Future nonkeeper picks were excluded. This is a software regression fixture, not a
+held-out season or a calibration sample.
+
+The old engine's baseline gave us London at 16 and assigned Wilson to an opponent.
+When evaluating Wilson instead, it left London protected in our future pool and gave
+that opponent Swift. Consequently, Wilson-now also acquired London at our next turn,
+although the displayed London survival to 25 was below 0.000001. The displayed
+13.33% Wilson title chance and +3.50 percentage-point comparison priced that bundle.
+
+Each candidate now consumes our actual next owned square and the entire league then
+drafts in chronological order. London goes to an opponent at 20 after Wilson at 16;
+he is no longer reserved for us. Forced picks cannot add a selection when none remains,
+steal a previously selected player, or exceed the team's draft capacity. Teams with
+extra traded selections retain those players until the existing preseason-cut step.
+Before our turn, intervening opponents are advanced under the same default policy and
+the shortlist is built from the resulting available board.
+
+`pnpm draft-mock` also passes all nine existing checks in both frozen and
+schedule-byes modes, including legal lineups through every bye week. That harness
+recomputes advice after each actual simulated selection; the sensitivity below instead
+commits once and follows the greedy policy afterward, so these are different tests.
+
+`pnpm exec tsx scripts/draft-continuation-audit.ts` reproduces the frozen diagnostic.
+At production seed 20260731 and 600 scenarios, London now returns 9.67% and Wilson
+9.33%; the panel leader is Zay Flowers at 10.33%. These are conditional simulation
+outputs, not measured real-world probabilities or a claim that Flowers is optimal.
+The exact regression also compares recommendation outcomes with a separately sampled
+complete league, including the two opponents who must cut 17 selections down to 16.
+
+Three seeds (20260731, 7319, 7320), each with 600 scenarios, produced:
+
+| Assumed opponent continuation | London mean title | Wilson mean title | Nabers mean title |
+| --- | ---: | ---: | ---: |
+| Responsive greedy policy | 9.50% | 7.89% | 9.44% |
+| Strict ADP opponents, our future picks still greedy | 3.17% | 2.78% | 2.44% |
+
+The ADP row is deliberately a different assumption, matching the mock harness's
+strict market ordering. It is not a fitted model of these managers. Our greedy
+continuation finishes without a quarterback in those three ADP branches, exposing a
+remaining policy weakness. This sensitivity does not validate either set of odds;
+it shows why correcting draft accounting must not be described as championship
+calibration or an established advantage over ADP. Market dispersion still informs the
+separate survival display, not a stochastic opponent policy inside these rollouts.
+
+Three cold ten-candidate evaluations took 6.048, 6.112 and 7.335 seconds on an Apple
+M4 Max, macOS arm64, Node 24.18.0. This fits the benchmark's 120-second clock on that
+machine; mobile runtime has not been measured. The worker and whole-state memo remain
+in place. Only identical completed rosters at a team's unchanged seed share sampled
+scores; opponent rosters are never borrowed from another candidate's continuation.
+
 ## The part that is provable
 
 None of the above is what the draft board's value rests on. Two things it does are exact
@@ -882,9 +940,10 @@ rather than estimated, and neither requires beating the market at anything:
   legal lineup without him — a maximum-weight bipartite matching, solved exactly by
   `lib/core/optimizer.ts`. Raw projection cannot express this: a 250-point quarterback is
   worth 250 to an empty roster and almost nothing to a roster that already has a better one.
-- **What waiting costs** follows from ADP dispersion by direct computation. The expected
-  best survivor at a position is `Σ value(i) × P(i survives) × Π(1 − P(j survives))` over
-  better players `j` — an exact expectation, not a simulation.
+- **The displayed survival probability** follows exactly from the assumed normal ADP
+  distribution. Its accuracy depends on that assumption; it is not proof of what
+  waiting costs, and the recommendation does not integrate that distribution into
+  its default opponent continuation.
 
 ADP is one global ordering. It does not know your roster, your league's slots, or when you
 pick next. **That gap is the entire product**, and it is why the measurement above being
