@@ -432,6 +432,23 @@ follow from the last two: `fantasySeasonWeeks` places the bracket immediately be
 championship week and gives the regular season everything ahead of it. Kickers and defenses
 are on the board and draftable.
 
+**Opt-in extra matchup against the league median.** `LeagueConfig.extraMedianMatchup` is
+absent/false for an ordinary head-to-head league. When true, each regular-season week also
+adds one result against that week's league median: a score above it earns a win, below it a
+loss, and equal to it a tie worth 0.5. For an even field the median is the average of the
+two middle scores; for an odd field it is the one middle score. Playoff and consolation
+weeks never receive that extra result. `season-sim.test.ts` pins all four boundaries — the
+default, even-field averaging, exact-median ties, and playoff exclusion — and
+`leagueFingerprint` includes the boolean so estimates from the two standings systems cannot
+share a memo entry.
+
+`pnpm backtest` was also rerun after this standings-only change. Its default development
+sample (2013–2021) remained 5.8818 MAE versus 6.0099 for the prior-games mean (2.13% edge),
+and its tuning sample (2022–2024) remained 5.7706 versus 5.9453 (2.94% edge). That is a
+regression check on the player projection inputs, not evidence that the optional league
+rule improves projections or title calibration: the backtest does not reconstruct historical
+league standings. The direct simulation tests are the evidence for the standings semantics.
+
 This section previously read "League size, playoff field, bracket length and season length
 are all configuration", which was true of `LeagueConfig` and false of the product. The
 interface offered no control for either and the board wrote out two literals — a fourteen-

@@ -65,6 +65,11 @@ export function leagueFingerprint(
     // problem.
     `weeks=${config.weeks.join("-")}`,
     `po=${config.playoffTeams}/${config.playoffWeeks.join("-")}`,
+    // A second regular-season result changes both seeding and the championship odds. An
+    // omitted field intentionally means false for backwards-compatible callers, but it
+    // must still be written explicitly so old ordinary-matchup entries cannot serve an
+    // answer computed with the league-median rule.
+    `median=${config.extraMedianMatchup === true}`,
     `scen=${config.scenarios}`,
     `absence=${config.meanAbsenceWeeks}`,
     // The waiver-wire prior changes what a reserve is worth and which positions the
