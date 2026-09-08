@@ -178,7 +178,8 @@ export default defineSchema({
       ),
     ),
     /** What the board ranks on. */
-    blendedPoints: v.number(),
+    /** Null means the entity is recordable but no custom market value was fabricated. */
+    blendedPoints: v.union(v.number(), v.null()),
     adp: v.union(v.number(), v.null()),
     adpStdev: v.union(v.number(), v.null()),
     /** The week this player's team is idle. Drives bye-collision cost in the simulation. */
@@ -223,6 +224,10 @@ export default defineSchema({
      * deploy.
      */
     quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
+    /** Present only for rows derived from Sleeper's raw historical custom-scoring feed. */
+    historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
+    /** Additive historical weekly residual spread for custom K/DST, never a preset band. */
+    weeklyStdDev: v.optional(v.number()),
     computedAt: v.number(),
   })
     .index("by_board", ["sport", "season", "scoringId", "teams"])
@@ -269,6 +274,12 @@ export default defineSchema({
      * as a published one.
      */
     adpSourceTeams: v.optional(v.number()),
+    /** Source provenance for a custom-scored historical board; absent for preset boards. */
+    historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
+    /** Completed seasons whose raw weekly statistics were custom-scored for this run. */
+    historicalSeasons: v.optional(v.array(v.number())),
+    /** When the historical source was successfully fetched for this published run. */
+    sourceFetchedAt: v.optional(v.number()),
   }).index("by_board", ["sport", "season", "scoringId", "teams"]),
 
   /**

@@ -4,6 +4,8 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
+import { customDstId } from "../lib/nfl/draft/sleeper-custom";
+import { sleeperScoringFromId } from "../lib/nfl/scoring/sleeper";
 
 /**
  * Draft board reads and writes.
@@ -28,7 +30,7 @@ const boardRowValidator = v.object({
     v.literal("pooled-mean"),
     v.null(),
   ),
-  blendedPoints: v.number(),
+  blendedPoints: v.union(v.number(), v.null()),
   adp: v.union(v.number(), v.null()),
   adpStdev: v.union(v.number(), v.null()),
   byeWeek: v.union(v.number(), v.null()),
@@ -36,6 +38,8 @@ const boardRowValidator = v.object({
   p10: v.number(),
   p90: v.number(),
   quantileProvenance: v.union(v.literal("measured"), v.literal("placeholder")),
+  historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
+  weeklyStdDev: v.optional(v.number()),
 });
 
 const rosterStatusValidator = v.union(
@@ -108,7 +112,17 @@ export const board = query({
                 .eq("computedAt", catalogRun.publishedAt),
             )
             .collect();
-    const catalogById = new Map(catalogRows.map((row) => [row.playerId, row]));
+    // Custom Sleeper boards use `dst-<team>` rather than a provider display-name ID, so
+    // the 32 teams survive an ADP rename. The catalog predates that contract and keeps
+    // legacy IDs for preset boards and saved drafts. Translate only at this custom-board
+    // read boundary; changing the catalog globally would orphan those saved preset picks.
+    const customSleeperBoard = sleeperScoringFromId(scoringId) !== null;
+    const catalogForBoard = catalogRows.map((row) =>
+      customSleeperBoard && row.position === "DST" && row.team !== null
+        ? { ...row, playerId: customDstId(row.team), sleeperId: row.team }
+        : row,
+    );
+    const catalogById = new Map(catalogForBoard.map((row) => [row.playerId, row]));
     const valuedIds = new Set(rows.map((row) => row.playerId));
 
     // A valuation and an identity/status snapshot move on different clocks. Join them at
@@ -141,6 +155,10 @@ export const board = query({
         p10: row.p10,
         p90: row.p90,
         quantileProvenance: row.quantileProvenance,
+        ...(row.historicalScoringSource === undefined
+          ? {}
+          : { historicalScoringSource: row.historicalScoringSource }),
+        ...(row.weeklyStdDev === undefined ? {} : { weeklyStdDev: row.weeklyStdDev }),
         rosterStatus,
         rosterStatusCode:
           current?.rosterStatusCode ?? (isDefense ? "TEAM" : null),
@@ -151,7 +169,7 @@ export const board = query({
     // The catalog is the recordability contract. A missing valuation becomes an explicit
     // unpriced row instead of becoming a missing player. It is kept out of recommendation
     // inputs on the client, but remains searchable and can be attached to a real pick.
-    for (const current of catalogRows) {
+    for (const current of catalogForBoard) {
       if (valuedIds.has(current.playerId)) continue;
       const band =
         OUTCOME_QUANTILES[current.position as keyof typeof OUTCOME_QUANTILES] ??
@@ -245,6 +263,13 @@ export const boardFreshness = query({
       // than as "published directly". They are different claims, and defaulting to the
       // reassuring one is how a derived board would come to be presented as a real one.
       adpSourceTeams: run?.adpSourceTeams ?? null,
+      ...(run?.historicalScoringSource === undefined
+        ? {}
+        : { historicalScoringSource: run.historicalScoringSource }),
+      ...(run?.historicalSeasons === undefined
+        ? {}
+        : { historicalSeasons: run.historicalSeasons }),
+      ...(run?.sourceFetchedAt === undefined ? {} : { sourceFetchedAt: run.sourceFetchedAt }),
       lastAttemptAt: attempt?.startedAt ?? null,
       // `running` is carried through rather than folded into a boolean, because a rebuild in
       // flight must outrank every warning: telling somebody to fix a board that is already
@@ -381,8 +406,14 @@ export const publishBoard = internalMutation({
     computedAt: v.number(),
     /** The league size the market prices were published for. */
     adpSourceTeams: v.number(),
+    historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
+    historicalSeasons: v.optional(v.array(v.number())),
+    sourceFetchedAt: v.optional(v.number()),
   },
-  handler: async (ctx, { season, scoringId, teams, computedAt, adpSourceTeams }) => {
+  handler: async (ctx, {
+    season, scoringId, teams, computedAt, adpSourceTeams,
+    historicalScoringSource, historicalSeasons, sourceFetchedAt,
+  }) => {
     const rows = await ctx.db
       .query("draftBoardRuns")
       .withIndex("by_board", (q) =>
@@ -420,6 +451,9 @@ export const publishBoard = internalMutation({
         await ctx.db.patch(existing._id, {
           publishedAt: computedAt,
           adpSourceTeams,
+          ...(historicalScoringSource === undefined ? {} : { historicalScoringSource }),
+          ...(historicalSeasons === undefined ? {} : { historicalSeasons }),
+          ...(sourceFetchedAt === undefined ? {} : { sourceFetchedAt }),
         });
       }
       return;
@@ -431,6 +465,9 @@ export const publishBoard = internalMutation({
       teams,
       publishedAt: computedAt,
       adpSourceTeams,
+      ...(historicalScoringSource === undefined ? {} : { historicalScoringSource }),
+      ...(historicalSeasons === undefined ? {} : { historicalSeasons }),
+      ...(sourceFetchedAt === undefined ? {} : { sourceFetchedAt }),
     });
   },
 });

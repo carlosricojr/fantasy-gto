@@ -220,6 +220,80 @@ describe("draft board publishing", () => {
     expect(byId.get("placeholder-player")).toBe("placeholder");
   });
 
+  it("keeps custom historical provenance and translates only legacy catalog D/ST IDs", async () => {
+    const t = convexTest(schema, modules);
+    const customShape = {
+      season: SEASON,
+      scoringId: 'sleeper-v1:{"rec":1}',
+      teams: TEAMS,
+    };
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...customShape,
+      computedAt: 1_000,
+      rows: [{
+        ...row("dst-CHI", 80),
+        sleeperId: "CHI",
+        name: "Chicago D/ST",
+        position: "DST",
+        team: "CHI",
+        historicalScoringSource: "sleeper-custom-stats" as const,
+      }],
+    });
+    await t.mutation(internal.draft.publishBoard, {
+      ...customShape,
+      computedAt: 1_000,
+      adpSourceTeams: 12,
+      historicalScoringSource: "sleeper-custom-stats",
+      historicalSeasons: [2024, 2025],
+      sourceFetchedAt: 900,
+    });
+    await t.mutation(internal.draft.upsertCatalogBatch, {
+      season: SEASON,
+      computedAt: 1_000,
+      rows: [{
+        ...catalogRow("dst-chicago-bears"),
+        name: "Chicago Bears",
+        position: "DST",
+        team: "CHI",
+      }],
+    });
+    await t.mutation(internal.draft.publishCatalog, {
+      season: SEASON,
+      computedAt: 1_000,
+      playerCount: 1,
+      activeCount: 1,
+      fingerprint: "custom-dst",
+      unknownStatuses: [],
+    });
+
+    const served = await t.query(api.draft.board, customShape);
+    expect(served).toHaveLength(1);
+    expect(served[0]).toMatchObject({
+      playerId: "dst-CHI",
+      sleeperId: "CHI",
+      historicalScoringSource: "sleeper-custom-stats",
+    });
+    expect(await t.query(api.draft.boardFreshness, customShape)).toMatchObject({
+      historicalScoringSource: "sleeper-custom-stats",
+      historicalSeasons: [2024, 2025],
+      sourceFetchedAt: 900,
+    });
+
+    // Legacy preset boards retain their published ID contract; this compatibility seam
+    // runs only for canonical custom Sleeper profiles.
+    await t.mutation(internal.draft.upsertBoardBatch, {
+      ...shape,
+      computedAt: 2_000,
+      rows: [{ ...row("dst-chicago-bears", 80), position: "DST", team: "CHI" }],
+    });
+    await t.mutation(internal.draft.publishBoard, {
+      ...shape,
+      computedAt: 2_000,
+      adpSourceTeams: 12,
+    });
+    expect((await t.query(api.draft.board, shape))[0]?.playerId).toBe("dst-chicago-bears");
+  });
+
   it("does not invent a curve basis for a board row that predates the field", async () => {
     const t = convexTest(schema, modules);
     const { marketValueBasis: omittedBasis, ...legacy } = row("legacy-player", 200);

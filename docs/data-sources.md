@@ -733,6 +733,22 @@ retain malformed picks and trade rows as unresolved source facts, while missing 
 unmappable ownership fail closed instead of defaulting to invented league dimensions or a
 plain snake.
 
+### Historical custom scoring — Sleeper weekly statistics
+
+```text
+https://api.sleeper.com/stats/nfl/{season}?season_type=regular
+```
+
+Public and unauthenticated. Verified by direct request on 2026-09-07 for 2024: the response
+is an array of weekly `category: "stat"` rows with `season`, `week`, `season_type`,
+`player_id`, `player.position`, team, and raw `stats` counters. It includes team defenses as
+`position: "DEF"` rows keyed by team code and kicker distance counters such as
+`fgm_20_29`; those are the inputs custom scoring needs. The historical adapter accepts only
+regular-season rows with a stable identity and `gp > 0`, rejects duplicate player-weeks, and
+does not read Sleeper's projection endpoint: that endpoint lacks required kicker-distance
+and defensive-tier inputs. A missing required raw counter or D/ST tier bin fails a custom
+board rather than becoming zero-valued pricing.
+
 ### Players dump — Sleeper (market-awareness signal, NOT a price)
 
 ```text
