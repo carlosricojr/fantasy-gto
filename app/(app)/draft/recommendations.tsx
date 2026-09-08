@@ -39,7 +39,6 @@ export function Recommendations({
   waitPick,
   waitPickLabel,
   unrankedAdp,
-  teams,
   basisFor,
 }: {
   state: ReturnType<typeof useRecommendations>;
@@ -53,8 +52,6 @@ export function Recommendations({
   waitPick: number | null;
   waitPickLabel: string | null;
   unrankedAdp: number;
-  /** Used only to put the even pre-draft reference in its proper context. */
-  teams: number;
   /** Where a candidate's number came from, resolved against the board. */
   basisFor: (player: { id: string; position: string }) => ValueBasis;
 }) {
@@ -184,7 +181,7 @@ export function Recommendations({
 
   const [leader, ...rest] = state.recommendations;
   const tiedAlternatives = rest.filter((rec) => rec.tiedWithLeader);
-  const evenChance = 100 / teams;
+  const evenChance = state.teams === null ? null : 100 / state.teams;
   const tiedNames = tiedAlternatives.slice(0, 2).map((rec) => rec.player.name);
   const tiedNamesLabel =
     tiedAlternatives.length === 1
@@ -330,11 +327,13 @@ export function Recommendations({
         <details>
           <summary className="cursor-pointer font-medium text-foreground">How to read these estimates</summary>
           <div className="mt-2 space-y-2 leading-5">
-            <p>
-              An even pre-draft reference in a {teams}-team league is {evenChance.toFixed(1)}%
-              (1 in {teams}), but that assumes identical teams. It is neither this panel&apos;s
-              comparison nor a forecast of real-world title odds.
-            </p>
+            {state.teams === null || evenChance === null ? null : (
+              <p>
+                An even pre-draft reference in a {state.teams}-team league is {evenChance.toFixed(1)}%
+                (1 in {state.teams}), but that assumes identical teams. It is neither this panel&apos;s
+                comparison nor a forecast of real-world title odds.
+              </p>
+            )}
             <p>
               The ± figure is one standard error from {scenarios} simulated seasons, not all
               uncertainty. Real outcomes and how managers actually finish the draft can differ

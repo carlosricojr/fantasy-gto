@@ -1363,7 +1363,6 @@ export default function DraftPage() {
             waitPick={waitPick}
             waitPickLabel={waitPickLabel}
             unrankedAdp={unrankedAdp}
-            teams={setup.teams}
             basisFor={basisFor}
           />
 

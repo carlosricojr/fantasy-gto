@@ -48,6 +48,14 @@ import {
 
 export interface RecommendationState {
   recommendations: ChampionshipRecommendation[];
+  /**
+   * League size used for the recommendations on screen.
+   *
+   * This travels with the worker reply rather than being read from the current setup. A
+   * league-size change clears the old answer in an effect, so there is one render where an
+   * old snapshot can still exist while the setup already says a new number of teams.
+   */
+  teams: number | null;
   /** True while a newer request is outstanding, so what is shown is out of date. */
   stale: boolean;
   /** True before the first answer has ever arrived. */
@@ -59,6 +67,7 @@ export interface RecommendationState {
 
 const IDLE: RecommendationState = {
   recommendations: [],
+  teams: null,
   stale: false,
   loading: false,
   error: null,
@@ -90,6 +99,10 @@ export function useRecommendations(): RecommendationState & {
 } {
   const workerRef = useRef<Worker | null>(null);
   const gate = useRef<ReplyGateState>(initialGate(""));
+  // A worker response carries an id, not the whole request. Keep only the piece of request
+  // context that the presentation needs so an old snapshot cannot borrow a new setup's
+  // equal-chance reference during the retarget effect's one-render gap.
+  const requestTeams = useRef(new Map<number, number>());
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [state, setState] = useState<RecommendationState>(IDLE);
 
@@ -133,8 +146,14 @@ export function useRecommendations(): RecommendationState & {
       // The newest request in a burst is never superseded, so something always arrives.
       if (reply.superseded === true) return;
 
+      const teams = requestTeams.current.get(reply.id) ?? null;
+      for (const id of requestTeams.current.keys()) {
+        if (id <= reply.id) requestTeams.current.delete(id);
+      }
+
       setState({
         recommendations: reply.error === undefined ? reply.recommendations : [],
+        teams,
         stale: isStale(gate.current, reply.id),
         loading: false,
         error: reply.error ?? null,
@@ -180,6 +199,7 @@ export function useRecommendations(): RecommendationState & {
       const taken = nextRequest(gate.current);
       gate.current = taken.gate;
       const id = taken.id;
+      requestTeams.current.set(id, draftState.teams.length);
 
       setState((previous) => ({
         ...previous,
@@ -213,6 +233,7 @@ export function useRecommendations(): RecommendationState & {
     const moved = retarget(gate.current, fingerprint);
     if (!moved.changed) return;
     gate.current = moved.gate;
+    requestTeams.current.clear();
     setState(IDLE);
   }, []);
 

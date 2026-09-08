@@ -54,6 +54,7 @@ function renderRecommendations(onTheClock: boolean) {
       recommendation("parker", "Parker Washington", 0.042, true),
       recommendation("michael", "Michael Wilson", 0.04, true),
     ],
+    teams: 12,
     stale: false,
     loading: false,
     error: null,
@@ -73,7 +74,6 @@ function renderRecommendations(onTheClock: boolean) {
       waitPick: null,
       waitPickLabel: null,
       unrankedAdp: 999,
-      teams: 12,
       basisFor: () => "blend" as ValueBasis,
     }),
   );
@@ -107,5 +107,14 @@ describe("Recommendations interpretation", () => {
     expect(onClock.indexOf("Take Parker Washington")).toBeLessThan(
       onClock.indexOf("Michael Wilson"),
     );
+  });
+
+  it("uses the team count that arrived with the recommendation snapshot", () => {
+    const html = renderRecommendations(true);
+
+    // `Recommendations` receives the count only from `RecommendationState`, which the hook
+    // binds to the reply id. It cannot borrow a newly selected league's size while that
+    // league retargets the worker.
+    expect(html).toContain("An even pre-draft reference in a 12-team league is 8.3%");
   });
 });
