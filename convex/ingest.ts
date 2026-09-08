@@ -801,8 +801,16 @@ export async function runRefreshDraftPlayerCatalog(
   });
 
   try {
-    const roster = await provider.draftRoster(season);
+    const [roster, priorRoster] = await Promise.all([
+      provider.draftRoster(season),
+      provider.draftRoster(season - 1),
+    ]);
     if (!roster.ok) throw new Error(roster.reason);
+    if (!priorRoster.ok) {
+      throw new Error(
+        `Could not load the prior-season roster needed to retain recently active free agents: ${priorRoster.reason}`,
+      );
+    }
 
     // A bye is useful when an unpriced player is recorded. It is not allowed to hold the
     // status update hostage: before a schedule release the catalog is still what makes the
@@ -810,7 +818,25 @@ export async function runRefreshDraftPlayerCatalog(
     const contests = await provider.allContests();
     const byes = contests.ok ? teamByeWeeks(contests.data, season) : new Map<string, number>();
 
-    const rows = roster.data.entries
+    // The current roster is authoritative for identity, team and status. The immediately
+    // prior roster contributes only identities that were active then but are absent now —
+    // the free-agent shape a real draft can still record. Their current status is unknown,
+    // never guessed from last season, and they stay outside recommendation inputs.
+    const currentIds = new Set(roster.data.entries.map((entry) => entry.playerId));
+    const priorOnly = priorRoster.data.entries
+      .filter(
+        (entry) =>
+          entry.status === "active" &&
+          !currentIds.has(entry.playerId) &&
+          DRAFTABLE_POSITIONS.includes(entry.position as (typeof DRAFTABLE_POSITIONS)[number]),
+      )
+      .map((entry) => ({
+        ...entry,
+        team: null,
+        status: "unknown" as const,
+        statusCode: "DERIVED_ABSENT_FROM_CURRENT_ROSTER",
+      }));
+    const rows = [...roster.data.entries, ...priorOnly]
       .filter((entry) =>
         DRAFTABLE_POSITIONS.includes(
           entry.position as (typeof DRAFTABLE_POSITIONS)[number],
