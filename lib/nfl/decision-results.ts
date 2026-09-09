@@ -17,6 +17,8 @@ export interface DecisionResultsRow {
   week: number;
   recordedAt: number;
   scoringGroup: string;
+  teamId: string;
+  scoringId: string;
   cohort: DecisionResultsCohort;
   status: "complete" | "pending" | "ineligible" | "unavailable";
   difference: number | null;
@@ -27,7 +29,7 @@ export interface DecisionResultsReport {
   lateOrUnknownRecords: number;
   revisions: number;
   rows: DecisionResultsRow[];
-  cohorts: { key: string; leagueName: string; season: number; cohort: DecisionResultsCohort; complete: number; weeks: number; difference: number | null; meanDifference: number | null }[];
+  cohorts: { key: string; scoringGroup: string; teamId: string; scoringId: string; leagueName: string; season: number; cohort: DecisionResultsCohort; complete: number; weeks: number; difference: number | null; meanDifference: number | null }[];
 }
 
 const time = z.number().finite().min(0).max(8.64e15);
@@ -75,6 +77,9 @@ export function summarizeDecisionResults(inputs: readonly DecisionResultsInput[]
       else candidates.push({ input, record });
     } catch { report.invalidRecords++; }
   }
+  // An unreadable receipt may be the newest revision of ANY otherwise valid context.
+  // Withhold the whole batch rather than accidentally resurrect an older winner.
+  if (report.invalidRecords > 0) return report;
   candidates.sort((a, b) => b.record.recordedAt - a.record.recordedAt || a.input._id.localeCompare(b.input._id));
   const contexts = new Set<string>();
   for (const { input, record } of candidates) {
@@ -82,7 +87,7 @@ export function summarizeDecisionResults(inputs: readonly DecisionResultsInput[]
     if (contexts.has(context)) { report.revisions++; continue; }
     contexts.add(context);
     const scoringGroup = JSON.stringify([record.snapshot.leagueId, record.snapshot.ownerId, record.snapshot.season, record.snapshot.scoringId]);
-    const row: DecisionResultsRow = { id: input._id, leagueName: record.snapshot.leagueName, season: record.snapshot.season, week: record.snapshot.week, recordedAt: record.recordedAt, scoringGroup, cohort: cohortOf(record), status: "pending", difference: null };
+    const row: DecisionResultsRow = { id: input._id, leagueName: record.snapshot.leagueName, season: record.snapshot.season, week: record.snapshot.week, recordedAt: record.recordedAt, scoringGroup, teamId: record.snapshot.ownerId, scoringId: record.snapshot.scoringId, cohort: cohortOf(record), status: "pending", difference: null };
     // Select the latest stored observation even when it is pending or invalid. Never backfill a better outcome.
     const observations = [...input.observations].sort((a, b) => b.observedAt - a.observedAt);
     if (observations.length > 0) {
@@ -106,7 +111,7 @@ export function summarizeDecisionResults(inputs: readonly DecisionResultsInput[]
   report.cohorts = [...groups].map(([key, sample]) => {
     const complete = report.rows.filter(row => row.scoringGroup === sample.scoringGroup && row.cohort === sample.cohort && row.status === "complete");
     const difference = complete.length > 0 ? complete.reduce((sum, row) => sum + row.difference!, 0) : null;
-    return { key, leagueName: sample.leagueName, season: sample.season, cohort: sample.cohort, complete: complete.length, weeks: new Set(complete.map(row => `${row.season}:${row.week}`)).size, difference, meanDifference: difference === null ? null : difference / complete.length };
+    return { key, scoringGroup: sample.scoringGroup, teamId: sample.teamId, scoringId: sample.scoringId, leagueName: sample.leagueName, season: sample.season, cohort: sample.cohort, complete: complete.length, weeks: new Set(complete.map(row => `${row.season}:${row.week}`)).size, difference, meanDifference: difference === null ? null : difference / complete.length };
   });
   return report;
 }

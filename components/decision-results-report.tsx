@@ -35,8 +35,9 @@ export function DecisionResultsReport({ transport, onSelect }: { transport: Pick
       const details: DecisionResultsInput[] = [];
       // Two in flight at most. Existing owner-scoped journal-read admission applies to each request.
       for (let i = 0; i < batch.page.length; i += 2) {
-        const pair = await Promise.all(batch.page.slice(i, i + 2).map(row => transport.detail(row._id)));
+        const settled = await Promise.allSettled(batch.page.slice(i, i + 2).map(row => transport.detail(row._id)));
         if (current !== generation.current) return;
+        const pair = settled.map(result => { if (result.status === "rejected") throw result.reason; return result.value; });
         for (let j = 0; j < pair.length; j++) {
           const detail = pair[j];
           if (detail === null || detail._id !== batch.page[i + j]._id) throw new Error("A decision became unavailable. Reload the review; no partial result was published.");
@@ -62,11 +63,11 @@ export function DecisionResultsSummary({ report, hasOlder, onSelect }: { report:
     <p>{report.inspected} recent records inspected · {report.rows.length} league/team/weeks retained · {report.revisions} older revisions excluded · {report.lateOrUnknownRecords} late or unknown-timing records excluded.</p>
     <p className="text-xs text-muted-foreground">Selection rule: latest receipt before the listed comparison kickoffs per league/team/week, selected without looking at outcomes. Independently late or incomplete results never fall back to an older winning recommendation.</p>
     {hasOlder && <p className="text-xs">Older saved records exist outside this bounded batch. This is not your complete season history.</p>}
-    {report.invalidRecords > 0 && <p role="alert">{report.invalidRecords} unreadable or unsupported records omitted. This review is incomplete.</p>}
-    {report.rows.length === 0 ? <p>No eligible pre-listed-kickoff records in this batch.</p> : <>
+    {report.invalidRecords > 0 && <p role="alert">{report.invalidRecords} unreadable or unsupported records. All comparisons are withheld because the latest revision cannot be established safely.</p>}
+    {report.rows.length === 0 ? report.invalidRecords === 0 && <p>No eligible pre-listed-kickoff records in this batch.</p> : <>
       <p className="text-xs text-muted-foreground">Each summary stays within one league, team, season, scoring identity and limitation group. No combined cross-league point total.</p>
-      <ul className="space-y-2">{report.cohorts.map((group, index) => <li key={group.key}><span className="font-medium">Group {index + 1}: {group.leagueName} · {group.season} · {labels[group.cohort]}</span>: {group.difference === null ? "No completed comparisons yet" : `${signed(group.difference)} points in total; ${signed(group.meanDifference!)} per comparison`} · {group.complete} completed comparisons across {group.weeks} distinct NFL weeks.</li>)}</ul>
-      <ul className="space-y-2">{report.rows.map(row => <li key={row.id}><button type="button" className="text-left underline underline-offset-4" onClick={() => onSelect(row.id)}>{row.leagueName} · {row.season} week {row.week}</button>: {row.status === "complete" ? `${signed(row.difference!)} points vs original starters` : row.status === "pending" ? "Pending / not checked" : row.status === "ineligible" ? "Not eligible after independent checks" : "Observation unavailable"} <span className="text-xs text-muted-foreground">· {labels[row.cohort]}</span></li>)}</ul>
+      <ul className="space-y-2">{report.cohorts.map((group, index) => <li key={group.key}><span className="font-medium">Group {index + 1}: {group.leagueName} · {group.season} · {labels[group.cohort]}</span>: {group.difference === null ? "No completed comparisons yet" : `${signed(group.difference)} points in total; ${signed(group.meanDifference!)} per comparison`} · {group.complete} completed comparisons across {group.weeks} distinct NFL weeks.<details className="mt-1 text-xs"><summary className="cursor-pointer">Group {index + 1} team and exact scoring</summary><p>Team owner ID: {group.teamId}</p><pre className="whitespace-pre-wrap break-all">{group.scoringId}</pre></details></li>)}</ul>
+      <ul className="space-y-2">{report.rows.map(row => <li key={row.id}><button type="button" className="text-left underline underline-offset-4" onClick={() => onSelect(row.id)}>{row.leagueName} · {row.season} week {row.week}</button>: {row.status === "complete" ? `${signed(row.difference!)} points vs original starters` : row.status === "pending" ? "Pending / not checked" : row.status === "ineligible" ? "Not eligible after independent checks" : "Observation unavailable"} <span className="text-xs text-muted-foreground">· Group {report.cohorts.findIndex(group => group.scoringGroup === row.scoringGroup && group.cohort === row.cohort) + 1} · {labels[row.cohort]}</span></li>)}</ul>
     </>}
     <p className="text-xs text-muted-foreground">Included slots only; user-supplied inputs. Different scoring systems and limited comparisons are not directly comparable. Weeks and leagues can share players, so these are not independent trials. Saving decisions selectively can bias this sample. This descriptive review does not establish forecast accuracy, draft superiority, win probability, or that you submitted the advised lineup.</p>
   </div>;

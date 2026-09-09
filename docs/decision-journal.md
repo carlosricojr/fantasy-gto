@@ -30,6 +30,7 @@ fewer), then at most two owner-scoped detail reads concurrently. There are at mo
 21 existing quota-admitted reads per click, no new endpoint, automatic scan, polling,
 upstream results fetch, observation write, or client persistence. An unavailable or
 failed detail aborts publication instead of reporting a selectively successful subset.
+Both requests in a pair must settle before retry is enabled, including asymmetric failure.
 The account-keyed history unmount invalidates pending responses and stops later batches.
 
 Selection is fixed before looking at outcomes: for each league/team/season/week in
@@ -44,8 +45,10 @@ The report separates no-declared-limitation, conditional/incomplete, and experim
 or unknown-origin cohorts. It shows completed comparison counts, distinct NFL weeks,
 total and mean realized point difference against original starters, grouped separately
 by league, team, season, exact scoring identity and limitation cohort; pending comparisons
-do not become zero. Unknown record formats are counted and explicitly make the review
-incomplete. The first cohort is not a claim that user-supplied inputs were authenticated
+do not become zero. Unknown or corrupt record formats are counted and withhold the
+entire batch, because a corrupt receipt could be the newest revision of a valid context.
+Each row names its summary group, whose team owner ID and exact scoring identity are
+available in a disclosure. The first cohort is not a claim that user-supplied inputs were authenticated
 or that the model is calibrated. Different scoring systems are not directly comparable.
 
 This is a **descriptive recent-batch review**, not a preregistered efficacy trial, full

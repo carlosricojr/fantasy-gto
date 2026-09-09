@@ -48,6 +48,19 @@ describe("explicit recent-decision review", () => {
     expect(transport.detail).toHaveBeenCalledTimes(2);
     expect(host.textContent).toBe("");
   });
+  it("keeps retry disabled until both issued requests settle after asymmetric failure", async () => {
+    let finish!: (value: DecisionDetail) => void;
+    const sibling = new Promise<DecisionDetail>(resolve => { finish = resolve; });
+    const transport = { list: vi.fn(async () => ({ page: [row("a"), row("b")], isDone: true, continueCursor: "" })), detail: vi.fn((id: string) => id === "a" ? Promise.reject(new Error("Read failed")) : sibling) };
+    await mount(transport); await click();
+    expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+    await click();
+    expect(transport.detail).toHaveBeenCalledTimes(2);
+    await act(async () => finish(detail("b")));
+    expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("records inspected");
+  });
   it("shows the selection rule, incomplete evidence and non-independence without invented accuracy", () => {
     const report = summarizeDecisionResults([detail("a")]);
     const html = renderToStaticMarkup(h(DecisionResultsSummary, { report, hasOlder: false, onSelect: vi.fn() }));
@@ -56,5 +69,8 @@ describe("explicit recent-decision review", () => {
     expect(html).toContain("Saving decisions selectively can bias");
     expect(html).toContain("No completed comparisons yet");
     expect(html).not.toContain("MAE");
+    expect(html).toContain("Team owner ID: ");
+    expect(html).toContain("half-ppr");
+    expect(html).toContain("Group 1 team and exact scoring");
   });
 });

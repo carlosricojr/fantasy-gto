@@ -61,6 +61,16 @@ describe("bounded descriptive decision-results protocol", () => {
     const result = summarizeDecisionResults([{ ...input(), recordJson: "{}" }]);
     expect(result).toMatchObject({ inspected: 1, invalidRecords: 1, rows: [] });
   });
+  it.each(["missing-plan-field", "unsupported-version", "oversized-observations"])("never resurrects an older winner after newest receipt corruption: %s", kind => {
+    const newer = input("newer", { at: 200, difference: -5 });
+    const raw = JSON.parse(newer.recordJson);
+    if (kind === "missing-plan-field") delete raw.plan.excludedPlayerIds;
+    if (kind === "unsupported-version") raw.version = 999;
+    if (kind === "oversized-observations") newer.observations = Array.from({ length: 21 }, () => newer.observations[0]);
+    newer.recordJson = JSON.stringify(raw);
+    const result = summarizeDecisionResults([input("older", { difference: 20 }), newer]);
+    expect(result).toMatchObject({ invalidRecords: 1, rows: [], cohorts: [] });
+  });
   it("rejects duplicate IDs and oversized batches instead of silently truncating", () => {
     expect(() => summarizeDecisionResults([input(), input()])).toThrow("Duplicate");
     expect(() => summarizeDecisionResults(Array.from({ length: 21 }, (_, i) => input(String(i))))).toThrow("bounded batch");
