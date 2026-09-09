@@ -124,3 +124,24 @@ rosters; signed points, multi-position eligibility, starter/bench locks, unavail
 players, unknown inputs, duplicate assignments, freshness, exact custom scoring
 identity and scoped K/DST handling have targeted tests. The underlying projection
 model is unchanged and the reserved 2025 holdout is not evaluated.
+
+## Release verification and remaining friction
+
+September 9 browser QA against a clean local production build exercised ordinary
+import (2/16 estimates, no provisional values), enabling the provisional option and
+refreshing (10 additional labeled forecasts, ordinary coverage still 2/16), and the
+separate incomplete-comparison consent gate. A synthetic manual value survived
+disabling provisional forecasts and a same-context ordinary refresh; another
+provisional row returned to blank immediately. The test value was discarded by
+reloading afterward. A 390px phone viewport had no page-level horizontal overflow;
+the roster remains an intentionally horizontally scrollable table. No Sleeper write
+action exists or was performed.
+
+The shared desktop/mobile Lineup navigation leads to `/lineup`, whose weekly link
+is available even before legacy data loads. My leagues also links to the legacy
+optimizer in its empty state. The weekly route itself does not require sign-in.
+Remaining friction: numeric Sleeper league/user IDs must be entered manually;
+saved dashboard leagues do not prefill this workflow, and browser reloads do not
+persist entered estimates. Provider-ID warnings and named planner warnings can
+duplicate into a long list. Consolidating those warnings and adding a direct
+saved-league handoff are follow-up UX work, not hidden completion claims.
