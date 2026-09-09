@@ -17,7 +17,9 @@ function inputs(): NflverseWeeklyInputs {
       receiving_yards: "70", receptions: "6", receiving_tds: "1", targets: "8" })!),
     roster: [{ playerId: "gsis-1", sleeperId: "5844", name: "Test TE", position: "TE", team: "MIN", rookieYear: 2019 }],
     weeklyRoster: [{ playerId: "gsis-1", season: 2026, week: 1, name: "Test TE", position: "TE", team: "MIN", status: "active" }],
-    injuries: [], contests: [{ id: "game", period: { season: 2026, index: 1 }, homeTeam: "MIN", awayTeam: "GB",
+    injuries: [{ season: 2026, week: 1, playerId: "other", name: "Other player", position: "TE", team: "GB",
+      gameStatus: "questionable", practiceStatus: "limited", primaryInjury: "Knee", dateModified: null }],
+    contests: [{ id: "game", period: { season: 2026, index: 1 }, homeTeam: "MIN", awayTeam: "GB",
       startsAt: "2026-09-13T17:00:00Z", result: null }], lines: [],
   };
 }
@@ -76,6 +78,17 @@ describe("nflverse personal weekly estimates", () => {
     const inactive = inputs();
     inactive.weeklyRoster = [{ ...inactive.weeklyRoster[0], status: "reserve" }];
     expect(buildNflverseWeeklyEstimates(request, inactive).players[0].availability).toBe("inactive");
+  });
+  it("does not treat missing target-week injury coverage as clearance", () => {
+    const data = inputs();
+    for (const injuries of [[], data.injuries.map(row => ({ ...row, season: 2025 })),
+      data.injuries.map(row => ({ ...row, week: 2 }))]) {
+      data.injuries = injuries;
+      expect(buildNflverseWeeklyEstimates(request, data).players[0]).toMatchObject({
+        points: null, availability: "unknown", team: "MIN", gameId: "game",
+        reason: expect.stringContaining("requested week are unavailable"),
+      });
+    }
   });
   it("applies the last injury correction for the exact player-week", () => {
     const data = inputs();
