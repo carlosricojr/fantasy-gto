@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { applyWeeklyModel, mergeWeeklyRefresh, reconcileWeeklyAvailability, resolveWeeklyRosterTeam, type WeeklyModelResponse } from "./weekly-lineup-inputs";
-import type { WeeklyLineupSnapshot } from "./weekly-lineup";
+import { applyWeeklyModel, mergeWeeklyRefresh, reconcileWeeklyAvailability, resolveWeeklyRosterTeam, selectWeeklyConditionalEstimates, type WeeklyModelResponse } from "./weekly-lineup-inputs";
+import { planWeeklyLineup, type WeeklyLineupSnapshot } from "./weekly-lineup";
 
 const base: WeeklyLineupSnapshot = { leagueId: "league", ownerId: "owner", season: 2026, week: 1, scoringId: "exact", leagueName: "League", slots: [], source: "test", retrievedAt: 1, projectionUpdatedAt: null, rosterRetrievedAt: 1,
   players: [{ id: "manual", name: "Manual", positions: ["RB"], availability: "active", kickoffAt: 50, currentSlotId: null, projectedPoints: 15, projectionOrigin: "manual", projectionEnteredAt: 1 }, { id: "model", name: "Model", positions: ["RB"], availability: "active", kickoffAt: 50, currentSlotId: null, projectedPoints: 10, projectionOrigin: "model" }] };
@@ -62,6 +62,52 @@ it("missing injury coverage survives repeated refreshes and cannot clear known O
   expect(again.players[0].injuryCoverage).toBe("unavailable");
   const confirmed: WeeklyLineupSnapshot = { ...partial, players: partial.players.map((p) => ({ ...p, injuryCoverage: "available" })) };
   expect(mergeWeeklyRefresh(again, confirmed).snapshot.players[0].availability).toBe("active");
+});
+
+it("conditional forecasts are reversible views, never ordinary points or replacements for manual overrides", () => {
+  const raw: WeeklyLineupSnapshot = { ...base, players: base.players.map((p) => ({ ...p, projectedPoints: null, injuryCoverage: "unavailable", conditionalEstimate: { points: -1, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } })) };
+  expect(selectWeeklyConditionalEstimates(raw, false, 20)).toBe(raw);
+  const selected = selectWeeklyConditionalEstimates(raw, true, 20);
+  expect(selected.players[0].projectedPoints).toBeNull(); // Explicit cleared manual override.
+  expect(selected.players[1].projectedPoints).toBe(-1);
+  expect(selected.players[1].projectionOrigin).toBe("model-conditional");
+  expect(raw.players[1].projectedPoints).toBeNull();
+  expect(selectWeeklyConditionalEstimates(raw, false, 20).players[1].projectedPoints).toBeNull();
+  expect(selectWeeklyConditionalEstimates(raw, true, 50).players[1].projectedPoints).toBeNull();
+  for (const availability of ["out", "inactive", "unknown", "reserve", "bye"] as const) {
+    expect(selectWeeklyConditionalEstimates({ ...raw, players: raw.players.map((p) => ({ ...p, availability })) }, true, 20).players[1].projectedPoints).toBeNull();
+  }
+});
+
+it("missing coverage cannot clear an Out observed only by Sleeper and expose its conditional forecast", () => {
+  const model: WeeklyModelResponse = { source: "nflverse", season: 2026, week: 1, scoringId: "exact", computedAt: 20, providerUpdatedAt: null, warnings: [], excludedRules: [], coverage: { requested: 2, projected: 1 }, players: [
+    { playerId: "manual", points: null, reason: "Missing injury report", availability: "active", injuryCoverage: "unavailable", conditionalEstimate: { points: 50, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } },
+    { playerId: "model", points: 10, reason: null, availability: "active", injuryCoverage: "available" },
+  ] };
+  const roster: WeeklyLineupSnapshot = { ...base, slots: [{ id: "rb", label: "RB", eligiblePositions: ["RB"] }], players: base.players.map((p) => ({ ...p, availability: p.id === "manual" ? "out" : "active" })) };
+  const prior = applyWeeklyModel(roster, model);
+  expect(prior.players[0].availability).toBe("out");
+  expect(prior.players[0].nflverseAvailability).toBe("active");
+  const refreshed = applyWeeklyModel({ ...roster, players: roster.players.map((p) => ({ ...p, availability: "active" })) }, model);
+  const retained = mergeWeeklyRefresh(prior, refreshed).snapshot;
+  expect(retained.players[0].availability).toBe("out");
+  const selected = selectWeeklyConditionalEstimates(retained, true, 20);
+  expect(selected.players[0].projectedPoints).toBeNull();
+  const plan = planWeeklyLineup(selected, { now: 20, maxProjectionAgeMs: 100, maxRosterAgeMs: 100, allowConditionalEstimates: true, compareAvailableEstimates: true });
+  expect(plan.status).toBe("conditional");
+  expect(plan.assignments[0].playerId).toBe("model");
+});
+
+it("retains raw conditional evidence while validating provenance and preserving ordinary model coverage", () => {
+  const model: WeeklyModelResponse = { source: "nflverse", season: 2026, week: 1, scoringId: "exact", computedAt: 20, providerUpdatedAt: null, warnings: [], excludedRules: [], coverage: { requested: 2, projected: 0 }, players: base.players.map((p) => ({ playerId: p.id, points: null, reason: "Missing team injury report", injuryCoverage: "unavailable", conditionalEstimate: { points: 0, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } })) };
+  const raw = applyWeeklyModel(base, model);
+  expect(raw.players.every((p) => p.projectedPoints === null)).toBe(true);
+  expect(raw.model?.coverage.projected).toBe(0);
+  expect(selectWeeklyConditionalEstimates(raw, true, 20).players.every((p) => p.projectedPoints === 0)).toBe(true);
+  expect(() => applyWeeklyModel(base, { ...model, players: model.players.map((p) => ({ ...p, points: 10 })) })).toThrow("conditional forecast evidence");
+  expect(() => applyWeeklyModel(base, { ...model, players: model.players.map((p) => ({ ...p, injuryCoverage: "available" })) })).toThrow("conditional forecast evidence");
+  const rosterOnly = mergeWeeklyRefresh(raw, { ...incoming, players: incoming.players.map((p) => ({ ...p, projectedPoints: null })) }).snapshot;
+  expect(rosterOnly.players.every((p) => p.conditionalEstimate === undefined)).toBe(true);
 });
 
 it("a roster-only refresh cannot revive a previously observed Out player with a retained manual estimate", () => {

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     if (request.nextUrl.searchParams.get("estimates") === "nflverse") {
       const profile = sleeperScoringFromId(snapshot.scoringId);
       if (!profile) throw new Error("Imported scoring identity is invalid.");
-      const result = await generateNflverseWeeklyProjections({ season: snapshot.season, week, profile, playerIds: snapshot.players.map((p) => p.id), now: Date.now() });
+      const result = await generateNflverseWeeklyProjections({ season: snapshot.season, week, profile, playerIds: snapshot.players.map((p) => p.id), now: Date.now(), includeConditionalEstimates: request.nextUrl.searchParams.get("conditional") === "active-at-kickoff" });
       if (!result.ok) snapshot = { ...snapshot, warnings: [...(snapshot.warnings ?? []), `Automatic estimates unavailable: ${result.reason}. You can enter weekly expected points manually.`] };
       else snapshot = applyWeeklyModel(snapshot, result.data);
     }

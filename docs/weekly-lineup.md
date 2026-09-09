@@ -35,6 +35,23 @@ acknowledging that they must verify the final active list. The per-player covera
 warning survives manual entry and roster-only refreshes. Missing coverage cannot
 clear an earlier observed Out designation; fresh covered injury evidence is required.
 
+An additional, default-off opt-in can request **active-at-kickoff** forecasts for
+otherwise eligible players whose team/week injury report is missing. These pass
+the same identity, active-roster, position, scoring, future-game and recent-history
+gates. They do not appear for known Out/unknown injury status, unsupported K/DST or
+insufficient history. They remain nested conditional evidence: ordinary points stay
+null, and ordinary model coverage does not increase. These forecasts are not
+availability-adjusted expectations.
+
+The browser overlays these values only while the separate provisional-forecast
+checkbox is enabled, gives them a distinct row label, and also requires the existing
+incomplete-comparison consent. Disabling the option removes them immediately without
+changing ordinary missing points or manual overrides. Roster-only refresh does not
+retain the provisional forecasts. They retain all model freshness, scoring-omission,
+injury and kickoff safeguards; a prior observed Out designation cannot be bypassed.
+On September 9, 2026, the source helper returned 2 ordinary and 10 additional
+conditional forecasts for the owner's 16-player roster; the other 4 remained missing.
+
 Users can enter weekly expected points under the displayed scoring rules, replacing
 individual model rows with manual overrides. A blank estimate stays missing. It
 cannot be replaced with a season
