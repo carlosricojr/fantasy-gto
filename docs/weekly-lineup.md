@@ -236,6 +236,11 @@ HTTP/Convex calls still use infrastructure, and unrelated public data-query surf
 need separate hardening. Deployment protection is an independent operational control;
 this code does not claim that it has been activated.
 
+Retained storage is separately capped at 500 decisions per owner and 20 observations
+per decision. Semantically unchanged outcome refreshes preserve the original observation
+instead of consuming another slot. At a limit, writes are refused, not silently deleted;
+no individual archive/export feature is implied. See [journal limits](decision-journal.md#retained-storage-limits).
+
 Mounted browser-runtime tests cover immediate account-switch remount, all consent
 reset, no old-account snapshot reaching new-account Save, and discarded in-flight
 imports. Pending authentication sends no source request and does not touch browser

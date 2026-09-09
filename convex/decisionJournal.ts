@@ -33,10 +33,17 @@ export const create = mutation({
       return existing._id;
     }
     await admitPersonalOperation(ctx, "journal-save");
+    const storage = await ctx.db.query("personalUsage").withIndex("by_user_operation", (q) => q.eq("userId", user._id).eq("operation", "journal-save")).first();
+    // New release tables start empty. An older dev row without accounting must
+    // fail closed, not assume zero or read hundreds of large record payloads.
+    if (!storage || (storage.retainedDecisions === undefined && await ctx.db.query("weeklyDecisions").withIndex("by_user_time", (q) => q.eq("userId", user._id)).first())) throw invalid("Decision storage accounting needs repair before another record can be saved. Existing records are unchanged.");
+    const retained = storage.retainedDecisions ?? 0;
+    if (!Number.isInteger(retained) || retained < 0 || retained >= 500) throw invalid("The 500 retained-decision limit has been reached. No history was deleted. Individual removal and export are not currently available.");
     let record: WeeklyDecisionRecord;
     try { record = createWeeklyDecisionRecord(args.snapshotJson, args.preferencesJson, Date.now()); } catch (cause) { throw invalid(cause instanceof Error ? cause.message : "Cannot record this decision."); }
     const recordJson = JSON.stringify(record);
     if (new TextEncoder().encode(recordJson).length > 700_000) throw invalid("Decision record is too large.");
+    await ctx.db.patch(storage._id, { retainedDecisions: retained + 1 });
     return ctx.db.insert("weeklyDecisions", { userId: user._id, requestId: args.requestId, recordJson, recordedAt: record.recordedAt, leagueName: record.snapshot.leagueName, season: record.snapshot.season, week: record.snapshot.week, timing: record.timing });
   },
 });
@@ -78,6 +85,7 @@ export const refreshOutcomes = action({ args: { id: v.id("weeklyDecisions") }, r
     await ctx.runMutation(internal.personalTools.admit, { operation: "journal-refresh" });
     const owned = await ctx.runQuery(internal.decisionJournal.detailOwned, { id, now: Date.now() });
     if (!owned) throw notFound("That decision does not exist.");
+    if (owned.observations.length >= 20) throw invalid("This decision has reached its 20-observation limit. Existing observations remain unchanged; no additional source request was sent.");
     if (owned.observations[0] && Date.now() - owned.observations[0].observedAt < 60_000) throw invalid("Wait one minute before checking this decision's outcomes again.");
     const record = JSON.parse(owned.recordJson) as WeeklyDecisionRecord;
     try {
@@ -93,10 +101,26 @@ export const appendObservation = internalMutation({ args: { id: v.id("weeklyDeci
     const user = await requireEntitlement(ctx, "performance_history");
     const row = await ctx.db.get(args.id);
     if (!row || row.userId !== user._id) throw notFound("That decision does not exist.");
-    const latest = await ctx.db.query("weeklyDecisionObservations").withIndex("by_decision_time", (q) => q.eq("decisionId", args.id)).order("desc").first();
-    if (latest && args.observedAt - latest.observedAt < 60_000) throw invalid("An outcome check was already recorded within the last minute.");
     if (!Number.isFinite(args.observedAt) || args.observedAt < row.recordedAt || args.observedAt > Date.now() || args.outcomeJson.length > 64_000 || args.evaluationJson.length > 64_000 || new TextEncoder().encode(args.outcomeJson + args.evaluationJson).length > 128_000) throw invalid("Invalid outcome observation.");
+    const observations = await ctx.db.query("weeklyDecisionObservations").withIndex("by_decision_time", (q) => q.eq("decisionId", args.id)).order("desc").take(20);
+    const latest = observations[0];
+    if (latest && args.observedAt - latest.observedAt < 60_000) throw invalid("An outcome check was already recorded within the last minute.");
+    // A refresh that changes retrieval time only is not a new observation.
+    // Preserve its original timestamp rather than rewriting the history row.
+    if (latest && semanticJson(latest.outcomeJson, true) === semanticJson(args.outcomeJson, true) && semanticJson(latest.evaluationJson) === semanticJson(args.evaluationJson)) return null;
+    if (observations.length >= 20) throw invalid("This decision has reached its 20-observation limit. No observation was replaced or deleted.");
     await ctx.db.insert("weeklyDecisionObservations", { userId: user._id, decisionId: args.id, observedAt: args.observedAt, outcomeJson: args.outcomeJson, evaluationJson: args.evaluationJson });
     return null;
   },
 });
+
+function semanticJson(raw: string, outcome = false): string {
+  const value: unknown = JSON.parse(raw);
+  if (outcome && value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    delete record.fetchedAt;
+    if (Array.isArray(record.completePlayerIds)) record.completePlayerIds = [...record.completePlayerIds].sort();
+  }
+  const ordered = (entry: unknown): unknown => Array.isArray(entry) ? entry.map(ordered) : entry && typeof entry === "object" ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, ordered(child)])) : entry;
+  return JSON.stringify(ordered(value));
+}

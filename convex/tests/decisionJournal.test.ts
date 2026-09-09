@@ -89,6 +89,64 @@ it("bounds observation UTF-8 bytes, not only JavaScript character counts", async
   expect((await owner.action(api.decisionJournal.detail, { id }))!.observations).toEqual([]);
 });
 
+it("atomically caps retained decisions, preserves retries and isolates other users", async () => {
+  const { t, owner, other, args } = await setup();
+  const original = await owner.mutation(api.decisionJournal.create, args);
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(original);
+    const usage = await ctx.db.query("personalUsage").withIndex("by_user_operation", (q) => q.eq("userId", row!.userId).eq("operation", "journal-save")).first();
+    // Seed accounting at the boundary without creating 499 large records.
+    await ctx.db.patch(usage!._id, { retainedDecisions: 499 });
+  });
+  const results = await Promise.allSettled(["last-a", "last-b"].map((requestId) => owner.mutation(api.decisionJournal.create, { ...args, requestId })));
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+  expect(await owner.mutation(api.decisionJournal.create, args)).toBe(original);
+  expect(await owner.action(api.decisionJournal.detail, { id: original })).not.toBeNull();
+  await other.mutation(api.decisionJournal.create, args);
+});
+
+it("does not spend observation capacity on retrieval-only changes, then appends a real correction", async () => {
+  vi.useFakeTimers();
+  try {
+    const { owner, args } = await setup();
+    const id = await owner.mutation(api.decisionJournal.create, args);
+    const firstAt = Date.now();
+    const outcome = { fetchedAt: firstAt, pointsByPlayer: { a: 1, b: 2 }, completePlayerIds: ["a", "b"], kickoffByPlayer: { a: 100, b: 200 } };
+    const evaluationJson = '{"status":"pending","missingPlayerIds":["c"]}';
+    await owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: firstAt, outcomeJson: JSON.stringify(outcome), evaluationJson });
+    for (let i = 0; i < 21; i++) {
+      vi.advanceTimersByTime(60_001);
+      await owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: Date.now(), outcomeJson: JSON.stringify({ ...outcome, fetchedAt: Date.now(), pointsByPlayer: { b: 2, a: 1 }, completePlayerIds: ["b", "a"] }), evaluationJson });
+    }
+    const before = await owner.action(api.decisionJournal.detail, { id });
+    expect(before!.observations).toHaveLength(1); expect(before!.observations[0].observedAt).toBe(firstAt);
+    vi.advanceTimersByTime(60_001);
+    await owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: Date.now(), outcomeJson: JSON.stringify({ ...outcome, fetchedAt: Date.now(), pointsByPlayer: { a: 3, b: 2 } }), evaluationJson: '{"status":"complete"}' });
+    const after = await owner.action(api.decisionJournal.detail, { id });
+    expect(after!.observations).toHaveLength(2); expect(after!.recordJson).toBe(before!.recordJson);
+  } finally { vi.useRealTimers(); }
+});
+
+it("atomically caps observations without deleting prior evidence", async () => {
+  vi.useFakeTimers();
+  try {
+    const { t, owner, args } = await setup();
+    const id = await owner.mutation(api.decisionJournal.create, args);
+    vi.advanceTimersByTime(20 * 60_000);
+    await t.run(async (ctx) => {
+      const record = await ctx.db.get(id);
+      for (let i = 0; i < 19; i++) await ctx.db.insert("weeklyDecisionObservations", { userId: record!.userId, decisionId: id, observedAt: Date.now() - (20 - i) * 60_000, outcomeJson: JSON.stringify({ point: i }), evaluationJson: "{}" });
+    });
+    const results = await Promise.allSettled([99, 100].map((point) => owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: Date.now(), outcomeJson: JSON.stringify({ point }), evaluationJson: "{}" })));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((await owner.action(api.decisionJournal.detail, { id }))!.observations).toHaveLength(20);
+    vi.advanceTimersByTime(60_001);
+    await expect(owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: Date.now(), outcomeJson: '{"point":101}', evaluationJson: "{}" })).rejects.toMatchObject({ data: { code: "invalid" } });
+    expect((await owner.action(api.decisionJournal.detail, { id }))!.observations).toHaveLength(20);
+  } finally { vi.useRealTimers(); }
+});
+
 it("erases only deleted-user personal data in repeatable batches, including orphan observations", async () => {
   vi.useFakeTimers();
   try {

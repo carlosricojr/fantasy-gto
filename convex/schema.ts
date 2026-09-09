@@ -18,7 +18,7 @@ import { v } from "convex/values";
  */
 export default defineSchema({
   personalUsage: defineTable({
-    userId: v.id("users"), operation: v.string(), windowStart: v.number(), windowCount: v.number(), dayStart: v.number(), dayCount: v.number(),
+    userId: v.id("users"), operation: v.string(), windowStart: v.number(), windowCount: v.number(), dayStart: v.number(), dayCount: v.number(), retainedDecisions: v.optional(v.number()),
   }).index("by_user_operation", ["userId", "operation"]),
   weeklyDecisions: defineTable({
     userId: v.id("users"), requestId: v.string(), recordJson: v.string(),

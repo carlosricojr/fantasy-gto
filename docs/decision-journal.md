@@ -19,3 +19,23 @@ Forecast errors are separated by model, manual, and unspecified origin. Conditio
 Pure tests cover bounded input parsing, original-versus-recommended comparison, no hindsight selection, signed outcomes, zero versus missing, independent timing, excluded slots, scoring identity, consent, source failures, and model/manual error separation. This workflow release separately tests authenticated ownership, server timestamps, append-only/idempotent recording, changed-payload request-ID rejection, bounded reads, entitlement expiry, atomic request quotas and concurrent observation throttling. Deleted accounts lose access immediately; bounded internal batches erase their decisions, observations (including orphans), connections and usage counters without affecting other users. UTF-8 payload caps bound record and observation read costs. No lineup changes or platform transactions are submitted.
 
 Development deployment and anonymous rejection smoke are verified. Signed-in production save/list/detail/outcome-refresh remains a release check requiring the owner's actual authenticated session; no synthetic subscription or account grants were used. The journal is Pro-only under the existing subscription-derived policy. See [weekly source access](weekly-lineup.md#source-access-and-bounded-compute) for quotas and remaining infrastructure limits.
+
+## Retained storage limits
+
+Each owner may retain 500 decisions, each with at most 20 outcome observations.
+Storage limits are enforced atomically, without scanning hundreds of large snapshots.
+Existing identical request-ID retries remain valid at the decision cap. A record cap
+does not silently delete old history; individual deletion, archive and export are not
+implemented. Account erasure remains the separate privacy lifecycle.
+
+An outcome refresh with unchanged player points, completion, kickoffs and evaluation
+does not append another observation merely because retrieval time advanced. Original
+timestamps stay unchanged. Genuine source corrections append until the 20-observation
+cap; at the cap additional refreshes are refused before source I/O. Failed/unchanged
+checks still consume the request allowance. These finite caps are not a promise that
+every possible payload combination fits a hosting provider's free storage allowance.
+
+If pre-release development records exist without their retained-count accounting,
+new saves fail closed pending explicit accounting repair; they are not counted as zero
+or removed. Production starts with additive new tables. Regression tests cover boundary
+concurrency, cross-owner isolation, no automatic deletion and unchanged pending checks.
