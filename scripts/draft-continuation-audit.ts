@@ -40,6 +40,12 @@ function marketOpponentCompletion(forced: PlayerRisk): PlayerRisk[][] {
       ? firstOwn ? pool.find((player) => player.id === forced.id) : basePolicyPick(
         rosters[square.team], pool, config,
         leagueUnfilledSlots(rosters.map((roster) => roster.map((player) => ({ position: player.position, value: player.weeklyMean * player.availability }))), config.slots),
+        {
+          picksRemaining: Math.min(order.filter((entry) => entry.team === square.team && entry.pick >= square.pick).length,
+            (state.teams[square.team].draftRosterSize ?? state.rosterSize) - rosters[square.team].length),
+          opponentsBeforeNext: order.filter((entry) => entry.team !== square.team && entry.pick > square.pick &&
+            entry.pick < Math.min(...order.filter((later) => later.team === square.team && later.pick > square.pick).map((later) => later.pick))).length,
+        },
       )
       : [...pool].sort((a, b) => (a.adp ?? Infinity) - (b.adp ?? Infinity) || a.id.localeCompare(b.id))[0];
     if (square.team === state.myTeamIndex) firstOwn = false;

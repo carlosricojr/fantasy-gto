@@ -110,6 +110,17 @@ it("retains raw conditional evidence while validating provenance and preserving 
   expect(rosterOnly.players.every((p) => p.conditionalEstimate === undefined)).toBe(true);
 });
 
+it("missing coverage cannot clear an Out observed only by Sleeper while preserving manual points", () => {
+  const prior: WeeklyLineupSnapshot = { ...base, players: base.players.map((p) => ({ ...p, availability: "out", nflverseAvailability: "active", injuryCoverage: "unavailable" })) };
+  const refreshed: WeeklyLineupSnapshot = { ...incoming, players: incoming.players.map((p) => ({ ...p, availability: "active", nflverseAvailability: "active", injuryCoverage: "unavailable" })) };
+  const retained = mergeWeeklyRefresh(prior, refreshed).snapshot;
+  expect(retained.players[0].availability).toBe("out");
+  expect(retained.players[0].projectedPoints).toBe(15);
+  expect(mergeWeeklyRefresh(retained, refreshed).snapshot.players[0].availability).toBe("out");
+  const covered: WeeklyLineupSnapshot = { ...refreshed, players: refreshed.players.map((p) => ({ ...p, injuryCoverage: "available" })) };
+  expect(mergeWeeklyRefresh(retained, covered).snapshot.players[0].availability).toBe("active");
+});
+
 it("a roster-only refresh cannot revive a previously observed Out player with a retained manual estimate", () => {
   const prior: WeeklyLineupSnapshot = { ...base, model: { source: "nflverse", computedAt: 10, providerUpdatedAt: null, warnings: [], excludedRules: [], coverage: { requested: 2, projected: 1 } }, players: base.players.map((p) => ({ ...p, availability: "out" })) };
   const result = mergeWeeklyRefresh(prior, incoming).snapshot;

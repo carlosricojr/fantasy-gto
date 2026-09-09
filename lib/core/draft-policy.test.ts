@@ -863,7 +863,7 @@ describe("a forced pick is honored when only one remains", () => {
     const teams = freshTeams().map((t) => ({ ...t, remainingPicks: t.remainingPicks.slice(-1) }));
     const recs = recommendByChampionship(
       { teams, myTeamIndex: 0, available: board(), rosterSize: 1 },
-      CONFIG,
+      { ...CONFIG, slots: [{ id: "flex", label: "FLEX", eligiblePositions: ["QB", "RB", "WR", "TE"] }] },
       17,
       3,
     );
@@ -2032,7 +2032,7 @@ describe("the shortlist is exactly as long as it says", () => {
       available: [player("a", "RB", 10), player("b", "WR", 9)],
       rosterSize: ROUNDS,
     };
-    expect(recommendByChampionship(state, CONFIG, 3, 8)).toHaveLength(2);
+    expect(recommendByChampionship(state, { ...CONFIG, slots: [{ id: "flex", label: "FLEX", eligiblePositions: ["RB", "WR"] }] }, 3, 8)).toHaveLength(2);
   });
 });
 
@@ -2329,7 +2329,8 @@ describe("the market-discipline gate", () => {
     // is the leader, which is what "take him at his value, not now" means.
     const late = recommendByChampionship(
       stateAtRound(MARKET_GATE_ROUNDS + 1),
-      CONFIG,
+      // This isolated late-gate fixture owns only two picks and starts empty.
+      { ...CONFIG, slots: [{ id: "flex", label: "FLEX", eligiblePositions: ["QB", "RB", "WR", "TE"] }] },
       7,
       4,
     );
@@ -2338,10 +2339,6 @@ describe("the market-discipline gate", () => {
 });
 
 describe("the streamable-position discipline", () => {
-  // A league that starts one of each streamable position, which is what makes the two
-  // rules mean anything: a template with no kicker slot prices a kicker at nothing
-  // already, and the discipline would have nothing to add.
-  const SHAPED = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
   const WIRE = new Map<string, number>([["QB", 1], ["K", 1], ["DST", 1], ["TE", 0.75]]);
   const TEAMS_IN_LEAGUE = 10;
   const ROUNDS_IN_DRAFT = 16;
@@ -2448,6 +2445,7 @@ describe("the streamable-position discipline", () => {
     // of one kicker and one back, our seat on the clock in round one.
     const pool = [
       player("kick", "K", 9, { adp: 150 }),
+      player("kick2", "K", 8, { adp: 151 }),
       player("back", "RB", 18, { adp: 20 }),
       player("back2", "RB", 17, { adp: 22 }),
     ];
@@ -2463,7 +2461,7 @@ describe("the streamable-position discipline", () => {
         // two-pick roster round one *is* a closing round.
         rosterSize: 6,
       },
-      { ...CONFIG, slots: SHAPED, scenarios: 20, playoffTeams: 2, wireCover: WIRE },
+      { ...CONFIG, slots: buildSlots({ RB: 1, K: 1 }), scenarios: 20, playoffTeams: 2, wireCover: WIRE },
       7,
     );
     expect(recs.map((rec) => rec.player.position)).not.toContain("K");

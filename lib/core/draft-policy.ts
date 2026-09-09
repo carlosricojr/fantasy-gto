@@ -1,5 +1,6 @@
 import { type LineupSolution, type RosterSlot, solveLineup } from "./optimizer";
 import { coverValue } from "./draft-bench";
+import { filledStarterCount, guardDraftCompletion } from "./draft-feasibility";
 import {
   type ReplacementLevel,
   replacementLevels,
@@ -19,9 +20,10 @@ import {
  *
  * The objective is the probability of winning the league, evaluated by playing the season
  * out — see `season-sim.ts` for why that is the right target and not expected points.
- * Everything that used to be a weighted term is now a consequence: a bye collision, a
+ * A bye collision, a
  * fragile starter, an empty slot, and a boom-or-bust profile all change championship odds
- * through the simulation rather than through a constant someone picked.
+ * through the simulation. Structural starter guards separately prevent a hypothetical
+ * waiver replacement from being mistaken for a real drafted player.
  *
  * ## What is guaranteed, and what is not
  *
@@ -129,6 +131,10 @@ export interface PolicyLeague {
 
 export interface ChampionshipRecommendation {
   player: PlayerRisk;
+  /** Opponent forecasts with missing required starters; disclosed, never treated as complete. */
+  incompleteOpponentTeams?: number;
+  /** The default comparison can complete a different set of opponent rosters. */
+  incompleteBaselineOpponentTeams?: number;
   /** Championship probability if this player is taken and the draft finishes normally. */
   championshipProbability: number;
   /**
@@ -1080,6 +1086,7 @@ export function basePolicyPick(
   available: readonly PlayerRisk[],
   league: PolicyLeague,
   leagueUnfilledSlots: readonly RosterSlot[],
+  turn?: { picksRemaining: number; opponentsBeforeNext?: number },
 ): PlayerRisk | null {
   // Only one player per position can win a base-policy pick, so the rest are not
   // evaluated. Without this the completion solves a lineup for every one of several hundred
@@ -1087,7 +1094,10 @@ export function basePolicyPick(
   // whole cost of a recommendation.
   const replacement = replacementFor(available, leagueUnfilledSlots, league.wireCover);
   const context = prefilterContext(roster, league, replacement);
-  const contenders = contendersFor(available, context.startThreshold);
+  const eligible = turn === undefined ? available : guardDraftCompletion(
+    roster, available, league.slots, turn.picksRemaining, turn.opponentsBeforeNext,
+  ).candidates;
+  const contenders = contendersFor(eligible, context.startThreshold);
   if (contenders.length === 0) return null;
   return scoreAgainst(roster, contenders, context)[0].player;
 }
@@ -1148,7 +1158,7 @@ export function completeOwnRoster(
     const pick = basePolicyPick(out, available, league, [
       ...opponentUnfilledSlots,
       ...ownUnfilledSlots(out, league.slots),
-    ]);
+    ], { picksRemaining: Math.min(picksLeft - i, (rosterSize ?? Infinity) - out.length) });
     if (pick === null) break;
     out.push(pick);
     available = available.filter((p) => p.id !== pick.id);
@@ -1218,7 +1228,12 @@ function continueDraft(
       }
       pick = available;
     } else {
-      pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
+      const nextOwn = Math.min(...remainingPicks[team]);
+      const opponentsBeforeNext = order.filter((square) => square.pick > overall && square.pick < nextOwn && square.team !== team).length;
+      pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat(), {
+        picksRemaining: Math.min(remainingPicks[team].length + 1, limits[team] - rosters[team].length),
+        opponentsBeforeNext,
+      });
     }
     if (team === state.myTeamIndex) firstOwnTurn = false;
     if (pick === null) break;
@@ -1242,7 +1257,12 @@ function continueDraft(
 /** Preseason cut assumption: preserve the mean-optimal starters, then highest-value depth. */
 export function trimDraftRoster(roster: readonly PlayerRisk[], limit: number, slots: readonly RosterSlot[]): PlayerRisk[] {
   if (roster.length <= limit) return [...roster];
-  const starters = new Set(solveLineup(slots, roster.map(toCompetitor)).assignments.map((a) => a.competitorId));
+  // Maximize cardinality before value, including when a required position's mean is
+  // negative. Otherwise a preseason cut can discard the only legal starter.
+  const bonus = 1 + 2 * roster.reduce((sum, player) => sum + Math.abs(marketValue(player)), 0);
+  const starters = new Set(solveLineup(slots, roster.map((player) => ({
+    ...toCompetitor(player), projectedPoints: marketValue(player) + bonus,
+  }))).assignments.map((a) => a.competitorId));
   return [...roster].sort((a, b) => Number(starters.has(b.id)) - Number(starters.has(a.id)) ||
     marketValue(b) - marketValue(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, limit);
 }
@@ -1320,7 +1340,18 @@ export function recommendByChampionship(
   // are written widest first: the market gate applies to every position inside the
   // audited window, the streamable rules to the two positions the model does not project,
   // and the outbid rule to one position at one turn.
-  const scored = scoreCandidates(me.roster, state.available, league, leagueUnfilled);
+  const nextOwn = [...me.remainingPicks].sort((a, b) => a - b)[1] ?? Infinity;
+  const guard = guardDraftCompletion(me.roster, state.available, config.slots,
+    Math.min(me.remainingPicks.length, (me.draftRosterSize ?? state.rosterSize) - me.roster.length),
+    state.teams.flatMap((team, index) => index === state.myTeamIndex ? [] : team.remainingPicks).filter((pick) => pick < nextOwn).length,
+  );
+  if (!guard.canComplete) throw new Error(
+    `No legal draft completion: ${guard.missingStarters} required starter slots remain, ` +
+    `but the available valued players and owned picks cannot fill them.`,
+  );
+  const eligible = new Set(guard.candidates.map((player) => player.id));
+  const scored = scoreCandidates(me.roster, state.available, league, leagueUnfilled)
+    .filter((entry) => eligible.has(entry.player.id));
   const round = currentRoundOf(state);
   const gated = applyOutbidDiscipline(
     applyStreamableDiscipline(applyMarketGate(scored, round), {
@@ -1359,16 +1390,24 @@ export function recommendByChampionship(
   };
   const evaluate = (
     forced: PlayerRisk | null,
-  ): { outcome: TeamOutcome; titleByScenario: boolean[] } => {
+  ): { outcome: TeamOutcome; titleByScenario: boolean[]; incompleteOpponentTeams: number } | null => {
     const rosters = completeDraft(state, league, forced);
+    const incomplete = rosters.map((roster) => filledStarterCount(
+      trimDraftRoster(roster, state.rosterSize, config.slots), config.slots,
+    ) < config.slots.length);
+    if (incomplete[state.myTeamIndex]) return null;
     const scores = rosters.map(scoresFor);
-    return championshipScenarios(
+    return { ...championshipScenarios(
       scores[state.myTeamIndex],
       scores.filter((_, index) => index !== state.myTeamIndex),
       config,
-    );
+    ), incompleteOpponentTeams: incomplete.filter((missing, index) => missing && index !== state.myTeamIndex).length };
   };
-  const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
+  const evaluated = shortlist.flatMap((player) => {
+    const result = evaluate(player);
+    return result === null ? [] : [{ player, ...result }];
+  });
+  if (evaluated.length === 0) throw new Error("No legal candidate continuation: the simulated league leaves required starter slots empty.");
 
   // What `deltaVsBaseline` is measured against — and the gate moves it.
   //
@@ -1393,7 +1432,8 @@ export function recommendByChampionship(
   // index below would otherwise be an unguarded read of a possibly-empty array, which is
   // a worse thing to leave to a future edit than a branch no input reaches.
   const baseline =
-    gateWithheld && evaluated.length > 0 ? evaluated[0] : evaluate(null);
+    gateWithheld ? evaluated.find((entry) => entry.player.id === shortlist[0].id) ?? null : evaluate(null);
+  if (baseline === null) throw new Error("No legal default-policy continuation: title comparisons are unavailable because required starter slots remain empty in the simulated league.");
 
   // The leader is the empirical maximum over these same scenarios. That is a choice made
   // *with* the data, and it is why every `vsLeader` interval is labelled descriptive rather
@@ -1429,10 +1469,12 @@ export function recommendByChampionship(
   );
 
   const ranked = evaluated
-    .map(({ player, outcome, titleByScenario }) => {
+    .map(({ player, outcome, titleByScenario, incompleteOpponentTeams }) => {
       const p = outcome.championshipProbability;
       return {
         player,
+        incompleteOpponentTeams,
+        incompleteBaselineOpponentTeams: baseline.incompleteOpponentTeams,
         // Both rounded, so `delta <= probability` is exact rather than nearly exact. With
         // an unrounded probability and a rounded delta, a zero baseline makes the delta
         // `round4(p)`, which can exceed `p` by 5e-5 — and the test asserting that relation
