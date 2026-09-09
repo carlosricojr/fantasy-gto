@@ -15,6 +15,12 @@ export interface WeeklyPlayer {
   projectionOrigin?: "model" | "manual";
   projectionMissingReason?: string | null;
   projectionEnteredAt?: number;
+  team?: string | null;
+  gameId?: string | null;
+  gameContextConflict?: boolean;
+  /** Per-player evidence survives roster-only refreshes even when no model values do. */
+  nflverseAvailability?: WeeklyAvailability;
+  modelGameContextChecked?: boolean;
 }
 
 export interface WeeklyModelEvidence {
@@ -43,6 +49,7 @@ export interface WeeklyLineupSnapshot {
   /** Source limitations travel with imported estimates and cannot be cleared by entry. */
   warnings?: readonly string[];
   model?: WeeklyModelEvidence;
+  refreshFailed?: boolean;
 }
 
 export interface WeeklyAssignment {
@@ -85,6 +92,7 @@ export function planWeeklyLineup(
   const warnings: string[] = [...(snapshot.warnings ?? [])];
   const result: WeeklyLineupPlan = { status: "blocked", problems, warnings, assignments: [], projectedPoints: null, currentProjectedPoints: null, gain: null, excludedSlotIds: [], excludedPlayerIds: [], benchIds: [] };
   const { slots, players } = snapshot;
+  if (snapshot.refreshFailed) problems.push("The latest roster refresh failed. Refresh successfully before using a lineup recommendation; entered values are retained.");
   if (!Number.isInteger(snapshot.season) || snapshot.season < 2000 || !Number.isInteger(snapshot.week) || snapshot.week < 1 || snapshot.week > 18) problems.push("Invalid season or regular-season week.");
   if (!snapshot.scoringId || !snapshot.source) problems.push("Exact scoring identity and projection source are required.");
   if (!Number.isFinite(options.now) || !Number.isFinite(options.maxProjectionAgeMs) || !Number.isFinite(options.maxRosterAgeMs) || options.maxProjectionAgeMs <= 0 || options.maxRosterAgeMs <= 0) problems.push("Invalid clock or freshness limits.");
@@ -116,6 +124,7 @@ export function planWeeklyLineup(
   const slotById = new Map(slots.map((s) => [s.id, s]));
   const occupant = new Map<string, WeeklyPlayer>();
   for (const player of players) {
+    if (player.gameContextConflict) problems.push(`${player.name}: team or kickoff changed between sources. Refresh before moving this player.`);
     if (player.projectionOrigin === "manual" && player.projectedPoints !== null) checkTime(player.projectionEnteredAt ?? NaN, options.maxProjectionAgeMs, `${player.name}'s manual estimate`);
     if (!player.id || player.positions.length === 0 || !STATUSES.has(player.availability)) problems.push(`${player.name}: player identity, position, or status is invalid.`);
     if (player.projectedPoints !== null && (!Number.isFinite(player.projectedPoints) || Math.abs(player.projectedPoints) > 10000)) problems.push(`${player.name}: invalid projected points.`);
@@ -159,14 +168,19 @@ export function planWeeklyLineup(
       fixed.set(player.currentSlotId!, { slotId: player.currentSlotId!, playerId: player.id, points: held ? null : UNAVAILABLE.has(player.availability) ? 0 : player.projectedPoints, fixed: true });
       continue;
     }
-    // Started bench players remain benched, even if they project above a starter.
-    if (started || UNAVAILABLE.has(player.availability) || heldUnpricedIds.has(player.id)) continue;
-    const relevantSlots = slots.filter((s) => !excluded.has(s.id) && eligible(s, player));
+  }
+  for (const slot of excludedSlots) if (!fixed.has(slot.id)) fixed.set(slot.id, { slotId: slot.id, playerId: null, points: null, fixed: true });
+  const fixedIds = new Set([...fixed.values()].map((a) => a.playerId));
+  // Only after every fixed slot is known can we decide whether a missing bench
+  // projection affects an open slot. Input order cannot change that decision.
+  for (const player of players) {
+    const started = player.kickoffAt !== null && player.kickoffAt <= options.now;
+    if (fixedIds.has(player.id) || started || UNAVAILABLE.has(player.availability) || heldUnpricedIds.has(player.id)) continue;
+    const relevantSlots = slots.filter((s) => !fixed.has(s.id) && eligible(s, player));
     if (relevantSlots.length === 0) continue;
     if (player.projectedPoints === null) problems.push(`${player.name}: missing exact weekly projection.`);
     else candidates.push(player);
   }
-  for (const slot of excludedSlots) if (!fixed.has(slot.id)) fixed.set(slot.id, { slotId: slot.id, playerId: null, points: null, fixed: true });
   if (options.compareAvailableEstimates && candidates.length === 0 && ![...fixed.values()].some((a) => a.points !== null)) problems.push("No valued players remain in this comparison.");
   if (problems.length > 0) return result;
 

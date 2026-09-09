@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { importSleeperLineup } from "@/lib/sources/sleeper-lineup";
 import { generateNflverseWeeklyProjections } from "@/lib/sources/nflverse-weekly-projections";
 import { sleeperScoringFromId } from "@/lib/nfl/scoring/sleeper";
+import { applyWeeklyModel } from "@/lib/nfl/weekly-lineup-inputs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,11 +22,7 @@ export async function GET(request: NextRequest) {
       if (!profile) throw new Error("Imported scoring identity is invalid.");
       const result = await generateNflverseWeeklyProjections({ season: snapshot.season, week, profile, playerIds: snapshot.players.map((p) => p.id), now: Date.now() });
       if (!result.ok) snapshot = { ...snapshot, warnings: [...(snapshot.warnings ?? []), `Automatic estimates unavailable: ${result.reason}. You can enter weekly expected points manually.`] };
-      else {
-        const estimates = new Map(result.data.players.map((p) => [p.playerId, p]));
-        snapshot = { ...snapshot, source: result.data.source, retrievedAt: result.data.computedAt, model: result.data,
-          players: snapshot.players.map((p) => ({ ...p, projectedPoints: estimates.get(p.id)?.points ?? null, projectionOrigin: "model", projectionMissingReason: estimates.get(p.id)?.reason ?? null })) };
-      }
+      else snapshot = applyWeeklyModel(snapshot, result.data);
     }
     return NextResponse.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {

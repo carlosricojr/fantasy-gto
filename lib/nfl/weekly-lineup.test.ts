@@ -44,6 +44,14 @@ describe("weekly lineup decision safety", () => {
     expect(result.projectedPoints).toBeNull();
   });
 
+  it("an unpriced bench player cannot block a slot already occupied by a locked starter", () => {
+    const data = snapshot([player("missing-qb", null, { positions: ["QB"] }), player("locked-qb", 20, { positions: ["QB"], currentSlotId: "qb", kickoffAt: now }), player("rb", 10)], { slots: [{ id: "qb", label: "QB", eligiblePositions: ["QB"] }, rb] });
+    const result = planWeeklyLineup(data, options);
+    expect(result.status).toBe("ready");
+    expect(result.projectedPoints).toBe(30);
+    expect(planWeeklyLineup({ ...data, players: [...data.players].reverse() }, options)).toEqual(result);
+  });
+
   it("rejects oversized state spaces before solving", () => {
     expect(planWeeklyLineup(snapshot([], { slots: Array.from({ length: 13 }, (_, i) => ({ ...rb, id: `slot${i}` })) }), options).status).toBe("blocked");
     expect(planWeeklyLineup(snapshot(Array.from({ length: 33 }, (_, i) => player(`p${i}`, 10))), options).status).toBe("blocked");
@@ -92,6 +100,12 @@ describe("weekly lineup decision safety", () => {
     expect(result.problems.some((p) => p.includes("manual estimate"))).toBe(true);
   });
 
+  it("blocks a failed latest refresh even when the retained snapshot is within its age limit", () => {
+    const result = planWeeklyLineup(snapshot([player("a", 10), player("b", 12)], { refreshFailed: true }), options);
+    expect(result.status).toBe("blocked");
+    expect(result.problems.some((p) => p.includes("latest roster refresh failed"))).toBe(true);
+  });
+
   it("refuses to hide an unpriced flexible-position tradeoff", () => {
     const result = planWeeklyLineup(snapshot([player("missing", null, { currentSlotId: "flex" })]), { ...options, holdUnpricedPositions: ["RB"] });
     expect(result.status).toBe("blocked");
@@ -103,6 +117,7 @@ describe("weekly lineup decision safety", () => {
     }
     expect(planWeeklyLineup(snapshot([player("a", 10, { currentSlotId: "rb" }), player("b", 10, { currentSlotId: "rb" })]), options).status).toBe("blocked");
     expect(planWeeklyLineup(snapshot([player("out", 0, { availability: "out", currentSlotId: "rb", kickoffAt: null })]), options).status).toBe("blocked");
+    expect(planWeeklyLineup(snapshot([player("conflict", 10, { gameContextConflict: true })]), { ...options, compareAvailableEstimates: true }).status).toBe("blocked");
   });
 
   it("distinguishes retrieval from source freshness and invalidates at the configured boundaries", () => {

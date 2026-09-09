@@ -1,8 +1,8 @@
 import type { WeeklyAvailability, WeeklyLineupSnapshot } from "../nfl/weekly-lineup";
 import { parseSleeperScoring } from "../nfl/scoring/sleeper";
 import { SLOT_ELIGIBILITY } from "../nfl/roster";
-import { normalizeTeam } from "../nfl/teams";
 import { teamByeWeeks } from "../nfl/byes";
+import { resolveWeeklyRosterTeam } from "../nfl/weekly-lineup-inputs";
 import { NflverseProvider, httpTextFetcher, schedulesUrl, type TextFetcher } from "./nflverse";
 import { leagueUrl, playersUrl } from "./sleeper";
 
@@ -93,22 +93,22 @@ export async function importSleeperLineup(request: { leagueId: string; ownerId: 
   const state = object(JSON.parse(stateRaw));
   if (Number(state.season) !== snapshot.season || state.week !== snapshot.week) throw new Error("Live starters can only be imported for Sleeper's current season and week. Historical or future snapshots must identify their own starting lineup.");
   const provider = new NflverseProvider(fetchText);
-  const schedule = await provider.allContests();
+  const [schedule, identities, weekly] = await Promise.all([provider.allContests(), provider.draftRoster(snapshot.season), provider.weeklyRoster(snapshot.season)]);
   if (!schedule.ok) throw new Error(`Schedule unavailable: ${schedule.reason}`);
+  if (!identities.ok) throw new Error(`Player identity bridge unavailable: ${identities.reason}`);
+  if (!weekly.ok) throw new Error(`Current weekly teams unavailable: ${weekly.reason}`);
   const seasonGames = schedule.data.filter((g) => g.period.season === snapshot.season);
   const weekGames = seasonGames.filter((g) => g.period.index === snapshot.week);
   if (weekGames.length === 0) throw new Error("No games were found for this season and week.");
   const byes = teamByeWeeks(seasonGames, snapshot.season);
-  const rawPlayers = object(directory);
   const players = snapshot.players.map((player) => {
-    const raw = object(rawPlayers[player.id]);
-    const team = normalizeTeam(typeof raw.team === "string" ? raw.team : null);
+    const team = resolveWeeklyRosterTeam(player.id, player.positions, snapshot.season, snapshot.week, identities.data.entries, weekly.data.entries);
     const games = weekGames.filter((game) => game.homeTeam === team || game.awayTeam === team);
     const kickoff = games.length === 1 && games[0].startsAt !== null ? Date.parse(games[0].startsAt) : null;
     // A missing row in a potentially partial schedule is not enough evidence of a bye.
     const fullTeamSchedule = seasonGames.filter((g) => g.homeTeam === team || g.awayTeam === team).length === 17;
     const availability = team !== null && fullTeamSchedule && byes.get(team) === snapshot.week ? "bye" as const : player.availability;
-    return { ...player, availability, kickoffAt: kickoff !== null && Number.isFinite(kickoff) ? kickoff : null };
+    return { ...player, availability, team, gameId: games.length === 1 ? games[0].id : null, kickoffAt: kickoff !== null && Number.isFinite(kickoff) ? kickoff : null };
   });
   return { ...snapshot, players, warnings: ["Player designations come from Sleeper's directory, cached for up to one day per its API guidance. Verify current injuries and the final inactive list before setting a lineup."] };
 }

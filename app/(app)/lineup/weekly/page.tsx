@@ -47,7 +47,10 @@ export default function WeeklyLineupPage() {
       setSnapshot(merged.snapshot);
       if (!merged.sameContext) { setPublication(""); setCompareAvailable(false); setHoldUnpriced(false); }
       setNow(Date.now());
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed."); }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Import failed.");
+      if (prior !== null) setSnapshot({ ...prior, refreshFailed: true });
+    }
     finally { setBusy(false); }
   }
 
@@ -95,8 +98,10 @@ export default function WeeklyLineupPage() {
         <td className="p-3">{player.availability}<div className="text-xs text-muted-foreground">{player.kickoffAt === null ? "No verified kickoff" : `${new Date(player.kickoffAt).toLocaleString()}${player.kickoffAt <= now ? " · Locked" : ""}`}</div></td>
         <td className="p-3"><Input className="min-w-24" type="number" step="0.01" aria-label={`Expected points for ${player.name}`} value={player.projectedPoints ?? ""} onChange={(e) => {
           const value = e.target.value;
-          setSnapshot((old) => old === null ? null : { ...old, players: old.players.map((p) => p.id === player.id ? { ...p, projectedPoints: value === "" ? null : Number(value), projectionOrigin: "manual", projectionMissingReason: null, projectionEnteredAt: Date.now() } : p) });
-        }} /><div className="mt-1 max-w-56 text-xs text-muted-foreground">{player.projectionOrigin === "manual" ? "Manual override" : player.projectedPoints === null ? player.projectionMissingReason ?? "No estimate supplied" : "Model estimate · see source limits"}</div></td>
+          const enteredAt = Date.now();
+          setNow(enteredAt);
+          setSnapshot((old) => old === null ? null : { ...old, players: old.players.map((p) => p.id === player.id ? { ...p, projectedPoints: value === "" ? null : Number(value), projectionOrigin: "manual", projectionMissingReason: null, projectionEnteredAt: enteredAt } : p) });
+        }} /><div className="mt-1 max-w-56 text-xs text-muted-foreground">{player.projectedPoints === null ? player.projectionMissingReason ?? (player.projectionOrigin === "manual" ? "Manual override cleared" : "No estimate supplied") : player.projectionOrigin === "manual" ? "Manual override" : "Model estimate · see source limits"}</div></td>
       </tr>)}</tbody></table></div>
       <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={holdUnpriced} onChange={(e) => setHoldUnpriced(e.target.checked)} />Hold unpriced K and D/ST in their current slots; compare only the other positions.</label>
       <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={compareAvailable} onChange={(e) => setCompareAvailable(e.target.checked)} />Compare incomplete estimates. Keep every unpriced player in their current place, and exclude their values and omitted scoring terms from the comparison.</label>

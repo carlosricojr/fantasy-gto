@@ -3,7 +3,7 @@
 `/lineup/weekly` imports a Sleeper league's current roster, ordered starters, exact
 scoring coefficients, fantasy position eligibility and player designations. Its
 server route reads only the documented league, rosters, players and NFL state APIs,
-plus nflverse's schedule. It does not request Sleeper projections, write to Convex,
+plus nflverse's schedule and current roster identity inputs. It does not request Sleeper projections, write to Convex,
 or submit a lineup. This workflow is for the owner's personal leagues; it does not
 establish permission for commercial redistribution of any source.
 
@@ -22,6 +22,12 @@ Each row identifies its origin and any missing-estimate reason. The model's scor
 omissions and PPR calibration limitation remain immutable metadata, and unknown
 source publication times cannot be replaced with a manual date.
 
+Where the nflverse helper supplies a current roster or injury designation, the
+planner combines it conservatively with the directory: an Out or inactive player
+is excluded, an unknown status blocks advice, and a missing injury row cannot clear
+another source's Questionable or Doubtful designation. Fantasy reserve and bye
+statuses remain authoritative for their own exclusions.
+
 Users can enter weekly expected points under the displayed scoring rules, replacing
 individual model rows with manual overrides. A blank estimate stays missing. It
 cannot be replaced with a season
@@ -37,7 +43,12 @@ unsupported starter slots and custom scoring rules, and preserves the provider's
 starter order. Best ball and automatic substitution settings are unsupported. Schedule
 gaps do not become byes: a bye requires a complete 17-game team schedule and one
 unplayed week. Unknown kickoff or availability blocks advice where it could affect
-an available player's eligibility or an occupied slot's lock.
+an available player's eligibility or an occupied slot's lock. Kickoff team identity
+comes from the current nflverse weekly roster joined through its full season player
+catalog, including reserves. A cached Sleeper team is not used for locks. A unique
+active transaction destination wins over the prior team; conflicting active rows
+remain unresolved. When the model and import expose different team/game/kickoff
+contexts, the comparison blocks until a consistent refresh resolves them.
 
 `planWeeklyLineup` is a pure subset dynamic program for at most 12 starting slots
 and 32 rostered players; larger requests fail before the state search begins. It
@@ -69,15 +80,18 @@ full-scoring expectation. With no valued players to compare, the result stays bl
 
 Refresh preserves entered estimates only when league ID, owner ID, season, week and
 exact scoring identity match. Automatic values refresh; manual overrides and their
-original entry times persist, including an explicitly cleared value. New roster
+original entry times persist, including an explicitly cleared value. A changed team,
+game, or kickoff clears that player's retained manual estimate and asks for a new
+weekly value. New roster
 players use their own available estimates; departed players are removed. Refresh
 does not advance manual entry time or the source publication time. The browser
-clock updates every second and on focus so a comparison expires and locks advance
+retains entered values after a failed refresh but blocks recommendations until a
+refresh succeeds. The browser clock updates every second and on focus so a comparison expires and locks advance
 while the screen remains open. No point entries are persisted across browser reloads.
 
 On September 9, 2026, a direct read through the production import function resolved
-the requested league `1389387330229374976` and owner `1260318953792602112` to 16
-players and 10 starting slots for 2026 week 1. Every rostered player joined a kickoff;
+the owner's requested league to 16 players and 10 starting slots for 2026 week 1.
+Every rostered player joined a kickoff;
 Michael Pittman's designation was Questionable. These are dated source observations,
 not permanent availability assertions.
 
