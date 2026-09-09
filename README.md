@@ -17,6 +17,7 @@ pnpm backtest -- --holdout # scores the holdout and rewrites the published figur
 pnpm backtest -- --sweeps  # reproduce how each parameter was chosen
 pnpm verify-sources        # reproduce every measured figure in docs/data-sources.md
 pnpm identity-coverage     # audit live Sleeper-to-board player identity coverage
+pnpm coverage-audit        # fixed experimental coverage study; development/tuning only
 pnpm dev                   # Next.js + Convex
 ```
 

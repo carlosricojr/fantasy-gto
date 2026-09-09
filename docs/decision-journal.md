@@ -1,5 +1,7 @@
 # Private weekly decision journal
 
+The foundation in PR #135 supplied pure record validation/evaluation and a read-only outcome adapter. This dependent workflow release adds the authenticated private backend, server receipt clock, saved-history UI and bounded retention. A caller-supplied clock alone is not evidence of server receipt.
+
 The journal freezes the imported roster, current starters, supplied estimates, scoring identity, source limitations, comparison choices, and recomputed recommendation. Receipt time is assigned by the server. Inputs remain explicitly **user supplied**: a server timestamp proves when the app received them, not that forecasts or league state were independently authenticated.
 
 The baseline is the starting lineup present when the decision was recorded. Evaluation scores those two frozen lineups; it never optimizes after seeing the results. Unpriced held slots are excluded from both totals. A positive realized difference describes this decision only, not a proven forecasting or championship advantage. Multiple records for the same week are revisions, not independent trials; no aggregate performance claim is made.

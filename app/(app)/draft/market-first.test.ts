@@ -1,5 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { DraftEvidencePanel } from "./evidence-panel";
+import DraftEvidencePage from "./evidence/page";
 import { describe, expect, it } from "vitest";
 import type { DraftPolicyState } from "@/lib/core/draft-policy";
 import type { PlayerRisk } from "@/lib/core/roster-utility";
@@ -13,6 +15,25 @@ function state(): DraftPolicyState {
 }
 
 describe("immediate market comparator", () => {
+  it("connects the visible experimental status to an accessible in-app evidence summary", () => {
+    const panel = renderToStaticMarkup(createElement(DraftEvidencePanel));
+    expect(panel).toContain('aria-label="Draft strategy evidence"');
+    expect(panel).toContain("Experimental · not promoted");
+    expect(panel).toContain("recommendation list still ranks by experimental simulation");
+    expect(panel).toContain('href="/draft/evidence"');
+    const summary = renderToStaticMarkup(createElement(DraftEvidencePage));
+    expect(summary).toContain("descriptive diagnostic, not a proven drafting edge");
+    expect(summary).toContain("reserved 2025 outcomes were not evaluated");
+    expect(summary).toContain("Needed:");
+    expect(summary).toContain("What we still need to prove");
+    expect(summary).toContain("deserves more trust than the simple alternatives");
+    expect(summary).toContain("Technical review requirements");
+    expect(summary.indexOf("Gate version:")).toBeGreaterThan(summary.indexOf("<details"));
+    expect(summary).not.toContain("Met:");
+    expect(summary).toContain("Browser/mobile latency within the registered budget");
+    expect(summary).toContain("does not automatically promote");
+    expect(summary).toContain('href="/draft"');
+  });
   it("sorts by actual ADP without ranking null ahead of priced players", () => {
     const current = state(); current.available.push(player("unpriced", "WR", null));
     expect(marketFirstOption(current, slots)?.id).toBe("cheap");
