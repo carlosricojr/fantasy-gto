@@ -24,6 +24,60 @@ function inputs(): NflverseWeeklyInputs {
   };
 }
 describe("nflverse personal weekly estimates", () => {
+  it("keeps conditional-on-active forecasts behind an explicit opt-in and separate value", () => {
+    const data = inputs();
+    data.injuries = [];
+    for (const includeConditionalEstimates of [undefined, false]) {
+      const row = buildNflverseWeeklyEstimates({ ...request, includeConditionalEstimates }, data).players[0];
+      expect(row.points).toBeNull();
+      expect(row.conditionalEstimate).toBeUndefined();
+    }
+    const result = buildNflverseWeeklyEstimates({ ...request, includeConditionalEstimates: true }, data);
+    expect(result.players[0]).toMatchObject({ points: null, availability: "active", injuryCoverage: "unavailable",
+      conditionalEstimate: { points: expect.any(Number), condition: "active-at-kickoff", missingEvidence: "team-injury-report" } });
+    expect(result.coverage.projected).toBe(0);
+    expect(result.excludedRules).toEqual(["st_ff"]);
+    expect(result.warnings.some(warning => warning.includes("not availability-adjusted"))).toBe(true);
+    const covered = buildNflverseWeeklyEstimates({ ...request, includeConditionalEstimates: true }, inputs());
+    expect(covered.players[0].points).not.toBeNull();
+    expect(covered.players[0].conditionalEstimate).toBeUndefined();
+  });
+  it.each(["no identity", "ambiguous identity", "unknown roster", "out", "unknown injury", "little history", "old history", "started", "unknown kickoff", "no game", "kicker", "unsupported scoring"])("does not issue conditional forecasts with %s", cause => {
+    const data = inputs();
+    data.injuries = [];
+    let profile = request.profile;
+    if (cause === "no identity") data.roster = [];
+    if (cause === "ambiguous identity") data.roster = [...data.roster, { ...data.roster[0], playerId: "other" }];
+    if (cause === "unknown roster") data.weeklyRoster = [{ ...data.weeklyRoster[0], status: "unknown" }];
+    if (cause === "out" || cause === "unknown injury") data.injuries = [{ season: 2026, week: 1, playerId: "gsis-1",
+      name: "Test TE", position: "TE", team: "GB", gameStatus: cause === "out" ? "out" : "unknown",
+      practiceStatus: "none", primaryInjury: "Knee", dateModified: null }];
+    if (cause === "little history") data.history = data.history.slice(0, 3);
+    if (cause === "old history") data.history = data.history.map(row => ({ ...row, period: { season: 2024, index: row.period.index } }));
+    if (cause === "started") data.contests = [{ ...data.contests[0], startsAt: "2026-09-08T00:00:00Z" }];
+    if (cause === "unknown kickoff") data.contests = [{ ...data.contests[0], startsAt: null }];
+    if (cause === "no game") data.contests = [];
+    if (cause === "kicker") data.weeklyRoster = [{ ...data.weeklyRoster[0], position: "K" }];
+    if (cause === "unsupported scoring") {
+      const parsed = parseSleeperScoring({ st_ff: 1 });
+      if (!parsed.ok) throw new Error("Bad fixture");
+      profile = parsed.profile;
+    }
+    const row = buildNflverseWeeklyEstimates({ ...request, profile, includeConditionalEstimates: true }, data).players[0];
+    expect(row.points).toBeNull();
+    expect(row.conditionalEstimate).toBeUndefined();
+  });
+  it("retains signed conditional values without promoting them to ordinary points", () => {
+    const parsed = parseSleeperScoring({ rec_yd: -0.1, rec_td: 0.01 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    const data = inputs();
+    data.injuries = [];
+    const opted = { ...request, profile: parsed.profile, includeConditionalEstimates: true };
+    expect(buildNflverseWeeklyEstimates(opted, data).players[0].conditionalEstimate?.points).toBeLessThan(0);
+    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0, receivingTds: 0 },
+      usage: { ...row.usage, targets: 0 } }));
+    expect(buildNflverseWeeklyEstimates(opted, data).players[0]).toMatchObject({ points: null, conditionalEstimate: { points: 0 } });
+  });
   it("generates an estimate under imported offensive coefficients and names every omitted rule", () => {
     const result = buildNflverseWeeklyEstimates(request, inputs());
     expect(result.players[0].points).toBeGreaterThan(10);

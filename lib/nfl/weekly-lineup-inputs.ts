@@ -1,4 +1,4 @@
-import type { WeeklyAvailability, WeeklyLineupSnapshot, WeeklyModelEvidence } from "./weekly-lineup";
+import type { WeeklyAvailability, WeeklyConditionalEstimate, WeeklyLineupSnapshot, WeeklyModelEvidence } from "./weekly-lineup";
 import type { WeeklyRosterEntry } from "./weekly-roster";
 import { normalizeTeam } from "./teams";
 
@@ -18,7 +18,7 @@ export interface WeeklyModelResponse extends WeeklyModelEvidence {
   season: number;
   week: number;
   scoringId: string;
-  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; injuryCoverage?: "available" | "unavailable"; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
+  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; injuryCoverage?: "available" | "unavailable"; conditionalEstimate?: WeeklyConditionalEstimate; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
 }
 
 /** Absence of an injury row does not clear a designation another source reported. */
@@ -35,6 +35,7 @@ export function applyWeeklyModel(snapshot: WeeklyLineupSnapshot, model: WeeklyMo
   const estimates = new Map(model.players.map((p) => [p.playerId, p]));
   if (estimates.size !== snapshot.players.length || estimates.size !== model.players.length || snapshot.players.some((p) => !estimates.has(p.id))) throw new Error("Model response does not match the imported roster.");
   if (model.players.some((p) => p.points !== null && !Number.isFinite(p.points))) throw new Error("Model response contains invalid expected points.");
+  if (model.players.some((p) => p.conditionalEstimate !== undefined && (!Number.isFinite(p.conditionalEstimate.points) || p.conditionalEstimate.condition !== "active-at-kickoff" || p.conditionalEstimate.missingEvidence !== "team-injury-report" || p.injuryCoverage !== "unavailable" || p.points !== null))) throw new Error("Model response contains invalid conditional forecast evidence.");
   const evidence: WeeklyModelEvidence = { source: model.source, computedAt: model.computedAt, providerUpdatedAt: model.providerUpdatedAt, excludedRules: [...model.excludedRules], warnings: [...model.warnings], coverage: { requested: model.players.length, projected: model.players.filter((p) => p.points !== null).length } };
   return { ...snapshot, source: model.source, retrievedAt: model.computedAt, model: evidence, players: snapshot.players.map((p) => {
     const estimate = estimates.get(p.id)!;
@@ -42,7 +43,18 @@ export function applyWeeklyModel(snapshot: WeeklyLineupSnapshot, model: WeeklyMo
       || (estimate.gameId !== undefined && p.gameId !== undefined && estimate.gameId !== p.gameId)
       || (estimate.kickoffAt !== undefined && estimate.kickoffAt !== p.kickoffAt);
     const modelGameContextChecked = estimate.team !== undefined && estimate.gameId !== undefined && estimate.kickoffAt !== undefined;
-    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, injuryCoverage: estimate.injuryCoverage, gameContextConflict, modelGameContextChecked };
+    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", conditionalEstimate: estimate.conditionalEstimate, projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, injuryCoverage: estimate.injuryCoverage, gameContextConflict, modelGameContextChecked };
+  }) };
+}
+
+/** A reversible view only: ordinary missing points and manual overrides stay intact. */
+export function selectWeeklyConditionalEstimates(snapshot: WeeklyLineupSnapshot, enabled: boolean, now: number): WeeklyLineupSnapshot {
+  if (!enabled) return snapshot;
+  return { ...snapshot, players: snapshot.players.map((p) => {
+    if (p.projectionOrigin === "manual" || p.projectedPoints !== null || p.conditionalEstimate === undefined
+      || p.injuryCoverage !== "unavailable" || !["active", "questionable", "doubtful"].includes(p.availability)
+      || p.kickoffAt === null || p.kickoffAt <= now || p.gameContextConflict) return p;
+    return { ...p, projectedPoints: p.conditionalEstimate.points, projectionOrigin: "model-conditional", projectionMissingReason: null };
   }) };
 }
 

@@ -114,6 +114,20 @@ describe("weekly lineup decision safety", () => {
     expect(conditional.warnings.some((w) => w.includes("not injury clearance"))).toBe(true);
   });
 
+  it("provisional forecast comparisons need both consents and retain model provenance and limitations", () => {
+    const data = snapshot([player("a", 10, { projectionOrigin: "model-conditional", injuryCoverage: "unavailable", conditionalEstimate: { points: 10, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } }), player("b", 12)], { model: { source: "test", computedAt: now, providerUpdatedAt: null, excludedRules: ["st_ff"], warnings: [], coverage: { requested: 2, projected: 0 } } });
+    expect(planWeeklyLineup(data, { ...options, compareAvailableEstimates: true }).status).toBe("blocked");
+    expect(planWeeklyLineup(data, { ...options, allowConditionalEstimates: true }).status).toBe("blocked");
+    const consent = { ...options, allowConditionalEstimates: true, compareAvailableEstimates: true };
+    const result = planWeeklyLineup(data, consent);
+    expect(result.status).toBe("conditional");
+    expect(result.warnings.some((w) => w.includes("not availability-adjusted"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("st_ff"))).toBe(true);
+    expect(planWeeklyLineup({ ...data, model: undefined }, consent).status).toBe("blocked");
+    expect(planWeeklyLineup({ ...data, model: { ...data.model!, computedAt: now - 10001 } }, consent).status).toBe("blocked");
+    expect(planWeeklyLineup({ ...data, players: data.players.map((p) => ({ ...p, conditionalEstimate: undefined })) }, consent).status).toBe("blocked");
+  });
+
   it("refuses to hide an unpriced flexible-position tradeoff", () => {
     const result = planWeeklyLineup(snapshot([player("missing", null, { currentSlotId: "flex" })]), { ...options, holdUnpricedPositions: ["RB"] });
     expect(result.status).toBe("blocked");

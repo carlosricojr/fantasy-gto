@@ -35,6 +35,23 @@ acknowledging that they must verify the final active list. The per-player covera
 warning survives manual entry and roster-only refreshes. Missing coverage cannot
 clear an earlier observed Out designation; fresh covered injury evidence is required.
 
+An additional, default-off opt-in can request **active-at-kickoff** forecasts for
+otherwise eligible players whose team/week injury report is missing. These pass
+the same identity, active-roster, position, scoring, future-game and recent-history
+gates. They do not appear for known Out/unknown injury status, unsupported K/DST or
+insufficient history. They remain nested conditional evidence: ordinary points stay
+null, and ordinary model coverage does not increase. These forecasts are not
+availability-adjusted expectations.
+
+The browser overlays these values only while the separate provisional-forecast
+checkbox is enabled, gives them a distinct row label, and also requires the existing
+incomplete-comparison consent. Disabling the option removes them immediately without
+changing ordinary missing points or manual overrides. Roster-only refresh does not
+retain the provisional forecasts. They retain all model freshness, scoring-omission,
+injury and kickoff safeguards; a prior observed Out designation cannot be bypassed.
+On September 9, 2026, the source helper returned 2 ordinary and 10 additional
+conditional forecasts for the owner's 16-player roster; the other 4 remained missing.
+
 Users can enter weekly expected points under the displayed scoring rules, replacing
 individual model rows with manual overrides. A blank estimate stays missing. It
 cannot be replaced with a season
@@ -107,3 +124,24 @@ rosters; signed points, multi-position eligibility, starter/bench locks, unavail
 players, unknown inputs, duplicate assignments, freshness, exact custom scoring
 identity and scoped K/DST handling have targeted tests. The underlying projection
 model is unchanged and the reserved 2025 holdout is not evaluated.
+
+## Release verification and remaining friction
+
+September 9 browser QA against a clean local production build exercised ordinary
+import (2/16 estimates, no provisional values), enabling the provisional option and
+refreshing (10 additional labeled forecasts, ordinary coverage still 2/16), and the
+separate incomplete-comparison consent gate. A synthetic manual value survived
+disabling provisional forecasts and a same-context ordinary refresh; another
+provisional row returned to blank immediately. The test value was discarded by
+reloading afterward. A 390px phone viewport had no page-level horizontal overflow;
+the roster remains an intentionally horizontally scrollable table. No Sleeper write
+action exists or was performed.
+
+The shared desktop/mobile Lineup navigation leads to `/lineup`, whose weekly link
+is available even before legacy data loads. My leagues also links to the legacy
+optimizer in its empty state. The weekly route itself does not require sign-in.
+Remaining friction: numeric Sleeper league/user IDs must be entered manually;
+saved dashboard leagues do not prefill this workflow, and browser reloads do not
+persist entered estimates. Provider-ID warnings and named planner warnings can
+duplicate into a long list. Consolidating those warnings and adding a direct
+saved-league handoff are follow-up UX work, not hidden completion claims.

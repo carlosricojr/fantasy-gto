@@ -2,6 +2,12 @@ import type { RosterSlot } from "../core/optimizer";
 
 export type WeeklyAvailability = "active" | "questionable" | "doubtful" | "out" | "inactive" | "bye" | "reserve" | "unknown";
 
+export interface WeeklyConditionalEstimate {
+  points: number;
+  condition: "active-at-kickoff";
+  missingEvidence: "team-injury-report";
+}
+
 export interface WeeklyPlayer {
   id: string;
   name: string;
@@ -10,9 +16,10 @@ export interface WeeklyPlayer {
   /** null means the kickoff is unknown, never that the player has not started. */
   kickoffAt: number | null;
   currentSlotId: string | null;
-  /** Exact expected points under the snapshot scoringId; absent is not zero. */
+  /** Supplied objective value; model/provisional omissions remain explicit. Absent is not zero. */
   projectedPoints: number | null;
-  projectionOrigin?: "model" | "manual";
+  projectionOrigin?: "model" | "model-conditional" | "manual";
+  conditionalEstimate?: WeeklyConditionalEstimate;
   projectionMissingReason?: string | null;
   projectionEnteredAt?: number;
   team?: string | null;
@@ -87,7 +94,7 @@ const cents = (points: number) => Math.round(points * 100);
  */
 export function planWeeklyLineup(
   snapshot: WeeklyLineupSnapshot,
-  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[]; compareAvailableEstimates?: boolean },
+  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[]; compareAvailableEstimates?: boolean; allowConditionalEstimates?: boolean },
 ): WeeklyLineupPlan {
   const problems: string[] = [];
   const warnings: string[] = [...(snapshot.warnings ?? [])];
@@ -107,7 +114,7 @@ export function planWeeklyLineup(
   checkTime(snapshot.retrievedAt, options.maxProjectionAgeMs, "Projection retrieval");
   if (snapshot.projectionUpdatedAt === null) warnings.push("Projection publication time is unknown. Retrieval time does not establish freshness.");
   else checkTime(snapshot.projectionUpdatedAt, options.maxProjectionAgeMs, "Projection publication");
-  const usesModel = players.some((p) => p.projectionOrigin === "model" && p.projectedPoints !== null);
+  const usesModel = players.some((p) => (p.projectionOrigin === "model" || p.projectionOrigin === "model-conditional") && p.projectedPoints !== null);
   if (usesModel) {
     if (!snapshot.model) problems.push("Model estimates have no provenance.");
     else {
@@ -125,6 +132,11 @@ export function planWeeklyLineup(
   const slotById = new Map(slots.map((s) => [s.id, s]));
   const occupant = new Map<string, WeeklyPlayer>();
   for (const player of players) {
+    if (player.projectionOrigin === "model-conditional" && player.projectedPoints !== null) {
+      if (!options.allowConditionalEstimates || !options.compareAvailableEstimates) problems.push(`${player.name}: active-at-kickoff forecasts require both provisional forecast and incomplete-comparison consent.`);
+      if (player.conditionalEstimate?.condition !== "active-at-kickoff" || player.conditionalEstimate.missingEvidence !== "team-injury-report" || player.conditionalEstimate.points !== player.projectedPoints || player.injuryCoverage !== "unavailable") problems.push(`${player.name}: provisional forecast evidence is invalid.`);
+      warnings.push(`${player.name}: forecast assumes active at kickoff; it is not availability-adjusted expected points. The team injury report is missing.`);
+    }
     if (player.injuryCoverage === "unavailable") {
       warnings.push(`${player.name}: current team/week injury-report coverage is unavailable. A manual estimate is not injury clearance; verify the final active list.`);
       if (!options.compareAvailableEstimates) problems.push(`${player.name}: explicitly choose the incomplete-estimates comparison to proceed without verified injury-report coverage.`);

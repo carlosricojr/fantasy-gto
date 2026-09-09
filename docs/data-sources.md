@@ -119,6 +119,18 @@ three special-teams/fumble-return omissions above were present and reported. Thi
 coverage check, not an accuracy evaluation or permission to silently treat omitted rules
 as zero-valued league settings.
 
+The personal weekly adapter also accepts an explicitly requested
+`includeConditionalEstimates: true` mode. It leaves ordinary `points: null` when team
+injury coverage is missing and may separately return
+`conditionalEstimate: { points, condition: "active-at-kickoff", missingEvidence: "team-injury-report" }`.
+This is a forecast **conditional on playing**, not availability-adjusted expected points
+or medical/injury clearance. The default is unchanged. Exact identity, active roster,
+known injury designation, future kickoff, position/scoring support and recent-history
+gates still apply; known Out or unknown designations cannot receive this value. Consumers
+must require separate explicit consent, retain incomplete-data warnings and scoring
+omissions, and never silently promote this value to an ordinary projection. No model
+parameter or history threshold changes in this mode.
+
 ## Runbook: refreshing the draft boards before a draft
 
 The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
