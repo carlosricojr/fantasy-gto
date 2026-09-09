@@ -1,0 +1,2420 @@
+{
+  "measuredAt": "2026-09-09",
+  "protocol": {
+    "kind": "protocol",
+    "diagnosticOnly": true,
+    "cpu": "Apple M4 Max",
+    "runtime": "v24.18.0",
+    "selectionSeed": 20260731,
+    "evaluationSeeds": [
+      19092026,
+      29092026,
+      39092026
+    ],
+    "opponentSeed": 9021026,
+    "scenarios": 600,
+    "candidates": 10,
+    "evaluationScenarios": 1000,
+    "note": "Conditional simulator uncertainty only. Three reused board cases are not independent leagues. Historical actual scoring is one observed season, no probability interval. No reserved 2025 outcome evaluation; live inputs retain frozen production distributions. Raw strict-ADP opponents are a stress test, not a quality claim."
+  },
+  "coldInvocation": {
+    "cpu": "Apple M4 Max",
+    "node": "v24.18.0",
+    "milliseconds": 6265.069292,
+    "keeperCount": 20,
+    "heldPlayerCount": 31,
+    "selectionScenarios": 600,
+    "candidateLimit": 10,
+    "note": "Fresh process first recommendation, excludes module startup; other local CPU workloads active. Browser/mobile latency not measured."
+  },
+  "results": [
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "strict-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 31,
+      "missingStarters": [
+        0,
+        2,
+        1,
+        1,
+        0,
+        1,
+        0,
+        2,
+        0,
+        1
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Ladd McConkey",
+        "Luther Burden III",
+        "Parker Washington",
+        "Tyler Warren",
+        "Jonathon Brooks",
+        "Houston Defense",
+        "MarShawn Lloyd",
+        "Jason Myers",
+        "Detroit Defense",
+        "Cameron Dicker",
+        "Sam Darnold"
+      ],
+      "title": 0.09833333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1496.7966666666669,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "strict-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 32,
+      "missingStarters": [
+        0,
+        2,
+        2,
+        1,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Ladd McConkey",
+        "Joe Burrow",
+        "Tyler Warren",
+        "Seattle Defense",
+        "Jason Myers",
+        "Josh Downs",
+        "Jordan Mason",
+        "De'Zhaun Stribling",
+        "Detroit Defense",
+        "Cameron Dicker",
+        "Jake Bates"
+      ],
+      "title": 0.10633333333333334,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 258,
+        "baselineOnly": 234,
+        "agreed": 2508,
+        "meanDifference": 0.008,
+        "standardError": 0.007393480541542848,
+        "interval": [
+          -0.006496806299261675,
+          0.022496806299261676
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1476.3,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "strict-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 30,
+      "missingStarters": [
+        0,
+        1,
+        2,
+        2,
+        1,
+        0,
+        1,
+        1,
+        0,
+        1
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Breece Hall",
+        "Quinshon Judkins",
+        "David Montgomery",
+        "Jason Myers",
+        "Michael Wilson",
+        "George Kittle",
+        "Jacory Croskey-Merritt",
+        "Jordan Mason",
+        "Jerry Jeudy",
+        "Detroit Defense",
+        "Jake Ferguson",
+        "Sam Darnold"
+      ],
+      "title": 0.14733333333333334,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 384,
+        "baselineOnly": 237,
+        "agreed": 2379,
+        "meanDifference": 0.049,
+        "standardError": 0.008259685676171725,
+        "interval": [
+          0.03280477737549291,
+          0.0651952226245071
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 363,
+        "baselineOnly": 240,
+        "agreed": 2397,
+        "meanDifference": 0.041,
+        "standardError": 0.008152411950267783,
+        "interval": [
+          0.025015114904169897,
+          0.05698488509583011
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1505.4800000000002,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "strict-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 52372,
+      "missingStarters": [
+        0,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        0,
+        1
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Quinshon Judkins",
+        "Tony Pollard",
+        "Jonathon Brooks",
+        "Deebo Samuel Sr.",
+        "George Kittle",
+        "Jacory Croskey-Merritt",
+        "Kenny Gainwell",
+        "Makai Lemon",
+        "Ka'imi Fairbairn",
+        "T.J. Hockenson",
+        "Sam Darnold",
+        "Cleveland Defense"
+      ],
+      "title": 0.102,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 253,
+        "baselineOnly": 242,
+        "agreed": 2505,
+        "meanDifference": 0.0036666666666666666,
+        "standardError": 0.007417132631325627,
+        "interval": [
+          -0.010876515593446883,
+          0.018209848926780216
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 250,
+        "baselineOnly": 263,
+        "agreed": 2487,
+        "meanDifference": -0.004333333333333333,
+        "standardError": 0.0075506784456147,
+        "interval": [
+          -0.01913836625917162,
+          0.010471699592504952
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1459.07,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "needs-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 95,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Ladd McConkey",
+        "Luther Burden III",
+        "Courtland Sutton",
+        "Jaylen Warren",
+        "Brian Thomas Jr.",
+        "Rico Dowdle",
+        "Josh Downs",
+        "Bo Nix",
+        "Travis Kelce",
+        "LA Chargers Defense",
+        "Cam Little"
+      ],
+      "title": 0.028666666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1413.2366666666667,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "needs-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 102,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Ladd McConkey",
+        "Joe Burrow",
+        "Tyler Warren",
+        "Denver Defense",
+        "Harrison Mevis",
+        "Michael Wilson",
+        "Matthew Golden",
+        "Kyle Monangai",
+        "Rashid Shaheed",
+        "Jalen McMillan",
+        "Jordan Love"
+      ],
+      "title": 0.10066666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 282,
+        "baselineOnly": 66,
+        "agreed": 2652,
+        "meanDifference": 0.072,
+        "standardError": 0.006078732076775584,
+        "interval": [
+          0.060081093746446074,
+          0.08391890625355392
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1554.33,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "needs-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 100,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Breece Hall",
+        "Quinshon Judkins",
+        "David Montgomery",
+        "Jason Myers",
+        "Brian Thomas Jr.",
+        "Tony Pollard",
+        "Dallas Goedert",
+        "Josh Downs",
+        "RJ Harvey",
+        "LA Chargers Defense",
+        "Baker Mayfield",
+        "Malik Washington"
+      ],
+      "title": 0.057,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 157,
+        "baselineOnly": 72,
+        "agreed": 2771,
+        "meanDifference": 0.028333333333333332,
+        "standardError": 0.005018490503544192,
+        "interval": [
+          0.018493301384134117,
+          0.03817336528253255
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 142,
+        "baselineOnly": 273,
+        "agreed": 2585,
+        "meanDifference": -0.043666666666666666,
+        "standardError": 0.0067446780560091665,
+        "interval": [
+          -0.05689133004130538,
+          -0.030442003292027956
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1492.8266666666668,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "needs-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 49963,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Quinshon Judkins",
+        "Tony Pollard",
+        "Jonathon Brooks",
+        "Josh Downs",
+        "Tucker Kraft",
+        "Tank Bigsby",
+        "Rashid Shaheed",
+        "Isaiah Likely",
+        "De'Zhaun Stribling",
+        "Tyler Shough",
+        "Cairo Santos",
+        "Baltimore Defense"
+      ],
+      "title": 0.030333333333333334,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 86,
+        "baselineOnly": 81,
+        "agreed": 2833,
+        "meanDifference": 0.0016666666666666668,
+        "standardError": 0.004308226615265937,
+        "interval": [
+          -0.006780711585552419,
+          0.010114044918885753
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 72,
+        "baselineOnly": 283,
+        "agreed": 2645,
+        "meanDifference": -0.07033333333333333,
+        "standardError": 0.006148830882825915,
+        "interval": [
+          -0.0823896861937203,
+          -0.05827698047294637
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1417.4633333333334,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "noisy-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 30,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Jameson Williams",
+        "Quinshon Judkins",
+        "Christian Watson",
+        "Marvin Harrison Jr.",
+        "Chris Godwin Jr.",
+        "Jayden Reed",
+        "Stefon Diggs",
+        "LA Rams Defense",
+        "Kyler Murray",
+        "Travis Kelce",
+        "Jake Bates"
+      ],
+      "title": 0.09066666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1510.67,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "noisy-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 36,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "DeVonta Smith",
+        "Jameson Williams",
+        "Lamar Jackson",
+        "Tyler Warren",
+        "Seattle Defense",
+        "Jason Myers",
+        "Jayden Reed",
+        "Matthew Golden",
+        "LA Rams Defense",
+        "Deebo Samuel Sr.",
+        "Rashid Shaheed",
+        "Jerry Jeudy"
+      ],
+      "title": 0.08233333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 207,
+        "baselineOnly": 232,
+        "agreed": 2561,
+        "meanDifference": -0.008333333333333333,
+        "standardError": 0.006983615581618658,
+        "interval": [
+          -0.022026494732268302,
+          0.0053598280656016375
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1449.2366666666667,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "noisy-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 34,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Breece Hall",
+        "D'Andre Swift",
+        "Quinshon Judkins",
+        "Jason Myers",
+        "Brian Thomas Jr.",
+        "George Kittle",
+        "Jacory Croskey-Merritt",
+        "LA Rams Defense",
+        "Deebo Samuel Sr.",
+        "Woody Marks",
+        "Tyjae Spears",
+        "Kyler Murray"
+      ],
+      "title": 0.08633333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 199,
+        "baselineOnly": 212,
+        "agreed": 2589,
+        "meanDifference": -0.004333333333333333,
+        "standardError": 0.006758374998346878,
+        "interval": [
+          -0.01758485306051754,
+          0.008918186393850875
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 229,
+        "baselineOnly": 217,
+        "agreed": 2554,
+        "meanDifference": 0.004,
+        "standardError": 0.007040365364835764,
+        "interval": [
+          -0.009804433838241587,
+          0.01780443383824159
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1514.9733333333334,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "live-20-keepers-pick16",
+      "opponent": "noisy-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 49876,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Omarion Hampton",
+        "Travis Etienne",
+        "Michael Pittman",
+        "Drake London",
+        "Bucky Irving",
+        "Quinshon Judkins",
+        "TreVeyon Henderson",
+        "Jakobi Meyers",
+        "Kyle Monangai",
+        "Tucker Kraft",
+        "Rachaad White",
+        "LA Rams Defense",
+        "Keenan Allen",
+        "Travis Kelce",
+        "Tyler Shough",
+        "Chase McLaughlin"
+      ],
+      "title": 0.06533333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 158,
+        "baselineOnly": 234,
+        "agreed": 2608,
+        "meanDifference": -0.025333333333333333,
+        "standardError": 0.006584533518545454,
+        "interval": [
+          -0.038243992454298596,
+          -0.012422674212368067
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 170,
+        "baselineOnly": 221,
+        "agreed": 2609,
+        "meanDifference": -0.017,
+        "standardError": 0.006585025838942797,
+        "interval": [
+          -0.029911624440803107,
+          -0.004088375559196894
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1484.743333333333,
+      "actual2024": null,
+      "actualPointsVsAdp": null,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "strict-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 12,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Isiah Pacheco",
+        "Davante Adams",
+        "DeVonta Smith",
+        "Malik Nabers",
+        "Tank Dell",
+        "Dalton Kincaid",
+        "Kyler Murray",
+        "Javonte Williams",
+        "Rome Odunze",
+        "Brian Robinson",
+        "J.K. Dobbins"
+      ],
+      "title": 0.131,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1371.1333333333332,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 2,
+        "expectedPoints": 890.08
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "strict-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 15,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Isiah Pacheco",
+        "Davante Adams",
+        "DeVonta Smith",
+        "Malik Nabers",
+        "Dalton Kincaid",
+        "Joe Burrow",
+        "Kyler Murray",
+        "Javonte Williams",
+        "Rome Odunze",
+        "Brian Robinson",
+        "J.K. Dobbins"
+      ],
+      "title": 0.16066666666666668,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 256,
+        "baselineOnly": 167,
+        "agreed": 2577,
+        "meanDifference": 0.029666666666666668,
+        "standardError": 0.006835364196407445,
+        "interval": [
+          0.01626418995986395,
+          0.043069143373469385
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1411.99,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 3,
+        "expectedPoints": 973.64
+      },
+      "actualPointsVsAdp": 83.55999999999995,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "strict-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 13,
+      "missingStarters": [
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1
+      ],
+      "ownRoster": [
+        "CeeDee Lamb",
+        "Davante Adams",
+        "Deebo Samuel Sr.",
+        "James Conner",
+        "Raheem Mostert",
+        "Evan Engram",
+        "Najee Harris",
+        "Calvin Ridley",
+        "David Njoku",
+        "Brock Purdy",
+        "Ezekiel Elliott",
+        "Jordan Addison"
+      ],
+      "title": 0.18366666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 471,
+        "baselineOnly": 313,
+        "agreed": 2216,
+        "meanDifference": 0.05266666666666667,
+        "standardError": 0.00928521711848989,
+        "interval": [
+          0.03446062781162325,
+          0.07087270552171009
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 458,
+        "baselineOnly": 389,
+        "agreed": 2153,
+        "meanDifference": 0.023,
+        "standardError": 0.009693611288423326,
+        "interval": [
+          0.003993200103927674,
+          0.042006799896072325
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1289.1933333333334,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 6,
+        "expectedPoints": 1107.08
+      },
+      "actualPointsVsAdp": 216.9999999999999,
+      "actualPointsVsRosterNeeds": 133.43999999999994
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "strict-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 37296,
+      "missingStarters": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        2
+      ],
+      "ownRoster": [
+        "Justin Jefferson",
+        "Nico Collins",
+        "Chris Olave",
+        "Evan Engram",
+        "James Conner",
+        "Devin Singletary",
+        "Keenan Allen",
+        "Rico Dowdle",
+        "Calvin Ridley",
+        "Brock Purdy",
+        "Zach Charbonnet",
+        "Brock Bowers"
+      ],
+      "title": 0.14266666666666666,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 370,
+        "baselineOnly": 335,
+        "agreed": 2295,
+        "meanDifference": 0.011666666666666667,
+        "standardError": 0.008849523583345058,
+        "interval": [
+          -0.005685083771798714,
+          0.029018417105132047
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 365,
+        "baselineOnly": 419,
+        "agreed": 2216,
+        "meanDifference": -0.018,
+        "standardError": 0.009329100804385378,
+        "interval": [
+          -0.03629208402558928,
+          0.0002920840255892822
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1252.1033333333335,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 7,
+        "expectedPoints": 1104.66
+      },
+      "actualPointsVsAdp": 214.58000000000004,
+      "actualPointsVsRosterNeeds": 131.0200000000001
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "needs-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 52,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Isiah Pacheco",
+        "Davante Adams",
+        "DeVonta Smith",
+        "Malik Nabers",
+        "Zay Flowers",
+        "Tank Dell",
+        "Zack Moss",
+        "Calvin Ridley",
+        "Rome Odunze",
+        "Jayden Daniels",
+        "Dalton Schultz"
+      ],
+      "title": 0.09266666666666666,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1333.4966666666667,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 3,
+        "expectedPoints": 935.16
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "needs-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 57,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Isiah Pacheco",
+        "Davante Adams",
+        "DeVonta Smith",
+        "Malik Nabers",
+        "Joe Burrow",
+        "George Kittle",
+        "Chris Godwin Jr.",
+        "Terry McLaurin",
+        "Ezekiel Elliott",
+        "Rome Odunze",
+        "J.K. Dobbins"
+      ],
+      "title": 0.11966666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 275,
+        "baselineOnly": 194,
+        "agreed": 2531,
+        "meanDifference": 0.027,
+        "standardError": 0.007203152521398295,
+        "interval": [
+          0.01287638037863033,
+          0.04112361962136967
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1379.8966666666668,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 4,
+        "expectedPoints": 1028.54
+      },
+      "actualPointsVsAdp": 93.38,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "needs-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 54,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "CeeDee Lamb",
+        "Davante Adams",
+        "Deebo Samuel Sr.",
+        "James Conner",
+        "Raheem Mostert",
+        "Evan Engram",
+        "Najee Harris",
+        "Calvin Ridley",
+        "T.J. Hockenson",
+        "Jared Goff",
+        "Ezekiel Elliott",
+        "Jordan Addison"
+      ],
+      "title": 0.12966666666666668,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 355,
+        "baselineOnly": 244,
+        "agreed": 2401,
+        "meanDifference": 0.037,
+        "standardError": 0.008131498179493326,
+        "interval": [
+          0.021056121691460525,
+          0.05294387830853947
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 339,
+        "baselineOnly": 309,
+        "agreed": 2352,
+        "meanDifference": 0.01,
+        "standardError": 0.00848473120107633,
+        "interval": [
+          -0.006636481834526862,
+          0.02663648183452686
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1291.6233333333332,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 6,
+        "expectedPoints": 1133.1
+      },
+      "actualPointsVsAdp": 197.93999999999994,
+      "actualPointsVsRosterNeeds": 104.55999999999995
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "needs-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 31263,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Justin Jefferson",
+        "Nico Collins",
+        "Chris Olave",
+        "Evan Engram",
+        "James Conner",
+        "Austin Ekeler",
+        "Terry McLaurin",
+        "Gus Edwards",
+        "Tyler Lockett",
+        "Brock Bowers",
+        "Ty Chandler",
+        "Baker Mayfield"
+      ],
+      "title": 0.086,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 236,
+        "baselineOnly": 256,
+        "agreed": 2508,
+        "meanDifference": -0.006666666666666667,
+        "standardError": 0.007393921504198923,
+        "interval": [
+          -0.02116433758580181,
+          0.00783100425246848
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 225,
+        "baselineOnly": 326,
+        "agreed": 2449,
+        "meanDifference": -0.033666666666666664,
+        "standardError": 0.007801582893188226,
+        "interval": [
+          -0.048963661822696694,
+          -0.018369671510636638
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1224.4399999999998,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 3,
+        "expectedPoints": 1202.14
+      },
+      "actualPointsVsAdp": 266.98000000000013,
+      "actualPointsVsRosterNeeds": 173.60000000000014
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "noisy-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 17,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Travis Etienne Jr.",
+        "Cooper Kupp",
+        "Kenneth Walker",
+        "Malik Nabers",
+        "David Montgomery",
+        "Christian Kirk",
+        "Dak Prescott",
+        "Jordan Love",
+        "Austin Ekeler",
+        "Tyjae Spears",
+        "Brock Bowers"
+      ],
+      "title": 0.059666666666666666,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1311.2833333333335,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 4,
+        "expectedPoints": 1044.82
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "noisy-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 22,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Christian McCaffrey",
+        "Travis Etienne Jr.",
+        "Cooper Kupp",
+        "Kenneth Walker",
+        "Malik Nabers",
+        "Dalton Kincaid",
+        "Dak Prescott",
+        "Chris Godwin Jr.",
+        "Jordan Love",
+        "Austin Ekeler",
+        "Tyjae Spears",
+        "DeAndre Hopkins"
+      ],
+      "title": 0.061,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 134,
+        "baselineOnly": 130,
+        "agreed": 2736,
+        "meanDifference": 0.0013333333333333333,
+        "standardError": 0.005416873783029085,
+        "interval": [
+          -0.009287830750197833,
+          0.011954497416864501
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1341.78,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 4,
+        "expectedPoints": 913.72
+      },
+      "actualPointsVsAdp": -131.0999999999999,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "noisy-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 18,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "CeeDee Lamb",
+        "Davante Adams",
+        "Deebo Samuel Sr.",
+        "James Conner",
+        "Kenneth Walker",
+        "Evan Engram",
+        "Najee Harris",
+        "Calvin Ridley",
+        "Dak Prescott",
+        "T.J. Hockenson",
+        "Austin Ekeler",
+        "DeAndre Hopkins"
+      ],
+      "title": 0.15066666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 426,
+        "baselineOnly": 153,
+        "agreed": 2421,
+        "meanDifference": 0.091,
+        "standardError": 0.007848154635139335,
+        "interval": [
+          0.07561168905321473,
+          0.10638831094678526
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 419,
+        "baselineOnly": 150,
+        "agreed": 2431,
+        "meanDifference": 0.08966666666666667,
+        "standardError": 0.007782183025522644,
+        "interval": [
+          0.07440770990435379,
+          0.10492562342897956
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1319.63,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 6,
+        "expectedPoints": 1129.72
+      },
+      "actualPointsVsAdp": 84.90000000000009,
+      "actualPointsVsRosterNeeds": 216
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat1",
+      "opponent": "noisy-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 32317,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Justin Jefferson",
+        "Nico Collins",
+        "Chris Olave",
+        "Raheem Mostert",
+        "James Conner",
+        "Kyle Pitts Sr.",
+        "Calvin Ridley",
+        "Gus Edwards",
+        "Dak Prescott",
+        "Diontae Johnson",
+        "Brock Bowers",
+        "Isaiah Likely"
+      ],
+      "title": 0.142,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 395,
+        "baselineOnly": 148,
+        "agreed": 2457,
+        "meanDifference": 0.08233333333333333,
+        "standardError": 0.007621883304611167,
+        "interval": [
+          0.06738868510146455,
+          0.0972779815652021
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 397,
+        "baselineOnly": 154,
+        "agreed": 2449,
+        "meanDifference": 0.081,
+        "standardError": 0.007684719070420596,
+        "interval": [
+          0.06593214620608412,
+          0.09606785379391589
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1287.1833333333332,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 4,
+        "expectedPoints": 976.9
+      },
+      "actualPointsVsAdp": -67.91999999999996,
+      "actualPointsVsRosterNeeds": 63.17999999999995
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "strict-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 16,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        2,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Jonathan Taylor",
+        "A.J. Brown",
+        "Jaylen Waddle",
+        "Sam LaPorta",
+        "Brandon Aiyuk",
+        "Amari Cooper",
+        "George Kittle",
+        "Najee Harris",
+        "Austin Ekeler",
+        "Keon Coleman",
+        "Brock Purdy",
+        "Tyler Lockett"
+      ],
+      "title": 0.12166666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1240.7733333333333,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 7,
+        "expectedPoints": 1104.18
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "strict-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 13,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        2,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Jonathan Taylor",
+        "A.J. Brown",
+        "Jaylen Waddle",
+        "Sam LaPorta",
+        "Brandon Aiyuk",
+        "C.J. Stroud",
+        "Najee Harris",
+        "George Kittle",
+        "Austin Ekeler",
+        "Keon Coleman",
+        "Brock Purdy",
+        "Tyler Lockett"
+      ],
+      "title": 0.145,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 259,
+        "baselineOnly": 189,
+        "agreed": 2552,
+        "meanDifference": 0.023333333333333334,
+        "standardError": 0.00704363783194443,
+        "interval": [
+          0.00952248298780151,
+          0.037144183678865156
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1277.5199999999998,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 7,
+        "expectedPoints": 1073.08
+      },
+      "actualPointsVsAdp": -31.100000000000136,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "strict-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 11,
+      "missingStarters": [
+        0,
+        1,
+        1,
+        0,
+        0,
+        1,
+        0,
+        1,
+        1,
+        0
+      ],
+      "ownRoster": [
+        "A.J. Brown",
+        "Puka Nacua",
+        "Nico Collins",
+        "Joe Mixon",
+        "Raheem Mostert",
+        "Evan Engram",
+        "Jayden Reed",
+        "Dak Prescott",
+        "Ezekiel Elliott",
+        "David Njoku",
+        "Tyler Lockett",
+        "Chuba Hubbard"
+      ],
+      "title": 0.118,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 300,
+        "baselineOnly": 311,
+        "agreed": 2389,
+        "meanDifference": -0.0036666666666666666,
+        "standardError": 0.008240572983017436,
+        "interval": [
+          -0.019824413976407173,
+          0.01249108064307384
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 294,
+        "baselineOnly": 375,
+        "agreed": 2331,
+        "meanDifference": -0.027,
+        "standardError": 0.008609009138461602,
+        "interval": [
+          -0.04388016046131474,
+          -0.010119839538685258
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1240.1966666666667,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 4,
+        "expectedPoints": 973.22
+      },
+      "actualPointsVsAdp": -130.96000000000004,
+      "actualPointsVsRosterNeeds": -99.8599999999999
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "strict-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 34231,
+      "missingStarters": [
+        0,
+        1,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "ownRoster": [
+        "Marvin Harrison Jr.",
+        "Cooper Kupp",
+        "Mike Evans",
+        "Joe Mixon",
+        "Najee Harris",
+        "Evan Engram",
+        "DeAndre Hopkins",
+        "Jerry Jeudy",
+        "Jared Goff",
+        "Devin Singletary",
+        "Brock Bowers",
+        "Pat Freiermuth"
+      ],
+      "title": 0.13566666666666666,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 368,
+        "baselineOnly": 326,
+        "agreed": 2306,
+        "meanDifference": 0.014,
+        "standardError": 0.008779035725363019,
+        "interval": [
+          -0.0032135409959878018,
+          0.031213540995987804
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 344,
+        "baselineOnly": 372,
+        "agreed": 2284,
+        "meanDifference": -0.009333333333333334,
+        "standardError": 0.008919250876461034,
+        "interval": [
+          -0.026821801932669566,
+          0.0081551352660029
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1273.01,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 7,
+        "expectedPoints": 1205.5
+      },
+      "actualPointsVsAdp": 101.31999999999994,
+      "actualPointsVsRosterNeeds": 132.42000000000007
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "needs-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 52,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Jonathan Taylor",
+        "A.J. Brown",
+        "Jaylen Waddle",
+        "Sam LaPorta",
+        "Brandon Aiyuk",
+        "Amari Cooper",
+        "Tank Dell",
+        "George Pickens",
+        "Jonathon Brooks",
+        "Devin Singletary",
+        "Brock Purdy",
+        "Tyler Lockett"
+      ],
+      "title": 0.05533333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1240.9533333333331,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 2,
+        "expectedPoints": 970.18
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "needs-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 56,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Jonathan Taylor",
+        "A.J. Brown",
+        "Jaylen Waddle",
+        "Sam LaPorta",
+        "Brandon Aiyuk",
+        "C.J. Stroud",
+        "Raheem Mostert",
+        "Zay Flowers",
+        "Jonathon Brooks",
+        "Devin Singletary",
+        "Brock Purdy",
+        "Tyler Lockett"
+      ],
+      "title": 0.09266666666666666,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 222,
+        "baselineOnly": 110,
+        "agreed": 2668,
+        "meanDifference": 0.037333333333333336,
+        "standardError": 0.00603626057894195,
+        "interval": [
+          0.025497703295071276,
+          0.049168963371595396
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1302.1666666666667,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 1,
+        "expectedPoints": 941.18
+      },
+      "actualPointsVsAdp": -29,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "needs-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 55,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "A.J. Brown",
+        "Puka Nacua",
+        "Nico Collins",
+        "Joe Mixon",
+        "James Conner",
+        "Evan Engram",
+        "Keenan Allen",
+        "Najee Harris",
+        "T.J. Hockenson",
+        "Diontae Johnson",
+        "Brock Purdy",
+        "Chuba Hubbard"
+      ],
+      "title": 0.06233333333333333,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 165,
+        "baselineOnly": 144,
+        "agreed": 2691,
+        "meanDifference": 0.007,
+        "standardError": 0.005859047944356781,
+        "interval": [
+          -0.0044881594223690315,
+          0.018488159422369033
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 159,
+        "baselineOnly": 250,
+        "agreed": 2591,
+        "meanDifference": -0.030333333333333334,
+        "standardError": 0.006719582700681482,
+        "interval": [
+          -0.04350879085652597,
+          -0.017157875810140697
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1233.6000000000001,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 8,
+        "expectedPoints": 1247.18
+      },
+      "actualPointsVsAdp": 277.0000000000001,
+      "actualPointsVsRosterNeeds": 306.0000000000001
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "needs-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 37438,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Marvin Harrison Jr.",
+        "Cooper Kupp",
+        "Mike Evans",
+        "Joe Mixon",
+        "Rhamondre Stevenson",
+        "Evan Engram",
+        "Tyler Lockett",
+        "Courtland Sutton",
+        "Tyjae Spears",
+        "Tyler Allgeier",
+        "Brock Bowers",
+        "Brock Purdy"
+      ],
+      "title": 0.089,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 249,
+        "baselineOnly": 148,
+        "agreed": 2603,
+        "meanDifference": 0.033666666666666664,
+        "standardError": 0.006614217937338006,
+        "interval": [
+          0.020697803663656422,
+          0.046635529669676906
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 252,
+        "baselineOnly": 263,
+        "agreed": 2485,
+        "meanDifference": -0.0036666666666666666,
+        "standardError": 0.007565501945055218,
+        "interval": [
+          -0.018500764847882163,
+          0.01116743151454883
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1280.7633333333333,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 5,
+        "expectedPoints": 1160.08
+      },
+      "actualPointsVsAdp": 189.89999999999998,
+      "actualPointsVsRosterNeeds": 218.89999999999998
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "noisy-adp",
+      "strategy": "adp",
+      "draftMilliseconds": 17,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Ja'Marr Chase",
+        "A.J. Brown",
+        "Chris Olave",
+        "Rachaad White",
+        "Lamar Jackson",
+        "Brandon Aiyuk",
+        "Keenan Allen",
+        "George Kittle",
+        "Tony Pollard",
+        "Hollywood Brown",
+        "Rome Odunze",
+        "Ladd McConkey"
+      ],
+      "title": 0.14766666666666667,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": null,
+      "meanSeasonPoints": 1260.6466666666668,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 11,
+        "expectedPoints": 1449.5
+      },
+      "actualPointsVsAdp": 0,
+      "actualPointsVsRosterNeeds": null
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "noisy-adp",
+      "strategy": "roster-needs",
+      "draftMilliseconds": 21,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Ja'Marr Chase",
+        "A.J. Brown",
+        "Chris Olave",
+        "Rachaad White",
+        "Lamar Jackson",
+        "Trey McBride",
+        "Najee Harris",
+        "Keenan Allen",
+        "Tony Pollard",
+        "Hollywood Brown",
+        "Rome Odunze",
+        "Ladd McConkey"
+      ],
+      "title": 0.149,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 259,
+        "baselineOnly": 255,
+        "agreed": 2486,
+        "meanDifference": 0.0013333333333333333,
+        "standardError": 0.007558409998521765,
+        "interval": [
+          -0.013486859275993185,
+          0.01615352594265985
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 0,
+        "baselineOnly": 0,
+        "agreed": 3000,
+        "meanDifference": 0,
+        "standardError": 0,
+        "interval": [
+          0,
+          0
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1290.8266666666666,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 1,
+        "playoffProbability": 1,
+        "expectedWins": 11,
+        "expectedPoints": 1459.2
+      },
+      "actualPointsVsAdp": 9.700000000000045,
+      "actualPointsVsRosterNeeds": 0
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "noisy-adp",
+      "strategy": "greedy",
+      "draftMilliseconds": 18,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Ja'Marr Chase",
+        "A.J. Brown",
+        "Nico Collins",
+        "Joe Mixon",
+        "Raheem Mostert",
+        "Evan Engram",
+        "Jayden Reed",
+        "Najee Harris",
+        "Brock Purdy",
+        "David Njoku",
+        "DeAndre Hopkins",
+        "Chuba Hubbard"
+      ],
+      "title": 0.103,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 239,
+        "baselineOnly": 373,
+        "agreed": 2388,
+        "meanDifference": -0.04466666666666667,
+        "standardError": 0.008207156354960868,
+        "interval": [
+          -0.06075889214519539,
+          -0.02857444118813794
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 236,
+        "baselineOnly": 374,
+        "agreed": 2390,
+        "meanDifference": -0.046,
+        "standardError": 0.008191142129209135,
+        "interval": [
+          -0.06206082550020309,
+          -0.029939174499796915
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1236.9366666666667,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 1,
+        "expectedWins": 10,
+        "expectedPoints": 1252.28
+      },
+      "actualPointsVsAdp": -197.22000000000003,
+      "actualPointsVsRosterNeeds": -206.92000000000007
+    },
+    {
+      "kind": "paired-result",
+      "case": "historical-2024-seat10",
+      "opponent": "noisy-adp",
+      "strategy": "rollout",
+      "draftMilliseconds": 31323,
+      "missingStarters": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ownRoster": [
+        "Garrett Wilson",
+        "Puka Nacua",
+        "Chris Olave",
+        "Joe Mixon",
+        "D'Andre Swift",
+        "Evan Engram",
+        "Jerome Ford",
+        "Dak Prescott",
+        "Jakobi Meyers",
+        "Dalton Schultz",
+        "Courtland Sutton",
+        "Tyler Allgeier"
+      ],
+      "title": 0.07533333333333334,
+      "pairedVsAdp": {
+        "n": 3000,
+        "candidateOnly": 187,
+        "baselineOnly": 404,
+        "agreed": 2409,
+        "meanDifference": -0.07233333333333333,
+        "standardError": 0.007996495749872079,
+        "interval": [
+          -0.08801250490988748,
+          -0.05665416175677919
+        ],
+        "confidenceLevel": 95
+      },
+      "pairedVsRosterNeeds": {
+        "n": 3000,
+        "candidateOnly": 184,
+        "baselineOnly": 405,
+        "agreed": 2411,
+        "meanDifference": -0.07366666666666667,
+        "standardError": 0.007978517245139946,
+        "interval": [
+          -0.08931058679443596,
+          -0.05802274653889739
+        ],
+        "confidenceLevel": 95
+      },
+      "meanSeasonPoints": 1210.3999999999999,
+      "actual2024": {
+        "teamId": "0",
+        "championshipProbability": 0,
+        "playoffProbability": 0,
+        "expectedWins": 5,
+        "expectedPoints": 1056.92
+      },
+      "actualPointsVsAdp": -392.5799999999999,
+      "actualPointsVsRosterNeeds": -402.28
+    }
+  ]
+}

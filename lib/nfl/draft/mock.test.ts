@@ -699,7 +699,7 @@ describe("replayAdpMockDraft", () => {
     const config: LeagueConfig = {
       wireCover: WIRE_COVER,
       unprojectedPositions: UNPROJECTED_POSITIONS,
-      slots: slotsForTemplate("two_flex"),
+      slots: [{ id: "flex", label: "FLEX", eligiblePositions: ["QB", "RB", "WR", "TE"] }],
       ...fantasySeasonWeeks(17, 2),
       playoffTeams: 2,
       scenarios: 8,
