@@ -91,6 +91,10 @@ on supersession/unmount. The page checks time every second and on focus: results
 hidden at the next relevant kickoff or when full-league ownership reaches 15 minutes.
 Refresh after any known transaction even inside that age window.
 
+Waiver and connection GET requests use an explicit network-only service-worker rule
+ahead of default caching. HTTP `no-store` alone is insufficient for Cache Storage.
+Offline refreshes fail rather than reuse a previously cached ownership snapshot.
+
 ## Verification and limitations
 
 Synthetic tests exercise strict opponent membership, reserve/taxi ownership, source
@@ -100,6 +104,12 @@ independent recursive assignment enumerator checks every add/drop pair over 24 s
 heterogeneous synthetic scenarios; this verifies arithmetic/assignment, not projection
 accuracy. The unchanged default backtest scores only development/tuning seasons; the
 2025 holdout and published metrics are untouched.
+
+A production-built service-worker transport regression fetched synthetic available
+pools online, seeded older responses into the normal API cache, then disabled the
+local transport. Both waiver and connection requests failed instead of returning the
+cached pool; an unrelated API request returned its cache as a positive control. This
+checks the actual built worker's routing, not authorization or live-source accuracy.
 
 Read-only operational check on **2026-09-09 around 20:31 UTC**: the requested 10-team
 league contained 160 distinct holdings, 16 per roster. Its directory response contained
