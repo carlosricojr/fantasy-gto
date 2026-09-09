@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
@@ -168,6 +169,7 @@ export default function LineupPage() {
     // guessed width was 150px wider in total, which is a wrapped line's worth on a phone.
     return (
       <PageShell title="Lineup optimizer" subtitle={<Skeleton className="h-5 w-64 max-w-full" />}>
+        <Link href="/lineup/weekly" className="mb-4 inline-block text-sm underline">Use my Sleeper roster with weekly kickoff locks</Link>
         {/* `h-5`, which is `text-sm`'s 1.25rem line box — not `h-4`, which was the
               first guess and four pixels short of the paragraph it stands in for.
 
@@ -215,6 +217,7 @@ export default function LineupPage() {
     // page as it resolved — the same handoff shift the loading skeleton exists to remove.
     return (
       <PageShell title="Lineup optimizer">
+        <Link href="/lineup/weekly" className="mb-4 inline-block text-sm underline">Use my Sleeper roster with weekly kickoff locks</Link>
         <EmptyState
           title="No schedule loaded yet"
           body="The optimizer needs projections. Run the ingest job to populate them."
@@ -225,6 +228,7 @@ export default function LineupPage() {
 
   return (
     <PageShell title="Lineup optimizer" subtitle={describeSeasonState(season)}>
+      <Link href="/lineup/weekly" className="mb-4 inline-block text-sm underline">Use my Sleeper roster with weekly kickoff locks</Link>
       <div className="mb-4 flex flex-wrap gap-2">
         {ROSTER_TEMPLATES.map((template) => (
           <Button
