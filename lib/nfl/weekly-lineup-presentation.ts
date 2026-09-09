@@ -14,16 +14,31 @@ export function groupWeeklyNotices(messages: readonly string[]): WeeklyNoticeGro
   return [...groups].map(([title, entries]) => ({ title, messages: entries }));
 }
 
-export function weeklyLineupActions(snapshot: WeeklyLineupSnapshot, plan: WeeklyLineupPlan): { playerId: string; text: string; reason: string }[] {
+export function weeklyLineupActions(snapshot: WeeklyLineupSnapshot, plan: WeeklyLineupPlan): { playerId: string; kind: "start" | "bench" | "slot"; text: string; reason: string }[] {
   if (plan.status === "blocked") return [];
   const assigned = new Map(plan.assignments.filter((a) => a.playerId !== null).map((a) => [a.playerId!, a]));
   const slotName = (id: string) => snapshot.slots.find((s) => s.id === id)?.label ?? id;
+  const eligibility = new Map(snapshot.slots.map((s) => [s.id, [...new Set(s.eligiblePositions)].sort().join(",")]));
+  const unchangedGroups = new Set(eligibility.values());
+  for (const player of snapshot.players) {
+    const before = player.currentSlotId === null ? undefined : eligibility.get(player.currentSlotId);
+    const after = eligibility.get(assigned.get(player.id)?.slotId ?? "");
+    if (before !== after) {
+      if (before !== undefined) unchangedGroups.delete(before);
+      if (after !== undefined) unchangedGroups.delete(after);
+    }
+  }
   return snapshot.players.flatMap((p) => {
     const next = assigned.get(p.id);
     if (next?.fixed || (next?.slotId ?? null) === p.currentSlotId) return [];
+    // Suppress only closed equivalent-slot permutations. During a substitution,
+    // a common starter's move may be needed to free the named destination.
+    const group = eligibility.get(next?.slotId ?? "");
+    if (next && p.currentSlotId !== null && group !== undefined && group === eligibility.get(p.currentSlotId) && unchangedGroups.has(group)) return [];
+    const kind = next ? p.currentSlotId === null ? "start" as const : "slot" as const : "bench" as const;
     const text = next ? p.currentSlotId === null ? `Start ${p.name} at ${slotName(next.slotId)}` : `Move ${p.name} from ${slotName(p.currentSlotId)} to ${slotName(next.slotId)}` : `Bench ${p.name}`;
     const reason = ["out", "inactive", "bye", "reserve"].includes(p.availability) ? `Imported status: ${p.availability}.` : next && p.currentSlotId !== null ? "Legal slot reassignment; equal-point arrangements preserve later-game flexibility." : "Part of the highest included-estimate legal assignment, conditional on the displayed limitations.";
-    return [{ playerId: p.id, text, reason }];
+    return [{ playerId: p.id, kind, text, reason }];
   });
 }
 
