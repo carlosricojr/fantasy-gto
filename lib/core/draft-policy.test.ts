@@ -2339,10 +2339,6 @@ describe("the market-discipline gate", () => {
 });
 
 describe("the streamable-position discipline", () => {
-  // A league that starts one of each streamable position, which is what makes the two
-  // rules mean anything: a template with no kicker slot prices a kicker at nothing
-  // already, and the discipline would have nothing to add.
-  const SHAPED = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 });
   const WIRE = new Map<string, number>([["QB", 1], ["K", 1], ["DST", 1], ["TE", 0.75]]);
   const TEAMS_IN_LEAGUE = 10;
   const ROUNDS_IN_DRAFT = 16;

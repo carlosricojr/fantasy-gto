@@ -39,7 +39,7 @@ comparative warnings must consider both, since their opponent rosters can differ
 ## Reproducible protocol
 
 Run `pnpm draft-strategy-eval` offline. `-- --quick` reduces budgets for a smoke test;
-it is not the reported evaluation. The script prints its protocol, complete rosters,
+it is not the reported evaluation. The script prints its protocol, complete advised rosters,
 all teams' missing-slot counts, paired comparisons and runtime as JSON lines.
 
 Four advised strategies face the same starting state and opponent seed:
@@ -141,8 +141,9 @@ roster filled its required starters, including raw strict-ADP stress continuatio
 All ten teams were structurally complete in every needs-ADP and noisy-ADP cell.
 Raw strict-ADP still produced incomplete opponents and is excluded from the quality
 tables below. The [machine-readable record](draft-strategy-evaluation-results.json)
-contains every roster, missing-slot count, paired interval and runtime, including stress
-results. Its protocol note was clarified after the run to distinguish frozen live-model
+contains each advised team's final roster, all teams' missing-slot counts, paired intervals
+and runtime, including stress results. Opponent roster composition requires replaying
+the harness; it cannot be audited from this record alone. Its protocol note was clarified after the run to distinguish frozen live-model
 inputs from reserved outcome evaluation; no measured result was changed.
 
 Conditional title percentages on the 3,000 held-out simulation draws:
@@ -192,7 +193,7 @@ the simulator remaining experimental. This change does not select or tune a new
 production default from these results. FFC ordering/dispersion may not represent the
 user's Sleeper market, so even the market comparator must identify its source.
 
-Validation: `pnpm verify` passed 1,841 tests across 89 files; the production build passed;
+Validation after main integration: `pnpm verify` passed 1,879 tests across 92 files; the production build passed;
 both draft-mock modes passed 9/9 checks; the default development/tuning backtest was
 unchanged and did not evaluate the 2025 holdout. Independent review found and verified
 fixes for scarcity being bypassed at the starter deadline and stale historical ADP

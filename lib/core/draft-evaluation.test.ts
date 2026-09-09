@@ -18,7 +18,7 @@ describe("paired draft evaluation", () => {
       const result = replayDraftStrategy(state, config, strategy, opponent, 123, 456);
       expect(result.missingStarters[0]).toBe(0);
       expect(result.rosters[0]).toHaveLength(16);
-      expect(result.rosters.map((roster, index) => roster.length)).toEqual(state.teams.map((team) => Math.min(team.draftRosterSize!, 16)));
+      expect(result.rosters.map((roster) => roster.length)).toEqual(state.teams.map((team) => Math.min(team.draftRosterSize!, 16)));
       expect(new Set(result.rosters.flat().map((player) => player.id)).size).toBe(result.rosters.flat().length);
       if (opponent !== "strict-adp") expect(result.missingStarters).toEqual(Array(10).fill(0));
     }
