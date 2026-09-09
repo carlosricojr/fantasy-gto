@@ -50,6 +50,20 @@ it("does not clear injuries, byes or reserve status because another source merel
   expect(reconcileWeeklyAvailability("active", undefined)).toBe("active");
 });
 
+it("missing injury coverage survives repeated refreshes and cannot clear known Out evidence", () => {
+  const prior: WeeklyLineupSnapshot = { ...base, players: base.players.map((p) => ({ ...p, availability: "out", nflverseAvailability: "out", injuryCoverage: "available" })) };
+  const partial: WeeklyLineupSnapshot = { ...incoming, players: incoming.players.map((p) => ({ ...p, nflverseAvailability: "active", injuryCoverage: "unavailable" })) };
+  const missing = mergeWeeklyRefresh(prior, partial).snapshot;
+  expect(missing.players[0].availability).toBe("out");
+  expect(missing.players[0].projectedPoints).toBe(15);
+  const refreshed = mergeWeeklyRefresh(missing, incoming).snapshot;
+  const again = mergeWeeklyRefresh(refreshed, incoming).snapshot;
+  expect(again.players[0].availability).toBe("out");
+  expect(again.players[0].injuryCoverage).toBe("unavailable");
+  const confirmed: WeeklyLineupSnapshot = { ...partial, players: partial.players.map((p) => ({ ...p, injuryCoverage: "available" })) };
+  expect(mergeWeeklyRefresh(again, confirmed).snapshot.players[0].availability).toBe("active");
+});
+
 it("a roster-only refresh cannot revive a previously observed Out player with a retained manual estimate", () => {
   const prior: WeeklyLineupSnapshot = { ...base, model: { source: "nflverse", computedAt: 10, providerUpdatedAt: null, warnings: [], excludedRules: [], coverage: { requested: 2, projected: 1 } }, players: base.players.map((p) => ({ ...p, availability: "out" })) };
   const result = mergeWeeklyRefresh(prior, incoming).snapshot;

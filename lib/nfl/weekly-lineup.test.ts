@@ -106,6 +106,14 @@ describe("weekly lineup decision safety", () => {
     expect(result.problems.some((p) => p.includes("latest roster refresh failed"))).toBe(true);
   });
 
+  it("manual points do not silently clear missing injury coverage; explicit conditional comparison remains possible", () => {
+    const data = snapshot([player("a", 10, { projectionOrigin: "manual", projectionEnteredAt: now, injuryCoverage: "unavailable" }), player("b", 12)]);
+    expect(planWeeklyLineup(data, options).status).toBe("blocked");
+    const conditional = planWeeklyLineup(data, { ...options, compareAvailableEstimates: true });
+    expect(conditional.status).toBe("conditional");
+    expect(conditional.warnings.some((w) => w.includes("not injury clearance"))).toBe(true);
+  });
+
   it("refuses to hide an unpriced flexible-position tradeoff", () => {
     const result = planWeeklyLineup(snapshot([player("missing", null, { currentSlotId: "flex" })]), { ...options, holdUnpricedPositions: ["RB"] });
     expect(result.status).toBe("blocked");

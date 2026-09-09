@@ -28,6 +28,13 @@ is excluded, an unknown status blocks advice, and a missing injury row cannot cl
 another source's Questionable or Doubtful designation. Fantasy reserve and bye
 statuses remain authoritative for their own exclusions.
 
+Missing team/week injury-report coverage is distinct from an unknown player status:
+it withholds automatic points without declaring the player healthy or Out. Users
+can enter manual points and explicitly opt into an incomplete comparison after
+acknowledging that they must verify the final active list. The per-player coverage
+warning survives manual entry and roster-only refreshes. Missing coverage cannot
+clear an earlier observed Out designation; fresh covered injury evidence is required.
+
 Users can enter weekly expected points under the displayed scoring rules, replacing
 individual model rows with manual overrides. A blank estimate stays missing. It
 cannot be replaced with a season

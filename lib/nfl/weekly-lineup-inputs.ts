@@ -18,7 +18,7 @@ export interface WeeklyModelResponse extends WeeklyModelEvidence {
   season: number;
   week: number;
   scoringId: string;
-  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
+  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; injuryCoverage?: "available" | "unavailable"; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
 }
 
 /** Absence of an injury row does not clear a designation another source reported. */
@@ -42,7 +42,7 @@ export function applyWeeklyModel(snapshot: WeeklyLineupSnapshot, model: WeeklyMo
       || (estimate.gameId !== undefined && p.gameId !== undefined && estimate.gameId !== p.gameId)
       || (estimate.kickoffAt !== undefined && estimate.kickoffAt !== p.kickoffAt);
     const modelGameContextChecked = estimate.team !== undefined && estimate.gameId !== undefined && estimate.kickoffAt !== undefined;
-    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, gameContextConflict, modelGameContextChecked };
+    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, injuryCoverage: estimate.injuryCoverage, gameContextConflict, modelGameContextChecked };
   }) };
 }
 
@@ -56,8 +56,12 @@ export function mergeWeeklyRefresh(prior: WeeklyLineupSnapshot | null, incoming:
     // A roster-only refresh did not re-read the injury inputs that produced the
     // prior model's designation. It cannot clear that evidence to cached Active.
     const previous = priorPlayers.get(p.id);
-    const retainedAvailability = p.nflverseAvailability ?? previous?.nflverseAvailability ?? (prior.model !== undefined ? previous?.availability : undefined);
+    const previousAvailability = previous?.nflverseAvailability ?? (prior.model !== undefined ? previous?.availability : undefined);
+    const retainedAvailability = p.injuryCoverage !== "available" && previousAvailability !== undefined
+      ? reconcileWeeklyAvailability(previousAvailability, p.nflverseAvailability)
+      : p.nflverseAvailability ?? previousAvailability;
     const observed = { ...p, availability: reconcileWeeklyAvailability(p.availability, retainedAvailability), nflverseAvailability: retainedAvailability,
+      injuryCoverage: p.injuryCoverage ?? previous?.injuryCoverage,
       gameContextConflict: p.gameContextConflict || (!p.modelGameContextChecked && previous?.gameContextConflict) };
     const override = overrides.get(p.id);
     if (override !== undefined && ((override.team !== undefined && p.team !== undefined && override.team !== p.team)

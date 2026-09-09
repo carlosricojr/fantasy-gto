@@ -20,6 +20,7 @@ export interface WeeklyPlayer {
   gameContextConflict?: boolean;
   /** Per-player evidence survives roster-only refreshes even when no model values do. */
   nflverseAvailability?: WeeklyAvailability;
+  injuryCoverage?: "available" | "unavailable";
   modelGameContextChecked?: boolean;
 }
 
@@ -124,6 +125,10 @@ export function planWeeklyLineup(
   const slotById = new Map(slots.map((s) => [s.id, s]));
   const occupant = new Map<string, WeeklyPlayer>();
   for (const player of players) {
+    if (player.injuryCoverage === "unavailable") {
+      warnings.push(`${player.name}: current team/week injury-report coverage is unavailable. A manual estimate is not injury clearance; verify the final active list.`);
+      if (!options.compareAvailableEstimates) problems.push(`${player.name}: explicitly choose the incomplete-estimates comparison to proceed without verified injury-report coverage.`);
+    }
     if (player.gameContextConflict) problems.push(`${player.name}: team or kickoff changed between sources. Refresh before moving this player.`);
     if (player.projectionOrigin === "manual" && player.projectedPoints !== null) checkTime(player.projectionEnteredAt ?? NaN, options.maxProjectionAgeMs, `${player.name}'s manual estimate`);
     if (!player.id || player.positions.length === 0 || !STATUSES.has(player.availability)) problems.push(`${player.name}: player identity, position, or status is invalid.`);
