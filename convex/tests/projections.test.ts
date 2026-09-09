@@ -23,6 +23,12 @@ const modules = import.meta.glob([
 const SEASON = 2025;
 const WEEK = 5;
 
+async function authenticatedTest() {
+  const account = convexTest(schema, modules).withIdentity({ subject: "projection-reader" });
+  await account.mutation(api.users.ensure, {});
+  return account;
+}
+
 function row(playerId: string, team: string, scoringId = "ppr") {
   return {
     season: SEASON,
@@ -42,7 +48,7 @@ function row(playerId: string, team: string, scoringId = "ppr") {
 
 describe("pruneStale", () => {
   it("removes rows an earlier run wrote and this one did not", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     // A first run projects two players.
     await t.mutation(internal.projections.upsertBatch, {
@@ -77,7 +83,7 @@ describe("pruneStale", () => {
     // `projectWeek` defaults to PPR alone, which is also the natural shape of a manual
     // re-run. Pruning the whole week would delete the Half PPR board that run never
     // rewrote, and `forWeek` would serve nothing for it until the next full cron.
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     await t.mutation(internal.projections.upsertBatch, {
       rows: [row("a", "KC", "ppr"), row("a", "KC", "half_ppr")],
@@ -108,7 +114,7 @@ describe("pruneStale", () => {
   });
 
   it("leaves other weeks alone", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     await t.mutation(internal.projections.upsertBatch, {
       rows: [row("a", "KC"), { ...row("a", "KC"), week: WEEK + 1 }],

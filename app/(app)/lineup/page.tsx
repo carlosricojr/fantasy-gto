@@ -17,12 +17,13 @@ import {
 import { ROSTER_TEMPLATES, slotsForTemplate } from "@/lib/nfl/roster";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { describeSeasonState } from "@/lib/nfl/season";
+import { PrivateDataGate } from "@/components/private-data-gate";
 
 /**
  * The lineup optimizer.
  *
  * Runs entirely in the browser against projections read from Convex, so it works with no
- * account and no league connected. The solver is the same pure function the server uses
+ * league connected after signing in. The solver is the same pure function the server uses
  * (`lib/core/optimizer.ts`), which is what lets it run here at all.
  *
  * The headline number is the gain over filling slots greedily by projection. That
@@ -30,6 +31,10 @@ import { describeSeasonState } from "@/lib/nfl/season";
  * difference is real points.
  */
 export default function LineupPage() {
+  return <PrivateDataGate title="Lineup optimizer"><LineupContent /></PrivateDataGate>;
+}
+
+function LineupContent() {
   const [templateId, setTemplateId] = useState(ROSTER_TEMPLATES[0].id);
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [selected, setSelected] = useState<string[]>([]);
@@ -37,7 +42,7 @@ export default function LineupPage() {
 
   const season = useQuery(api.season.current, {});
 
-  // Deliberately unlimited.
+  // Deliberately requests the whole pool; backend budget overflow rejects, never truncates.
   //
   // A ranked board can be capped; a roster picker cannot. With `limit: 300` against a week
   // of ~468 projected players, roughly 168 real players could not be added at all, and

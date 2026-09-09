@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { v } from "convex/values";
 
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { boardJobKind, catalogJobKind } from "./draft";
 import { type ActionCtx, internalAction } from "./_generated/server";
 
@@ -704,7 +704,7 @@ export async function runProjectWeek(
 export const refreshCurrentWeek = internalAction({
   args: {},
   handler: async (ctx): Promise<{ skipped: boolean; season?: number; week?: number }> => {
-    const state = await ctx.runQuery(api.season.current, {});
+    const state = await ctx.runQuery(internal.season.currentInternal, {});
     if (!state || state.isComplete) return { skipped: true };
 
     await ctx.runAction(internal.ingest.projectWeek, {
@@ -720,7 +720,7 @@ export const refreshCurrentWeek = internalAction({
 export const refreshCurrentSchedule = internalAction({
   args: {},
   handler: async (ctx): Promise<{ skipped: boolean; contests?: number }> => {
-    const state = await ctx.runQuery(api.season.current, {});
+    const state = await ctx.runQuery(internal.season.currentInternal, {});
     if (!state) return { skipped: true };
 
     // Sync the next season too. `season.current` resolves to the latest season with a
@@ -785,7 +785,7 @@ export const refreshDraftPlayerCatalog = internalAction({
   handler: async (ctx, { season }) => {
     let target = season;
     if (target === undefined) {
-      const state = await ctx.runQuery(api.season.current, {});
+      const state = await ctx.runQuery(internal.season.currentInternal, {});
       const plan = planDraftRefresh(state ?? null);
       if (plan.kind === "skip") return { players: 0, active: 0, skipped: plan.reason };
       target = plan.season;
@@ -1732,7 +1732,7 @@ export const refreshDraftBoards = internalAction({
     /** Summed across shapes; nonzero means the market feed's byes have gone stale. */
     byeMismatches?: number;
   }> => {
-    const season = await ctx.runQuery(api.season.current, {});
+    const season = await ctx.runQuery(internal.season.currentInternal, {});
     // The same season the draft page reads, from the same function, because these two
     // disagreed: this one built only when the displayed season was complete, so through the
     // whole preseason — the one window in which drafts happen — it rebuilt nothing.

@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 
 import { internalMutation, query } from "./_generated/server";
+import schema from "./schema";
+import { requireUser } from "./lib/auth";
+import { READ_LIMITS, completeRows, seasonArgs, weekArgs } from "./lib/read-bounds";
+
+const contestDoc = v.object({ ...schema.tables.contests.validator.fields, _id: v.id("contests"), _creationTime: v.number() });
 
 /** Schedule, scores, and market lines. */
 
@@ -8,30 +13,38 @@ import { internalMutation, query } from "./_generated/server";
 export const forWeek = query({
   args: { season: v.number(), week: v.number() },
   handler: async (ctx, { season, week }) => {
-    return await ctx.db
+    await requireUser(ctx);
+    weekArgs(season, week);
+    const rows = await ctx.db
       .query("contests")
       .withIndex("by_sport_season_week", (q) =>
         q.eq("sport", "nfl").eq("season", season).eq("week", week),
       )
-      .collect();
+      .take(READ_LIMITS.weekContests + 1);
+    return completeRows(rows, READ_LIMITS.weekContests, "Weekly schedule");
   },
+  returns: v.array(contestDoc),
 });
 
 /**
  * Every contest in a season.
  *
  * A single range scan over the (sport, season) prefix of the compound index. Bounded by
- * construction — a season is 272 regular-season games — so collecting the range is
- * appropriate, and constraining week as well would turn one query into eighteen.
+ * the regular-season domain, with an explicit overflow check for inconsistent stored data.
+ * Constraining week as well would turn one query into eighteen.
  */
 export const forSeason = query({
   args: { season: v.number() },
   handler: async (ctx, { season }) => {
-    return await ctx.db
+    await requireUser(ctx);
+    seasonArgs(season);
+    const rows = await ctx.db
       .query("contests")
       .withIndex("by_sport_season_week", (q) => q.eq("sport", "nfl").eq("season", season))
-      .collect();
+      .take(READ_LIMITS.seasonContests + 1);
+    return completeRows(rows, READ_LIMITS.seasonContests, "Season schedule");
   },
+  returns: v.array(contestDoc),
 });
 
 /** Upserts schedule rows. Internal-only, idempotent by external id. */

@@ -6,13 +6,14 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/config";
 import { CUSTOM_SKILL_OUTCOME_KNOTS, customDstId } from "../lib/nfl/draft/sleeper-custom";
 import { sleeperScoringFromId } from "../lib/nfl/scoring/sleeper";
+import { requireUser } from "./lib/auth";
+import { READ_LIMITS, boardArgs, completeRows, seasonArgs } from "./lib/read-bounds";
 
 /**
  * Draft board reads and writes.
  *
- * The board is public, like projections. A draft is the moment a fantasy product is most
- * useful and most likely to be tried for the first time; putting it behind an account
- * would mean nobody ever sees whether it works.
+ * Reads require an application account. Hosting protection alone does not protect direct
+ * Convex RPCs; caller authentication and read budgets are enforced here as well.
  */
 
 /** One row of the board, as the interface consumes it. */
@@ -66,12 +67,22 @@ const catalogRowValidator = v.object({
   rosterStatusCode: v.string(),
 });
 
+const servedBoardRow = v.object({
+  ...boardRowValidator.fields,
+  availability: v.union(v.number(), v.null()),
+  rosterStatus: v.union(rosterStatusValidator, v.null()),
+  rosterStatusCode: v.union(v.string(), v.null()),
+  statusUpdatedAt: v.union(v.number(), v.null()),
+});
+const nullableNumber = v.union(v.number(), v.null());
+const attemptStatus = v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed"), v.null());
+
 /**
  * The whole board for a league shape, ranked by blended value.
  *
- * Deliberately unpaginated. A draft board is a few hundred rows, the client needs all of
- * them to compute recommendations against an arbitrary roster, and a capped board would
- * silently make late-round players undraftable — the same defect the lineup picker had.
+ * Deliberately unpaginated: the client needs the complete pool for recommendations and
+ * recording unpriced players. The explicit read budget rejects an oversized pool rather
+ * than silently making late-round players undraftable.
  */
 export const board = query({
   args: {
@@ -80,6 +91,8 @@ export const board = query({
     teams: v.number(),
   },
   handler: async (ctx, { season, scoringId, teams }) => {
+    await requireUser(ctx);
+    boardArgs(season, scoringId, teams);
     // Only the rows belonging to the last run that finished. The table is written batch by
     // batch, so a run that failed partway leaves its rows interleaved with the previous
     // board's — and served together they are part this week's prices and part last week's,
@@ -98,7 +111,8 @@ export const board = query({
           .eq("teams", teams)
           .eq("computedAt", published),
       )
-      .collect();
+      .take(READ_LIMITS.boardRows + 1);
+    completeRows(rows, READ_LIMITS.boardRows, "Draft valuation pool");
 
     const catalogRun = await publishedCatalogRun(ctx, season);
     const catalogRows =
@@ -112,7 +126,8 @@ export const board = query({
                 .eq("season", season)
                 .eq("computedAt", catalogRun.publishedAt),
             )
-            .collect();
+            .take(READ_LIMITS.catalogRows + 1);
+    completeRows(catalogRows, READ_LIMITS.catalogRows, "Draft identity pool");
     // Custom Sleeper boards use `dst-<team>` rather than a provider display-name ID, so
     // the 32 teams survive an ADP rename. The catalog predates that contract and keeps
     // legacy IDs for preset boards and saved drafts. Translate only at this custom-board
@@ -224,6 +239,7 @@ export const board = query({
 
     return served;
   },
+  returns: v.array(servedBoardRow),
 });
 
 /**
@@ -236,14 +252,15 @@ export const board = query({
  * shows a timestamp that is only hours old and looks entirely healthy. Nothing distinguished
  * "rebuilt successfully at 11:00" from "tried to rebuild at 11:00 and could not".
  *
- * Deliberately public, like the board itself. `jobs.latest` requires a user, and this needs
- * to answer for somebody deciding whether to trust a board before they have an account.
- * Only the shape of the attempt is exposed — when, and whether it succeeded — never the
+ * Authenticated, like the board itself. Only the shape of the attempt is exposed — when,
+ * and whether it succeeded — never the
  * error text, which can carry a provider URL.
  */
 export const boardFreshness = query({
   args: { season: v.number(), scoringId: v.string(), teams: v.number() },
   handler: async (ctx, { season, scoringId, teams }) => {
+    await requireUser(ctx);
+    boardArgs(season, scoringId, teams);
     // The published run's own timestamp, which is the one figure that describes the board
     // as a whole. This used to take `.first()` from the board itself — index order, which
     // has nothing to do with write time — so mid-rebuild it could call a mostly stale
@@ -281,6 +298,12 @@ export const boardFreshness = query({
       lastAttemptStatus: attempt?.status ?? null,
     };
   },
+  returns: v.union(v.null(), v.object({
+    computedAt: nullableNumber, adpSourceTeams: nullableNumber,
+    historicalScoringSource: v.optional(v.literal("sleeper-custom-stats")),
+    historicalSeasons: v.optional(v.array(v.number())), sourceFetchedAt: v.optional(v.number()),
+    lastAttemptAt: nullableNumber, lastAttemptStatus: attemptStatus,
+  })),
 });
 
 /** Fingerprint of the live snapshot, for the refresh action's unchanged fast path. */
@@ -346,6 +369,8 @@ export function catalogJobKind(season: number): string {
 export const catalogFreshness = query({
   args: { season: v.number() },
   handler: async (ctx, { season }) => {
+    await requireUser(ctx);
+    seasonArgs(season);
     const run = await publishedCatalogRun(ctx, season);
     const attempt = await ctx.db
       .query("jobs")
@@ -363,6 +388,11 @@ export const catalogFreshness = query({
       lastAttemptStatus: attempt?.status ?? null,
     };
   },
+  returns: v.union(v.null(), v.object({
+    computedAt: nullableNumber, playerCount: nullableNumber, activeCount: nullableNumber,
+    unknownStatuses: v.array(v.object({ code: v.string(), count: v.number() })),
+    lastAttemptAt: nullableNumber, lastAttemptStatus: attemptStatus,
+  })),
 });
 
 /** `computedAt` of the last completed run for a league shape, or `null` if none has. */
@@ -390,7 +420,8 @@ async function publishedRun(
         .eq("scoringId", scoringId)
         .eq("teams", teams),
     )
-    .collect();
+    .take(READ_LIMITS.publishedRuns + 1);
+  completeRows(runs, READ_LIMITS.publishedRuns, "Published draft run metadata");
   if (runs.length === 0) return null;
   // The whole row rather than only its timestamp, because callers now need the provenance
   // alongside it and reading them from two separate maxima could pair one run's timestamp
@@ -408,7 +439,8 @@ async function publishedCatalogRun(
   const runs = await ctx.db
     .query("draftPlayerCatalogRuns")
     .withIndex("by_catalog", (q) => q.eq("sport", "nfl").eq("season", season))
-    .collect();
+    .take(READ_LIMITS.publishedRuns + 1);
+  completeRows(runs, READ_LIMITS.publishedRuns, "Published catalog metadata");
   if (runs.length === 0) return null;
   return runs.reduce((newest, run) =>
     run.publishedAt > newest.publishedAt ? run : newest,

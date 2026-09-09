@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 
 import { internalMutation, query } from "./_generated/server";
+import schema from "./schema";
+import { requireUser } from "./lib/auth";
+import { READ_LIMITS, boundedText, completeRows, integerIn, playerIdsArg, positionArg, weekArgs } from "./lib/read-bounds";
+
+const projectionDoc = v.object({ ...schema.tables.projections.validator.fields, _id: v.id("projections"), _creationTime: v.number() });
+const playerDoc = v.object({ ...schema.tables.players.validator.fields, _id: v.id("players"), _creationTime: v.number() });
 
 /**
  * Projection reads and writes.
@@ -34,17 +40,23 @@ export const forWeek = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { season, week, scoringId, position, limit }) => {
+    await requireUser(ctx);
+    weekArgs(season, week, scoringId);
+    if (position !== undefined) positionArg(position);
+    if (limit !== undefined) integerIn(limit, 1, READ_LIMITS.projections, "Limit");
     const rows = await ctx.db
       .query("projections")
       .withIndex("by_week_scoring", (q) =>
         q.eq("sport", "nfl").eq("season", season).eq("week", week).eq("scoringId", scoringId),
       )
-      .collect();
+      .take(READ_LIMITS.projections + 1);
+    completeRows(rows, READ_LIMITS.projections, "Weekly projection pool");
 
     const filtered = position ? rows.filter((row) => row.position === position) : rows;
     filtered.sort((a, b) => b.mean - a.mean || (a.playerId < b.playerId ? -1 : 1));
     return typeof limit === "number" ? filtered.slice(0, limit) : filtered;
   },
+  returns: v.array(projectionDoc),
 });
 
 /** A single player's projection for a week, with its explanation. */
@@ -56,6 +68,9 @@ export const forPlayer = query({
     scoringId: v.string(),
   },
   handler: async (ctx, { playerId, season, week, scoringId }) => {
+    await requireUser(ctx);
+    weekArgs(season, week, scoringId);
+    boundedText(playerId, 128, "Player ID");
     return await ctx.db
       .query("projections")
       .withIndex("by_player_week_scoring", (q) =>
@@ -63,6 +78,7 @@ export const forPlayer = query({
       )
       .first();
   },
+  returns: v.union(projectionDoc, v.null()),
 });
 
 /**
@@ -82,8 +98,11 @@ export const forPlayers = query({
     scoringId: v.string(),
   },
   handler: async (ctx, { playerIds, season, week, scoringId }) => {
+    await requireUser(ctx);
+    weekArgs(season, week, scoringId);
+    const ids = playerIdsArg(playerIds);
     const results = [];
-    for (const playerId of playerIds) {
+    for (const playerId of ids) {
       const row = await ctx.db
         .query("projections")
         .withIndex("by_player_week_scoring", (q) =>
@@ -98,6 +117,7 @@ export const forPlayers = query({
     }
     return results;
   },
+  returns: v.array(projectionDoc),
 });
 
 /**
@@ -252,8 +272,10 @@ export const upsertPlayers = internalMutation({
 export const playersByIds = query({
   args: { externalIds: v.array(v.string()) },
   handler: async (ctx, { externalIds }) => {
+    await requireUser(ctx);
+    const ids = playerIdsArg(externalIds);
     const results = [];
-    for (const externalId of externalIds) {
+    for (const externalId of ids) {
       const row = await ctx.db
         .query("players")
         .withIndex("by_external_id", (q) => q.eq("externalId", externalId))
@@ -262,15 +284,20 @@ export const playersByIds = query({
     }
     return results;
   },
+  returns: v.array(playerDoc),
 });
 
 /** Searchable player list for a position, used by roster building and waivers. */
 export const playersByPosition = query({
   args: { position: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { position, limit }) => {
+    await requireUser(ctx);
+    positionArg(position);
+    if (limit !== undefined) integerIn(limit, 1, READ_LIMITS.positionPlayers, "Limit");
     return await ctx.db
       .query("players")
       .withIndex("by_sport_position", (q) => q.eq("sport", "nfl").eq("position", position))
       .take(limit ?? 200);
   },
+  returns: v.array(playerDoc),
 });
