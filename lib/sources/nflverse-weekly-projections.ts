@@ -24,6 +24,8 @@ export interface NflverseWeeklyEstimate {
   gsisId: string | null;
   points: number | null;
   reason: string | null;
+  /** Omitted when this source has no current availability evidence for the identity. */
+  availability?: "active" | "questionable" | "doubtful" | "out" | "inactive" | "unknown";
 }
 export interface NflverseWeeklyEstimates {
   source: "FantasyGTO model using nflverse";
@@ -87,15 +89,21 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     const identities = data.roster.filter(row => row.sleeperId === playerId);
     const ids = new Set(identities.map(row => row.playerId));
     const gsisId = ids.size === 1 ? [...ids][0] : null;
-    const unavailable = (reason: string): NflverseWeeklyEstimate => ({ playerId, gsisId, points: null, reason });
-    if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
+    let availability: NflverseWeeklyEstimate["availability"];
+    const unavailable = (reason: string): NflverseWeeklyEstimate => ({ playerId, gsisId, points: null, reason,
+      ...(availability === undefined ? {} : { availability }) });
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
     if (weekly.length !== 1) return unavailable("Current weekly roster is missing or ambiguous");
     const current = weekly[0];
+    availability = current.status === "active" ? "active" : current.status === "unknown" ? "unknown" : "inactive";
     if (current.status !== "active") return unavailable(`Current roster status: ${current.status}`);
     const injury = data.injuries.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
-    if (injury.some(row => row.gameStatus === "out" || row.gameStatus === "unknown")) return unavailable("Out or unknown injury designation");
+    if (injury.some(row => row.gameStatus === "out")) { availability = "out"; return unavailable("Out injury designation"); }
+    if (injury.some(row => row.gameStatus === "unknown")) { availability = "unknown"; return unavailable("Unknown injury designation"); }
+    if (injury.some(row => row.gameStatus === "doubtful")) availability = "doubtful";
+    else if (injury.some(row => row.gameStatus === "questionable")) availability = "questionable";
+    if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     const position = current.position === "FB" ? "RB" : current.position;
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
     const contests = data.contests.filter(contest => contest.period.season === season && contest.period.index === week &&
@@ -120,7 +128,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
         impliedTeamTotal: line ? impliedTeamTotal(line.total, line.spread, current.team!, contest.homeTeam, contest.awayTeam) : null,
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
     return Number.isFinite(projection.mean)
-      ? { playerId, gsisId, points: projection.mean, reason: null }
+      ? { playerId, gsisId, points: projection.mean, reason: null, availability }
       : unavailable("The model did not produce a finite estimate under these rules");
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
@@ -128,6 +136,8 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
+      ...players.filter(player => player.availability === "questionable" || player.availability === "doubtful")
+        .map(player => `Player ${player.playerId} is ${player.availability}; recheck availability before kickoff.`),
       ...excludedRules.map(key => `Estimate excludes scoring rule ${key}; this is not a full custom-scoring projection.`)],
     players, coverage: { requested: players.length, projected: players.filter(player => player.points !== null).length } };
 }

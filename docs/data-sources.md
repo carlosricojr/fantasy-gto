@@ -93,6 +93,10 @@ sufficient history never receive an invented number. Required source failures fa
 whole request; missing optional betting lines instead omit that adjustment and add a warning.
 The computed timestamp identifies this calculation; source revision time
 remains explicitly unknown because the existing provider discards HTTP revision headers.
+Each row also carries structured availability when this source has current evidence.
+Out, inactive and unknown designations are distinct; questionable/doubtful designations
+remain visible with warnings even when an estimate exists. A missing identity does not
+manufacture an availability status or require consumers to parse an English error message.
 
 A read-only check on 2026-09-09 generated estimates for 12 of 16 entries in the requested
 personal roster. Two had stale playing history; kicker and defense were unpriced. All

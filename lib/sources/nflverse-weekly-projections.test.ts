@@ -60,6 +60,22 @@ describe("nflverse personal weekly estimates", () => {
     data.injuries = [{ season: 2026, week: 1, playerId: "gsis-1", name: "Test TE", position: "TE", team: "MIN",
       gameStatus: "out", practiceStatus: "none", primaryInjury: "Knee", dateModified: null }];
     expect(buildNflverseWeeklyEstimates(request, data).players[0].points).toBeNull();
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].availability).toBe("out");
+    for (const gameStatus of ["unknown", "questionable", "doubtful"] as const) {
+      data.injuries = [{ ...data.injuries[0], gameStatus }];
+      const result = buildNflverseWeeklyEstimates(request, data);
+      expect(result.players[0].availability).toBe(gameStatus);
+      if (gameStatus === "unknown") expect(result.players[0].points).toBeNull();
+      else expect(result.warnings.some(warning => warning.includes(gameStatus))).toBe(true);
+    }
+  });
+  it("does not manufacture availability when the player identity is missing", () => {
+    const data = inputs();
+    data.roster = [];
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].availability).toBeUndefined();
+    const inactive = inputs();
+    inactive.weeklyRoster = [{ ...inactive.weeklyRoster[0], status: "reserve" }];
+    expect(buildNflverseWeeklyEstimates(request, inactive).players[0].availability).toBe("inactive");
   });
   it("retains valid zero and negative model means after the history gate", () => {
     const parsed = parseSleeperScoring({ rec_yd: -0.1 });
