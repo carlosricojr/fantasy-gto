@@ -1041,3 +1041,60 @@ misfires:
 `subscriptionItem.updated` from a Clerk test instance, record the shapes here, and turn
 them into fixtures. Until that exists, treat the item-selection logic as defensive
 inference, not as a verified integration.
+
+## Personal weekly coverage follow-up — September 9, 2026
+
+Direct read at **20:13:50 UTC** of the [2026 nflverse injury CSV](https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2026.csv)
+returned HTTP 200, `Last-Modified: Wed, 09 Sep 2026 12:07:36 GMT`, and
+ETag `"0x8DF0E6AEFFAF554"`. The CSV parser found **29 regular-season week-one
+rows across LA, NE, SEA and SF**, not league-wide coverage. Quoted newlines mean
+physical line counts are not record counts. No `date_modified` column was
+present. An HTTP release revision is not a per-player injury update timestamp
+or a guarantee that all four teams have complete reports.
+
+The [official nflverse update schedule](https://nflreadr.nflverse.com/articles/nflverse_data_schedule.html)
+still describes the injury source as unavailable after 2024, with no restoration
+ETA, despite the observed 2026 artifact. This documentation/artifact mismatch
+prevents a reliable cadence promise. A partial successful response must not be
+called a healthy, comprehensive injury service. The [nflverse data license](https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md)
+is CC BY 4.0; retain attribution. This is distinct from software licensing.
+
+The weekly producer now reports requested-season/week row and distinct-team
+counts, the exact season CSV URL, dated-row count and latest timezone-qualified
+row timestamp when present. `freshness: "unknown"` and
+`scope: "reported-rows-only"` remain explicit. The source adapter currently does
+not expose HTTP revision headers, so the observed header above is diagnostic
+evidence, not a fabricated runtime field. Existing warnings surface this evidence
+without changing player status, ordinary/conditional points or eligibility gates.
+
+### Alternatives and permission boundary
+
+- NFL terms (updated May 16, 2024), §1.3: systematic database retrieval requires
+  written consent. [Official terms](https://www.nfl.com/legal/terms/).
+- The documented Sleeper player-directory API remains a personal-use status
+  supplement within its once-daily refresh guidance, not a comprehensive team
+  injury report or a projection source. No undocumented Sleeper projection
+  endpoint was called in this follow-up.
+- A public ESPN response is not evidence of automated-use permission. No new
+  ESPN or direct team-site scraper is enabled without a verified permission basis.
+
+No verified free alternative currently closes comprehensive, timestamped injury
+coverage under these constraints. The fallback is the existing documented
+roster status, explicit missing-evidence warnings, manual inputs and deliberate
+conditional-on-active consent—not inferred health or a new paid subscription.
+
+### K/DST and history gaps
+
+The [2024 team-week stats CSV](https://github.com/nflverse/nflverse-data/releases/download/stats_team_week/stats_team_week_2024.csv)
+returned HTTP 200 with `Last-Modified: Thu, 13 Aug 2026 16:49:13 GMT` during the
+same check: 570 rows including postseason, all 32 teams. The 2024 player-week
+snapshot contains 543 regular-season K rows with all nine required kicking
+counters populated explicitly. Actual zero strings are distinct from missing
+fields. This establishes raw scoring feasibility, not a calibrated forecast.
+
+The fixed development/tuning-only [coverage audit](coverage-evaluation.md)
+quantifies K/DST and limited/returning-history errors. K uses verified counters;
+D/ST remains a conventional-scoring proxy because opponent final score is not
+proven platform-exact defense points allowed and additional custom events are
+not fully represented. No K/DST projection, new variance, history-gate relaxation
+or 2025 holdout evaluation is shipped by this follow-up.

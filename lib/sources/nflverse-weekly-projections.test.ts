@@ -24,6 +24,13 @@ function inputs(): NflverseWeeklyInputs {
   };
 }
 describe("nflverse personal weekly estimates", () => {
+  it("exposes partial injury source evidence without changing estimate coverage", () => {
+    const result = buildNflverseWeeklyEstimates(request, inputs());
+    expect(result.injurySource).toMatchObject({ season: 2026, week: 1, reportRows: 1,
+      reportedTeams: ["MIN"], latestRowUpdatedAt: null, freshness: "unknown", scope: "reported-rows-only" });
+    expect(result.warnings.some(warning => warning.includes("1 reported rows across 1 teams"))).toBe(true);
+    expect(result.players[0].points).not.toBeNull();
+  });
   it("keeps conditional-on-active forecasts behind an explicit opt-in and separate value", () => {
     const data = inputs();
     data.injuries = [];
