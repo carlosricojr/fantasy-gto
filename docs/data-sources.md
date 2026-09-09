@@ -69,6 +69,56 @@ separate attribution/share-alike terms and is not added here. Current direct rel
 prior-season history plus the current roster/schedule before week 1; a missing current
 statistics release is expected in that window.
 
+### Personal weekly model estimates from nflverse
+
+`generateNflverseWeeklyProjections` in `lib/sources/nflverse-weekly-projections.ts` loads
+the existing nflverse statistics, current weekly roster, injury report, schedule and market
+line adapters when requested. It accepts at most 100 supplied Sleeper player IDs, joins
+them through nflverse's published ID bridge, and returns only those identities. No league
+data is written to a shared table and no lineup is submitted.
+
+It calls the existing `projectPlayer` with imported offensive coefficients over two prior
+seasons plus strictly earlier current-season weeks. The supported subset omits
+`st_ff`, `st_fum_rec`, and `fum_rec_td`, and reports those omissions when enabled. If the
+league assigns different values to passing/rushing/receiving two-point conversions, all
+enabled two-point terms are reported as omitted because the current model combines them.
+These are **partial model estimates**, not full custom-scoring projections. Calibration
+remains fitted on PPR and no new accuracy claim is made.
+
+Missing/ambiguous IDs, non-active weekly roster designations, Out/unknown injury status,
+missing kickoff, started games, fewer than four prior games, stale playing history and
+unmodeled positions return `points: null` with a reason. Valid zero/negative estimates are
+retained after the history gate. Kicker/defense and rookies without
+sufficient history never receive an invented number. Required source failures fail the
+whole request; missing optional betting lines instead omit that adjustment and add a warning.
+The computed timestamp identifies this calculation; source revision time
+remains explicitly unknown because the existing provider discards HTTP revision headers.
+Each row also carries structured availability when this source has current evidence.
+Out, inactive and unknown designations are distinct; questionable/doubtful designations
+remain visible with warnings even when an estimate exists. A missing identity does not
+manufacture an availability status or require consumers to parse an English error message.
+Identity comes from the complete roster catalog, so reserve players retain their published
+ID bridge until the weekly availability check. If the injury release has no rows for the
+current team and requested week, active roster rows remain unpriced with separate
+`injuryCoverage: "unavailable"`; a season-wide successful download is not current-week
+clearance. Observed roster and explicit injury designations remain intact. Missing coverage
+is not Out, and a manual estimate does not clear the accompanying warning. Profiles with no positive
+production scoring coefficient for the player's position require manual estimates: the unchanged model's positive usage prior is not
+compatible with penalty-only scoring and must not invent a positive total for it.
+Current team, game ID and kickoff also travel with the result, including unpriced or
+started-game rows, so a consumer can reconcile an older league-directory team after a trade.
+An explicit null kickoff blocks lock-time assumptions; absent context means this source
+could not resolve the current roster identity.
+
+A read-only check on 2026-09-09 at 19:23:55 UTC generated estimates for **2 of 16**
+entries in the requested personal roster under the final team-specific injury-coverage
+gate. Twelve had no current team injury-report coverage, one had an unmodeled position,
+and one lacked an individual nflverse identity. The earlier 12-of-16 observation preceded
+this gate and is not final availability clearance. All
+three special-teams/fumble-return omissions above were present and reported. This is a
+coverage check, not an accuracy evaluation or permission to silently treat omitted rules
+as zero-valued league settings.
+
 ## Runbook: refreshing the draft boards before a draft
 
 The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
