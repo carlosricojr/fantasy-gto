@@ -16,11 +16,66 @@ Current league/scoring and roster ownership must still match. Commissioner-adjus
 
 Forecast errors are separated by model, manual, and unspecified origin. Conditional-on-active and partial-scoring model estimates are excluded from ordinary full-score accuracy. The original limitations remain attached even when the frozen lineup's realized comparison can be computed.
 
+### Experimental estimate provenance
+
+The experimental extension freezes the independent `allowExperimentalEstimates`
+choice alongside the existing conditional and incomplete-comparison preferences.
+Each experimental estimate retains its version-1 method, active-at-kickoff assumption,
+history count and timing, calibration label, scoring scope, excluded rules and evidence
+tag. Returning-player frozen-model estimates and prior-season observed-game kicker
+means are distinct methods, not ordinary model forecasts. New saves validate the
+supported provenance shape and consent; malformed or unsupported metadata is rejected.
+
+Experimental and unrecognized future origins are excluded from ordinary forecast-error
+statistics, while the original snapshot and unevaluated count remain visible. A genuine
+manual full-score override is evaluated as manual, not as a validated experimental
+forecast. Legacy absent origins may be evaluated only in the separate unspecified-origin
+error group; the recent-results report segregates nonnull absent/unknown origins in its
+experimental-or-unrecognized cohort. None of these classifications establishes injury
+clearance, complete custom scoring or forecast calibration.
+
 ## Verification
 
 Pure tests cover bounded input parsing, original-versus-recommended comparison, no hindsight selection, signed outcomes, zero versus missing, independent timing, excluded slots, scoring identity, consent, source failures, and model/manual error separation. This workflow release separately tests authenticated ownership, server timestamps, append-only/idempotent recording, changed-payload request-ID rejection, bounded reads, entitlement expiry, atomic request quotas and concurrent observation throttling. Deleted accounts lose access immediately; bounded internal batches erase their decisions, observations (including orphans), connections and usage counters without affecting other users. UTF-8 payload caps bound record and observation read costs. No lineup changes or platform transactions are submitted.
 
-Development deployment and anonymous rejection smoke are verified. Signed-in production save/list/detail/outcome-refresh remains a release check requiring the owner's actual authenticated session; no synthetic subscription or account grants were used. The journal is Pro-only under the existing subscription-derived policy. See [weekly source access](weekly-lineup.md#source-access-and-bounded-compute) for quotas and remaining infrastructure limits.
+Development deployment and anonymous rejection smoke are verified. On September 9, 2026, the owner's signed-in Arc session verified a real saved connection, weekly import, conditional incomplete-comparison consent, receipt-dated save, private detail, reload persistence, and a correctly pending server-side outcome observation. No synthetic subscription, forecast, actual score or account grant was used. The journal is Pro-only under the existing subscription-derived policy. See [weekly source access](weekly-lineup.md#source-access-and-bounded-compute) for quotas and remaining infrastructure limits.
+
+## Recent descriptive results protocol
+
+`recent-decisions-v1` adds an explicit review button to private history. It loads only
+the newest server-ordered batch (at most 20 records; the backend byte cap may return
+fewer), then at most two owner-scoped detail reads concurrently. There are at most
+21 existing quota-admitted reads per click, no new endpoint, automatic scan, polling,
+upstream results fetch, observation write, or client persistence. An unavailable or
+failed detail aborts publication instead of reporting a selectively successful subset.
+Both requests in a pair must settle before retry is enabled, including asymmetric failure.
+The account-keyed history unmount invalidates pending responses and stops later batches.
+
+Selection is fixed before looking at outcomes: for each league/team/season/week in
+the batch, retain the latest receipt marked before all listed comparison kickoffs;
+equal receipt times use lexical record ID. Older revisions and late/unknown-timing
+records are counted, not treated as independent trials. The latest stored observation
+supplies the result. An independently ineligible, pending, corrupt or missing latest
+observation never causes fallback to an earlier successful recommendation. New stat
+corrections replace the observation used by a reloaded report, not the frozen receipt.
+
+The report separates no-declared-limitation, conditional/incomplete, and experimental
+or unknown-origin cohorts. It shows completed comparison counts, distinct NFL weeks,
+total and mean realized point difference against original starters, grouped separately
+by league, team, season, exact scoring identity and limitation cohort; pending comparisons
+do not become zero. Unknown or corrupt record formats are counted and withhold the
+entire batch, because a corrupt receipt could be the newest revision of a valid context.
+Each row names its summary group, whose team owner ID and exact scoring identity are
+available in a disclosure. The first cohort is not a claim that user-supplied inputs were authenticated
+or that the model is calibrated. Different scoring systems are not directly comparable.
+
+This is a **descriptive recent-batch review**, not a preregistered efficacy trial, full
+season report, forecast-accuracy benchmark, independent sample, or causal estimate.
+Selective saving, correlated players/weeks, incomplete slots, source limitations and
+varying league scoring remain important biases. It does not prove the user followed
+the advice. No model weights, draft policy, historical holdout or published evaluation
+metrics change. A future claim of superiority needs a separately frozen protocol,
+complete prospective capture and appropriate independent baselines and uncertainty.
 
 ## Retained storage limits
 

@@ -1,11 +1,12 @@
 # Fantasy GTO
 
-Fantasy football projections that show their working, and lineups that are provably
-optimal.
+Fantasy football projections that show their working, and exact lineup assignment
+for the supplied projected points.
 
 The projection model is backtested and its real accuracy is published, including where it
-is weak. The lineup optimizer solves slot assignment exactly, so no legal arrangement of a
-roster scores higher.
+is weak. The lineup optimizer solves slot assignment exactly, so no eligible arrangement
+scores higher on the supplied objective under the same locks and exclusions. That does
+not guarantee the highest realized score or establish a drafting advantage.
 
 ## Quick start
 

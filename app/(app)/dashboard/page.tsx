@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { SleeperConnectionFinder } from "@/components/sleeper-connection-finder";
 import { weeklyLineupHref } from "@/lib/nfl/sleeper-connection";
+import { waiverComparisonHref } from "@/lib/nfl/waiver-pool";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -136,7 +137,7 @@ function DashboardContent() {
     <PageShell title="My leagues" subtitle={subtitle}>
       <section className="mb-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Weekly lineup tools read your current Sleeper roster. Saved connections share your existing league limit; public lookup remains available without saving.</p><Button asChild variant="outline" size="sm"><Link href="/lineup/weekly">Open weekly lineup</Link></Button></div>
-        {connections && connections.length > 0 && <ul className="divide-y rounded-lg border">{connections.map((connection) => <li key={connection._id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="font-medium">{connection.leagueName}</p><p className="text-xs text-muted-foreground">{connection.username} · {connection.season} · Saved public Sleeper connection</p></div><div className="flex gap-2"><Button asChild size="sm"><Link href={weeklyLineupHref(connection)}>Weekly lineup</Link></Button><Button size="sm" variant="ghost" onClick={async () => { try { await removeConnection({ id: connection._id }); } catch (cause) { setError(appErrorMessage(cause, "Could not remove connection.")); } }}>Unsave</Button></div></li>)}</ul>}
+        {connections && connections.length > 0 && <ul className="divide-y rounded-lg border">{connections.map((connection) => <li key={connection._id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="font-medium">{connection.leagueName}</p><p className="text-xs text-muted-foreground">{connection.username} · {connection.season} · Saved public Sleeper connection</p></div><div className="flex flex-wrap gap-2"><Button asChild size="sm"><Link href={weeklyLineupHref(connection)}>Weekly lineup</Link></Button><Button asChild size="sm" variant="outline"><Link href={waiverComparisonHref(connection)}>Compare waivers</Link></Button><Button size="sm" variant="ghost" onClick={async () => { try { await removeConnection({ id: connection._id }); } catch (cause) { setError(appErrorMessage(cause, "Could not remove connection.")); } }}>Unsave</Button></div></li>)}</ul>}
         <SleeperConnectionFinder saveConnection={async (connection) => { try { await saveConnection({ leagueId: connection.leagueId, ownerId: connection.ownerId }); } catch (cause) { throw new Error(appErrorMessage(cause, "Could not save connection.")); } }} />
       </section>
       {me?.graceRemainingMs != null && (
