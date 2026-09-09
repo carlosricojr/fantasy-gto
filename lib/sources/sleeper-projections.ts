@@ -12,11 +12,11 @@ export function sleeperProjectionsUrl(season: number, week?: number): string {
   return `https://api.sleeper.com/projections/nfl/${season}${week === undefined ? "" : `/${week}`}?season_type=regular`;
 }
 
-export type SleeperAdpFormat = "standard" | "half_ppr" | "ppr" | "superflex" | "dynasty_half_ppr" | "dynasty_ppr" | "dynasty_standard" | "dynasty_superflex";
+export type SleeperAdpFormat = "standard" | "half_ppr" | "ppr" | "two_qb" | "dynasty_half_ppr" | "dynasty_ppr" | "dynasty_standard" | "dynasty_two_qb";
 const ADP_FIELDS: Record<SleeperAdpFormat, string> = {
-  standard: "adp_std", half_ppr: "adp_half_ppr", ppr: "adp_ppr", superflex: "adp_2qb",
+  standard: "adp_std", half_ppr: "adp_half_ppr", ppr: "adp_ppr", two_qb: "adp_2qb",
   dynasty_half_ppr: "adp_dynasty_half_ppr", dynasty_ppr: "adp_dynasty_ppr",
-  dynasty_standard: "adp_dynasty_std", dynasty_superflex: "adp_dynasty_2qb",
+  dynasty_standard: "adp_dynasty_std", dynasty_two_qb: "adp_dynasty_2qb",
 };
 
 export interface SleeperAdpSnapshot {
@@ -33,7 +33,9 @@ export interface SleeperAdpSnapshot {
 }
 
 export function parseSleeperProjections(raw: unknown, season: number, week: number, retrievedAt: number): ProviderResult<SleeperProjectionSnapshot> {
-  const sourceUrl = sleeperProjectionsUrl(season, week);
+  let sourceUrl: string;
+  try { sourceUrl = sleeperProjectionsUrl(season, week); }
+  catch (cause) { return failed("Invalid Sleeper projection season/week.", cause); }
   const parsed = projectionRows(raw, season, week, retrievedAt);
   if (!parsed.ok) return parsed;
   const players: SleeperProjectionPlayer[] = [];
@@ -44,7 +46,7 @@ export function parseSleeperProjections(raw: unknown, season: number, week: numb
     if (finite(stats.gp) === null || (stats.gp as number) <= 0 ||
       [stats.pts_std, stats.pts_half_ppr, stats.pts_ppr].every(value => finite(value) === null)) continue;
     players.push({
-      playerId: row.player_id as string, position: position(row)!,
+      playerId: string(row.player_id)!, position: position(row)!,
       team: normalizeTeam(string(row.team)), opponent: normalizeTeam(string(row.opponent)),
       gameId: string(row.game_id), providerUpdatedAt: updatedAt(row), stats,
       reportedPoints: { standard: finite(stats.pts_std), half_ppr: finite(stats.pts_half_ppr), ppr: finite(stats.pts_ppr) },
@@ -59,13 +61,15 @@ export function parseSleeperProjections(raw: unknown, season: number, week: numb
 
 export function parseSleeperAdp(raw: unknown, season: number, format: SleeperAdpFormat, retrievedAt: number): ProviderResult<SleeperAdpSnapshot> {
   if (!Object.hasOwn(ADP_FIELDS, format)) return failed("Unsupported Sleeper ADP format.");
-  const sourceUrl = sleeperProjectionsUrl(season);
+  let sourceUrl: string;
+  try { sourceUrl = sleeperProjectionsUrl(season); }
+  catch (cause) { return failed("Invalid Sleeper ADP season.", cause); }
   const parsed = projectionRows(raw, season, null, retrievedAt);
   if (!parsed.ok) return parsed;
   const sourceField = ADP_FIELDS[format];
   const players = parsed.data.map(row => {
     const published = finite(record(row.stats)![sourceField]);
-    return { playerId: row.player_id as string, position: position(row)!,
+    return { playerId: string(row.player_id)!, position: position(row)!,
       // Observed 999 is an unpriced sentinel, not pick 999. Never substitute search_rank.
       adp: published !== null && published > 0 && published < 999 ? published : null,
       stdev: null, timesDrafted: null, providerUpdatedAt: updatedAt(row) };

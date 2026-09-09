@@ -63,7 +63,7 @@ export function scoreSleeperProjection(
   const missingStats: string[] = [];
   const unsupportedRules: string[] = [];
   const components: { label: string; points: number }[] = [];
-  for (const [key, coefficient] of Object.entries(profile.coefficients).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [key, coefficient] of Object.entries(profile.coefficients).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     if (coefficient === 0) continue;
     const tier = key.startsWith("pts_allow_") || key.startsWith("yds_allow_");
     const applicable = player.position === "DST" ? DEFENSE.has(key) || tier
