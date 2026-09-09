@@ -246,3 +246,44 @@ reset, no old-account snapshot reaching new-account Save, and discarded in-fligh
 imports. Pending authentication sends no source request and does not touch browser
 manual storage. Storage is account-namespaced; original timestamps and exact matchup
 and context checks remain mandatory after a fresh import.
+
+## Sensitivity versus your current starters
+
+`analyzeWeeklyLineupStability` explains only the proposed starter set versus the
+imported current starters, under the already accepted input scope. It does not
+re-rank players, call the optimizer again, fetch data, or estimate confidence.
+Empty or missing included current starters, blocked plans, missing totals and
+mismatched estimates have no comparison. A slot-only rearrangement is explicitly
+not a starter change. Identical-eligibility slot permutations are suppressed in
+the action list when membership in that eligibility group is unchanged. Moves
+needed to free a named substitution destination and useful FLEX moves remain
+separate slot explanations and do not increase the count of start/bench actions.
+
+Let `g` be the included gain in integer cents. Let `D` contain only valued,
+variable players in the symmetric difference of the two included starter sets.
+Common starters, fixed/unpriced values and known Out/inactive/bye/reserve zeros
+cancel. An active player's supplied zero or negative estimate is still variable.
+With an independently allowed adverse movement of `r` points per player in `D`,
+the minimum margin between these **two fixed assignments** is
+`g/100 - r * |D|`: proposed-only players move down and current-only players move
+up together. Values may go below zero. The exact continuous tie radius is
+`g/(100*|D|)`; the UI reports `ceil(g/|D|)/100`, the smallest whole-cent radius
+that can erase the advantage, labelled “about” and explicitly rounded upward.
+If the original values tie, the threshold is zero, not evidence of confidence.
+
+The default ±1-point stress and optional ±2/±5 settings are transparent arbitrary
+assumptions, **not measured or plausible error bands**. A positive stressed margin
+means only that the included advantage versus the current starters remains under
+that assumption. It does not establish robustness versus all other lineups,
+availability certainty, superiority under omitted scoring, or future actual
+score improvement. Existing conditional-on-active/manual assumptions and safety
+gates remain in force. Thresholds are not saved as calibrated forecasts.
+
+The explanation is linear in the existing at-most-32 players and 12 slots. Tests
+check both sides of swaps, unavailable versus genuine zeros, negative estimates,
+locks/unpriced scope, cent rounding and independent exhaustive perturbation
+corners. Mounted UI tests run the real planner and verify radius changes send no
+new request or ranking change; refresh, stale inputs and account changes remove
+the old explanation. This presentation-only change does not alter the model,
+solver or ranking policy, so it does not require a model backtest or consume the
+reserved 2025 holdout.
