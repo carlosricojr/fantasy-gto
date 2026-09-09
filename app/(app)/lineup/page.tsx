@@ -289,7 +289,7 @@ function LineupContent() {
       ) : roster.length === 0 ? (
         <EmptyState
           title="Add players to get started"
-          body="Pick the players on your roster below. The optimal lineup is calculated as you go — no account needed."
+          body="Pick the players on your roster below. The optimal lineup is calculated as you go from the loaded projections."
         />
       ) : (
         <section className="rounded-lg border">
