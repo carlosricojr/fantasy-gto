@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { importSleeperWaivers, parseWaiverRequest, type WaiverRequest } from "./sleeper-waivers";
 import { createSleeperLineupFetcher } from "./sleeper-lineup";
 import { leagueUrl, playersUrl } from "./sleeper";
+import { weeklyRosterUrl } from "./nflverse";
 
 // Synthetic documented API shapes, not a recorded real-league fixture.
 const request: WaiverRequest = { leagueId: "123", ownerId: "456", week: 1, now: 100000, candidateIds: [], includeConditionalEstimates: false };
@@ -12,25 +13,28 @@ const rosters = [
 ];
 const player = (id: string, patch: Record<string, unknown> = {}) => ({ player_id: id, full_name: `Player ${id}`, fantasy_positions: ["RB"], status: "Active", injury_status: null, ...patch });
 const directory = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), player(String(i + 1))]));
+const rosterCsv = "season,week,game_type,sleeper_id,gsis_id,team,position,status\n2026,1,REG,7,gsis7,BAL,RB,ACT\n2026,1,REG,12,gsis12,KC,RB,ACT";
 const payloads = (patch: Record<string, unknown> = {}) => ({
   [leagueUrl("123")]: league,
   [`${leagueUrl("123")}/rosters`]: rosters,
   [playersUrl()]: { ...directory, "8": player("8", { fantasy_positions: ["QB"] }), "9": player("9", { status: "Retired" }), "10": null, "11": player("wrong") },
   "https://api.sleeper.app/v1/state/nfl": { season: "2026", week: 1, season_type: "regular" },
+  [weeklyRosterUrl(2026)]: rosterCsv,
   ...patch,
 });
-const fetcher = (data: Record<string, unknown>, calls: string[] = []) => async (url: string) => { calls.push(url); if (!(url in data)) throw new Error(`Unexpected source ${url}`); return JSON.stringify(data[url]); };
+const fetcher = (data: Record<string, unknown>, calls: string[] = []) => async (url: string) => { calls.push(url); if (!(url in data)) throw new Error(`Unexpected source ${url}`); return typeof data[url] === "string" ? data[url] as string : JSON.stringify(data[url]); };
 
 describe("read-only waiver source boundary", () => {
-  it("gets all rosters, excludes reserve/taxi and unsupported rows, and does no NFL/projection work during discovery", async () => {
+  it("gets all rosters, excludes reserve/taxi and reads current NFL membership without generating projections", async () => {
     const calls: string[] = [];
     const result = await importSleeperWaivers(request, fetcher(payloads(), calls));
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(5);
     expect(result.availablePlayers.map((p) => p.id)).toEqual(["12", "7"]);
     expect(result.directoryExcludedCount).toBe(4);
     expect(result.ownership.ownedPlayerIds).toEqual(["1", "2", "3", "4", "5", "6"]);
     expect(result.roster.scoringId).toBe('sleeper-v1:{"rec":0.5,"rush_yd":0.1}');
     expect(result.candidates).toEqual([]);
+    expect(result.rosterEvidence).toMatchObject({ reportRows: 2, reportedTeams: ["BAL", "KC"], publicationTime: null, excluded: { missing: 0, inactive: 0, conflicting: 0 } });
   });
   it("rechecks ownership on every comparison and rejects a newly rostered selection before projection I/O", async () => {
     const calls: string[] = [];
@@ -41,7 +45,7 @@ describe("read-only waiver source boundary", () => {
     await expect(importSleeperWaivers({ ...request, candidateIds: ["7"] }, cached)).rejects.toThrow("no longer unrostered");
     expect(calls.filter((url) => url === playersUrl())).toHaveLength(1);
     expect(calls.filter((url) => url.endsWith("/rosters"))).toHaveLength(2);
-    expect(calls.every((url) => url.startsWith("https://api.sleeper.app/v1/"))).toBe(true);
+    expect(calls.filter((url) => url === weeklyRosterUrl(2026))).toHaveLength(2);
   });
   it.each([null, { season: "2025", week: 1, season_type: "regular" }, { season: "2026", week: 2, season_type: "regular" }, { season: "2026", week: 1, season_type: "post" }])("refuses stale/future or malformed current-week state %j", async (state) => {
     await expect(importSleeperWaivers(request, fetcher(payloads({ "https://api.sleeper.app/v1/state/nfl": state })))).rejects.toThrow();
@@ -59,5 +63,13 @@ describe("read-only waiver source boundary", () => {
   });
   it("surfaces unavailable required schedule data rather than ranking unknown forecasts", async () => {
     await expect(importSleeperWaivers({ ...request, candidateIds: ["7"] }, fetcher(payloads()))).rejects.toThrow("Schedule unavailable");
+  });
+  it("excludes obsolete and absent identities rather than treating directory Active as current evidence", async () => {
+    const result = await importSleeperWaivers(request, fetcher(payloads({ [weeklyRosterUrl(2026)]: rosterCsv.replace("gsis12,KC,RB,ACT", "gsis12,KC,RB,CUT").replace("2026,1,REG,7", "2025,1,REG,7") + "\n2026,1,REG,99,gsis99,KC,RB,ACT" })));
+    expect(result.availablePlayers).toEqual([]);
+    expect(result.rosterEvidence.excluded).toEqual({ missing: 1, inactive: 1, conflicting: 0 });
+  });
+  it.each(["season,week,game_type,sleeper_id", rosterCsv.replaceAll("2026", "2025"), rosterCsv.replaceAll(",1,REG", ",2,REG")])("fails closed on missing requested-week evidence", async (csv) => {
+    await expect(importSleeperWaivers(request, fetcher(payloads({ [weeklyRosterUrl(2026)]: csv })))).rejects.toThrow("Current NFL roster evidence");
   });
 });

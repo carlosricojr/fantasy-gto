@@ -12,6 +12,22 @@ Discovery and comparison each consume one admission; failed upstream attempts st
 count. Denial returns HTTP 429 and clears the prior pool/comparison. The client cannot grant itself
 an entitlement or bypass admission, and this route has no separate in-memory limiter.
 
+## Saved-team handoff
+
+My leagues links each saved connection directly to `/waivers` with its exact league
+and manager IDs. The waiver page also lists the authenticated account's saved teams
+and offers the existing username/league-link finder. Selection and URL navigation do
+not fetch sources. Repeated identity parameters are ignored rather than choosing one.
+An omitted week is resolved through the existing authorized connection lookup on the
+next Load click; that lookup must confirm the same league and manager. It consumes a
+connection-lookup allowance in addition to the waiver discovery allowance. No week-1
+default, account grant, new saved record or platform transaction is created.
+
+The existing private-data gate waits for app authentication and provisioning before
+mounting saved-team queries. Authenticated Free users see the Pro access explanation,
+not another sign-in prompt. Account changes unmount old inputs; changing team clears
+selection, search and both consents. Superseded source responses are discarded.
+
 ## Objective and scope
 
 The baseline is `planWeeklyLineup(currentRoster)`, not the existing starter arrangement.
@@ -39,12 +55,24 @@ before directory/projection filtering. Cross-roster duplicate holdings, invalid 
 membership, missing opponents, wrong league, ambiguous user ownership, disabled adds,
 pre-draft/drafting state and wrong current season/week block the entire import.
 
-The searchable pool contains named directory entries with supported fantasy eligibility
-and an active/questionable/doubtful directory designation. Malformed, unavailable and
-ineligible entries are counted, not silently included. This is not a current NFL active
-list: directory data can be cached for a day. Selected candidates and the user's roster
-then receive the same nflverse current-team/game hydration and model gates as the weekly
-lineup planner. Ownership and directory eligibility are rechecked on every comparison.
+The searchable pool starts with named directory entries with supported fantasy eligibility
+and an active/questionable/doubtful directory designation. It then requires evidence in
+the exact season/week regular-season nflverse weekly roster CSV, joined by `sleeper_id`.
+A unique active team/position is required; a traded/cut origin can coexist with its active
+destination, but conflicting active teams, identities or positions are excluded. Defenses
+require their team to appear among that week's active roster rows. No historical player
+appearance, stale season row or absent status establishes current membership.
+
+Malformed/unavailable/ineligible directory rows and missing/unknown, inactive and
+conflicting NFL membership are counted separately. Empty or wrong-week source evidence
+blocks discovery; it never falls back to the directory-only pool. The complete filtered
+pool is returned without truncation, but is not claimed to cover the entire NFL: the
+reported-team count and source URL remain visible. Directory data can be cached for a day,
+and the weekly file has no trusted row-publication timestamp. Retrieval time is not
+data freshness. An `ACT` roster row is not injury clearance and never clears a known
+Sleeper injury restriction. Selected candidates and the user's roster then receive the
+same current-team/game hydration and model gates as the weekly planner. Ownership,
+directory eligibility and weekly membership are rechecked on every comparison.
 
 Started or unknown kickoffs cannot be additions or drops. Started starters remain in
 their recorded slot and started bench players remain benched. Reserve/taxi holdings
@@ -81,7 +109,8 @@ search matches and first 20 ranked pairs, explicitly naming those display limits
 Coverage reports pool size, selected/usable additions, usable drops, evaluated pairs
 and unknown pairs. Unsearched candidates are not claimed inferior.
 
-Discovery performs four documented Sleeper reads. A comparison uses those reads plus
+Discovery performs four documented Sleeper reads and one nflverse weekly-roster read.
+A comparison uses those reads plus
 one combined roster/candidate nflverse generation request (at most 36 identities,
 below the generator's 100-ID limit). Per-request deduplication shares roster and
 schedule bytes between hydration and modeling; the existing daily directory cache is
@@ -116,7 +145,8 @@ local transport. Both waiver and connection requests failed instead of returning
 cached pool; an unrelated API request returned its cache as a positive control. This
 checks the actual built worker's routing, not authorization or live-source accuracy.
 
-Read-only operational check on **2026-09-09 around 20:31 UTC**: the requested 10-team
+Historical directory-only operational check, **before the current-week membership
+filter**, on **2026-09-09 around 20:31 UTC**: the requested 10-team
 league contained 160 distinct holdings, 16 per roster. Its directory response contained
 12,227 entries; 2,772 became unrostered directory candidates and 9,295 other unrostered
 entries were excluded. A selected 12-name skill-player test produced 3 ordinary and 16
@@ -128,6 +158,17 @@ on that run. A separate cold synthetic maximum-budget run (24 same-position play
 12 candidates, 10 interchangeable slots) solved 288 pairs in approximately 1.46 seconds
 on this development machine. These are single-run observations, not mobile latency
 guarantees or production service-level claims.
+
+The September 9 workflow follow-up adds mounted signed-in synthetic tests for exact
+saved-team handoff, current-week confirmation, ambiguous URL refusal, account-change
+and in-flight cleanup, Free/signed-out gates, separate consents, and offline invalidation.
+A local browser harness ran the real page, private gate and real comparison Web Worker
+with explicitly mocked Clerk/Convex identity and source transport, using the production
+build's CSS. It verified a 10-point baseline and +2 included-point addition, a separate
+conditional +10 alternative only after consent and refresh, immediate removal when
+disabled, and no result after an offline refresh. Desktop 1280px and mobile 390px layouts
+were checked, with no horizontal overflow at 390px. This is local integration evidence,
+not proof of real production sign-in, live forecast accuracy or optimal player discovery.
 
 Source attribution: [Sleeper documented API](https://docs.sleeper.com/), personal
 non-commercial use; [nflverse-data](https://github.com/nflverse/nflverse-data), CC BY 4.0.

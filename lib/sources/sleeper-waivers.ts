@@ -3,7 +3,9 @@ import { parseWaiverOwnership, type WaiverOwnership } from "../nfl/waiver-pool";
 import { WAIVER_CANDIDATE_LIMIT, WAIVER_ROSTER_LIMIT, WAIVER_SLOT_LIMIT, type WaiverComparisonInput } from "../nfl/waiver-planner";
 import { applyWeeklyModel } from "../nfl/weekly-lineup-inputs";
 import { sleeperScoringFromId } from "../nfl/scoring/sleeper";
-import { NflverseProvider, type TextFetcher } from "./nflverse";
+import { NflverseProvider, weeklyRosterUrl, type TextFetcher } from "./nflverse";
+import { parseCsv } from "../nfl/csv";
+import { parseWaiverRosterEvidence, waiverRosterMembership, type WaiverRosterEvidence } from "../nfl/waiver-pool-evidence";
 import { generateNflverseWeeklyProjections } from "./nflverse-weekly-projections";
 import { hydrateSleeperWeeklyPlayers, parseSleeperLineup, parseSleeperWeeklyPlayer, sharedSleeperLineupFetcher } from "./sleeper-lineup";
 import { leagueUrl, playersUrl } from "./sleeper";
@@ -11,6 +13,7 @@ import { leagueUrl, playersUrl } from "./sleeper";
 export interface WaiverImport extends WaiverComparisonInput {
   availablePlayers: WeeklyPlayer[];
   directoryExcludedCount: number;
+  rosterEvidence: { sourceUrl: string; season: number; week: number; retrievedAt: number; publicationTime: null; reportRows: number; reportedTeams: string[]; excluded: { missing: number; inactive: number; conflicting: number } };
 }
 export interface WaiverRequest { leagueId: string; ownerId: string; week: number; now: number; candidateIds: readonly string[]; includeConditionalEstimates: boolean }
 const object = (value: unknown): Record<string, unknown> => {
@@ -32,23 +35,26 @@ export function parseWaiverRequest(params: URLSearchParams, now: number): Waiver
 }
 
 /** Searchable directory universe, not a ranked projection universe or claim-clearance feed. */
-export function parseWaiverDirectory(payload: unknown, roster: WeeklyLineupSnapshot, ownership: WaiverOwnership): { players: WeeklyPlayer[]; excludedCount: number } {
+export function parseWaiverDirectory(payload: unknown, roster: WeeklyLineupSnapshot, ownership: WaiverOwnership, evidence: WaiverRosterEvidence): { players: WeeklyPlayer[]; excludedCount: number; evidenceExcluded: { missing: number; inactive: number; conflicting: number } } {
   const directory = object(payload);
   const entries = Object.entries(directory);
   if (entries.length === 0 || entries.length > 25000) throw new Error("Player directory is empty or exceeds this tool's supported budget.");
   const owned = new Set(ownership.ownedPlayerIds);
   const players: WeeklyPlayer[] = [];
   let excludedCount = 0;
+  const evidenceExcluded = { missing: 0, inactive: 0, conflicting: 0 };
   for (const [id, row] of entries) {
     if (owned.has(id)) continue;
     try {
       if (!/^(?:[1-9]\d{0,29}|[A-Z]{2,3})$/.test(id)) throw new Error("Invalid ID");
       const player = parseSleeperWeeklyPlayer(id, row, { reserve: false, currentSlotId: null });
       if (!["active", "questionable", "doubtful"].includes(player.availability) || !roster.slots.some((slot) => slot.eligiblePositions.some((position) => player.positions.includes(position)))) { excludedCount += 1; continue; }
-      players.push(player);
+      const membership = waiverRosterMembership(player, evidence);
+      if (!membership.ok) { evidenceExcluded[membership.reason] += 1; continue; }
+      players.push({ ...player, team: membership.team });
     } catch { excludedCount += 1; }
   }
-  return { players: players.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), excludedCount };
+  return { players: players.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), excludedCount, evidenceExcluded };
 }
 
 /** Fresh full-league membership on every request; only the documented daily directory is cached. */
@@ -73,12 +79,15 @@ export async function importSleeperWaivers(request: WaiverRequest, fetchText: Te
   if (roster.players.length > WAIVER_ROSTER_LIMIT || roster.slots.length > WAIVER_SLOT_LIMIT) throw new Error(`This comparison supports at most ${WAIVER_ROSTER_LIMIT} rostered players and ${WAIVER_SLOT_LIMIT} starting slots.`);
   const state = object(JSON.parse(stateRaw));
   if (state.season_type !== "regular" || Number(state.season) !== roster.season || state.week !== roster.week) throw new Error("Waivers compare only Sleeper's current regular-season week.");
-  const pool = parseWaiverDirectory(directory, roster, ownership);
+  const evidenceUrl = weeklyRosterUrl(roster.season);
+  const evidence = parseWaiverRosterEvidence(parseCsv(await requestFetch(evidenceUrl)), roster.season, roster.week);
+  const pool = parseWaiverDirectory(directory, roster, ownership, evidence);
+  const rosterEvidence: WaiverImport["rosterEvidence"] = { sourceUrl: evidenceUrl, season: roster.season, week: roster.week, retrievedAt: request.now, publicationTime: null, reportRows: evidence.reportRows, reportedTeams: evidence.reportedTeams, excluded: pool.evidenceExcluded };
   const byId = new Map(pool.players.map((p) => [p.id, p]));
-  if (request.candidateIds.some((id) => !byId.has(id))) throw new Error("A selected candidate is no longer unrostered or eligible in the directory. Reload the full league pool.");
+  if (request.candidateIds.some((id) => !byId.has(id))) throw new Error("A selected candidate is no longer unrostered, eligible or supported by current NFL roster evidence. Reload the full league pool.");
   const candidates = request.candidateIds.map((id) => byId.get(id)!);
-  // Pool discovery needs no projections or NFL downloads. Comparison hydrates both sides together.
-  if (candidates.length === 0) return { roster, ownership, candidates, availablePlayers: pool.players, availableCount: pool.players.length, directoryExcludedCount: pool.excludedCount };
+  // Discovery reads membership evidence, not projections. Comparison reuses the same bytes.
+  if (candidates.length === 0) return { roster, ownership, candidates, availablePlayers: pool.players, availableCount: pool.players.length, directoryExcludedCount: pool.excludedCount, rosterEvidence };
   let combined = await hydrateSleeperWeeklyPlayers({ ...roster, players: [...roster.players, ...candidates] }, requestFetch);
   const profile = sleeperScoringFromId(roster.scoringId);
   if (profile === null) throw new Error("Imported scoring identity is not supported.");
@@ -86,5 +95,5 @@ export async function importSleeperWaivers(request: WaiverRequest, fetchText: Te
   if (!result.ok) throw new Error(`Weekly estimates unavailable: ${result.reason}`);
   combined = applyWeeklyModel(combined, result.data);
   const ownIds = new Set(ownership.ownPlayerIds);
-  return { roster: { ...combined, players: combined.players.filter((p) => ownIds.has(p.id)) }, candidates: combined.players.filter((p) => !ownIds.has(p.id)), ownership, availablePlayers: pool.players, availableCount: pool.players.length, directoryExcludedCount: pool.excludedCount };
+  return { roster: { ...combined, players: combined.players.filter((p) => ownIds.has(p.id)) }, candidates: combined.players.filter((p) => !ownIds.has(p.id)), ownership, availablePlayers: pool.players, availableCount: pool.players.length, directoryExcludedCount: pool.excludedCount, rosterEvidence };
 }
