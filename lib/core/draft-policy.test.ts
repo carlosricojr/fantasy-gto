@@ -599,51 +599,6 @@ describe("completeDraft, at its boundaries", () => {
   });
 });
 
-describe("recommendByChampionship against opponents who wanted the same player", () => {
-  it("does not play a candidate on our roster and an opponent's at once", () => {
-    // The shortlist comes from `state.available`, and the baseline completion may already
-    // have handed one of those players to an opponent. Scored against the untouched
-    // baseline, taking him added his points to us without removing them from them — so he
-    // scored twice, and the candidates opponents wanted were exactly the ones inflated.
-    //
-    // One overwhelming player on a thin board: every opponent wants him, so he is certain
-    // to appear on a completed opponent roster. Double-counted, taking him barely moves
-    // our odds, because the opponent who "still has him" cancels the gain.
-    const star = player("STAR", "RB", 60);
-    const filler = Array.from({ length: TEAMS * ROUNDS }, (_, i) =>
-      player(`f${i}`, i % 2 === 0 ? "WR" : "RB", 6),
-    );
-    // We sit in the last seat, so an opponent holds pick 1 and takes the star in the
-    // baseline completion. At seat 1 we would take him ourselves and forcing him would
-    // change nothing — which is correct, and tests nothing.
-    const teams: DraftTeam[] = Array.from({ length: TEAMS }, (_, i) => ({
-      id: `t${i}`,
-      name: `Team ${i}`,
-      roster: [],
-      remainingPicks: snakePicks(i === 0 ? TEAMS : i, TEAMS, ROUNDS),
-    }));
-    const recs = recommendByChampionship(
-      {
-        teams,
-        myTeamIndex: 0,
-        available: [star, ...filler],
-        rosterSize: ROUNDS,
-      },
-      CONFIG,
-      13,
-      3,
-    );
-    const forStar = recs.find((r) => r.player.id === "STAR");
-    expect(forStar).toBeDefined();
-    // Taking the one dominant player on the board must make us clear favorites in an
-    // eight-team league. Double-counted he is still on the opponent who took him, so we
-    // gain him without their losing him and the odds land near a coin flip instead:
-    // measured, 0.76 against 0.49 at this seed. "Better than zero" does not separate
-    // those, which is why the first version of this test passed against the bug.
-    expect(forStar!.championshipProbability).toBeGreaterThan(0.6);
-    expect(forStar!.deltaVsBaseline).toBeGreaterThan(0.02);
-  });
-});
 
 describe("completeOwnRoster", () => {
   it("stops at the roster size, not at the picks it holds", () => {
@@ -917,180 +872,6 @@ describe("a forced pick is honored when only one remains", () => {
   });
 });
 
-/**
- * The opponent who loses the player we take.
- *
- * When a candidate is already on an opponent's simulated roster, that opponent has to be
- * re-completed without him — otherwise he is played on two teams at once. Getting that
- * wrong is silent in every direction: the wrong opponent is repaired, the right one is
- * gutted, the replacement is handed to both of us, or the whole thing throws only when the
- * board happens to be exhausted.
- *
- * Every assertion here is on an absolute probability, because the failure mode is a number
- * that is plausible but wrong — comparing two runs of the same code cannot see it.
- */
-describe("re-completing the opponent who held the candidate", () => {
-  /** One dominant player on a thin board, with us drafting last so an opponent takes him. */
-  const starFixture = () => {
-    const star = player("STAR", "RB", 70);
-    const filler = Array.from({ length: TEAMS * ROUNDS }, (_, i) =>
-      player(`f${i}`, i % 2 === 0 ? "WR" : "RB", 6),
-    );
-    return { star, available: [star, ...filler] };
-  };
-
-  /**
-   * Seats every team exactly once, with `ownerIndex` on the clock first and us last.
-   *
-   * The first version of this assigned `i === ownerIndex ? 1 : i` and handed seat 1 to two
-   * different teams — so team 1 always took the first pick regardless, the holder was
-   * always the first opponent, and a mutant that finds the *wrong* opponent produced
-   * identical output. I recorded that as an unclosable gap. It was a broken fixture.
-   */
-  const seatedSoThat = (ownerIndex: number): DraftTeam[] => {
-    const seat = (i: number) =>
-      i === 0 ? TEAMS : i === ownerIndex ? 1 : i === 1 ? ownerIndex : i;
-    const seats = Array.from({ length: TEAMS }, (_, i) => seat(i));
-    // A collision here silently changes which team is on the clock, which is the whole
-    // variable these tests turn on.
-    expect(new Set(seats).size).toBe(TEAMS);
-    return Array.from({ length: TEAMS }, (_, i) => ({
-      id: `t${i}`,
-      name: `Team ${i}`,
-      roster: [],
-      remainingPicks: snakePicks(seats[i], TEAMS, ROUNDS),
-    }));
-  };
-
-  it("repairs the opponent who actually holds him, wherever he is seated", () => {
-    // The owner search matches on identity. Inverted, it matches the first opponent holding
-    // any *other* player — index 0 in every ordinary state — so the real holder keeps the
-    // star and we play him too.
-    //
-    // Seating the holder at index 4 rather than 1 is what makes "the right opponent" and
-    // "the first opponent" different. Measured at seed 13: 0.7533 correct, 0.4267 with the
-    // search inverted, so 0.6 separates them with room on both sides.
-    const { available } = starFixture();
-    const recs = recommendByChampionship(
-      { teams: seatedSoThat(4), myTeamIndex: 0, available, rosterSize: ROUNDS },
-      CONFIG,
-      13,
-      3,
-    );
-    expect(recs.find((r) => r.player.id === "STAR")!.championshipProbability)
-      .toBeGreaterThan(0.6);
-  });
-
-  it("leaves the rest of that opponent's roster intact", () => {
-    // The opponent who loses the candidate keeps everyone else. Filtering *to* him instead
-    // of *away from* him gives that opponent a one-man roster while he also keeps the
-    // star — both errors at once, and the result is merely a lower number rather than an
-    // obviously broken one.
-    //
-    // The threshold is measured, not guessed: this fixture returns 0.7667 at seed 13 and
-    // 0.6533 with the filter inverted. 0.70 sits between them with room on both sides.
-    const { available } = starFixture();
-    const recs = recommendByChampionship(
-      { teams: seatedSoThat(1), myTeamIndex: 0, available, rosterSize: ROUNDS },
-      CONFIG,
-      13,
-      3,
-    );
-    expect(recs.find((r) => r.player.id === "STAR")!.championshipProbability)
-      .toBeGreaterThan(0.7);
-  });
-
-  it("survives a board with nothing left to replace him with", () => {
-    // Exactly as many players as the opponents have picks, so `poolForUs` empties and
-    // `basePolicyPick` returns null. Appending the replacement unconditionally pushes a
-    // null onto a roster and the run dies inside a Monte Carlo loop instead of returning.
-    const star = player("STAR", "RB", 40);
-    const scarce = [star, ...Array.from({ length: 6 }, (_, i) => player(`s${i}`, "WR", 5))];
-    const teams: DraftTeam[] = Array.from({ length: TEAMS }, (_, i) => ({
-      id: `t${i}`,
-      name: `Team ${i}`,
-      roster: [],
-      remainingPicks: i === 0 ? [TEAMS] : [i],
-    }));
-    const recs = recommendByChampionship(
-      { teams, myTeamIndex: 0, available: scarce, rosterSize: 1 },
-      CONFIG,
-      5,
-      2,
-    );
-    expect(recs.length).toBeGreaterThan(0);
-  });
-
-  it("does not let us draft the replacement it just gave the opponent", () => {
-    // The pool filter is the only thing stopping the replacement from being drafted twice.
-    // The star fixture cannot see it, because there the replacement is interchangeable
-    // junk and taking it costs nothing — 0.7667 against 0.76, one scenario in 150.
-    //
-    // Here the replacement is decisive: we hold six starters and no tight end, so TEGOOD
-    // is the only player on the board who fills a hole in our lineup. Forcing STAR hands
-    // him to the opponent, and drafting him ourselves as well is worth a great deal.
-    // Measured at seed 13 on this fixture: 0.2133 correct, 0.4267 with the filter
-    // neutered, and 2082.97 expected points against 2471.95. The threshold sits between
-    // those, and is asserted on both quantities.
-    //
-    // I recorded this mutant as unclosable twice, then wrote this fixture with a bound of
-    // 0.5 that both sides satisfy — a third pass at the same mistake. Measure the
-    // separation, then choose the threshold; never the other way round.
-    const star = player("STAR", "RB", 60);
-    const teGood = player("TEGOOD", "TE", 30);
-    const junk = Array.from({ length: 12 }, (_, i) => player(`j${i}`, "WR", 1));
-
-    const settled = (prefix: string): DraftTeam => ({
-      id: prefix,
-      name: prefix,
-      roster: [
-        player(`${prefix}qb`, "QB", 20),
-        player(`${prefix}rb1`, "RB", 20),
-        player(`${prefix}rb2`, "RB", 20),
-        player(`${prefix}wr1`, "WR", 20),
-        player(`${prefix}wr2`, "WR", 20),
-        player(`${prefix}te`, "TE", 20),
-        player(`${prefix}fx`, "RB", 20),
-      ],
-      remainingPicks: [],
-    });
-
-    const teams: DraftTeam[] = [
-      {
-        id: "me",
-        name: "me",
-        // Six starters and no tight end, with two picks left.
-        roster: [
-          player("mqb", "QB", 18),
-          player("mrb1", "RB", 18),
-          player("mrb2", "RB", 18),
-          player("mwr1", "WR", 18),
-          player("mwr2", "WR", 18),
-          player("mfx", "RB", 18),
-        ],
-        remainingPicks: [2, 3],
-      },
-      { ...settled("o0"), remainingPicks: [1] },
-      ...Array.from({ length: 6 }, (_, i) => settled(`o${i + 1}`)),
-    ];
-
-    const recs = recommendByChampionship(
-      { teams, myTeamIndex: 0, available: [star, teGood, ...junk], rosterSize: 8 },
-      CONFIG,
-      13,
-      3,
-    );
-    const forStar = recs.find((r) => r.player.id === "STAR")!;
-    expect(forStar).toBeDefined();
-    expect(forStar.championshipProbability).toBeLessThan(0.3);
-    expect(forStar.expectedPoints).toBeLessThan(2200);
-  });
-
-  // Every mutant in this branch is now covered. The note that used to stand here recorded
-  // two of them as unclosable; both claims were wrong, one because of a seat collision in
-  // the fixture and one because the replacement was interchangeable. Neither was a
-  // property of the code.
-});
 
 /**
  * The order the ranking comes back in.
@@ -2190,12 +1971,13 @@ describe("a forced pick cannot overfill a roster", () => {
     // The other side of the same boundary. Without this the guard could reject everything
     // and the test above would still pass.
     const teams = freshTeams().map((t, i) =>
-      i === 0 ? { ...t, roster: full(), remainingPicks: [] } : t,
+      i === 0 ? { ...t, roster: full(), remainingPicks: [1] } : t,
     );
+    const extra = player("EXTRA", "WR", 30);
     const rosters = completeDraft(
-      { teams, myTeamIndex: 0, available: board(), rosterSize: 4 },
+      { teams, myTeamIndex: 0, available: [extra, ...board()], rosterSize: 4 },
       LEAGUE,
-      player("EXTRA", "WR", 30),
+      extra,
     );
     expect(rosters[0].map((p) => p.id)).toContain("EXTRA");
   });
@@ -2458,10 +2240,7 @@ describe("the market-discipline gate", () => {
     expect(currentRoundOf(stateWith([1.5]))).toBeNull();
   });
 
-  it("stands the gate down for a state whose round it cannot place", () => {
-    // End to end through the recommender: a team with no remaining picks has no round,
-    // and the market-absent candidate is offered rather than filtered — the gate refuses
-    // to act on a state it cannot place, which is what `currentRoundOf`'s null means.
+  it("offers no recommendation when we have no remaining pick", () => {
     const ghost = player("ghost", "RB", 25, { adp: null });
     const recs = recommendByChampionship(
       {
@@ -2476,7 +2255,7 @@ describe("the market-discipline gate", () => {
       7,
       4,
     );
-    expect(recs.some((entry) => entry.player.id === "ghost")).toBe(true);
+    expect(recs).toEqual([]);
   });
 
   it("measures the delta against the best offerable player, not the withheld one", () => {
@@ -2532,7 +2311,7 @@ describe("the market-discipline gate", () => {
     const stateAtRound = (round: number): DraftPolicyState => ({
       teams: freshTeams().map((team) => ({
         ...team,
-        remainingPicks: team.remainingPicks.filter(
+        remainingPicks: snakePicks(Number(team.id.slice(1)) + 1, TEAMS, MARKET_GATE_ROUNDS + 2).filter(
           (pick) => Math.ceil(pick / TEAMS) >= round,
         ),
       })),

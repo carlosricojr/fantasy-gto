@@ -1488,6 +1488,8 @@ export default function DraftPage() {
             onTheClock={onTheClock && !draftComplete}
             draftComplete={draftComplete}
             onPick={record}
+            hasRemainingPick={nextOwnPick !== null}
+            decisionPick={nextOwnPick}
             waitPick={waitPick}
             waitPickLabel={waitPickLabel}
             unrankedAdp={unrankedAdp}
