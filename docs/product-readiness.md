@@ -33,6 +33,7 @@ activation must be considered separately; no paid-data purchase is authorized.
 - Missing projected events are not zero events. Any partial estimate must name its omissions and cannot be labeled a complete exact-scoring projection.
 - No empirical edge means no empirical edge, including after a bug fix. More simulation samples only reduce simulation sampling noise.
 - Withhold actionable output on stale or conflicting draft state; do not hide a failure behind a cached answer.
+- Sleeper API requests and weekly-lineup imports use a network-only service-worker route ahead of the offline cache. A failed refresh must surface as a failure, not a cached live snapshot; static pages retain their existing offline behavior.
 - Record prospective input snapshots before kickoff when permission allows, so future evaluations can use information actually available at decision time.
 
 ## Current position

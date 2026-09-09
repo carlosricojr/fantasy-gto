@@ -135,6 +135,9 @@ export const httpTextFetcher: TextFetcher = async (url) => {
     const response = await fetch(url, {
       redirect: "follow",
       signal: controller.signal,
+      // Sleeper polling must also bypass the browser HTTP cache before a service
+      // worker takes control. Other providers keep their existing cache behavior.
+      ...(new URL(url).hostname === "api.sleeper.app" ? { cache: "no-store" as const } : {}),
     });
     if (!response.ok) {
       throw new Error(`${url} responded ${response.status}`);
