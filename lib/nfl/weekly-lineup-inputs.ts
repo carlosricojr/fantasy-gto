@@ -56,7 +56,11 @@ export function mergeWeeklyRefresh(prior: WeeklyLineupSnapshot | null, incoming:
     // A roster-only refresh did not re-read the injury inputs that produced the
     // prior model's designation. It cannot clear that evidence to cached Active.
     const previous = priorPlayers.get(p.id);
-    const previousAvailability = previous?.nflverseAvailability ?? (prior.model !== undefined ? previous?.availability : undefined);
+    // Preserve a designation reported by either source. Prior nflverse Active
+    // must not hide a reconciled Sleeper Out while injury coverage is missing.
+    // Bye/reserve are roster-specific exclusions, not retained injury evidence.
+    const priorDesignation = previous !== undefined && previous.availability !== "bye" && previous.availability !== "reserve" ? previous.availability : undefined;
+    const previousAvailability = priorDesignation === undefined ? previous?.nflverseAvailability : reconcileWeeklyAvailability(priorDesignation, previous?.nflverseAvailability);
     const retainedAvailability = p.injuryCoverage !== "available" && previousAvailability !== undefined
       ? reconcileWeeklyAvailability(previousAvailability, p.nflverseAvailability)
       : p.nflverseAvailability ?? previousAvailability;
