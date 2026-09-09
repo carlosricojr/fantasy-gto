@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { summarizeDecisionResults, type DecisionResultsInput } from "./decision-results";
 
 function input(id = "one", options: { at?: number; week?: number; owner?: string; timing?: string; difference?: number; status?: string; origin?: string; excluded?: string[]; scoringId?: string } = {}): DecisionResultsInput {
-  return { _id: id, recordJson: JSON.stringify({ version: 1, recordedAt: options.at ?? 100, timing: options.timing ?? "before-listed-kickoffs", snapshot: { leagueId: "league", ownerId: options.owner ?? "owner", leagueName: "League", season: 2026, week: options.week ?? 1, scoringId: options.scoringId ?? "half-ppr", players: [{ projectedPoints: 10, projectionOrigin: options.origin }] }, plan: { status: "ready", excludedSlotIds: options.excluded ?? [], excludedPlayerIds: [] } }), observations: [{ observedAt: 1000, evaluationJson: JSON.stringify({ status: options.status ?? "complete", recommendedActualPoints: 10 + (options.difference ?? -2), originalActualPoints: 10, actualDifference: options.difference ?? -2 }) }] };
+  return { _id: id, recordJson: JSON.stringify({ version: 1, recordedAt: options.at ?? 100, timing: options.timing ?? "before-listed-kickoffs", snapshot: { leagueId: "league", ownerId: options.owner ?? "owner", leagueName: "League", season: 2026, week: options.week ?? 1, scoringId: options.scoringId ?? "half-ppr", players: [{ projectedPoints: 10, projectionOrigin: "origin" in options ? options.origin : "manual" }] }, plan: { status: "ready", excludedSlotIds: options.excluded ?? [], excludedPlayerIds: [] } }), observations: [{ observedAt: 1000, evaluationJson: JSON.stringify({ status: options.status ?? "complete", recommendedActualPoints: 10 + (options.difference ?? -2), originalActualPoints: 10, actualDifference: options.difference ?? -2 }) }] };
 }
 
 describe("bounded descriptive decision-results protocol", () => {
@@ -26,8 +26,22 @@ describe("bounded descriptive decision-results protocol", () => {
     expect(result.rows[0].difference).toBe(-2);
   });
   it("separates ordinary, limited and experimental scopes including unknown future origins", () => {
-    const report = summarizeDecisionResults([input("plain"), input("limited", { week: 2, excluded: ["k"], difference: 10 }), input("conditional", { week: 3, origin: "model-conditional", difference: 4 }), input("experiment", { week: 4, origin: "experimental", difference: 7 }), input("future", { week: 5, origin: "new-origin", difference: 8 })]);
-    expect(Object.fromEntries(report.cohorts.map(group => [group.cohort, [group.complete, group.difference]]))).toEqual({ unrestricted: [1, -2], limited: [2, 14], experimental: [2, 15] });
+    const report = summarizeDecisionResults([input("plain", { origin: "manual" }), input("limited", { week: 2, origin: "model", excluded: ["k"], difference: 10 }), input("conditional", { week: 3, origin: "model-conditional", difference: 4 }), input("experiment", { week: 4, origin: "experimental", difference: 7 }), input("future", { week: 5, origin: "new-origin", difference: 8 }), input("missing", { week: 6, origin: undefined, difference: -3 })]);
+    expect(Object.fromEntries(report.cohorts.map(group => [group.cohort, [group.complete, group.difference]]))).toEqual({ unrestricted: [1, -2], limited: [2, 14], experimental: [3, 12] });
+  });
+  it.each([0, -2, 10])("segregates missing provenance for every finite supplied value, including %s", projectedPoints => {
+    const saved = input("mixed", { origin: "model" });
+    const record = JSON.parse(saved.recordJson);
+    record.snapshot.players.push({ projectedPoints });
+    saved.recordJson = JSON.stringify(record);
+    expect(summarizeDecisionResults([saved]).rows[0].cohort).toBe("experimental");
+  });
+  it.each(["manual", "model"])("keeps declared %s inputs ordinary without treating unpriced players as unknown forecasts", origin => {
+    const saved = input("declared", { origin });
+    const record = JSON.parse(saved.recordJson);
+    record.snapshot.players.push({ projectedPoints: null });
+    saved.recordJson = JSON.stringify(record);
+    expect(summarizeDecisionResults([saved]).rows[0].cohort).toBe("unrestricted");
   });
   it("keeps teams and scoring systems separate instead of summing incomparable points", () => {
     const report = summarizeDecisionResults([input("one"), input("two", { owner: "second" }), input("three", { week: 2 }), input("new-score", { week: 3, scoringId: "ppr" })]);

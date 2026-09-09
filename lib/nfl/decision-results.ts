@@ -54,8 +54,8 @@ type ParsedRecord = z.infer<typeof recordSchema>;
 
 function cohortOf(record: ParsedRecord): DecisionResultsCohort {
   const origins = record.snapshot.players.filter(p => p.projectedPoints !== null).map(p => p.projectionOrigin);
-  // Unknown future origins are conservatively segregated, never folded into ordinary results.
-  if (origins.some(origin => origin !== undefined && !["model", "model-conditional", "manual"].includes(origin))) return "experimental";
+  // Missing and unknown future origins are segregated, never folded into ordinary results.
+  if (origins.some(origin => origin === undefined || !["model", "model-conditional", "manual"].includes(origin))) return "experimental";
   if (record.plan.status === "conditional" || record.plan.excludedSlotIds.length > 0 || record.plan.excludedPlayerIds.length > 0 || (record.snapshot.model?.excludedRules.length ?? 0) > 0 || origins.includes("model-conditional")) return "limited";
   return "unrestricted";
 }
