@@ -59,3 +59,8 @@ export function parseWaiverOwnership(leaguePayload: unknown, rostersPayload: unk
   if (!own) throw new Error("The user does not uniquely identify a league roster.");
   return { leagueId: request.leagueId, ownerId: request.ownerId, rosterId: own.rosterId, rosterCount: count, ownedPlayerIds: [...owners.keys()].sort(), ownPlayerIds: [...own.players], protectedPlayerIds: own.protectedIds, retrievedAt: request.now };
 }
+/** Exact saved public-connection handoff; current week is resolved only on user request. */
+export function waiverComparisonHref(connection: { leagueId: string; ownerId: string }): string {
+  if (!/^\d{1,30}$/.test(connection.leagueId) || !/^\d{1,30}$/.test(connection.ownerId)) throw new Error("Invalid saved Sleeper connection.");
+  return `/waivers?${new URLSearchParams({ leagueId: connection.leagueId, ownerId: connection.ownerId })}`;
+}

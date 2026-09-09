@@ -17,6 +17,8 @@ import { SleeperConnectionFinder } from "@/components/sleeper-connection-finder"
 import { weeklyLineupPrefill } from "@/lib/nfl/sleeper-connection";
 import { MANUAL_ESTIMATE_MAX_AGE, WEEKLY_MANUAL_STORAGE_KEY, parseWeeklyManual, restoreWeeklyManual, saveWeeklyManual, updateWeeklyManualStore } from "@/lib/nfl/weekly-lineup-storage";
 import { groupWeeklyNotices, weeklyKickoffChecks, weeklyLineupActions } from "@/lib/nfl/weekly-lineup-presentation";
+import { analyzeWeeklyLineupStability, type WeeklyStressPoints } from "@/lib/nfl/weekly-lineup-stability";
+import { WeeklyStabilityPanel } from "./stability-panel";
 
 const PROJECTION_MAX_AGE = MANUAL_ESTIMATE_MAX_AGE;
 const ROSTER_MAX_AGE = 15 * 60 * 1000;
@@ -51,6 +53,7 @@ function ScopedWeeklyLineup({ storageScope }: { storageScope: string | null }) {
   const [source, setSource] = useState("User-entered expected points");
   const [storageMessage, setStorageMessage] = useState("");
   const [checkedGames, setCheckedGames] = useState<string[]>([]);
+  const [stressPoints, setStressPoints] = useState<WeeklyStressPoints>(1);
 
   useEffect(() => {
     mounted.current = true;
@@ -136,10 +139,12 @@ function ScopedWeeklyLineup({ storageScope }: { storageScope: string | null }) {
   const profile = snapshot === null ? null : sleeperScoringFromId(snapshot.scoringId);
   const names = new Map(snapshot?.players.map((p) => [p.id, p.name]));
   const actions = input && plan ? weeklyLineupActions(input, plan) : [];
+  const starterActions = actions.filter((action) => action.kind !== "slot");
+  const stability = useMemo(() => analyzeWeeklyLineupStability(input, plan, stressPoints), [input, plan, stressPoints]);
 
   return <PageShell title="Weekly lineup" subtitle="Your current starters, your league scoring, and kickoff locks.">
     <p className="mb-6 text-sm text-muted-foreground">Import your Sleeper roster and generate weekly skill-position estimates from nflverse history, or supply your own expected points. Automatic estimates can omit scoring terms and players; those gaps stay visible. This planner maximizes included estimates and cannot guarantee the highest actual score. It does not submit a lineup to Sleeper.</p>
-    <p className="mb-4 text-sm text-muted-foreground">Source requests require sign-in and are rate limited. Free includes roster-only import and league lookup; Pro adds model estimates, waiver comparisons and private decision history. Static and local tools remain public. <Link href="/sign-in" className="underline">Sign in</Link>.</p>
+    <p className="mb-4 text-sm text-muted-foreground">Source requests are rate limited. Free includes roster-only import and league lookup; Pro adds model estimates, waiver comparisons and private decision history. Static and local tools remain public.{!isAuthenticated && <> <Link href="/sign-in" className="underline">Sign in</Link> to request league data.</>}</p>
     <fieldset disabled={busy} className="mb-5"><SleeperConnectionFinder onSelect={(connection, currentWeek) => { setLeagueId(connection.leagueId); setOwnerId(connection.ownerId); setWeek(String(currentWeek)); setSnapshot(null); setCompareAvailable(false); setHoldUnpriced(false); setCheckedGames([]); setError(""); }} /></fieldset>
     <div className="grid gap-3 sm:grid-cols-3">
       <label className="text-sm">Sleeper league ID<Input value={leagueId} disabled={busy} onChange={(e) => { setLeagueId(e.target.value); setSnapshot(null); }} inputMode="numeric" /></label>
@@ -158,10 +163,11 @@ function ScopedWeeklyLineup({ storageScope }: { storageScope: string | null }) {
         <details className="mt-3 text-sm"><summary className="cursor-pointer">Exact league scoring coefficients</summary><div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-3">{Object.entries(profile?.coefficients ?? {}).map(([key, points]) => <span key={key}>{key}: {points}</span>)}</div></details>
       </div>
       {plan && <section className="rounded-lg border p-4" aria-live="polite">
-        <h2 className="font-semibold">{plan.status === "blocked" ? "Next: resolve the input checks below" : actions.length ? `${actions.length} lineup changes to review` : "Keep your current assignments"}</h2>
+        <h2 className="font-semibold">{plan.status === "blocked" ? "Next: resolve the input checks below" : starterActions.length ? `${starterActions.length} start/bench actions to review` : actions.length ? "Keep your current starters; review slot flexibility" : "Keep your current starters"}</h2>
         {plan.status !== "blocked" && <><p className="mt-1 text-sm">{plan.gain === null ? "Scoped comparison" : `${plan.gain >= 0 ? "+" : ""}${plan.gain.toFixed(2)} included-estimate points`} · {plan.status === "conditional" ? "conditional on the disclosed inputs" : "under supplied estimates"}. Make any changes yourself in Sleeper.</p><ul className="mt-3 space-y-2">{actions.map((action) => <li key={action.playerId} className="text-sm"><span className="font-medium">{action.text}</span><p className="text-xs text-muted-foreground">{action.reason}</p></li>)}</ul></>}
         {groupWeeklyNotices(plan.problems).map((group) => <details key={group.title} className="mt-3 text-sm"><summary className="cursor-pointer font-medium">{group.title} · {group.messages.length} checks</summary><p className="mt-1 text-xs text-muted-foreground">{group.messages[0]}</p><ul className="mt-2 list-disc space-y-1 pl-5">{group.messages.slice(1).map((message) => <li key={message}>{message}</li>)}</ul></details>)}
       </section>}
+      {plan && plan.status !== "blocked" && <WeeklyStabilityPanel analysis={stability} stressPoints={stressPoints} onStressChange={setStressPoints} />}
       {snapshot.model && <div className="rounded-lg border p-4 text-sm">
         <h2 className="font-semibold">{snapshot.model.source}</h2>
         <p className="mt-1">Generated {snapshot.model.coverage.projected} of {snapshot.model.coverage.requested} player estimates at {new Date(snapshot.model.computedAt).toLocaleString()}. Source publication time is unknown.</p>
