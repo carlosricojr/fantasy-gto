@@ -18,3 +18,27 @@ it("builds a local kickoff checklist from known games only", () => {
   expect(rows).toHaveLength(2); expect(rows[0].locked).toBe(true); expect(rows[1].locked).toBe(false);
   expect(rows[1].checkAt).toBe(2000 - 90 * 60_000);
 });
+it("suppresses identical-eligibility slot permutations even with different labels", () => {
+  const input = { ...snapshot, slots: [{ id: "rb", label: "RB 1", eligiblePositions: ["RB"] }, { id: "rb2", label: "RB 2", eligiblePositions: ["RB"] }], players: [{ ...snapshot.players[0], currentSlotId: "rb2" }, { ...snapshot.players[1], currentSlotId: "rb" }] };
+  const plan = planWeeklyLineup(input, { now: 10, maxProjectionAgeMs: 10_000, maxRosterAgeMs: 10_000 });
+  expect(plan.assignments.map((a) => a.playerId)).toEqual(["a", "b"]);
+  expect(weeklyLineupActions(input, plan)).toEqual([]);
+});
+it("preserves broader FLEX moves as slot explanations, not start/bench actions", () => {
+  const input = { ...snapshot, slots: [...snapshot.slots, { id: "flex", label: "FLEX", eligiblePositions: ["RB", "WR", "TE"] }], players: [{ ...snapshot.players[0], currentSlotId: "flex" }, { ...snapshot.players[1], currentSlotId: "rb" }] };
+  const actions = weeklyLineupActions(input, planWeeklyLineup(input, { now: 10, maxProjectionAgeMs: 10_000, maxRosterAgeMs: 10_000 }));
+  expect(actions.map((a) => a.kind)).toEqual(["slot", "slot"]);
+  expect(actions.map((a) => a.text)).toEqual(["Move A from FLEX to RB", "Move B from RB to FLEX"]);
+});
+it("retains an equivalent-slot move needed to free the displayed substitution destination", () => {
+  const input: WeeklyLineupSnapshot = { ...snapshot, slots: [{ id: "rb1", label: "RB1", eligiblePositions: ["RB"] }, { id: "rb2", label: "RB2", eligiblePositions: ["RB"] }], players: [
+    { ...snapshot.players[0], id: "a", name: "A", currentSlotId: "rb2", projectedPoints: 15 },
+    { ...snapshot.players[0], id: "b", name: "B", currentSlotId: "rb1", projectedPoints: 5 },
+    { ...snapshot.players[0], id: "c", name: "C", currentSlotId: null, projectedPoints: 10 },
+  ] };
+  const plan = planWeeklyLineup(input, { now: 10, maxProjectionAgeMs: 10_000, maxRosterAgeMs: 10_000 });
+  expect(plan.assignments.map((a) => a.playerId)).toEqual(["a", "c"]);
+  const actions = weeklyLineupActions(input, plan);
+  expect(actions.map((a) => a.text)).toEqual(["Move A from RB2 to RB1", "Bench B", "Start C at RB2"]);
+  expect(actions.filter((a) => a.kind !== "slot").map((a) => a.text)).toEqual(["Bench B", "Start C at RB2"]);
+});
