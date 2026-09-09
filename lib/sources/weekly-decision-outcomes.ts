@@ -42,10 +42,11 @@ export function parseDecisionMatchups(record: WeeklyDecisionRecord, leagueRaw: u
   }
   const state = object(stateRaw);
   const season = Number(state.season);
-  if (!Number.isInteger(season) || season < snapshot.season || !Number.isInteger(state.week) || Number(state.week) < 1 || Number(state.week) > 18) throw new Error("NFL state cannot establish the outcome period.");
+  if (!Number.isInteger(season) || season < snapshot.season || !["pre", "regular", "post"].includes(String(state.season_type))) throw new Error("NFL state cannot establish the outcome period.");
+  if (state.season_type === "regular" && (!Number.isInteger(state.leg) || Number(state.leg) < 1 || Number(state.leg) > 18)) throw new Error("NFL state cannot establish the regular-season period.");
   // Wait for the platform to move past the period, as well as posted game results.
   // This avoids treating pregame zeroes or in-progress scores as final outcomes.
-  return { pointsByPlayer: Object.fromEntries(values), weekClosed: season > snapshot.season || Number(state.week) > snapshot.week };
+  return { pointsByPlayer: Object.fromEntries(values), weekClosed: season > snapshot.season || state.season_type === "post" || (state.season_type === "regular" && Number(state.leg) > snapshot.week) };
 }
 
 /** User-triggered read-only observation. This fetches no forecasts and never reads the reserved 2025 holdout. */
