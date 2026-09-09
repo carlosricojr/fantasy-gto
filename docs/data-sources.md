@@ -69,6 +69,35 @@ separate attribution/share-alike terms and is not added here. Current direct rel
 prior-season history plus the current roster/schedule before week 1; a missing current
 statistics release is expected in that window.
 
+### Personal weekly model estimates from nflverse
+
+`generateNflverseWeeklyProjections` in `lib/sources/nflverse-weekly-projections.ts` loads
+the existing nflverse statistics, current weekly roster, injury report, schedule and market
+line adapters when requested. It accepts at most 100 supplied Sleeper player IDs, joins
+them through nflverse's published ID bridge, and returns only those identities. No league
+data is written to a shared table and no lineup is submitted.
+
+It calls the existing `projectPlayer` with imported offensive coefficients over two prior
+seasons plus strictly earlier current-season weeks. The supported subset omits
+`st_ff`, `st_fum_rec`, and `fum_rec_td`, and reports those omissions when enabled. If the
+league assigns different values to passing/rushing/receiving two-point conversions, all
+enabled two-point terms are reported as omitted because the current model combines them.
+These are **partial model estimates**, not full custom-scoring projections. Calibration
+remains fitted on PPR and no new accuracy claim is made.
+
+Missing/ambiguous IDs, non-active weekly roster designations, Out/unknown injury status,
+missing kickoff, started games, fewer than four prior games, stale playing history and
+unmodeled positions return `points: null` with a reason. Kicker/defense and rookies without
+sufficient history never receive an invented number. Required source failures fail the
+whole request. The computed timestamp identifies this calculation; source revision time
+remains explicitly unknown because the existing provider discards HTTP revision headers.
+
+A read-only check on 2026-09-09 generated estimates for 12 of 16 entries in the requested
+personal roster. Two had stale playing history; kicker and defense were unpriced. All
+three special-teams/fumble-return omissions above were present and reported. This is a
+coverage check, not an accuracy evaluation or permission to silently treat omitted rules
+as zero-valued league settings.
+
 ## Runbook: refreshing the draft boards before a draft
 
 The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
