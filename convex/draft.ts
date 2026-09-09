@@ -7,7 +7,7 @@ import { OUTCOME_QUANTILES, PLACEHOLDER_QUANTILES } from "../lib/nfl/model/confi
 import { CUSTOM_SKILL_OUTCOME_KNOTS, customDstId } from "../lib/nfl/draft/sleeper-custom";
 import { sleeperScoringFromId } from "../lib/nfl/scoring/sleeper";
 import { requireUser } from "./lib/auth";
-import { READ_LIMITS, boardArgs, completeRows, seasonArgs } from "./lib/read-bounds";
+import { READ_LIMITS, boardArgs, completeRows, seasonArgs } from "./lib/readBounds";
 
 /**
  * Draft board reads and writes.

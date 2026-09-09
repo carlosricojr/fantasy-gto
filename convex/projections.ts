@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import schema from "./schema";
 import { requireUser } from "./lib/auth";
-import { READ_LIMITS, boundedText, completeRows, integerIn, playerIdsArg, positionArg, weekArgs } from "./lib/read-bounds";
+import { READ_LIMITS, boundedText, completeRows, integerIn, playerIdsArg, positionArg, weekArgs } from "./lib/readBounds";
 
 const projectionDoc = v.object({ ...schema.tables.projections.validator.fields, _id: v.id("projections"), _creationTime: v.number() });
 const playerDoc = v.object({ ...schema.tables.players.validator.fields, _id: v.id("players"), _creationTime: v.number() });

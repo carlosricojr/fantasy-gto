@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "../_generated/api";
-import { READ_LIMITS } from "../lib/read-bounds";
+import { READ_LIMITS } from "../lib/readBounds";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.d.ts", "!../**/*.test.ts", "!../tests/**"]);
