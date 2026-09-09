@@ -32,7 +32,7 @@ export interface DraftPromotionEvidence {
     confidenceLevel: number;
     uncertainty: "independent-cases" | "simulation-draws";
   }[];
-  rosters: null | { cases: number; teamsChecked: number; illegal: number; unresolved: number };
+  rosters: null | { cases: number; teamsExpected: number; teamsChecked: number; illegal: number; unresolved: number };
   missingness: null | { cases: number; expected: number; missing: number; excluded: number; documented: boolean };
   latency: null | { environment: string; p95Ms: number; samples: number; includesStartup: boolean; artifact: string };
 }
@@ -75,7 +75,8 @@ export function draftPromotionGate(evidence: DraftPromotionEvidence | null | und
         rows[0].confidenceLevel === p.confidenceLevel && Number.isFinite(rows[0].lowerBound) && rows[0].lowerBound > p.minimumImprovement;
     });
   const r = evidence?.rosters;
-  const legal = independent && !!r && !!e && r.cases === e.cases && count(r.teamsChecked, e.cases * 2) && r.illegal === 0 && r.unresolved === 0;
+  const legal = independent && !!r && !!e && r.cases === e.cases && count(r.teamsExpected, e.cases * 2) &&
+    r.teamsChecked === r.teamsExpected && r.illegal === 0 && r.unresolved === 0;
   const m = evidence?.missingness;
   const covered = independent && !!m && !!e && !!p && m.cases === e.cases && m.documented === true &&
     count(m.expected, e.cases) && count(m.missing) && count(m.excluded) && m.missing + m.excluded <= m.expected &&

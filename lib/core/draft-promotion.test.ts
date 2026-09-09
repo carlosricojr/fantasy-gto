@@ -10,7 +10,7 @@ function qualifying(): DraftPromotionEvidence {
       cases: 30, independent: true, reusedCases: 0, externalOutcomes: true },
     comparisons: ["guarded-adp", "roster-needs-adp"].map(baseline => ({ baseline: baseline as "guarded-adp" | "roster-needs-adp",
       cases: 30, lowerBound: 2, confidenceLevel: 0.95, uncertainty: "independent-cases" })),
-    rosters: { cases: 30, teamsChecked: 300, illegal: 0, unresolved: 0 },
+    rosters: { cases: 30, teamsExpected: 300, teamsChecked: 300, illegal: 0, unresolved: 0 },
     missingness: { cases: 30, expected: 1000, missing: 20, excluded: 10, documented: true },
     latency: { environment: "browser-worker-mobile", p95Ms: 1500, samples: 100, includesStartup: true, artifact: "test-latency-artifact" } };
 }
@@ -58,7 +58,8 @@ describe("versioned draft promotion gate", () => {
   it("rejects incomplete roster, missingness or real-device latency evidence", () => {
     const mutations: ((e: DraftPromotionEvidence) => void)[] = [
       e => { e.rosters!.illegal = 1; }, e => { e.rosters!.unresolved = 1; }, e => { e.rosters!.cases = 29; },
-      e => { e.rosters!.teamsChecked = 0; }, e => { e.missingness!.documented = false; }, e => { e.missingness!.expected = 0; },
+      e => { e.rosters!.teamsChecked = 0; }, e => { e.rosters!.teamsChecked = 299; }, e => { e.rosters!.teamsExpected = 0; },
+      e => { e.missingness!.documented = false; }, e => { e.missingness!.expected = 0; },
       e => { e.missingness!.missing = 51; }, e => { e.missingness!.excluded = -1; }, e => { e.missingness!.cases = 29; },
       e => { e.latency!.environment = "desktop-node"; }, e => { e.latency!.includesStartup = false; },
       e => { e.latency!.p95Ms = 2001; }, e => { e.latency!.samples = 99; }, e => { e.latency!.artifact = ""; },
