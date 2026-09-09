@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, query, type QueryCtx } from "./_generated/server";
 import { requireUser } from "./lib/auth";
-import { READ_LIMITS, completeRows } from "./lib/read-bounds";
+import { READ_LIMITS, completeRows } from "./lib/readBounds";
 
 import type { Contest } from "../lib/core/domain";
 import { resolveSeasonState } from "../lib/nfl/season";

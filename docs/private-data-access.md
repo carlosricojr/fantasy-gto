@@ -57,6 +57,23 @@ Saved local drafts are not deleted by these guards. Before announcing release, v
 new frontend sign-in state and one denied direct RPC against the deployed backend; do not
 load-test it. Source changes alone are not proof that production is protected.
 
+## Deployment filename regression
+
+The September 9, 2026 deployment of `db28abc` built the frontend successfully but
+failed Convex's module-path validation at 21:58:20 UTC: `lib/read-bounds.js`
+contained a hyphen. Neither the backend push nor the frontend promotion completed;
+production remained on `d5e4602`. The helper is now named `readBounds.ts`, with
+unchanged contents and imports updated mechanically.
+
+`lib/convex-module-paths.test.ts` runs in ordinary `pnpm verify`. Its repository
+scan reproduced the original failure before the rename and checks path components
+against Convex's accepted letters, digits, underscores and periods. It excludes
+non-entrypoints such as generated files and multi-dot test/config filenames using
+the pinned CLI's selection rules. This is a local naming check, not equivalent to
+remote deployment acceptance; the final production push and smoke checks are still
+required. No remote dry-run, partial deployment, schema change or access relaxation
+was used to bypass the failed release.
+
 ## Operator diagnostics
 
 Live `pnpm identity-coverage` and `scripts/sleeper-rehearsal.ts` require

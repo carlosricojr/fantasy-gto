@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import schema from "./schema";
 import { requireUser } from "./lib/auth";
-import { READ_LIMITS, completeRows, seasonArgs, weekArgs } from "./lib/read-bounds";
+import { READ_LIMITS, completeRows, seasonArgs, weekArgs } from "./lib/readBounds";
 
 const contestDoc = v.object({ ...schema.tables.contests.validator.fields, _id: v.id("contests"), _creationTime: v.number() });
 
