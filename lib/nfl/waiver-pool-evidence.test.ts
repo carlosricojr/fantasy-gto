@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parseWaiverRosterEvidence, waiverRosterMembership } from "./waiver-pool-evidence";
+import { assertWaiverProjectionIdentity, parseWaiverRosterEvidence, waiverRosterMembership } from "./waiver-pool-evidence";
 import { waiverComparisonHref } from "./waiver-pool";
 import type { WeeklyPlayer } from "./weekly-lineup";
 const row = { season: "2026", week: "1", game_type: "REG", sleeper_id: "7", gsis_id: "gsis7", team: "BAL", position: "RB", status: "ACT" };
@@ -27,4 +27,10 @@ it("requires a currently reported team for defenses, not a player ID join", () =
 it("hands off exactly the saved league/owner without inventing a current week", () => {
   expect(waiverComparisonHref({ leagueId: "123", ownerId: "456" })).toBe("/waivers?leagueId=123&ownerId=456");
   expect(() => waiverComparisonHref({ leagueId: "../123", ownerId: "456" })).toThrow();
+});
+it("retains explicit identity contradictions even when a producer withholds points and game context", () => {
+  const evidence = parseWaiverRosterEvidence([row], 2026, 1);
+  expect(() => assertWaiverProjectionIdentity(player, { gsisId: "other" }, evidence, false)).toThrow("identity evidence disagrees");
+  expect(() => assertWaiverProjectionIdentity(player, { gsisId: null }, evidence, false)).not.toThrow();
+  expect(() => assertWaiverProjectionIdentity({ ...player, team: "KC" }, { gsisId: "gsis7" }, evidence)).toThrow("identity evidence disagrees");
 });

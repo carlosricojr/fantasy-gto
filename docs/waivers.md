@@ -73,6 +73,10 @@ data freshness. An `ACT` roster row is not injury clearance and never clears a k
 Sleeper injury restriction. Selected candidates and the user's roster then receive the
 same current-team/game hydration and model gates as the weekly planner. Ownership,
 directory eligibility and weekly membership are rechecked on every comparison.
+The direct weekly Sleeper-to-GSIS identity is also reconciled against the model bridge
+for every valued or context-bearing row on both sides. Conflicting identity/team evidence
+blocks the whole comparison, including same-team identity swaps; hydration cannot silently
+replace the verified membership team. Entirely unresolved rows remain unknown.
 
 Started or unknown kickoffs cannot be additions or drops. Started starters remain in
 their recorded slot and started bench players remain benched. Reserve/taxi holdings

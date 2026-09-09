@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { importSleeperWaivers, parseWaiverRequest, type WaiverRequest } from "./sleeper-waivers";
 import { createSleeperLineupFetcher } from "./sleeper-lineup";
 import { leagueUrl, playersUrl } from "./sleeper";
-import { weeklyRosterUrl } from "./nflverse";
+import { injuriesUrl, schedulesUrl, seasonRosterUrl, weeklyRosterUrl, weeklyStatsUrl } from "./nflverse";
+import { compareWeeklyWaivers } from "../nfl/waiver-planner";
 
 // Synthetic documented API shapes, not a recorded real-league fixture.
 const request: WaiverRequest = { leagueId: "123", ownerId: "456", week: 1, now: 100000, candidateIds: [], includeConditionalEstimates: false };
@@ -23,6 +24,20 @@ const payloads = (patch: Record<string, unknown> = {}) => ({
   ...patch,
 });
 const fetcher = (data: Record<string, unknown>, calls: string[] = []) => async (url: string) => { calls.push(url); if (!(url in data)) throw new Error(`Unexpected source ${url}`); return typeof data[url] === "string" ? data[url] as string : JSON.stringify(data[url]); };
+
+function comparisonPayloads(conflict: "none" | "candidate" | "same-team" | "rostered" = "none") {
+  const csv = (rows: Record<string, string>[]) => { const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))]; return [keys.join(","), ...rows.map((row) => keys.map((key) => row[key] ?? "").join(","))].join("\n"); };
+  const team = (id: string) => id === "8" && conflict !== "same-team" ? "KC" : "BAL";
+  const weekly = ["1", "2", "7", "8", "12"].map((id) => ({ season: "2026", week: "1", game_type: "REG", sleeper_id: id, gsis_id: `gsis${id}`, team: team(id), position: "RB", status: "ACT", full_name: `Synthetic ${id}` }));
+  const catalog = weekly.map((row) => ({ ...row, gsis_id: row.sleeper_id === (conflict === "rostered" ? "1" : "7") && conflict !== "none" ? "gsis8" : row.gsis_id }));
+  const stats = (season: number) => csv(["1", "2", "7", "8"].flatMap((id) => [15, 16, 17, 18].map((week) => ({ player_id: `gsis${id}`, player_display_name: `Synthetic ${id}`, season: String(season), week: String(week), season_type: "REG", position: "RB", team: team(id), opponent_team: "DEN", rushing_yards: id === "1" || id === "2" ? "20" : "100", carries: "20" }))));
+  return payloads({
+    [weeklyRosterUrl(2026)]: csv(weekly), [seasonRosterUrl(2026)]: csv(catalog),
+    [weeklyStatsUrl(2024)]: stats(2024), [weeklyStatsUrl(2025)]: stats(2025),
+    [schedulesUrl()]: csv([["BAL", "CIN"], ["KC", "DEN"]].map(([home, away], i) => ({ game_id: `game${i}`, season: "2026", week: "1", game_type: "REG", home_team: home, away_team: away, gameday: "2026-09-13", gametime: "13:00", home_score: "", away_score: "" }))),
+    [injuriesUrl(2026)]: csv(["BAL", "KC"].map((team) => ({ season: "2026", week: "1", game_type: "REG", gsis_id: `other${team}`, full_name: "Other", position: "RB", team, report_status: "Questionable" }))),
+  });
+}
 
 describe("read-only waiver source boundary", () => {
   it("gets all rosters, excludes reserve/taxi and reads current NFL membership without generating projections", async () => {
@@ -71,5 +86,18 @@ describe("read-only waiver source boundary", () => {
   });
   it.each(["season,week,game_type,sleeper_id", rosterCsv.replaceAll("2026", "2025"), rosterCsv.replaceAll(",1,REG", ",2,REG")])("fails closed on missing requested-week evidence", async (csv) => {
     await expect(importSleeperWaivers(request, fetcher(payloads({ [weeklyRosterUrl(2026)]: csv })))).rejects.toThrow("Current NFL roster evidence");
+  });
+  it("integrates actual source parsers, hydration and model before comparing a matching identity", async () => {
+    const now = Date.parse("2026-09-09T15:00:00Z");
+    const calls: string[] = [];
+    const result = await importSleeperWaivers({ ...request, now, candidateIds: ["7"] }, fetcher(comparisonPayloads(), calls));
+    expect(result.candidates[0]).toMatchObject({ id: "7", team: "BAL", gameId: "game0" });
+    expect(result.candidates[0].projectedPoints).toBeGreaterThan(0);
+    expect(compareWeeklyWaivers(result, { now, compareAvailableEstimates: true, allowConditionalEstimates: false }).status).toBe("improvement");
+    expect(calls.filter((url) => url === weeklyRosterUrl(2026))).toHaveLength(1);
+    expect(calls.filter((url) => url === seasonRosterUrl(2026))).toHaveLength(1);
+  });
+  it.each(["candidate", "same-team", "rostered"] as const)("blocks an actual adapter forecast when the %s identity bridge contradicts weekly Sleeper IDs", async (conflict) => {
+    await expect(importSleeperWaivers({ ...request, now: Date.parse("2026-09-09T15:00:00Z"), candidateIds: ["7"] }, fetcher(comparisonPayloads(conflict)))).rejects.toThrow("Current-week NFL identity evidence disagrees");
   });
 });

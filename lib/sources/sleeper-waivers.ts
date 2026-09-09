@@ -5,7 +5,7 @@ import { applyWeeklyModel } from "../nfl/weekly-lineup-inputs";
 import { sleeperScoringFromId } from "../nfl/scoring/sleeper";
 import { NflverseProvider, weeklyRosterUrl, type TextFetcher } from "./nflverse";
 import { parseCsv } from "../nfl/csv";
-import { parseWaiverRosterEvidence, waiverRosterMembership, type WaiverRosterEvidence } from "../nfl/waiver-pool-evidence";
+import { assertWaiverProjectionIdentity, parseWaiverRosterEvidence, waiverRosterMembership, type WaiverRosterEvidence } from "../nfl/waiver-pool-evidence";
 import { generateNflverseWeeklyProjections } from "./nflverse-weekly-projections";
 import { hydrateSleeperWeeklyPlayers, parseSleeperLineup, parseSleeperWeeklyPlayer, sharedSleeperLineupFetcher } from "./sleeper-lineup";
 import { leagueUrl, playersUrl } from "./sleeper";
@@ -93,6 +93,14 @@ export async function importSleeperWaivers(request: WaiverRequest, fetchText: Te
   if (profile === null) throw new Error("Imported scoring identity is not supported.");
   const result = await generateNflverseWeeklyProjections({ season: roster.season, week: roster.week, profile, playerIds: combined.players.map((p) => p.id), now: request.now, includeConditionalEstimates: request.includeConditionalEstimates }, new NflverseProvider(requestFetch));
   if (!result.ok) throw new Error(`Weekly estimates unavailable: ${result.reason}`);
+  // Reconcile both sides, including availability/game metadata on unpriced players.
+  // Entirely unresolved model rows carry no new context and remain unknown.
+  for (const estimate of result.data.players) {
+    const player = combined.players.find((entry) => entry.id === estimate.playerId);
+    if (player === undefined) throw new Error("Projection returned an unexpected player identity.");
+    const hasContext = estimate.points !== null || estimate.conditionalEstimate !== undefined || estimate.team !== undefined || estimate.availability !== undefined;
+    assertWaiverProjectionIdentity(player, estimate, evidence, hasContext);
+  }
   combined = applyWeeklyModel(combined, result.data);
   const ownIds = new Set(ownership.ownPlayerIds);
   return { roster: { ...combined, players: combined.players.filter((p) => ownIds.has(p.id)) }, candidates: combined.players.filter((p) => !ownIds.has(p.id)), ownership, availablePlayers: pool.players, availableCount: pool.players.length, directoryExcludedCount: pool.excludedCount, rosterEvidence };

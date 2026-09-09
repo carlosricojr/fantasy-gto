@@ -47,3 +47,19 @@ export function waiverRosterMembership(player: WeeklyPlayer, evidence: WaiverRos
   if (identities.size > 1 || teams.size !== 1 || team === null || positions.size !== 1 || !player.positions.some((position) => positions.has(position))) return { ok: false, reason: "conflicting" };
   return { ok: true, team };
 }
+
+/** A season-catalog bridge must not replace the direct weekly Sleeper identity. */
+export function assertWaiverProjectionIdentity(player: WeeklyPlayer, projection: { gsisId: string | null; team?: string | null }, evidence: WaiverRosterEvidence, requireVerified = true): void {
+  const rows = evidence.bySleeperId.get(player.id) ?? [];
+  const identities = new Set(rows.map((row) => str(row, "gsis_id")).filter(Boolean));
+  const active = rows.filter((row) => toRosterStatus(str(row, "status")) === "active");
+  const teams: Set<string | null> = player.positions.includes("DST") ? new Set([normalizeTeam(player.id)]) : new Set((active.length > 0 ? active : rows).map((row) => normalizeTeam(str(row, "team"))));
+  const identityConflict = requireVerified
+    ? identities.size !== 1 || projection.gsisId === null || !identities.has(projection.gsisId)
+    : identities.size > 0 && projection.gsisId !== null && (identities.size !== 1 || !identities.has(projection.gsisId));
+  if ((!player.positions.includes("DST") && identityConflict)
+    || (projection.team !== undefined && projection.team !== null && (teams.size !== 1 || !teams.has(projection.team)))
+    || (player.team !== undefined && player.team !== null && (teams.size !== 1 || !teams.has(player.team)))) {
+    throw new Error(`Current-week NFL identity evidence disagrees with the projection bridge for player ${player.id}. No comparison is returned; refresh or remove the conflicting candidate.`);
+  }
+}
