@@ -8,7 +8,7 @@ import { sleeperScoringFromId, type SleeperScoringProfile } from "../nfl/scoring
 import type { ScoringRules } from "../nfl/scoring/types";
 import type { PlayerWeek } from "../nfl/stats/parse";
 import type { WeeklyRosterEntry } from "../nfl/weekly-roster";
-import type { InjuryReport } from "../nfl/injuries";
+import { indexInjuries, injuryKey, type InjuryReport } from "../nfl/injuries";
 import { NflverseProvider, type RosterEntry } from "./nflverse";
 
 export interface NflverseWeeklyRequest {
@@ -85,6 +85,8 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     (row.period.season < season || row.period.season === season && row.period.index < week));
   const factors = buildDefenseFactors(history.filter(row => row.period.season === season - 1), scoring, DVP_SHRINKAGE);
   const lines = new Map(data.lines.map(line => [line.contestId, line]));
+  const injuries = indexInjuries(data.injuries);
+  const missingMarketPlayerIds: string[] = [];
   const players = [...new Set(request.playerIds)].map(playerId => {
     const identities = data.roster.filter(row => row.sleeperId === playerId);
     const ids = new Set(identities.map(row => row.playerId));
@@ -94,15 +96,21 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       ...(availability === undefined ? {} : { availability }) });
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
-    if (weekly.length !== 1) return unavailable("Current weekly roster is missing or ambiguous");
-    const current = weekly[0];
+    if (weekly.length === 0) return unavailable("Current weekly roster is missing or ambiguous");
+    const active = weekly.filter(row => row.status === "active");
+    const candidates = active.length > 0 ? active : weekly;
+    if (new Set(candidates.map(row => JSON.stringify([row.team, row.position, row.status]))).size !== 1) {
+      availability = "unknown";
+      return unavailable("Current weekly roster is missing or ambiguous");
+    }
+    const current = candidates[0];
     availability = current.status === "active" ? "active" : current.status === "unknown" ? "unknown" : "inactive";
     if (current.status !== "active") return unavailable(`Current roster status: ${current.status}`);
-    const injury = data.injuries.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
-    if (injury.some(row => row.gameStatus === "out")) { availability = "out"; return unavailable("Out injury designation"); }
-    if (injury.some(row => row.gameStatus === "unknown")) { availability = "unknown"; return unavailable("Unknown injury designation"); }
-    if (injury.some(row => row.gameStatus === "doubtful")) availability = "doubtful";
-    else if (injury.some(row => row.gameStatus === "questionable")) availability = "questionable";
+    const injury = injuries.get(injuryKey(gsisId, season, week));
+    if (injury?.gameStatus === "out") { availability = "out"; return unavailable("Out injury designation"); }
+    if (injury?.gameStatus === "unknown") { availability = "unknown"; return unavailable("Unknown injury designation"); }
+    if (injury?.gameStatus === "doubtful") availability = "doubtful";
+    else if (injury?.gameStatus === "questionable") availability = "questionable";
     if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     const position = current.position === "FB" ? "RB" : current.position;
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
@@ -123,10 +131,12 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       const implied = market ? impliedTeamTotal(market.total, market.spread, current.team!, game.homeTeam, game.awayTeam) : null;
       return implied === null ? [] : [{ week: game.period.index, impliedTotal: implied }];
     });
+    const implied = line ? impliedTeamTotal(line.total, line.spread, current.team!, contest.homeTeam, contest.awayTeam) : null;
     const projection = projectPlayer({ competitorId: gsisId, position, period: { season, index: week }, history: bucket, scoring,
       defenseFactors: factors, game: { opponent: contest.homeTeam === current.team ? contest.awayTeam : contest.homeTeam,
-        impliedTeamTotal: line ? impliedTeamTotal(line.total, line.spread, current.team!, contest.homeTeam, contest.awayTeam) : null,
+        impliedTeamTotal: implied,
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
+    if (Number.isFinite(projection.mean) && implied === null) missingMarketPlayerIds.push(playerId);
     return Number.isFinite(projection.mean)
       ? { playerId, gsisId, points: projection.mean, reason: null, availability }
       : unavailable("The model did not produce a finite estimate under these rules");
@@ -136,6 +146,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
+      ...(missingMarketPlayerIds.length ? [`Betting lines are missing for ${missingMarketPlayerIds.length} projected player games; those estimates omit the betting-market adjustment.`] : []),
       ...players.filter(player => player.availability === "questionable" || player.availability === "doubtful")
         .map(player => `Player ${player.playerId} is ${player.availability}; recheck availability before kickoff.`),
       ...excludedRules.map(key => `Estimate excludes scoring rule ${key}; this is not a full custom-scoring projection.`)],
