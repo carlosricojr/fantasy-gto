@@ -33,11 +33,12 @@ const FEATURE_LABELS: Record<string, string> = {
   league_count: "Leagues",
   daily_refresh: "Daily projection refreshes",
   waivers_faab: "Waiver and FAAB guidance",
+  waiver_comparison: "One-week waiver comparisons (no FAAB or claims)",
   dst_streamer: "Defense streamer",
   alerts: "Alerts",
   accuracy_dashboard: "Accuracy dashboard",
   import_export: "Lineup import and export",
-  performance_history: "Season performance history",
+  performance_history: "Private saved decisions and observed outcome comparisons",
 };
 
 export default function PricingPage() {

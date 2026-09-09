@@ -73,3 +73,38 @@ custom scoring events remain explicit. A partial comparison requires consent and
 unpriced players in their current places; it cannot establish the best full-roster lineup.
 Neither a successful import nor exact lineup assignment proves forecast accuracy. These
 are supervised decision-support workflows, not an autonomous draft or lineup manager.
+
+## Personal-workflow release acceptance
+
+The follow-on release combines these bounded capabilities; individual PR merge and
+deployment evidence remains authoritative, not this checklist alone:
+
+- Saved Sleeper connections resolve a username or league URL, share the existing
+  league cap and hand off directly to a prefilled weekly planner. Manual overrides
+  restore only after a fresh matching import, preserving original timestamps and
+  expiry. Account changes reset the planner and consent. Grouped warnings, concise
+  proposed changes and an in-app kickoff checklist do not submit platform actions.
+- [#133](https://github.com/carlosricojr/fantasy-gto/pull/133) adds source-coverage
+  transparency and exploratory gap research. No K/D/ST estimate tier or experimental
+  returning-player baseline is promoted to production readiness.
+- [#134](https://github.com/carlosricojr/fantasy-gto/pull/134) extends draft evidence;
+  the policy remains experimental, with no superiority or optimal-draft claim.
+- [#135](https://github.com/carlosricojr/fantasy-gto/pull/135) supplies the pure
+  prospective journal and outcome contract. The workflow backend adds authenticated
+  Pro ownership, server receipt time, append-only records and observations, bounded
+  reads, idempotency, quotas and account erasure. Outcomes compare frozen lineups;
+  they never select a hindsight-best lineup or establish aggregate forecasting edge.
+- [#136](https://github.com/carlosricojr/fantasy-gto/pull/136) provides one-week waiver
+  comparisons over a bounded, explicitly user-selected available-player pool. It is
+  not a global-best waiver search, FAAB policy, rest-of-season optimizer or claim
+  submission. Missing values and source uncertainty remain visible.
+
+Source I/O now requires authenticated admission before upstream work: Free has bounded
+roster-only imports and connection lookup; Pro has bounded model, waiver and journal
+operations. Quotas are atomic across instances and subscription-derived, never an
+owner-wide Pro override. These controls do not eliminate request costs or protect
+unrelated legacy Convex queries; direct-backend hardening is a separate release.
+Private Vercel deployment protection remains an operational pending item until the
+coordinator records its actual activation. Signed-in production happy-path smoke
+also remains pending the owner's authenticated session; no subscription was changed
+to manufacture a test pass. The data and optimality limitations above still apply.

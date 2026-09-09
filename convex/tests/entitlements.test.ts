@@ -285,7 +285,7 @@ describe("me", () => {
     const me = await asUser(t, "user_me").query(api.users.me, {});
     expect(me.signedIn).toBe(true);
     expect(me.plan).toBe("pro");
-    // Pro's only implemented differentiator today is the league cap, and it must survive
+    // The Pro league cap must survive
     // the wire rather than arriving as null.
     expect(me.entitlements.league_count).toBe(Number.MAX_SAFE_INTEGER);
   });
@@ -302,7 +302,7 @@ describe("me", () => {
     });
 
     const me = await asUser(t, "user_unimpl").query(api.users.me, {});
-    for (const feature of ["waivers_faab", "dst_streamer", "alerts", "performance_history"]) {
+    for (const feature of ["waivers_faab", "dst_streamer", "alerts"]) {
       expect(me.entitlements[feature as keyof typeof me.entitlements]).toBe(false);
     }
   });

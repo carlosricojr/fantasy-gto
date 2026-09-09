@@ -17,6 +17,30 @@ import { v } from "convex/values";
  * genuinely user-owned state are stored.
  */
 export default defineSchema({
+  personalUsage: defineTable({
+    userId: v.id("users"), operation: v.string(), windowStart: v.number(), windowCount: v.number(), dayStart: v.number(), dayCount: v.number(), retainedDecisions: v.optional(v.number()),
+  }).index("by_user_operation", ["userId", "operation"]),
+  weeklyDecisions: defineTable({
+    userId: v.id("users"), requestId: v.string(), recordJson: v.string(),
+    recordedAt: v.number(), leagueName: v.string(), season: v.number(), week: v.number(),
+    timing: v.union(v.literal("before-listed-kickoffs"), v.literal("after-listed-kickoff"), v.literal("unknown-kickoff")),
+  }).index("by_user_time", ["userId", "recordedAt"]).index("by_user_request", ["userId", "requestId"]),
+  weeklyDecisionObservations: defineTable({
+    userId: v.id("users"), decisionId: v.id("weeklyDecisions"), observedAt: v.number(),
+    outcomeJson: v.string(), evaluationJson: v.string(),
+  }).index("by_decision_time", ["decisionId", "observedAt"]).index("by_user", ["userId"]),
+  // Private public-data bookmarks. They share the existing league-count cap and
+  // never create a subscription, roster entitlement, or verified Sleeper login.
+  sleeperConnections: defineTable({
+    userId: v.id("users"),
+    leagueId: v.string(),
+    ownerId: v.string(),
+    leagueName: v.string(),
+    username: v.string(),
+    season: v.number(),
+    createdAt: v.number(),
+    verifiedAt: v.number(),
+  }).index("by_user", ["userId"]).index("by_user_league_owner", ["userId", "leagueId", "ownerId"]),
   /**
    * A person. Created on first authenticated request and by the Clerk webhook, whichever
    * happens first, so the two race safely.

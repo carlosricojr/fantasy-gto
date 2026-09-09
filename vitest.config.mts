@@ -35,7 +35,7 @@ export default defineConfig({
         test: {
           name: "domain",
           environment: "node",
-          include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+          include: ["lib/**/*.test.ts", "app/**/*.test.ts", "app/**/*.test.tsx"],
           /**
            * Longer than the 5s default, because much of this suite is Monte Carlo.
            *

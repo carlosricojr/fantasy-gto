@@ -3,8 +3,7 @@
 `/lineup/weekly` imports a Sleeper league's current roster, ordered starters, exact
 scoring coefficients, fantasy position eligibility and player designations. Its
 server route reads only the documented league, rosters, players and NFL state APIs,
-plus nflverse's schedule and current roster identity inputs. It does not request Sleeper projections, write to Convex,
-or submit a lineup. This workflow is for the owner's personal leagues; it does not
+plus nflverse's schedule and current roster identity inputs. The roster import does not request Sleeper projections or submit a lineup. Separate explicit actions can save a private connection or decision record in Convex. This workflow is for the owner's personal leagues; it does not
 establish permission for commercial redistribution of any source.
 
 The process caches the full Sleeper player directory for one day, following that API's
@@ -111,7 +110,43 @@ players use their own available estimates; departed players are removed. Refresh
 does not advance manual entry time or the source publication time. The browser
 retains entered values after a failed refresh but blocks recommendations until a
 refresh succeeds. The browser clock updates every second and on focus so a comparison expires and locks advance
-while the screen remains open. No point entries are persisted across browser reloads.
+while the screen remains open.
+
+Manual entries now persist in this browser for at most 24 hours from their original
+entry timestamp. The bounded store retains at most eight exact league/owner/season/week/
+scoring contexts and 32 manual rows each. It does not save automatic values, roster
+freshness, availability clearance or either consent. A fresh successful import must
+precede restoration; expired/future-dated entries, departed players and changed team,
+game or kickoff context are discarded. Original source text and publication time remain
+unchanged. Storage errors leave the open-page workflow usable with an explicit warning.
+The user can clear saved browser entries. Storage is separated by signed-in Clerk
+account (or the anonymous browser context); switching accounts clears the displayed
+snapshot and consent, and a response started under another account is discarded.
+Browser storage is device-local, not an
+authenticated private account store; do not use it on a shared browser for private notes.
+
+My leagues now accepts a Sleeper username or league URL. Username lookup resolves the
+stable public user ID; a league URL lists roster managers for explicit selection. Saving
+rechecks public roster membership server-side, derives the local owner from the Clerk
+identity, and stores a private bookmark, not Sleeper credentials or proof of controlling
+that external account. Connections and legacy saved leagues share the existing league
+cap in the same transaction. Lists are bounded to 100 bookmarks; retries update the
+same bookmark rather than consuming a second slot. No subscription is created or changed.
+Deleting a Clerk account immediately revokes access and schedules indexed bounded
+erasure batches for its saved connections, decisions and outcome observations,
+including orphaned observations. The public API exposes no erase-by-user operation.
+
+Dashboard links prefill `/lineup/weekly?leagueId=…&ownerId=…`; explicit week parameters
+are validated, and an omitted week resolves the current Sleeper week only when the user
+imports. Visiting a URL alone never fetches a roster. Finding a team on the planner
+fills its fields but still requires the import button. The saved bookmark's season and
+last check are context, not live roster evidence.
+
+The planner shows concrete start/bench/slot actions, grouped expandable input checks and
+source warnings, and a local kickoff checklist. The suggested recheck time is 90 minutes
+before kickoff, not a claim that every source publishes exactly then. Checkmarks reset
+on refresh and never clear injury warnings or unlock started players. No notifications,
+notification permissions or automatic submissions are added.
 
 On September 9, 2026, a direct read through the production import function resolved
 the owner's requested league to 16 players and 10 starting slots for 2026 week 1.
@@ -139,9 +174,75 @@ action exists or was performed.
 
 The shared desktop/mobile Lineup navigation leads to `/lineup`, whose weekly link
 is available even before legacy data loads. My leagues also links to the legacy
-optimizer in its empty state. The weekly route itself does not require sign-in.
-Remaining friction: numeric Sleeper league/user IDs must be entered manually;
-saved dashboard leagues do not prefill this workflow, and browser reloads do not
-persist entered estimates. Provider-ID warnings and named planner warnings can
-duplicate into a long list. Consolidating those warnings and adding a direct
-saved-league handoff are follow-up UX work, not hidden completion claims.
+optimizer in its empty state. The weekly page is public, but source imports require
+sign-in under the later cost-protection policy below.
+The workflow follow-up adds username/URL lookup, private saved-connection handoff,
+bounded manual-entry restoration, grouped source notes and kickoff checklists. Exact
+duplicate messages are removed only from presentation; source evidence remains intact.
+Semantically similar provider-ID and named-player messages may still both appear in
+expanded detail. A legacy manual league has no external Sleeper identity to prefill;
+connect its public Sleeper counterpart explicitly if one exists.
+
+Before the later source-access gate, follow-up QA on September 9 used a local production build and the existing development
+backend. Browser interactions resolved the owner's actual username to the intended
+league, selected current week 1, and imported 16 roster rows with two ordinary estimates.
+A synthetic manual value survived reload only after a fresh same-context import, with
+its original millisecond timestamp unchanged; all three comparison options remained off.
+The value was then removed using the clear-storage control. At 390px, the page's scroll
+width was exactly 390px. The signed-out save and history views withheld private actions;
+no hydration error was recorded. Development Clerk's unrelated dashboard-link prefetch
+produced a cross-origin sign-in warning. Signed-in production happy-path verification
+remains a separate release check; no Sleeper write or subscription change was performed.
+
+The development backend was pushed successfully. Anonymous live calls returned an empty
+connection list and explicit unauthenticated rejections for journal listing and waiver
+authorization. In-memory backend regressions cover ownership, combined-cap enforcement,
+subscription expiry, idempotent decision creation, concurrent outcome throttling,
+bounded pagination and account-erasure batches including orphan observations.
+
+## Source access and bounded compute
+
+The later September 9 personal-use cost policy supersedes anonymous import access.
+Static/local tools remain public. Authenticated Free accounts can resolve Sleeper
+connections and import rosters without automatic model estimates. Pro adds generated
+weekly estimates, the narrow waiver comparator and private decision history. Access
+is derived from stored subscriptions at server time; no owner identity, subscription
+or entitlement is manufactured for the app owner.
+
+Before source I/O, the weekly and connection HTTP routes verify the Clerk session,
+obtain its Convex token and call an authenticated admission action. The waiver route
+uses the same backend mechanism. Unauthenticated, insufficient-plan and exhausted
+requests return 401, 403 and 429; backend outages return 503 without source requests.
+Successful admission consumes one allowance even if the upstream later fails.
+
+| Operation | Per fixed 15 minutes | Per UTC day |
+| --- | ---: | ---: |
+| Connection lookup or saved-connection revalidation | 6 | Free 20 / Pro 60 |
+| Roster-only import | 6 | Free 20 / Pro 60 |
+| Model import | 6 | Pro 40 |
+| Waiver discovery or comparison | 6 | Pro 30 |
+| New decision save | 10 | Pro 100 |
+| Journal list or detail | 60 | Pro 500 |
+| Outcome refresh | 6 | Pro 30 |
+
+Counters are shared across app instances, keyed by authenticated owner and operation,
+and reused rather than appended indefinitely. Windows are fixed, so adjacent-window
+bursts remain possible. Exact idempotent save retries do not count as new records;
+invalid save transactions roll back and do not consume a successful-save allowance.
+Outcome refresh retains its additional per-record one-minute append guard. Counter
+rows join the bounded account-erasure cascade. Retry errors include server-calculated
+timing. These are application-work bounds, not a zero-cost hosting guarantee: rejected
+HTTP/Convex calls still use infrastructure, and unrelated public data-query surfaces
+need separate hardening. Deployment protection is an independent operational control;
+this code does not claim that it has been activated.
+
+Retained storage is separately capped at 500 decisions per owner and 20 observations
+per decision. Semantically unchanged outcome refreshes preserve the original observation
+instead of consuming another slot. At a limit, writes are refused, not silently deleted;
+no individual archive/export feature is implied. See [journal limits](decision-journal.md#retained-storage-limits).
+
+Mounted browser-runtime tests cover immediate account-switch remount, all consent
+reset, no old-account snapshot reaching new-account Save, and discarded in-flight
+imports. Pending authentication sends no source request and does not touch browser
+manual storage. Storage is account-namespaced; original timestamps and exact matchup
+and context checks remain mandatory after a fresh import.
