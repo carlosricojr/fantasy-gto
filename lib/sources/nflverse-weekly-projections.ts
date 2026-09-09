@@ -88,6 +88,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     const ids = new Set(identities.map(row => row.playerId));
     const gsisId = ids.size === 1 ? [...ids][0] : null;
     const unavailable = (reason: string): NflverseWeeklyEstimate => ({ playerId, gsisId, points: null, reason });
+    if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
     if (weekly.length !== 1) return unavailable("Current weekly roster is missing or ambiguous");
@@ -118,9 +119,9 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       defenseFactors: factors, game: { opponent: contest.homeTeam === current.team ? contest.awayTeam : contest.homeTeam,
         impliedTeamTotal: line ? impliedTeamTotal(line.total, line.spread, current.team!, contest.homeTeam, contest.awayTeam) : null,
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
-    return Number.isFinite(projection.mean) && projection.mean > 0
+    return Number.isFinite(projection.mean)
       ? { playerId, gsisId, points: projection.mean, reason: null }
-      : unavailable("The model has no positive estimate under these rules");
+      : unavailable("The model did not produce a finite estimate under these rules");
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
     scoringId: profile.id, computedAt: now, providerUpdatedAt: null, excludedRules,
@@ -153,8 +154,9 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
     if (!weekly.ok) return failed(weekly.reason);
     if (!injuries.ok) return failed(injuries.reason);
     if (!contests.ok) return failed(contests.reason);
-    if (!lines.ok) return failed(lines.reason);
-    return ok(buildNflverseWeeklyEstimates(request, { history: [...old.data, ...prior.data, ...current.data],
-      roster: roster.data, weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.data }));
+    const result = buildNflverseWeeklyEstimates(request, { history: [...old.data, ...prior.data, ...current.data],
+      roster: roster.data, weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.ok ? lines.data : [] });
+    if (!lines.ok) result.warnings.push("Betting lines were unavailable; estimates omit the betting-market adjustment.");
+    return ok(result);
   } catch (cause) { return failed("Could not generate nflverse weekly estimates.", cause); }
 }

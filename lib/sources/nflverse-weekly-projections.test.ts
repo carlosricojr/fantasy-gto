@@ -61,6 +61,21 @@ describe("nflverse personal weekly estimates", () => {
       gameStatus: "out", practiceStatus: "none", primaryInjury: "Knee", dateModified: null }];
     expect(buildNflverseWeeklyEstimates(request, data).players[0].points).toBeNull();
   });
+  it("retains valid zero and negative model means after the history gate", () => {
+    const parsed = parseSleeperScoring({ rec_yd: -0.1 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    const data = inputs();
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBeLessThan(0);
+    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0 },
+      usage: { ...row.usage, targets: 0 } }));
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBe(0);
+  });
+  it("does not run the model when every offensive scoring term is unsupported", () => {
+    const parsed = parseSleeperScoring({ st_ff: 1 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, inputs()).players[0])
+      .toMatchObject({ points: null, reason: "No supported offensive scoring rules" });
+  });
   it("does not silently combine unequal two-point coefficients", () => {
     const parsed = parseSleeperScoring({ rec: 0.5, pass_2pt: 1, rush_2pt: 2, rec_2pt: 2 });
     if (!parsed.ok) throw new Error("Bad fixture");
