@@ -61,6 +61,26 @@ describe("explicit recent-decision review", () => {
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(host.textContent).not.toContain("records inspected");
   });
+  it("releases an invalidated transport only after its issued pair drains, then permits a fresh review", async () => {
+    let finish!: (value: DecisionDetail) => void;
+    const pending = new Promise<DecisionDetail>(resolve => { finish = resolve; });
+    const previous = { list: vi.fn(async () => ({ page: [row("a"), row("b"), row("c")], isDone: true, continueCursor: "" })), detail: vi.fn((id: string) => id === "a" ? pending : Promise.resolve(detail(id))) };
+    const replacement = { list: vi.fn(async () => ({ page: [row("fresh")], isDone: true, continueCursor: "" })), detail: vi.fn(async (id: string) => detail(id)) };
+    await mount(previous); await click();
+    expect(previous.detail).toHaveBeenCalledTimes(2);
+    await act(async () => root!.render(h(DecisionResultsReport, { transport: replacement, onSelect: vi.fn() })));
+    expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+    await click();
+    expect(replacement.list).not.toHaveBeenCalled();
+    await act(async () => finish(detail("a")));
+    expect(previous.detail).toHaveBeenCalledTimes(2);
+    expect(host.textContent).not.toContain("records inspected");
+    expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(false);
+    await click();
+    expect(replacement.list).toHaveBeenCalledExactlyOnceWith(null);
+    expect(replacement.detail).toHaveBeenCalledExactlyOnceWith("fresh");
+    expect(host.textContent).toContain("1 recent records inspected");
+  });
   it("shows the selection rule, incomplete evidence and non-independence without invented accuracy", () => {
     const report = summarizeDecisionResults([detail("a")]);
     const html = renderToStaticMarkup(h(DecisionResultsSummary, { report, hasOlder: false, onSelect: vi.fn() }));

@@ -46,7 +46,9 @@ export function DecisionResultsReport({ transport, onSelect }: { transport: Pick
       }
       setReport(summarizeDecisionResults(details)); setHasOlder(!batch.isDone);
     } catch (cause) { if (current === generation.current) setError(appErrorMessage(cause, "Could not load the recent decision review.")); }
-    finally { if (current === generation.current) { busy.current = false; setLoading(false); } }
+    // Invalidated requests still own the busy gate until their issued reads drain.
+    // Releasing it here permits the replacement transport without overlapping batches.
+    finally { busy.current = false; setLoading(false); }
   }
 
   return <section aria-label="Recent decision review" className="space-y-3 rounded-lg border p-4">
