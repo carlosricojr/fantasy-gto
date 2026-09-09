@@ -884,6 +884,11 @@ no reserve. The former three-QB roster exceeds one QB start plus one reserve.
 
 ## September 8, 2026 — chronological continuation regression
 
+The following is the September 8 implementation's historical diagnostic. The subsequent
+required-starter guard changes its completion policy and outcomes; see
+[`draft-strategy-evaluation.md`](draft-strategy-evaluation.md) for the September 9
+paired strategy evaluation and current limitations.
+
 The frozen `tests/fixtures/sleeper-pick16-continuation.json` reconstructs a live
 10-team custom-scored Sleeper draft before overall pick 16, including all 20 keepers
 and traded ownership. It contains 31 recorded players and 176 available valued players.
