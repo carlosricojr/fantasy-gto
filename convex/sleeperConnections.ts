@@ -24,6 +24,7 @@ export const save = action({
   handler: async (ctx, args): Promise<Id<"sleeperConnections">> => {
     if (!await ctx.auth.getUserIdentity()) throw unauthenticated();
     if (!/^\d{1,30}$/.test(args.leagueId) || !/^\d{1,30}$/.test(args.ownerId)) throw invalid("Supply a valid Sleeper league and user ID.");
+    await ctx.runMutation(internal.personalTools.admit, { operation: "connection" });
     const result = await findSleeperConnections({ leagueInput: args.leagueId, username: args.ownerId });
     const connection = result.connections.find((row) => row.leagueId === args.leagueId && row.ownerId === args.ownerId);
     if (!connection) throw invalid("That Sleeper manager has no roster in this league.");

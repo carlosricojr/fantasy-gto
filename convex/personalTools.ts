@@ -1,14 +1,20 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, internalQuery } from "./_generated/server";
-import { requireTimedEntitlement } from "./lib/timedEntitlement";
+import { action, internalMutation } from "./_generated/server";
+import { admitPersonalOperation } from "./lib/personalQuota";
 
 /** Called with the user's Clerk token before any expensive waiver-source request. */
 export const authorizeWaiverComparison = action({
   args: {}, returns: v.null(),
-  handler: async (ctx): Promise<null> => ctx.runQuery(internal.personalTools.checkWaiverAccess, { now: Date.now() }),
+  handler: async (ctx): Promise<null> => ctx.runMutation(internal.personalTools.admit, { operation: "waiver" }),
 });
-export const checkWaiverAccess = internalQuery({
-  args: { now: v.number() }, returns: v.null(),
-  handler: async (ctx, { now }) => { await requireTimedEntitlement(ctx, "waiver_comparison", now); return null; },
+export const authorizeWeeklyImport = action({ args: { model: v.boolean() }, returns: v.null(),
+  handler: async (ctx, { model }): Promise<null> => ctx.runMutation(internal.personalTools.admit, { operation: model ? "model" : "roster" }),
+});
+export const authorizeConnectionLookup = action({ args: {}, returns: v.null(),
+  handler: async (ctx): Promise<null> => ctx.runMutation(internal.personalTools.admit, { operation: "connection" }),
+});
+export const admit = internalMutation({
+  args: { operation: v.union(v.literal("connection"), v.literal("roster"), v.literal("model"), v.literal("waiver"), v.literal("journal-read"), v.literal("journal-refresh")) }, returns: v.null(),
+  handler: async (ctx, { operation }) => { await admitPersonalOperation(ctx, operation); return null; },
 });

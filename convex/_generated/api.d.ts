@@ -18,6 +18,7 @@ import type * as ingest from "../ingest.js";
 import type * as jobs from "../jobs.js";
 import type * as leagues from "../leagues.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_personalQuota from "../lib/personalQuota.js";
 import type * as lib_timedEntitlement from "../lib/timedEntitlement.js";
 import type * as personalData from "../personalData.js";
 import type * as personalTools from "../personalTools.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   leagues: typeof leagues;
   "lib/auth": typeof lib_auth;
+  "lib/personalQuota": typeof lib_personalQuota;
   "lib/timedEntitlement": typeof lib_timedEntitlement;
   personalData: typeof personalData;
   personalTools: typeof personalTools;

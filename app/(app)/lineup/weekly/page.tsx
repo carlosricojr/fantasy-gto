@@ -22,14 +22,21 @@ const PROJECTION_MAX_AGE = MANUAL_ESTIMATE_MAX_AGE;
 const ROSTER_MAX_AGE = 15 * 60 * 1000;
 
 export default function WeeklyLineupPage() {
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const { user } = useUser();
+  const scope = isLoading || (isAuthenticated && !user?.id) ? null : user?.id ?? "anonymous";
+  // Remount synchronously, before children render under a different account.
+  // A passive state reset can expose the prior snapshot to the new account's Save.
+  return <ScopedWeeklyLineup key={scope ?? "auth-pending"} storageScope={scope} />;
+}
+
+function ScopedWeeklyLineup({ storageScope }: { storageScope: string | null }) {
   const { isLoading: authLoading, isAuthenticated } = useConvexAuth();
   const { user } = useUser();
   const me = useQuery(api.users.me, {});
   const saveDecision = useMutation(api.decisionJournal.create);
-  const storageScope = authLoading || (isAuthenticated && !user?.id) ? null : user?.id ?? "anonymous";
   const storageKey = `${WEEKLY_MANUAL_STORAGE_KEY}:${storageScope}`;
-  const currentScope = useRef<string | null>(null);
-  const snapshotScope = useRef<string | null>(null);
+  const mounted = useRef(true);
   const [leagueId, setLeagueId] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [week, setWeek] = useState("");
@@ -46,11 +53,9 @@ export default function WeeklyLineupPage() {
   const [checkedGames, setCheckedGames] = useState<string[]>([]);
 
   useEffect(() => {
-    if (currentScope.current === storageScope) return;
-    currentScope.current = storageScope;
-    snapshotScope.current = null;
-    setSnapshot(null); setCompareAvailable(false); setHoldUnpriced(false); setCheckedGames([]); setStorageMessage("");
-  }, [storageScope]);
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     const prefill = weeklyLineupPrefill(window.location.search);
@@ -59,7 +64,7 @@ export default function WeeklyLineupPage() {
   }, []);
 
   useEffect(() => {
-    if (!snapshot || snapshot.refreshFailed || storageScope === null || snapshotScope.current !== storageScope) return;
+    if (!snapshot || snapshot.refreshFailed || storageScope === null) return;
     try {
       const entry = saveWeeklyManual(snapshot, source, publication, Date.now());
       window.localStorage.setItem(storageKey, JSON.stringify(updateWeeklyManualStore(parseWeeklyManual(window.localStorage.getItem(storageKey)), entry)));
@@ -75,7 +80,7 @@ export default function WeeklyLineupPage() {
   }, []);
 
   async function refresh(withEstimates = true) {
-    if (storageScope === null) return;
+    if (authLoading || !isAuthenticated) { setError("Sign in to import league data. Free includes roster-only imports; model estimates require Pro."); return; }
     const prior = snapshot;
     setBusy(true); setError(""); setSnapshot(null);
     try {
@@ -83,6 +88,7 @@ export default function WeeklyLineupPage() {
       if (!selectedWeek) {
         const lookup = await fetch("/api/sleeper-connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: ownerId, leagueInput: leagueId }), cache: "no-store" });
         const lookupBody = await lookup.json();
+        if (!mounted.current) return;
         if (!lookup.ok) throw new Error(lookupBody.error ?? "Could not resolve the current week.");
         selectedWeek = String(lookupBody.week); setWeek(selectedWeek);
       }
@@ -92,13 +98,14 @@ export default function WeeklyLineupPage() {
       const response = await fetch(`/api/weekly-lineup?${params}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not import the roster.");
-      if (currentScope.current !== storageScope) return;
+      if (!mounted.current) return;
       const incoming = body as WeeklyLineupSnapshot;
       const merged = mergeWeeklyRefresh(prior, incoming);
       let next = merged.snapshot;
       if (!merged.sameContext) {
         setPublication(""); setSource("User-entered expected points"); setCompareAvailable(false); setHoldUnpriced(false);
-        try {
+        if (storageScope === null) setStorageMessage("Browser identity is not ready. Entries stay only in this open page and private saving is unavailable.");
+        else try {
           const restored = restoreWeeklyManual(next, parseWeeklyManual(window.localStorage.getItem(storageKey)), Date.now());
           next = restored.snapshot;
           if (restored.source !== undefined) setSource(restored.source);
@@ -106,15 +113,14 @@ export default function WeeklyLineupPage() {
           setStorageMessage(`${restored.restored} saved manual entries restored with original timestamps.${restored.discarded ? ` ${restored.discarded} expired, departed or changed-matchup entries discarded.` : ""}`);
         } catch { setStorageMessage("Browser storage is unavailable. Entries remain only in this open page."); }
       }
-      snapshotScope.current = storageScope;
       setSnapshot(next); setCheckedGames([]);
       setNow(Date.now());
     } catch (cause) {
-      if (currentScope.current !== storageScope) return;
+      if (!mounted.current) return;
       setError(cause instanceof Error ? cause.message : "Import failed.");
       if (prior !== null) setSnapshot({ ...prior, refreshFailed: true });
     }
-    finally { setBusy(false); }
+    finally { if (mounted.current) setBusy(false); }
   }
 
   const input = useMemo(() => snapshot === null ? null : {
@@ -133,6 +139,7 @@ export default function WeeklyLineupPage() {
 
   return <PageShell title="Weekly lineup" subtitle="Your current starters, your league scoring, and kickoff locks.">
     <p className="mb-6 text-sm text-muted-foreground">Import your Sleeper roster and generate weekly skill-position estimates from nflverse history, or supply your own expected points. Automatic estimates can omit scoring terms and players; those gaps stay visible. This planner maximizes included estimates and cannot guarantee the highest actual score. It does not submit a lineup to Sleeper.</p>
+    <p className="mb-4 text-sm text-muted-foreground">Source requests require sign-in and are rate limited. Free includes roster-only import and league lookup; Pro adds model estimates, waiver comparisons and private decision history. Static and local tools remain public. <Link href="/sign-in" className="underline">Sign in</Link>.</p>
     <fieldset disabled={busy} className="mb-5"><SleeperConnectionFinder onSelect={(connection, currentWeek) => { setLeagueId(connection.leagueId); setOwnerId(connection.ownerId); setWeek(String(currentWeek)); setSnapshot(null); setCompareAvailable(false); setHoldUnpriced(false); setCheckedGames([]); setError(""); }} /></fieldset>
     <div className="grid gap-3 sm:grid-cols-3">
       <label className="text-sm">Sleeper league ID<Input value={leagueId} disabled={busy} onChange={(e) => { setLeagueId(e.target.value); setSnapshot(null); }} inputMode="numeric" /></label>
@@ -140,7 +147,7 @@ export default function WeeklyLineupPage() {
       <label className="text-sm">Current week<Input type="number" min={1} max={18} value={week} disabled={busy} placeholder="Current Sleeper week" onChange={(e) => { setWeek(e.target.value); setSnapshot(null); }} /></label>
     </div>
     <label className="mt-3 flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={includeConditional} onChange={(e) => setIncludeConditional(e.target.checked)} />Generate provisional forecasts assuming players are active at kickoff when their team injury report is missing. These are not availability-adjusted expected points. Refresh after enabling; disable to remove them immediately.</label>
-    <div className="mt-3 flex flex-wrap gap-2"><Button onClick={() => refresh(true)} disabled={busy || !leagueId || !ownerId || storageScope === null}>{busy ? "Importing and calculating…" : storageScope === null ? "Initializing browser session…" : snapshot ? "Refresh roster and model estimates" : "Import roster and generate estimates"}</Button><Button variant="outline" onClick={() => refresh(false)} disabled={busy || !leagueId || !ownerId || storageScope === null}>Import roster only</Button></div>
+    <div className="mt-3 flex flex-wrap gap-2"><Button onClick={() => refresh(true)} disabled={busy || !leagueId || !ownerId}>{busy ? "Importing and calculating…" : snapshot ? "Refresh roster and model estimates" : "Import roster and generate estimates"}</Button><Button variant="outline" onClick={() => refresh(false)} disabled={busy || !leagueId || !ownerId}>Import roster only</Button></div>
     <p className="mt-2 text-xs text-muted-foreground">Reads public league data from Sleeper and statistics, rosters, injuries and schedule from nflverse. No Sleeper projection download. Manual entries are saved in this browser for up to 24 hours under the same league, owner, season, week, exact scoring and matchup. Reloading still requires a fresh import; dates and consent never refresh automatically.</p>
     {storageMessage && <p className="mt-2 text-xs text-muted-foreground" role="status">{storageMessage}</p>}
     {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
@@ -167,7 +174,7 @@ export default function WeeklyLineupPage() {
         <label className="text-sm">Manual source publication time, if known<Input type="datetime-local" value={publication} onChange={(e) => setPublication(e.target.value)} /><span className="text-xs text-muted-foreground">Your local time. Leave blank if unknown. This does not date the automatic model’s source.</span></label>
       </div>
       <p className="text-sm text-muted-foreground">Enter this week’s expected points under the exact rules above. Blank means missing. Zero means an actual zero-point estimate. Season totals and historical averages are not weekly projections.</p>
-      <Button size="sm" variant="outline" onClick={() => {
+      <Button size="sm" variant="outline" disabled={storageScope === null} onClick={() => {
         try { window.localStorage.removeItem(storageKey); setStorageMessage("Saved manual entries removed from this browser session's storage. Current open-page entries are unchanged until edited or refreshed."); } catch { setStorageMessage("Could not clear browser storage."); }
       }}>Clear saved browser entries</Button>
       <div className="relative overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="border-b bg-muted/40"><tr><th className="p-3">Player / current slot</th><th className="p-3">Status / kickoff</th><th className="p-3">Expected points / conditional forecast</th></tr></thead><tbody>{(input?.players ?? snapshot.players).map((player) => <tr key={player.id} className="border-b last:border-0">

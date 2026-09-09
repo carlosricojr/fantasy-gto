@@ -17,6 +17,9 @@ import { v } from "convex/values";
  * genuinely user-owned state are stored.
  */
 export default defineSchema({
+  personalUsage: defineTable({
+    userId: v.id("users"), operation: v.string(), windowStart: v.number(), windowCount: v.number(), dayStart: v.number(), dayCount: v.number(),
+  }).index("by_user_operation", ["userId", "operation"]),
   weeklyDecisions: defineTable({
     userId: v.id("users"), requestId: v.string(), recordJson: v.string(),
     recordedAt: v.number(), leagueName: v.string(), season: v.number(), week: v.number(),

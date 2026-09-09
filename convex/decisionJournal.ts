@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { invalid, notFound, requireEntitlement } from "./lib/auth";
 import { requireTimedEntitlement } from "./lib/timedEntitlement";
+import { admitPersonalOperation } from "./lib/personalQuota";
 
 const timing = v.union(v.literal("before-listed-kickoffs"), v.literal("after-listed-kickoff"), v.literal("unknown-kickoff"));
 const summaryValidator = v.object({ _id: v.id("weeklyDecisions"), recordedAt: v.number(), leagueName: v.string(), season: v.number(), week: v.number(), timing });
@@ -31,6 +32,7 @@ export const create = mutation({
       if (JSON.stringify([prior.snapshot, prior.preferences]) !== JSON.stringify([supplied.snapshot, supplied.preferences])) throw invalid("This request ID already belongs to different decision inputs.");
       return existing._id;
     }
+    await admitPersonalOperation(ctx, "journal-save");
     let record: WeeklyDecisionRecord;
     try { record = createWeeklyDecisionRecord(args.snapshotJson, args.preferencesJson, Date.now()); } catch (cause) { throw invalid(cause instanceof Error ? cause.message : "Cannot record this decision."); }
     const recordJson = JSON.stringify(record);
@@ -41,7 +43,10 @@ export const create = mutation({
 
 /** Actions provide server time. Query callers cannot forge a grace-period clock. */
 export const list = action({ args: { paginationOpts: paginationOptsValidator }, returns: pageValidator,
-  handler: async (ctx, args): Promise<Page> => ctx.runQuery(internal.decisionJournal.listOwned, { ...args, now: Date.now() }),
+  handler: async (ctx, args): Promise<Page> => {
+    await ctx.runMutation(internal.personalTools.admit, { operation: "journal-read" });
+    return ctx.runQuery(internal.decisionJournal.listOwned, { ...args, now: Date.now() });
+  },
 });
 export const listOwned = internalQuery({ args: { paginationOpts: paginationOptsValidator, now: v.number() }, returns: pageValidator,
   handler: async (ctx, { paginationOpts, now }) => {
@@ -54,7 +59,10 @@ export const listOwned = internalQuery({ args: { paginationOpts: paginationOptsV
   },
 });
 export const detail = action({ args: { id: v.id("weeklyDecisions") }, returns: detailValidator,
-  handler: async (ctx, args): Promise<Detail> => ctx.runQuery(internal.decisionJournal.detailOwned, { ...args, now: Date.now() }),
+  handler: async (ctx, args): Promise<Detail> => {
+    await ctx.runMutation(internal.personalTools.admit, { operation: "journal-read" });
+    return ctx.runQuery(internal.decisionJournal.detailOwned, { ...args, now: Date.now() });
+  },
 });
 export const detailOwned = internalQuery({ args: { id: v.id("weeklyDecisions"), now: v.number() }, returns: detailValidator,
   handler: async (ctx, { id, now }) => {
@@ -67,6 +75,7 @@ export const detailOwned = internalQuery({ args: { id: v.id("weeklyDecisions"), 
 });
 export const refreshOutcomes = action({ args: { id: v.id("weeklyDecisions") }, returns: v.null(),
   handler: async (ctx, { id }): Promise<null> => {
+    await ctx.runMutation(internal.personalTools.admit, { operation: "journal-refresh" });
     const owned = await ctx.runQuery(internal.decisionJournal.detailOwned, { id, now: Date.now() });
     if (!owned) throw notFound("That decision does not exist.");
     if (owned.observations[0] && Date.now() - owned.observations[0].observedAt < 60_000) throw invalid("Wait one minute before checking this decision's outcomes again.");
@@ -86,7 +95,7 @@ export const appendObservation = internalMutation({ args: { id: v.id("weeklyDeci
     if (!row || row.userId !== user._id) throw notFound("That decision does not exist.");
     const latest = await ctx.db.query("weeklyDecisionObservations").withIndex("by_decision_time", (q) => q.eq("decisionId", args.id)).order("desc").first();
     if (latest && args.observedAt - latest.observedAt < 60_000) throw invalid("An outcome check was already recorded within the last minute.");
-    if (!Number.isFinite(args.observedAt) || args.observedAt < row.recordedAt || args.observedAt > Date.now() || args.outcomeJson.length > 64_000 || args.evaluationJson.length > 64_000) throw invalid("Invalid outcome observation.");
+    if (!Number.isFinite(args.observedAt) || args.observedAt < row.recordedAt || args.observedAt > Date.now() || args.outcomeJson.length > 64_000 || args.evaluationJson.length > 64_000 || new TextEncoder().encode(args.outcomeJson + args.evaluationJson).length > 128_000) throw invalid("Invalid outcome observation.");
     await ctx.db.insert("weeklyDecisionObservations", { userId: user._id, decisionId: args.id, observedAt: args.observedAt, outcomeJson: args.outcomeJson, evaluationJson: args.evaluationJson });
     return null;
   },

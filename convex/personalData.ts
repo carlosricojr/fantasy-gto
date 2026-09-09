@@ -11,8 +11,9 @@ export const eraseBatch = internalMutation({
     const connections = await ctx.db.query("sleeperConnections").withIndex("by_user", (q) => q.eq("userId", userId)).take(100);
     const decisions = await ctx.db.query("weeklyDecisions").withIndex("by_user_time", (q) => q.eq("userId", userId)).take(5);
     const observations = await ctx.db.query("weeklyDecisionObservations").withIndex("by_user", (q) => q.eq("userId", userId)).take(50);
-    for (const row of [...connections, ...decisions, ...observations]) await ctx.db.delete(row._id);
-    if (connections.length === 100 || decisions.length === 5 || observations.length === 50) await ctx.scheduler.runAfter(0, internal.personalData.eraseBatch, { userId });
+    const usage = await ctx.db.query("personalUsage").withIndex("by_user_operation", (q) => q.eq("userId", userId)).take(10);
+    for (const row of [...connections, ...decisions, ...observations, ...usage]) await ctx.db.delete(row._id);
+    if (connections.length === 100 || decisions.length === 5 || observations.length === 50 || usage.length === 10) await ctx.scheduler.runAfter(0, internal.personalData.eraseBatch, { userId });
     return null;
   },
 });

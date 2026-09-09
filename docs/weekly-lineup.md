@@ -174,7 +174,8 @@ action exists or was performed.
 
 The shared desktop/mobile Lineup navigation leads to `/lineup`, whose weekly link
 is available even before legacy data loads. My leagues also links to the legacy
-optimizer in its empty state. The weekly route itself does not require sign-in.
+optimizer in its empty state. The weekly page is public, but source imports require
+sign-in under the later cost-protection policy below.
 The workflow follow-up adds username/URL lookup, private saved-connection handoff,
 bounded manual-entry restoration, grouped source notes and kickoff checklists. Exact
 duplicate messages are removed only from presentation; source evidence remains intact.
@@ -182,7 +183,7 @@ Semantically similar provider-ID and named-player messages may still both appear
 expanded detail. A legacy manual league has no external Sleeper identity to prefill;
 connect its public Sleeper counterpart explicitly if one exists.
 
-Follow-up QA on September 9 used a local production build and the existing development
+Before the later source-access gate, follow-up QA on September 9 used a local production build and the existing development
 backend. Browser interactions resolved the owner's actual username to the intended
 league, selected current week 1, and imported 16 roster rows with two ordinary estimates.
 A synthetic manual value survived reload only after a fresh same-context import, with
@@ -198,3 +199,45 @@ connection list and explicit unauthenticated rejections for journal listing and 
 authorization. In-memory backend regressions cover ownership, combined-cap enforcement,
 subscription expiry, idempotent decision creation, concurrent outcome throttling,
 bounded pagination and account-erasure batches including orphan observations.
+
+## Source access and bounded compute
+
+The later September 9 personal-use cost policy supersedes anonymous import access.
+Static/local tools remain public. Authenticated Free accounts can resolve Sleeper
+connections and import rosters without automatic model estimates. Pro adds generated
+weekly estimates, the narrow waiver comparator and private decision history. Access
+is derived from stored subscriptions at server time; no owner identity, subscription
+or entitlement is manufactured for the app owner.
+
+Before source I/O, the weekly and connection HTTP routes verify the Clerk session,
+obtain its Convex token and call an authenticated admission action. The waiver route
+uses the same backend mechanism. Unauthenticated, insufficient-plan and exhausted
+requests return 401, 403 and 429; backend outages return 503 without source requests.
+Successful admission consumes one allowance even if the upstream later fails.
+
+| Operation | Per fixed 15 minutes | Per UTC day |
+| --- | ---: | ---: |
+| Connection lookup or saved-connection revalidation | 6 | Free 20 / Pro 60 |
+| Roster-only import | 6 | Free 20 / Pro 60 |
+| Model import | 6 | Pro 40 |
+| Waiver discovery or comparison | 6 | Pro 30 |
+| New decision save | 10 | Pro 100 |
+| Journal list or detail | 60 | Pro 500 |
+| Outcome refresh | 6 | Pro 30 |
+
+Counters are shared across app instances, keyed by authenticated owner and operation,
+and reused rather than appended indefinitely. Windows are fixed, so adjacent-window
+bursts remain possible. Exact idempotent save retries do not count as new records;
+invalid save transactions roll back and do not consume a successful-save allowance.
+Outcome refresh retains its additional per-record one-minute append guard. Counter
+rows join the bounded account-erasure cascade. Retry errors include server-calculated
+timing. These are application-work bounds, not a zero-cost hosting guarantee: rejected
+HTTP/Convex calls still use infrastructure, and unrelated public data-query surfaces
+need separate hardening. Deployment protection is an independent operational control;
+this code does not claim that it has been activated.
+
+Mounted browser-runtime tests cover immediate account-switch remount, all consent
+reset, no old-account snapshot reaching new-account Save, and discarded in-flight
+imports. Pending authentication sends no source request and does not touch browser
+manual storage. Storage is account-namespaced; original timestamps and exact matchup
+and context checks remain mandatory after a fresh import.

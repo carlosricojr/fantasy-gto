@@ -23,6 +23,8 @@ it("freezes a server-recomputed record, idempotently without replacing its recei
   const id = await owner.mutation(api.decisionJournal.create, args);
   const first = await owner.action(api.decisionJournal.detail, { id });
   expect(await owner.mutation(api.decisionJournal.create, args)).toBe(id);
+  const usage = await owner.run(async (ctx) => (await ctx.db.query("personalUsage").take(10)).find((row) => row.operation === "journal-save"));
+  expect(usage!.windowCount).toBe(1);
   expect(await owner.action(api.decisionJournal.detail, { id })).toEqual(first);
   expect(JSON.parse(first!.recordJson)).toMatchObject({ inputProvenance: "user-supplied", timing: "before-listed-kickoffs", plan: { projectedPoints: 10 } });
   await expect(owner.mutation(api.decisionJournal.create, { ...args, snapshotJson: args.snapshotJson.replace('"projectedPoints":10', '"projectedPoints":20') })).rejects.toMatchObject({ data: { code: "invalid" } });
@@ -80,6 +82,13 @@ it("serializes concurrent observation appends into one immutable observation", a
   expect((await owner.action(api.decisionJournal.detail, { id }))!.observations).toHaveLength(1);
 });
 
+it("bounds observation UTF-8 bytes, not only JavaScript character counts", async () => {
+  const { owner, args } = await setup();
+  const id = await owner.mutation(api.decisionJournal.create, args);
+  await expect(owner.mutation(internal.decisionJournal.appendObservation, { id, observedAt: Date.now(), outcomeJson: "界".repeat(43_000), evaluationJson: "{}" })).rejects.toMatchObject({ data: { code: "invalid" } });
+  expect((await owner.action(api.decisionJournal.detail, { id }))!.observations).toEqual([]);
+});
+
 it("erases only deleted-user personal data in repeatable batches, including orphan observations", async () => {
   vi.useFakeTimers();
   try {
@@ -101,8 +110,8 @@ it("erases only deleted-user personal data in repeatable batches, including orph
     await expect(owner.action(api.decisionJournal.detail, { id: ids[1] })).rejects.toMatchObject({ data: { code: "unauthenticated" } });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     await t.mutation(internal.personalData.eraseBatch, { userId });
-    const counts = await t.run(async (ctx) => ({ decisions: (await ctx.db.query("weeklyDecisions").withIndex("by_user_time", (q) => q.eq("userId", userId)).take(20)).length, observations: (await ctx.db.query("weeklyDecisionObservations").withIndex("by_user", (q) => q.eq("userId", userId)).take(100)).length, connections: (await ctx.db.query("sleeperConnections").withIndex("by_user", (q) => q.eq("userId", userId)).take(100)).length }));
-    expect(counts).toEqual({ decisions: 0, observations: 0, connections: 0 });
+    const counts = await t.run(async (ctx) => ({ decisions: (await ctx.db.query("weeklyDecisions").withIndex("by_user_time", (q) => q.eq("userId", userId)).take(20)).length, observations: (await ctx.db.query("weeklyDecisionObservations").withIndex("by_user", (q) => q.eq("userId", userId)).take(100)).length, connections: (await ctx.db.query("sleeperConnections").withIndex("by_user", (q) => q.eq("userId", userId)).take(100)).length, usage: (await ctx.db.query("personalUsage").withIndex("by_user_operation", (q) => q.eq("userId", userId)).take(10)).length }));
+    expect(counts).toEqual({ decisions: 0, observations: 0, connections: 0, usage: 0 });
     expect(await other.action(api.decisionJournal.detail, { id: keep })).not.toBeNull();
   } finally { vi.useRealTimers(); }
 });

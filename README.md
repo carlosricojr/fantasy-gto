@@ -231,6 +231,8 @@ state.
 | --- | --- | --- |
 | Projections, lineup optimizer | ✓ (no account needed) | ✓ |
 | Start/sit advice | ✓ | ✓ |
+| Sleeper roster-only import / connection lookup | ✓ (sign-in and quotas) | ✓ (quotas) |
+| On-demand weekly model estimates | — | ✓ (quotas) |
 | Leagues | 1 | **unlimited** |
 | Private saved decisions / outcome comparisons | — | ✓ |
 | One-week waiver comparisons | — | ✓ |
