@@ -18,3 +18,8 @@ it("does not invent a stress threshold without a starter comparison", () => {
   expect(html).not.toContain("<select");
   expect(html).not.toContain("points per changed player");
 });
+it("does not imply that stress arithmetic validates experimental inputs", () => {
+  const html = renderToStaticMarkup(<WeeklyStabilityPanel stressPoints={1} onStressChange={() => {}} hasExperimentalInputs analysis={{ status: "no-starter-change", reason: "Same starter set." }} />);
+  expect(html).toContain("Some supplied inputs are experimental baselines");
+  expect(html).toContain("does not validate them");
+});

@@ -1,12 +1,14 @@
 import { WEEKLY_STRESS_POINTS, type WeeklyLineupStability, type WeeklyStressPoints } from "@/lib/nfl/weekly-lineup-stability";
 
-export function WeeklyStabilityPanel({ analysis, stressPoints, onStressChange }: {
+export function WeeklyStabilityPanel({ analysis, stressPoints, onStressChange, hasExperimentalInputs = false }: {
   analysis: WeeklyLineupStability;
   stressPoints: WeeklyStressPoints;
   onStressChange: (points: WeeklyStressPoints) => void;
+  hasExperimentalInputs?: boolean;
 }) {
   return <section className="rounded-lg border p-4" aria-labelledby="weekly-stability-heading">
     <h2 id="weekly-stability-heading" className="font-semibold">Sensitivity versus your current starters</h2>
+    {hasExperimentalInputs && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">Some supplied inputs are experimental baselines. This arithmetic sensitivity does not validate them or establish an expected real-world advantage.</p>}
     {analysis.status !== "compared" ? <p className="mt-2 text-sm">{analysis.reason}</p> : <>
       <p className="mt-2 text-sm">{analysis.eraseAdvantagePoints === 0 ? "The included estimates already tie versus your current starters." : <>About <strong>±{analysis.eraseAdvantagePoints.toFixed(2)} points per changed player</strong> can erase the included advantage versus your current starters.</>}</p>
       <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">Stress each changed player’s estimate by

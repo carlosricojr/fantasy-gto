@@ -12,8 +12,8 @@ import metrics from "@/lib/nfl/model/published-metrics.json";
  * real figure is imported from `published-metrics.json`, which `pnpm backtest -- --holdout`
  * writes, so this page cannot drift out of step with what was actually measured.
  *
- * What is left is what the product can actually defend: an optimal lineup is optimal by
- * construction, projections show their working, and the accuracy figure is published.
+ * Exact assignment applies to supplied projected points under the same constraints;
+ * it is not a guarantee about realized scores. Accuracy figures remain published.
  */
 export default function MarketingPage() {
   return (
@@ -23,8 +23,8 @@ export default function MarketingPage() {
           Fantasy decisions you can check.
         </h1>
         <p className="mt-5 text-pretty text-lg text-muted-foreground">
-          Every projection breaks down into the numbers behind it. Every lineup is the
-          highest-scoring arrangement your roster allows &mdash; not a good guess.
+          See the evidence behind your estimates. Find the highest included projected-point
+          total your roster allows, with missing data and lineup constraints made explicit.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
@@ -43,11 +43,11 @@ export default function MarketingPage() {
       <section className="mx-auto max-w-3xl px-6 py-12">
         <div className="grid gap-8 sm:grid-cols-3">
           <div>
-            <h2 className="font-medium">Provably optimal lineups</h2>
+            <h2 className="font-medium">Exact lineup assignment</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Slot assignment is solved exactly, so no legal arrangement of your roster
-              scores higher. Filling slots greedily &mdash; what simpler tools do &mdash;
-              can leave real points on the bench.
+              Given the same supplied projections, eligibility, locks and exclusions,
+              slot assignment maximizes the included projected-point total. It does not
+              guarantee the highest actual score.
             </p>
           </div>
           <div>

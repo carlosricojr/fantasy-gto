@@ -287,3 +287,37 @@ new request or ranking change; refresh, stale inputs and account changes remove
 the old explanation. This presentation-only change does not alter the model,
 solver or ranking policy, so it does not require a model backtest or consume the
 reserved 2025 holdout.
+
+## Explicit experimental coverage consent
+
+The weekly page requests `experimental=coverage-baselines` only when its separate,
+off-by-default experimental checkbox is enabled for a model import. This does not
+enable the provisional missing-injury-report option. The raw imported snapshot
+keeps ordinary missing values intact; a reversible selector supplies experimental
+values only for eligible, future, not-known-unavailable players with valid method
+evidence. The planner requires both experimental and incomplete-comparison consent.
+
+Disabling experimental consent immediately rebuilds the view from raw inputs,
+without a source call. Manual overrides—including deliberately cleared values—win.
+Consent resets on account remount, visible league/owner/week changes, changed
+imported season/scoring context, failed refresh and unsuccessful model generation
+inside an otherwise successful roster response. A deliberate opt-in before the
+first import is honored. Late responses cannot undo revocation. Initial consent
+does not survive an account change or turn the setting on by default.
+
+Ordinary, provisional and experimental coverage remain separate. Every available
+experimental row retains method, history count/last game, active-at-kickoff
+assumption, omitted rules and evidence limitations even while disabled. Kicker
+baselines are prior-season kicking-event points per game, with no calibration;
+returning-player baselines use the frozen model, whose existing PPR-only calibration
+does not validate this relaxed-history use. Neither is labelled an ordinary or
+availability-adjusted forecast. Sensitivity explicitly warns when supplied inputs
+include experiments; arithmetic stability is not validation of those baselines.
+
+Private decision inputs retain `projectionOrigin: "experimental"`, nested evidence
+and the explicit `allowExperimentalEstimates` preference. When switched off, the
+saved preference is false and the raw missing value is retained. Nothing submits
+changes to Sleeper. Browser manual storage does not persist automatic/experimental
+points as manual estimates. Mounted tests use real page, selectors, planner,
+storage, save component and journal parser with only external infrastructure
+substituted; no production decision record is created by these tests.
