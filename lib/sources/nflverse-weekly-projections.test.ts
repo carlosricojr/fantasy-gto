@@ -60,6 +60,37 @@ describe("nflverse personal weekly estimates", () => {
     data.injuries = [{ season: 2026, week: 1, playerId: "gsis-1", name: "Test TE", position: "TE", team: "MIN",
       gameStatus: "out", practiceStatus: "none", primaryInjury: "Knee", dateModified: null }];
     expect(buildNflverseWeeklyEstimates(request, data).players[0].points).toBeNull();
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].availability).toBe("out");
+    for (const gameStatus of ["unknown", "questionable", "doubtful"] as const) {
+      data.injuries = [{ ...data.injuries[0], gameStatus }];
+      const result = buildNflverseWeeklyEstimates(request, data);
+      expect(result.players[0].availability).toBe(gameStatus);
+      if (gameStatus === "unknown") expect(result.players[0].points).toBeNull();
+      else expect(result.warnings.some(warning => warning.includes(gameStatus))).toBe(true);
+    }
+  });
+  it("does not manufacture availability when the player identity is missing", () => {
+    const data = inputs();
+    data.roster = [];
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].availability).toBeUndefined();
+    const inactive = inputs();
+    inactive.weeklyRoster = [{ ...inactive.weeklyRoster[0], status: "reserve" }];
+    expect(buildNflverseWeeklyEstimates(request, inactive).players[0].availability).toBe("inactive");
+  });
+  it("retains valid zero and negative model means after the history gate", () => {
+    const parsed = parseSleeperScoring({ rec_yd: -0.1 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    const data = inputs();
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBeLessThan(0);
+    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0 },
+      usage: { ...row.usage, targets: 0 } }));
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBe(0);
+  });
+  it("does not run the model when every offensive scoring term is unsupported", () => {
+    const parsed = parseSleeperScoring({ st_ff: 1 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, inputs()).players[0])
+      .toMatchObject({ points: null, reason: "No supported offensive scoring rules" });
   });
   it("does not silently combine unequal two-point coefficients", () => {
     const parsed = parseSleeperScoring({ rec: 0.5, pass_2pt: 1, rush_2pt: 2, rec_2pt: 2 });

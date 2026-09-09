@@ -87,10 +87,16 @@ remains fitted on PPR and no new accuracy claim is made.
 
 Missing/ambiguous IDs, non-active weekly roster designations, Out/unknown injury status,
 missing kickoff, started games, fewer than four prior games, stale playing history and
-unmodeled positions return `points: null` with a reason. Kicker/defense and rookies without
+unmodeled positions return `points: null` with a reason. Valid zero/negative estimates are
+retained after the history gate. Kicker/defense and rookies without
 sufficient history never receive an invented number. Required source failures fail the
-whole request. The computed timestamp identifies this calculation; source revision time
+whole request; missing optional betting lines instead omit that adjustment and add a warning.
+The computed timestamp identifies this calculation; source revision time
 remains explicitly unknown because the existing provider discards HTTP revision headers.
+Each row also carries structured availability when this source has current evidence.
+Out, inactive and unknown designations are distinct; questionable/doubtful designations
+remain visible with warnings even when an estimate exists. A missing identity does not
+manufacture an availability status or require consumers to parse an English error message.
 
 A read-only check on 2026-09-09 generated estimates for 12 of 16 entries in the requested
 personal roster. Two had stale playing history; kicker and defense were unpriced. All
