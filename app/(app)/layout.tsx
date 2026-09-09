@@ -8,8 +8,8 @@ import { SiteHeader } from "@/components/nav/site-header";
 /**
  * Application chrome.
  *
- * Renders for signed-out visitors too, because projections and the lineup optimizer are
- * open. The header therefore has to handle both states rather than assuming a user.
+ * Renders for signed-out visitors too, including the data pages' sign-in guidance.
+ * The header therefore handles both states rather than assuming a user.
  *
  * Navigation is a header on tablet and up and a bottom tab bar on phones, both driven by
  * `APP_NAV`. The bottom bar is fixed, so space has to be reserved for it below `sm` —

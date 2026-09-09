@@ -29,6 +29,12 @@ const SEASON = 2026;
 const SCORING = "ppr";
 const TEAMS = 12;
 
+async function authenticatedTest() {
+  const account = convexTest(schema, modules).withIdentity({ subject: "draft-reader" });
+  await account.mutation(api.users.ensure, {});
+  return account;
+}
+
 function row(playerId: string, blendedPoints: number) {
   return {
     playerId,
@@ -69,7 +75,7 @@ function catalogRow(
 
 describe("draft board publishing", () => {
   it("serves the complete measured custom skill distribution and rejects malformed knots", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     const customShape = {
       season: SEASON,
       scoringId: 'sleeper-v1:{"rec":0.5}',
@@ -105,7 +111,7 @@ describe("draft board publishing", () => {
   });
 
   it("joins a complete catalog without inventing a valuation", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     await t.mutation(internal.draft.upsertBoardBatch, {
       ...shape,
       computedAt: 1_000,
@@ -173,7 +179,7 @@ describe("draft board publishing", () => {
   });
 
   it("serves nothing until a run has completed", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     // Rows written but never published: a run that died before its last batch.
     await t.mutation(internal.draft.upsertBoardBatch, {
       ...shape,
@@ -186,7 +192,7 @@ describe("draft board publishing", () => {
   });
 
   it("keeps serving the previous board whole when a rebuild dies mid-write", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     // A complete run at t=1000.
     await t.mutation(internal.draft.upsertBoardBatch, {
@@ -211,7 +217,7 @@ describe("draft board publishing", () => {
   });
 
   it("swaps the whole board at once when the rebuild finishes", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     await t.mutation(internal.draft.upsertBoardBatch, {
       ...shape,
@@ -239,7 +245,7 @@ describe("draft board publishing", () => {
     // Pinned in both directions. Asserting only one lets the read be replaced by that
     // constant with the suite still green — which is what a previous version of this test
     // allowed, since it covered a fallback and never a stored value.
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     await t.mutation(internal.draft.upsertBoardBatch, {
       ...shape,
       computedAt: 1_000,
@@ -257,7 +263,7 @@ describe("draft board publishing", () => {
   });
 
   it("keeps custom historical provenance and translates only legacy catalog D/ST IDs", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     const customShape = {
       season: SEASON,
       scoringId: 'sleeper-v1:{"rec":1}',
@@ -334,7 +340,7 @@ describe("draft board publishing", () => {
   });
 
   it("does not invent a curve basis for a board row that predates the field", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     const { marketValueBasis: omittedBasis, ...legacy } = row("legacy-player", 200);
     // Prove the fixture normally carries the field; the rest spread below deliberately
     // omits it to reproduce a row from before this provenance existed.
@@ -359,7 +365,7 @@ describe("draft board publishing", () => {
   });
 
   it("does not let a stale run that finishes late take the current board with it", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
 
     // The newer rebuild lands and publishes first.
     await t.mutation(internal.draft.upsertBoardBatch, {
@@ -398,7 +404,7 @@ describe("draft board publishing", () => {
     //
     // Written directly through the harness, because no code path produces this state; the
     // point is what happens if one ever does.
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     await t.mutation(internal.draft.upsertBoardBatch, {
       ...shape,
       computedAt: 1_000,
@@ -446,7 +452,7 @@ describe("draft board publishing", () => {
     // "published directly" would present an approximation as a real board, which is the one
     // thing the whole provenance chain exists to prevent.
     return (async () => {
-      const t = convexTest(schema, modules);
+      const t = await authenticatedTest();
       await t.mutation(internal.draft.upsertBoardBatch, {
         ...shape,
         computedAt: 1_000,
@@ -471,7 +477,7 @@ describe("draft board publishing", () => {
     // invisible in a timestamp. Somebody about to draft off a board that is two hours old
     // and *wrong* has nothing to go on unless the attempt is reported alongside it.
     return (async () => {
-      const t = convexTest(schema, modules);
+      const t = await authenticatedTest();
       await t.mutation(internal.draft.upsertBoardBatch, {
         ...shape,
         computedAt: 1_000,
@@ -509,7 +515,7 @@ describe("draft board publishing", () => {
     // `never-built` and `refreshing` lead to different actions, and a shape being built for
     // the first time must not read as broken.
     return (async () => {
-      const t = convexTest(schema, modules);
+      const t = await authenticatedTest();
       await t.mutation(internal.jobs.start, {
         kind: `draft:${SEASON}-${SCORING}-${TEAMS}`,
         detail: "Building",
@@ -524,7 +530,7 @@ describe("draft board publishing", () => {
     // The job kind carries the season, scoring and size. A build for the ten-team board
     // failing must not make the twelve-team board look broken.
     return (async () => {
-      const t = convexTest(schema, modules);
+      const t = await authenticatedTest();
       const jobId = await t.mutation(internal.jobs.start, {
         kind: `draft:${SEASON}-${SCORING}-10`,
         detail: "Building",
@@ -543,7 +549,7 @@ describe("draft board publishing", () => {
   });
 
   it("does not let a rebuild of one league size disturb another", async () => {
-    const t = convexTest(schema, modules);
+    const t = await authenticatedTest();
     const ten = { season: SEASON, scoringId: SCORING, teams: 10 };
 
     for (const s of [shape, ten]) {

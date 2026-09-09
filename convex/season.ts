@@ -1,4 +1,7 @@
-import { query } from "./_generated/server";
+import { v } from "convex/values";
+import { internalQuery, query, type QueryCtx } from "./_generated/server";
+import { requireUser } from "./lib/auth";
+import { READ_LIMITS, completeRows } from "./lib/read-bounds";
 
 import type { Contest } from "../lib/core/domain";
 import { resolveSeasonState } from "../lib/nfl/season";
@@ -13,9 +16,13 @@ import { resolveSeasonState } from "../lib/nfl/season";
  * Returns null when no schedule has been ingested, which the interface presents as an
  * explicit empty state rather than as a week with no games.
  */
-export const current = query({
-  args: {},
-  handler: async (ctx) => {
+const seasonState = v.union(v.null(), v.object({
+  season: v.number(), week: v.number(),
+  phase: v.union(v.literal("preseason"), v.literal("regular"), v.literal("offseason")),
+  isComplete: v.boolean(),
+}));
+
+async function resolveCurrent(ctx: QueryCtx) {
     const contests: Contest[] = [];
     const thisYear = new Date().getUTCFullYear();
 
@@ -29,7 +36,8 @@ export const current = query({
         .withIndex("by_sport_season_week", (q) =>
           q.eq("sport", "nfl").eq("season", season),
         )
-        .collect();
+        .take(READ_LIMITS.seasonContests + 1);
+      completeRows(rows, READ_LIMITS.seasonContests, "Season schedule");
 
       for (const row of rows) {
         contests.push({
@@ -47,5 +55,20 @@ export const current = query({
     }
 
     return resolveSeasonState(contests, Date.now());
+}
+
+export const current = query({
+  args: {},
+  returns: seasonState,
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    return resolveCurrent(ctx);
   },
+});
+
+/** Scheduled ingest has no caller identity; never call the authenticated public wrapper. */
+export const currentInternal = internalQuery({
+  args: {},
+  returns: seasonState,
+  handler: resolveCurrent,
 });

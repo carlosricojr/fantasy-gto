@@ -93,8 +93,8 @@ export type Entitlements = Readonly<Record<FeatureKey, EntitlementValue>>;
  * Free deliberately includes `start_sit`. The product's whole argument is that value must
  * be demonstrated before payment is requested, and a free tier that cannot answer "who do
  * I start?" demonstrates nothing. That argument is about the *question*, not the number of
- * leagues: the lineup optimizer and projections need no account and no league at all, so a
- * visitor can see the whole product work before anything is stored.
+ * leagues: the lineup optimizer and projections require a signed-in app account but no
+ * connected league, so a free user can try them before saving a league.
  *
  * One free league is what that argument actually requires. It covers the person this is
  * built for — someone with a team, wanting to know who to start — end to end, from saved
@@ -124,8 +124,8 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
    * - `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested but no route or
    *   screen imports it.
    * - `daily_refresh` — the cron in `convex/crons.ts` rewrites the shared `projections`
-   *   rows, and `projections.forWeek` is a public query with no staleness tier. A free
-   *   visitor sees the identical freshly recomputed rows. Billing for it would be
+   *   rows, and `projections.forWeek` is an authenticated query with no staleness tier. A
+   *   free signed-in user sees the identical freshly recomputed rows. Billing for it would be
    *   charging for a difference that does not exist.
    * - `waivers_faab`, `dst_streamer`, `alerts` — not built.
    *

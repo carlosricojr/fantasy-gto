@@ -12,6 +12,7 @@ import {
 } from "../lib/nfl/draft/provider-identity";
 import { parseSeasonRoster, seasonRosterUrl } from "../lib/sources/nflverse";
 import { parsePlayersDump, playersUrl } from "../lib/sources/sleeper";
+import { authenticatedBoardReader, DIAGNOSTIC_CONVEX_URL } from "../lib/sources/private-board-diagnostic";
 
 /**
  * Re-measures the provider-to-board identity seam used by live draft picks.
@@ -20,7 +21,7 @@ import { parsePlayersDump, playersUrl } from "../lib/sources/sleeper";
  *   pnpm identity-coverage
  *   pnpm identity-coverage -- --board path/to/draft-board.json
  *
- * The default board is the public production `draft:board` query for the checked-in current
+ * The default board is the authenticated production `draft:board` query for the checked-in current
  * shape. Its provenance is printed before the counts; pass an exported snapshot to audit a
  * different board. Sleeper and the nflverse season roster are fetched afresh and copied to
  * `.cache/identity-coverage` for inspection. Those caches are evidence, never inputs, so
@@ -32,7 +33,7 @@ const DEFAULT_BOARD = join(
   "tests/fixtures/draft_board_2026_half_ppr_10team.json",
 );
 const CACHE = join(process.cwd(), ".cache", "identity-coverage");
-const PRODUCTION_CONVEX_URL = "https://limitless-elk-261.convex.cloud";
+const PRODUCTION_CONVEX_URL = DIAGNOSTIC_CONVEX_URL;
 const CURRENT_SHAPE = { season: 2026, scoringId: "half_ppr", teams: 10 };
 
 interface IdentityBoardSource {
@@ -70,15 +71,8 @@ async function fetchFresh(name: string, url: string): Promise<string> {
 }
 
 async function fetchCurrentBoard(): Promise<IdentityBoardSource> {
-  const response = await fetch(`${PRODUCTION_CONVEX_URL}/api/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      path: "draft:board",
-      args: CURRENT_SHAPE,
-      format: "json",
-    }),
-  });
+  const queryBoard = authenticatedBoardReader(process.env.FANTASY_GTO_CLERK_TOKEN);
+  const response = await queryBoard(CURRENT_SHAPE);
   if (!response.ok)
     throw new Error(`production draft board responded ${response.status}`);
   const payload: unknown = await response.json();

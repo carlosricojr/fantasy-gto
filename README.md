@@ -230,7 +230,7 @@ state.
 
 | | Free | Pro |
 | --- | --- | --- |
-| Projections, lineup optimizer | ✓ (no account needed) | ✓ |
+| Projections, lineup optimizer | ✓ (app sign-in required) | ✓ |
 | Start/sit advice | ✓ | ✓ |
 | Sleeper roster-only import / connection lookup | ✓ (sign-in and quotas) | ✓ (quotas) |
 | On-demand weekly model estimates | — | ✓ (quotas) |
@@ -254,7 +254,7 @@ direct entitlement grants are changed. The remaining capability gaps are explici
 - `accuracy_dashboard` — `/accuracy` is a public marketing page with no gate.
 - `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested, but no route imports it.
 - `daily_refresh` — the cron rewrites shared projection rows and `projections.forWeek` is a
-  public query with no staleness tier, so a free visitor reads the same fresh data. Billing
+  signed-in query with no staleness tier, so a free account reads the same fresh data. Billing
   for it would be charging for a difference that does not exist.
 - `waivers_faab`, `dst_streamer`, `alerts` — not built. A one-week comparison does not
   implement the bundled FAAB/season-strategy capability.
@@ -266,6 +266,11 @@ against — so the page cannot promise more than the code delivers.
 
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
 cannot demonstrate value before asking for payment.
+
+Football-data reads require app sign-in and enforce per-request budgets independently of
+Vercel hosting protection. Oversized whole pools fail explicitly rather than being silently
+truncated. See [private data access and rollout notes](docs/private-data-access.md), including
+the reload requirement for older tabs and authenticated operator diagnostics.
 
 To be precise about what that means today: start/sit is delivered by `/lineup`, which takes
 the players you select and returns the highest-scoring legal arrangement. The narrower

@@ -21,7 +21,9 @@ Run the live coverage audit with:
 pnpm identity-coverage
 ```
 
-It fetches the public production board, current nflverse roster bridge, and current Sleeper
+The live-board path requires the short-lived app-user token described in
+[private data access](private-data-access.md); without it, the command stops before provider I/O.
+It fetches the authenticated production board, current nflverse roster bridge, and current Sleeper
 universe afresh. The command prints all matched / ambiguous / unmatched numerators and
 denominators, rookie subsets, and concrete unresolved identities. `UNRESOLVED — not clean`
 means an operator repair or later board/provider correction is still required; it also exits

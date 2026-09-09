@@ -11,6 +11,7 @@ import { fantasySeasonWeeks, sampleTeamWeeklyScores, simulateLeague, type League
 import type { PlayerRisk } from "../lib/core/roster-utility";
 import type { RosterStatus } from "../lib/nfl/weekly-roster";
 import { customBoardBlock } from "../lib/nfl/draft/custom-board-readiness";
+import { authenticatedBoardReader, DIAGNOSTIC_CONVEX_URL } from "../lib/sources/private-board-diagnostic";
 
 interface Row {
   playerId: string; sleeperId?: string; name: string; position: string; team: string | null;
@@ -21,8 +22,9 @@ interface Row {
 }
 
 async function main(): Promise<void> {
-  const [reference, userId, deployment = "https://limitless-elk-261.convex.cloud"] = process.argv.slice(2);
+  const [reference, userId, deployment = DIAGNOSTIC_CONVEX_URL] = process.argv.slice(2);
   if (!reference || !userId) throw new Error("Usage: pnpm exec tsx scripts/sleeper-rehearsal.ts <league-or-draft-URL> <Sleeper-user-id> [Convex-URL]");
+  const queryBoard = authenticatedBoardReader(process.env.FANTASY_GTO_CLERK_TOKEN, deployment);
   const resolved = await resolveSleeperDraftId(reference);
   if (!resolved.ok) throw new Error(resolved.reason);
   const provider = new SleeperDraftProvider();
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
   const draft = await (await fetch(`https://api.sleeper.app/v1/draft/${encodeURIComponent(resolved.data)}`)).json() as { season?: string };
   const season = Number(draft.season);
   if (!Number.isInteger(season) || season < 2000) throw new Error("Missing source draft season.");
-  const response = await fetch(`${deployment}/api/query`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "draft:board", args: { season, teams: setup.teams, scoringId: setup.scoringId }, format: "json" }) });
+  const response = await queryBoard({ season, teams: setup.teams, scoringId: setup.scoringId });
   const result = await response.json() as { status: string; value?: Row[] };
   if (!response.ok || result.status !== "success" || !Array.isArray(result.value) || result.value.length === 0) throw new Error("No published board for this exact custom scoring profile.");
   const rows = result.value;

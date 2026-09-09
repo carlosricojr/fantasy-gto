@@ -11,6 +11,7 @@ import { ProjectionCard } from "@/components/projection-card";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_SCORING, SCORING_PRESETS } from "@/lib/nfl/scoring/presets";
 import { describeSeasonState } from "@/lib/nfl/season";
+import { PrivateDataGate } from "@/components/private-data-gate";
 
 const FILTERABLE_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
 
@@ -20,10 +21,13 @@ const FILTERABLE_POSITIONS = ["QB", "RB", "WR", "TE"] as const;
  * Every number here is real model output read from Convex, and every card expands to show
  * the contributions that produced it.
  *
- * Deliberately available without an account. The product's argument is that value should
- * be demonstrated before payment is requested, so the core read is not gated.
+ * Reads require an application account; no paid subscription is required.
  */
 export default function ProjectionsPage() {
+  return <PrivateDataGate title="Projections"><ProjectionsContent /></PrivateDataGate>;
+}
+
+function ProjectionsContent() {
   const [scoringId, setScoringId] = useState(DEFAULT_SCORING.id);
   const [position, setPosition] = useState<string | null>(null);
 

@@ -9,6 +9,7 @@ import { weeklyLineupHref } from "@/lib/nfl/sleeper-connection";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { EmptyState, PageShell } from "@/components/page-shell";
+import { PrivateDataGate } from "@/components/private-data-gate";
 import { appErrorMessage } from "@/lib/errors";
 import {
   Dialog,
@@ -40,6 +41,10 @@ import {
  * could be bypassed.
  */
 export default function DashboardPage() {
+  return <PrivateDataGate title="My leagues"><DashboardContent /></PrivateDataGate>;
+}
+
+function DashboardContent() {
   // Convex answers queries before Clerk's token arrives, and an unauthenticated
   // `users.me` resolves to the anonymous free-tier shape rather than staying undefined.
   // Checking `me !== undefined` alone therefore cannot tell "still loading" from

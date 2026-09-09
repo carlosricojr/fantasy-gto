@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import { PageShell } from "@/components/page-shell";
+import { PrivateDataGate } from "@/components/private-data-gate";
 import { useStableQuery } from "@/components/use-stable-query";
 import { Button } from "@/components/ui/button";
 import { normalizeLeagueSetup, pickOwnership, seatForTeamIndex } from "@/lib/core/draft";
@@ -191,6 +192,10 @@ function persistedPickPrefix(
 }
 
 export default function DraftPage() {
+  return <PrivateDataGate title="Draft"><DraftContent /></PrivateDataGate>;
+}
+
+function DraftContent() {
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
   const [slot, setSlot] = useState(1);

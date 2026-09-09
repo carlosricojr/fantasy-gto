@@ -36,7 +36,7 @@ export default function MarketingPage() {
           </Button>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          No account needed. Projections and the lineup optimizer work right away.
+          Projections and the lineup optimizer are free. Sign in to load data.
         </p>
       </section>
 
