@@ -19,7 +19,9 @@ const serwist = new Serwist({
       // does not honor HTTP no-store; defaultCache otherwise falls back to a
       // cached API response, which callers could mistake for a fresh snapshot.
       matcher: ({ sameOrigin, url }) =>
-        (sameOrigin && url.pathname === "/api/weekly-lineup") ||
+        // Also protect slash variants that Next redirects to the canonical URL:
+        // offline, the redirect never arrives and a raw-path cache rule could win.
+        (sameOrigin && ["/api/weekly-lineup", "/api/waivers", "/api/sleeper-connections"].includes(url.pathname.replace(/\/{2,}/g, "/").replace(/\/$/, "").toLowerCase())) ||
         url.hostname === "api.sleeper.app",
       method: "GET",
       handler: new NetworkOnly({ fetchOptions: { cache: "no-store" } }),
