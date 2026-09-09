@@ -1,4 +1,5 @@
 import type { RosterSlot } from "../core/optimizer";
+import { validWeeklyExperimentalEstimate, type WeeklyExperimentalEstimate } from "./weekly-experimental";
 
 export type WeeklyAvailability = "active" | "questionable" | "doubtful" | "out" | "inactive" | "bye" | "reserve" | "unknown";
 
@@ -18,8 +19,9 @@ export interface WeeklyPlayer {
   currentSlotId: string | null;
   /** Supplied objective value; model/provisional omissions remain explicit. Absent is not zero. */
   projectedPoints: number | null;
-  projectionOrigin?: "model" | "model-conditional" | "manual";
+  projectionOrigin?: "model" | "model-conditional" | "experimental" | "manual";
   conditionalEstimate?: WeeklyConditionalEstimate;
+  experimentalEstimate?: WeeklyExperimentalEstimate;
   projectionMissingReason?: string | null;
   projectionEnteredAt?: number;
   team?: string | null;
@@ -94,7 +96,7 @@ const cents = (points: number) => Math.round(points * 100);
  */
 export function planWeeklyLineup(
   snapshot: WeeklyLineupSnapshot,
-  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[]; compareAvailableEstimates?: boolean; allowConditionalEstimates?: boolean },
+  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[]; compareAvailableEstimates?: boolean; allowConditionalEstimates?: boolean; allowExperimentalEstimates?: boolean },
 ): WeeklyLineupPlan {
   const problems: string[] = [];
   const warnings: string[] = [...(snapshot.warnings ?? [])];
@@ -114,7 +116,7 @@ export function planWeeklyLineup(
   checkTime(snapshot.retrievedAt, options.maxProjectionAgeMs, "Projection retrieval");
   if (snapshot.projectionUpdatedAt === null) warnings.push("Projection publication time is unknown. Retrieval time does not establish freshness.");
   else checkTime(snapshot.projectionUpdatedAt, options.maxProjectionAgeMs, "Projection publication");
-  const usesModel = players.some((p) => (p.projectionOrigin === "model" || p.projectionOrigin === "model-conditional") && p.projectedPoints !== null);
+  const usesModel = players.some((p) => (p.projectionOrigin === "model" || p.projectionOrigin === "model-conditional" || p.projectionOrigin === "experimental") && p.projectedPoints !== null);
   if (usesModel) {
     if (!snapshot.model) problems.push("Model estimates have no provenance.");
     else {
@@ -132,6 +134,15 @@ export function planWeeklyLineup(
   const slotById = new Map(slots.map((s) => [s.id, s]));
   const occupant = new Map<string, WeeklyPlayer>();
   for (const player of players) {
+    if (player.projectionOrigin !== undefined && !["model", "model-conditional", "experimental", "manual"].includes(player.projectionOrigin)) problems.push(`${player.name}: unknown projection origin.`);
+    if (player.experimentalEstimate !== undefined && player.projectedPoints !== null && player.projectionOrigin !== "experimental" && player.projectionOrigin !== "manual") problems.push(`${player.name}: experimental evidence cannot be relabeled as ordinary model points.`);
+    if (player.projectionOrigin === "experimental" && player.projectedPoints !== null) {
+      if (!options.allowExperimentalEstimates || !options.compareAvailableEstimates) problems.push(`${player.name}: experimental baselines require both experimental-estimate and incomplete-comparison consent.`);
+      if (!validWeeklyExperimentalEstimate(player.experimentalEstimate, snapshot.season, snapshot.week, player.positions)
+        || player.experimentalEstimate.points !== player.projectedPoints || player.conditionalEstimate !== undefined
+        || !["active", "questionable", "doubtful"].includes(player.availability)) problems.push(`${player.name}: experimental baseline evidence is invalid.`);
+      warnings.push(`${player.name}: experimental ${player.experimentalEstimate?.method ?? "unknown"} assumes active at kickoff; this is not a validated or availability-adjusted full-scoring forecast. Omitted rules: ${player.experimentalEstimate?.excludedRules.join(", ") || "none in this scoring subset"}.`);
+    }
     if (player.projectionOrigin === "model-conditional" && player.projectedPoints !== null) {
       if (!options.allowConditionalEstimates || !options.compareAvailableEstimates) problems.push(`${player.name}: active-at-kickoff forecasts require both provisional forecast and incomplete-comparison consent.`);
       if (player.conditionalEstimate?.condition !== "active-at-kickoff" || player.conditionalEstimate.missingEvidence !== "team-injury-report" || player.conditionalEstimate.points !== player.projectedPoints || player.injuryCoverage !== "unavailable") problems.push(`${player.name}: provisional forecast evidence is invalid.`);

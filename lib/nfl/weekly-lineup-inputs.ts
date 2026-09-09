@@ -1,6 +1,7 @@
 import type { WeeklyAvailability, WeeklyConditionalEstimate, WeeklyLineupSnapshot, WeeklyModelEvidence } from "./weekly-lineup";
 import type { WeeklyRosterEntry } from "./weekly-roster";
 import { normalizeTeam } from "./teams";
+import { validWeeklyExperimentalEstimate, type WeeklyExperimentalEstimate } from "./weekly-experimental";
 
 /** Team identity for kickoff locks comes from this week's roster, not a cached directory. */
 export function resolveWeeklyRosterTeam(playerId: string, positions: readonly string[], season: number, week: number, identities: readonly { sleeperId: string | null; gsisId: string | null }[], weeklyRoster: readonly WeeklyRosterEntry[]): string | null {
@@ -18,7 +19,7 @@ export interface WeeklyModelResponse extends WeeklyModelEvidence {
   season: number;
   week: number;
   scoringId: string;
-  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; injuryCoverage?: "available" | "unavailable"; conditionalEstimate?: WeeklyConditionalEstimate; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
+  players: readonly { playerId: string; points: number | null; reason: string | null; availability?: WeeklyAvailability; injuryCoverage?: "available" | "unavailable"; conditionalEstimate?: WeeklyConditionalEstimate; experimentalEstimate?: WeeklyExperimentalEstimate; team?: string | null; gameId?: string | null; kickoffAt?: number | null }[];
 }
 
 /** Absence of an injury row does not clear a designation another source reported. */
@@ -36,6 +37,8 @@ export function applyWeeklyModel(snapshot: WeeklyLineupSnapshot, model: WeeklyMo
   if (estimates.size !== snapshot.players.length || estimates.size !== model.players.length || snapshot.players.some((p) => !estimates.has(p.id))) throw new Error("Model response does not match the imported roster.");
   if (model.players.some((p) => p.points !== null && !Number.isFinite(p.points))) throw new Error("Model response contains invalid expected points.");
   if (model.players.some((p) => p.conditionalEstimate !== undefined && (!Number.isFinite(p.conditionalEstimate.points) || p.conditionalEstimate.condition !== "active-at-kickoff" || p.conditionalEstimate.missingEvidence !== "team-injury-report" || p.injuryCoverage !== "unavailable" || p.points !== null))) throw new Error("Model response contains invalid conditional forecast evidence.");
+  if (model.players.some((p) => p.experimentalEstimate !== undefined && (p.points !== null || p.conditionalEstimate !== undefined
+    || !validWeeklyExperimentalEstimate(p.experimentalEstimate, model.season, model.week, snapshot.players.find(player => player.id === p.playerId)!.positions)))) throw new Error("Model response contains invalid experimental baseline evidence.");
   const evidence: WeeklyModelEvidence = { source: model.source, computedAt: model.computedAt, providerUpdatedAt: model.providerUpdatedAt, excludedRules: [...model.excludedRules], warnings: [...model.warnings], coverage: { requested: model.players.length, projected: model.players.filter((p) => p.points !== null).length } };
   return { ...snapshot, source: model.source, retrievedAt: model.computedAt, model: evidence, players: snapshot.players.map((p) => {
     const estimate = estimates.get(p.id)!;
@@ -43,7 +46,7 @@ export function applyWeeklyModel(snapshot: WeeklyLineupSnapshot, model: WeeklyMo
       || (estimate.gameId !== undefined && p.gameId !== undefined && estimate.gameId !== p.gameId)
       || (estimate.kickoffAt !== undefined && estimate.kickoffAt !== p.kickoffAt);
     const modelGameContextChecked = estimate.team !== undefined && estimate.gameId !== undefined && estimate.kickoffAt !== undefined;
-    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", conditionalEstimate: estimate.conditionalEstimate, projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, injuryCoverage: estimate.injuryCoverage, gameContextConflict, modelGameContextChecked };
+    return { ...p, projectedPoints: estimate.points, projectionOrigin: "model", conditionalEstimate: estimate.conditionalEstimate, experimentalEstimate: estimate.experimentalEstimate, projectionMissingReason: estimate.reason, availability: reconcileWeeklyAvailability(p.availability, estimate.availability), nflverseAvailability: estimate.availability, injuryCoverage: estimate.injuryCoverage, gameContextConflict, modelGameContextChecked };
   }) };
 }
 
@@ -55,6 +58,18 @@ export function selectWeeklyConditionalEstimates(snapshot: WeeklyLineupSnapshot,
       || p.injuryCoverage !== "unavailable" || !["active", "questionable", "doubtful"].includes(p.availability)
       || p.kickoffAt === null || p.kickoffAt <= now || p.gameContextConflict) return p;
     return { ...p, projectedPoints: p.conditionalEstimate.points, projectionOrigin: "model-conditional", projectionMissingReason: null };
+  }) };
+}
+
+/** Independent opt-in overlay, rebuilt from raw input on each render. Manual overrides win. */
+export function selectWeeklyExperimentalEstimates(snapshot: WeeklyLineupSnapshot, enabled: boolean, now: number): WeeklyLineupSnapshot {
+  if (!enabled) return snapshot;
+  return { ...snapshot, players: snapshot.players.map(p => {
+    if (p.projectionOrigin === "manual" || p.projectedPoints !== null || p.conditionalEstimate !== undefined
+      || !validWeeklyExperimentalEstimate(p.experimentalEstimate, snapshot.season, snapshot.week, p.positions)
+      || !["active", "questionable", "doubtful"].includes(p.availability) || p.gameContextConflict
+      || p.kickoffAt === null || !Number.isFinite(p.kickoffAt) || !Number.isFinite(now) || p.kickoffAt <= now) return p;
+    return { ...p, projectedPoints: p.experimentalEstimate.points, projectionOrigin: "experimental", projectionMissingReason: null };
   }) };
 }
 

@@ -71,6 +71,12 @@ describe("toRosterStatus", () => {
 });
 
 describe("toWeeklyRoster", () => {
+  it("preserves a published Sleeper bridge and distinguishes blank from absent", () => {
+    const row = { gsis_id: "g", season: "2026", week: "1", game_type: "REG", status: "ACT", team: "BAL" };
+    expect(toWeeklyRoster([{ ...row, sleeper_id: "7" }]).entries[0].sleeperId).toBe("7");
+    expect(toWeeklyRoster([{ ...row, sleeper_id: "" }]).entries[0].sleeperId).toBeNull();
+    expect(toWeeklyRoster([row]).entries[0].sleeperId).toBeUndefined();
+  });
   it("parses the fixture and drops the row with no identifier", () => {
     // Seven of the eight rows carry a gsis_id; the eighth cannot join to anything, and 29
     // such rows exist in the real file.

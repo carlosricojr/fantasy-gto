@@ -19,6 +19,7 @@ import {
   toWeeklyRoster,
 } from "../nfl/weekly-roster";
 import { type PlayerWeek, toRegularSeasonPlayerWeeks } from "../nfl/stats/parse";
+import { parseNflverseKickingWeeks, type NflverseKickingWeek } from "./nflverse-kicking";
 
 /**
  * nflverse adapter.
@@ -461,6 +462,13 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   /** All regular-season player-weeks for a season. */
   private readonly weeksCache = new Map<number, ProviderResult<PlayerWeek[]>>();
   private readonly weeksInFlight = new Map<number, Promise<ProviderResult<PlayerWeek[]>>>();
+  private readonly kickingWeeksCache = new Map<number, NflverseKickingWeek[]>();
+
+  /** Shares the stats download; retains explicit-counter evidence only for kicker rows. */
+  async kickingWeeks(season: number): Promise<ProviderResult<NflverseKickingWeek[]>> {
+    const result = await this.playerWeeks(season);
+    return result.ok ? ok(this.kickingWeeksCache.get(season) ?? []) : failed(result.reason, result.cause);
+  }
 
   async playerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     // Same reasoning as the roster cache: one action builds many boards from the same two
@@ -487,7 +495,9 @@ export class NflverseProvider implements StatsProvider<PlayerWeek>, MarketProvid
   private async fetchPlayerWeeks(season: number): Promise<ProviderResult<PlayerWeek[]>> {
     try {
       const text = await this.fetchText(weeklyStatsUrl(season));
-      return ok(toRegularSeasonPlayerWeeks(parseCsv(text)));
+      const rows = parseCsv(text);
+      this.kickingWeeksCache.set(season, parseNflverseKickingWeeks(rows, season));
+      return ok(toRegularSeasonPlayerWeeks(rows));
     } catch (cause) {
       return failed(
         `Weekly statistics for ${season} are unavailable. The season may not have started.`,

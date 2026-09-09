@@ -11,6 +11,8 @@ import type { WeeklyRosterEntry } from "../nfl/weekly-roster";
 import { indexInjuries, injuryKey, type InjuryReport } from "../nfl/injuries";
 import { NflverseProvider, type DraftRosterEntry, type RosterEntry } from "./nflverse";
 import { injuryCoverageWarning, summarizeNflverseInjuryCoverage, type NflverseInjuryCoverage } from "./nflverse-injury-coverage";
+import { nflverseKickingBaseline, type NflverseKickingWeek } from "./nflverse-kicking";
+import type { WeeklyExperimentalEstimate } from "../nfl/weekly-experimental";
 
 export interface NflverseWeeklyRequest {
   season: number;
@@ -21,6 +23,8 @@ export interface NflverseWeeklyRequest {
   now: number;
   /** Explicit opt-in only; never changes ordinary points or availability clearance. */
   includeConditionalEstimates?: boolean;
+  /** Separate experimental-baseline opt-in; ordinary and conditional points are unchanged. */
+  includeExperimentalEstimates?: boolean;
 }
 export interface NflverseWeeklyEstimate {
   playerId: string;
@@ -36,6 +40,7 @@ export interface NflverseWeeklyEstimate {
     condition: "active-at-kickoff";
     missingEvidence: "team-injury-report";
   };
+  experimentalEstimate?: WeeklyExperimentalEstimate;
   /** Absent without current roster evidence; null kickoff means no unique usable game. */
   team?: string | null;
   gameId?: string | null;
@@ -96,13 +101,15 @@ export interface NflverseWeeklyInputs {
   injuries: readonly InjuryReport[];
   contests: readonly Contest[];
   lines: readonly MarketLine[];
+  kickingHistory?: readonly NflverseKickingWeek[];
 }
 
 /** Pure calculation exported for tests; source I/O is below. No lineup is submitted. */
 export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, data: NflverseWeeklyInputs): NflverseWeeklyEstimates {
   const { season, week, profile, now } = request;
   if (!Number.isInteger(season) || season < 2013 || season > 2100 || !Number.isInteger(week) || week < 1 || week > 18 || !Number.isFinite(now) ||
-    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean") {
+    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean" ||
+    request.includeExperimentalEstimates !== undefined && typeof request.includeExperimentalEstimates !== "boolean") {
     throw new Error("Invalid weekly projection request.");
   }
   const { scoring, excludedRules } = nflverseWeeklyScoring(profile);
@@ -126,6 +133,13 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       ...gameContext, ...(availability === undefined ? {} : { availability }),
       ...(injuryCoverage === undefined ? {} : { injuryCoverage }) });
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
+    const currentWeekRows = data.weeklyRoster.filter(row => row.season === season && row.week === week);
+    const directIdentities = currentWeekRows.filter(row => row.sleeperId === playerId);
+    if (directIdentities.some(row => row.playerId !== gsisId) || currentWeekRows.some(row => row.playerId === gsisId && row.sleeperId != null && row.sleeperId !== playerId)) {
+      availability = "unknown";
+      return unavailable("Current weekly and season-roster player identities conflict");
+    }
+    const hasDirectIdentity = directIdentities.some(row => row.playerId === gsisId);
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
     if (weekly.length === 0) return unavailable("Current weekly roster is missing or ambiguous");
     const active = weekly.filter(row => row.status === "active");
@@ -148,11 +162,22 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     if (injury?.gameStatus === "unknown") { availability = "unknown"; return unavailable("Unknown injury designation"); }
     if (injury?.gameStatus === "doubtful") availability = "doubtful";
     else if (injury?.gameStatus === "questionable") availability = "questionable";
-    if (injuryCoverage === "unavailable" && request.includeConditionalEstimates !== true) {
+    if (injuryCoverage === "unavailable" && request.includeConditionalEstimates !== true && request.includeExperimentalEstimates !== true) {
       return unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance");
     }
-    if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     const position = current.position === "FB" ? "RB" : current.position;
+    if (position === "K" && request.includeExperimentalEstimates === true) {
+      if (!hasDirectIdentity) return unavailable("Experimental baseline requires a verified current-week Sleeper identity bridge");
+      if (contest === null) return unavailable("No unique scheduled game this week");
+      if (!Number.isFinite(kickoff) || kickoff <= now || contest.result !== null) return unavailable("Game has started or kickoff is unknown");
+      const baseline = nflverseKickingBaseline(data.kickingHistory ?? [], gsisId, { season, index: week }, profile);
+      if (baseline === null) return unavailable("Kicking baseline requires week 1, enabled kicking rules and at least eight complete unique prior-season games");
+      return { ...unavailable("Experimental kicking-events-only historical baseline; not a full-scoring or availability-adjusted forecast"),
+        experimentalEstimate: { version: 1, points: baseline.points, method: "kicker-prior-season-game-mean", condition: "active-at-kickoff",
+          historyGames: baseline.historyGames, lastPlayed: baseline.lastPlayed, historyGapWeeks: weeksBetween(baseline.lastPlayed, { season, index: week }),
+          calibration: "none", scoringScope: "kicking-events-only", excludedRules: baseline.excludedRules, evidence: "exploratory-development-tuning" } };
+    }
+    if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
     const offense = scoring.offense;
     const productiveRules = position === "QB"
@@ -166,7 +191,19 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     const bucket = history.filter(row => row.competitor.id === gsisId).sort((a, b) => a.period.season - b.period.season || a.period.index - b.period.index);
     if (bucket.length < 4) return unavailable("Fewer than four prior games; no supported model estimate");
     const latest = bucket[bucket.length - 1];
-    if (weeksBetween(latest.period, { season, index: week }) > 4 || week > 1 && latest.period.season !== season) return unavailable("Playing history is too old for this week's model");
+    const historyGapWeeks = weeksBetween(latest.period, { season, index: week });
+    const staleHistory = historyGapWeeks > 4 || week > 1 && latest.period.season !== season;
+    const returningBaseline = staleHistory && request.includeExperimentalEstimates === true && week === 1 && latest.period.season === season - 1;
+    if (staleHistory && !returningBaseline) return unavailable("Playing history is too old for this week's model");
+    if (returningBaseline && !hasDirectIdentity) return unavailable("Experimental baseline requires a verified current-week Sleeper identity bridge");
+    if (returningBaseline && (bucket.length > 36 || new Set(bucket.map(row => `${row.period.season}:${row.period.index}`)).size !== bucket.length
+      || bucket.some(row => row.competitor.position !== position || !Number.isInteger(row.period.index) || row.period.index < 1 || row.period.index > 18))) {
+      return unavailable("Returning-history baseline requires unique valid games at the current position");
+    }
+    // Baseline eligibility does not promote an otherwise ordinary conditional forecast.
+    if (!returningBaseline && injuryCoverage === "unavailable" && request.includeConditionalEstimates !== true) {
+      return unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance");
+    }
     const line = lines.get(contest.id);
     const priorTotals = data.contests.filter(game => game.period.season === season && game.period.index < week &&
       (game.homeTeam === current.team || game.awayTeam === current.team)).flatMap(game => {
@@ -180,6 +217,13 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
         impliedTeamTotal: implied,
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
     if (Number.isFinite(projection.mean) && implied === null) missingMarketPlayerIds.push(playerId);
+    if (returningBaseline && (!Number.isFinite(projection.mean) || Math.abs(projection.mean) > 10000)) return unavailable("The experimental model did not produce a bounded finite estimate under these rules");
+    if (Number.isFinite(projection.mean) && returningBaseline) {
+      return { ...unavailable("Experimental returning-history forecast; playing history is too old for the ordinary model"),
+        experimentalEstimate: { version: 1, points: projection.mean, method: "frozen-model-returning-history", condition: "active-at-kickoff",
+          historyGames: bucket.length, lastPlayed: latest.period, historyGapWeeks, calibration: "ppr-only", scoringScope: "supported-offense",
+          excludedRules: [...excludedRules], evidence: "exploratory-development-tuning" } };
+    }
     if (Number.isFinite(projection.mean) && injuryCoverage === "unavailable") {
       return { ...unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance"),
         conditionalEstimate: { points: projection.mean, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } };
@@ -190,12 +234,16 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
     scoringId: profile.id, computedAt: now, providerUpdatedAt: null, excludedRules, injurySource,
-    warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
+    warnings: ["Ordinary model estimates cover skill positions; rookies without history and defenses remain unpriced. Kickers require a separate experimental baseline.",
       injuryCoverageWarning(injurySource),
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
       ...(players.some(player => player.conditionalEstimate !== undefined)
         ? ["Conditional forecasts assume the player is active at kickoff; they are not availability-adjusted expected points or injury clearance."] : []),
+      ...players.filter(player => player.experimentalEstimate !== undefined).map(player => {
+        const estimate = player.experimentalEstimate!;
+        return `Player ${player.playerId}: experimental ${estimate.method}, based on ${estimate.historyGames} prior games through ${estimate.lastPlayed.season} week ${estimate.lastPlayed.index}. Assumes active at kickoff, not availability-adjusted expected points; custom-scoring accuracy is unvalidated. Omitted rules: ${estimate.excludedRules.join(", ") || "none in this scoring subset"}.`;
+      }),
       ...players.filter(player => player.injuryCoverage === "unavailable")
         .map(player => `Player ${player.playerId} has no current team injury-report coverage; roster status is not injury clearance, including when a manual estimate is supplied.`),
       ...(missingMarketPlayerIds.length ? [`Betting lines are missing for ${missingMarketPlayerIds.length} projected player games; those estimates omit the betting-market adjustment.`] : []),
@@ -211,7 +259,8 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
   if (!Number.isInteger(request.season) || request.season < 2013 || request.season > 2100 ||
     !Number.isInteger(request.week) || request.week < 1 || request.week > 18 ||
     request.playerIds.length === 0 || request.playerIds.length > 100 || !Number.isFinite(request.now) ||
-    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean") return failed("Invalid or oversized weekly projection request.");
+    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean" ||
+    request.includeExperimentalEstimates !== undefined && typeof request.includeExperimentalEstimates !== "boolean") return failed("Invalid or oversized weekly projection request.");
   try {
     nflverseWeeklyScoring(request.profile);
     const [old, prior, current, roster, weekly, injuries, contests, lines] = await Promise.all([
@@ -228,8 +277,12 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
     if (!weekly.ok) return failed(weekly.reason);
     if (!injuries.ok) return failed(injuries.reason);
     if (!contests.ok) return failed(contests.reason);
+    // Reuses the already-downloaded prior-season CSV; raw missing counters never become zeros.
+    const kicking = request.includeExperimentalEstimates === true ? await provider.kickingWeeks(request.season - 1) : ok<NflverseKickingWeek[]>([]);
     const result = buildNflverseWeeklyEstimates(request, { history: [...old.data, ...prior.data, ...current.data],
-      roster: nflverseWeeklyIdentities(roster.data.entries), weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.ok ? lines.data : [] });
+      roster: nflverseWeeklyIdentities(roster.data.entries), weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.ok ? lines.data : [],
+      kickingHistory: kicking.ok ? kicking.data : [] });
+    if (!kicking.ok) result.warnings.push("Explicit kicking-counter history is unavailable; no kicking baseline is supplied.");
     if (!lines.ok) result.warnings.push("Betting lines were unavailable; estimates omit the betting-market adjustment.");
     return ok(result);
   } catch (cause) { return failed("Could not generate nflverse weekly estimates.", cause); }

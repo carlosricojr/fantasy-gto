@@ -5,14 +5,14 @@ import { useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { appErrorMessage } from "../lib/errors";
 import type { WeeklyLineupSnapshot } from "../lib/nfl/weekly-lineup";
-import type { WeeklyDecisionPreferences } from "../lib/nfl/decision-journal-inputs";
+import type { WeeklyDecisionPreferenceInput } from "../lib/nfl/decision-journal-inputs";
 
 export interface DecisionSaveInput { snapshotJson: string; preferencesJson: string; requestId: string }
 
 /** The backend owns authentication, receipt time, recomputation and idempotency. */
 export function WeeklyDecisionSave({ snapshot, preferences, disabled, access, save }: {
   snapshot: WeeklyLineupSnapshot;
-  preferences: WeeklyDecisionPreferences;
+  preferences: WeeklyDecisionPreferenceInput;
   disabled: boolean;
   access: "loading" | "signed-out" | "unavailable" | "enabled";
   save: (input: DecisionSaveInput) => Promise<string>;
