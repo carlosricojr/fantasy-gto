@@ -99,8 +99,10 @@ remain visible with warnings even when an estimate exists. A missing identity do
 manufacture an availability status or require consumers to parse an English error message.
 Identity comes from the complete roster catalog, so reserve players retain their published
 ID bridge until the weekly availability check. If the injury release has no rows for the
-requested week, active roster rows remain unpriced with unknown injury availability; a
-season-wide successful download is not current-week clearance. Profiles with no positive
+current team and requested week, active roster rows remain unpriced with separate
+`injuryCoverage: "unavailable"`; a season-wide successful download is not current-week
+clearance. Observed roster and explicit injury designations remain intact. Missing coverage
+is not Out, and a manual estimate does not clear the accompanying warning. Profiles with no positive
 production scoring coefficient for the player's position require manual estimates: the unchanged model's positive usage prior is not
 compatible with penalty-only scoring and must not invent a positive total for it.
 Current team, game ID and kickoff also travel with the result, including unpriced or
@@ -108,8 +110,11 @@ started-game rows, so a consumer can reconcile an older league-directory team af
 An explicit null kickoff blocks lock-time assumptions; absent context means this source
 could not resolve the current roster identity.
 
-A read-only check on 2026-09-09 generated estimates for 12 of 16 entries in the requested
-personal roster. Two had stale playing history; kicker and defense were unpriced. All
+A read-only check on 2026-09-09 at 19:23:55 UTC generated estimates for **2 of 16**
+entries in the requested personal roster under the final team-specific injury-coverage
+gate. Twelve had no current team injury-report coverage, one had an unmodeled position,
+and one lacked an individual nflverse identity. The earlier 12-of-16 observation preceded
+this gate and is not final availability clearance. All
 three special-teams/fumble-return omissions above were present and reported. This is a
 coverage check, not an accuracy evaluation or permission to silently treat omitted rules
 as zero-valued league settings.

@@ -26,6 +26,8 @@ export interface NflverseWeeklyEstimate {
   reason: string | null;
   /** Omitted when this source has no current availability evidence for the identity. */
   availability?: "active" | "questionable" | "doubtful" | "out" | "inactive" | "unknown";
+  /** Report coverage is distinct from a player's observed roster/injury designation. */
+  injuryCoverage?: "available" | "unavailable";
   /** Absent without current roster evidence; null kickoff means no unique usable game. */
   team?: string | null;
   gameId?: string | null;
@@ -98,16 +100,19 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
   const factors = buildDefenseFactors(history.filter(row => row.period.season === season - 1), scoring, DVP_SHRINKAGE);
   const lines = new Map(data.lines.map(line => [line.contestId, line]));
   const injuries = indexInjuries(data.injuries);
-  const hasCurrentInjuryCoverage = data.injuries.some(row => row.season === season && row.week === week);
+  const injuryCoverageTeams = new Set(data.injuries.filter(row => row.season === season && row.week === week)
+    .map(row => row.team).filter(team => team !== null));
   const missingMarketPlayerIds: string[] = [];
   const players = [...new Set(request.playerIds)].map(playerId => {
     const identities = data.roster.filter(row => row.sleeperId === playerId);
     const ids = new Set(identities.map(row => row.playerId));
     const gsisId = ids.size === 1 ? [...ids][0] : null;
     let availability: NflverseWeeklyEstimate["availability"];
+    let injuryCoverage: NflverseWeeklyEstimate["injuryCoverage"] = undefined;
     let gameContext: Pick<NflverseWeeklyEstimate, "team" | "gameId" | "kickoffAt"> = {};
     const unavailable = (reason: string): NflverseWeeklyEstimate => ({ playerId, gsisId, points: null, reason,
-      ...gameContext, ...(availability === undefined ? {} : { availability }) });
+      ...gameContext, ...(availability === undefined ? {} : { availability }),
+      ...(injuryCoverage === undefined ? {} : { injuryCoverage }) });
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
     if (weekly.length === 0) return unavailable("Current weekly roster is missing or ambiguous");
@@ -123,17 +128,17 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     const contest = contests.length === 1 ? contests[0] : null;
     const kickoff = contest?.startsAt == null ? NaN : Date.parse(contest.startsAt);
     gameContext = { team: current.team, gameId: contest?.id ?? null, kickoffAt: Number.isFinite(kickoff) ? kickoff : null };
+    injuryCoverage = current.team !== null && injuryCoverageTeams.has(current.team) ? "available" : "unavailable";
     availability = current.status === "active" ? "active" : current.status === "unknown" ? "unknown" : "inactive";
     if (current.status !== "active") return unavailable(`Current roster status: ${current.status}`);
-    if (!hasCurrentInjuryCoverage) {
-      availability = "unknown";
-      return unavailable("Injury reports for the requested week are unavailable; recheck current availability");
-    }
     const injury = injuries.get(injuryKey(gsisId, season, week));
     if (injury?.gameStatus === "out") { availability = "out"; return unavailable("Out injury designation"); }
     if (injury?.gameStatus === "unknown") { availability = "unknown"; return unavailable("Unknown injury designation"); }
     if (injury?.gameStatus === "doubtful") availability = "doubtful";
     else if (injury?.gameStatus === "questionable") availability = "questionable";
+    if (injuryCoverage === "unavailable") {
+      return unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance");
+    }
     if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
     const position = current.position === "FB" ? "RB" : current.position;
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
@@ -164,7 +169,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
     if (Number.isFinite(projection.mean) && implied === null) missingMarketPlayerIds.push(playerId);
     return Number.isFinite(projection.mean)
-      ? { playerId, gsisId, points: projection.mean, reason: null, availability, ...gameContext }
+      ? { playerId, gsisId, points: projection.mean, reason: null, availability, injuryCoverage, ...gameContext }
       : unavailable("The model did not produce a finite estimate under these rules");
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
@@ -172,6 +177,8 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
+      ...players.filter(player => player.injuryCoverage === "unavailable")
+        .map(player => `Player ${player.playerId} has no current team injury-report coverage; roster status is not injury clearance, including when a manual estimate is supplied.`),
       ...(missingMarketPlayerIds.length ? [`Betting lines are missing for ${missingMarketPlayerIds.length} projected player games; those estimates omit the betting-market adjustment.`] : []),
       ...players.filter(player => player.availability === "questionable" || player.availability === "doubtful")
         .map(player => `Player ${player.playerId} is ${player.availability}; recheck availability before kickoff.`),
