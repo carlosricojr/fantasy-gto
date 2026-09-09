@@ -33,7 +33,8 @@ import type { LeagueConfig } from "./season-sim";
 
 const SLOTS = buildSlots({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 });
 const TEAMS = 6;
-const ROUNDS = 6;
+// Seven starters need at least seven picks; leave one bench pick for memo tests.
+const ROUNDS = 8;
 
 /**
  * A waiver-wire cover with something in it, so the fingerprint test below is measuring a
@@ -72,7 +73,7 @@ function player(id: string, position: string, mean: number, adp: number): Player
 function board(): PlayerRisk[] {
   const out: PlayerRisk[] = [];
   let adp = 1;
-  for (let tier = 0; tier < 10; tier += 1) {
+  for (let tier = 0; tier < 16; tier += 1) {
     for (const position of ["RB", "WR", "QB", "TE"] as const) {
       out.push(player(`${position}${tier}`, position, 16 - tier * 0.8, adp));
       adp += 1;

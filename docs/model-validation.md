@@ -615,6 +615,7 @@ somebody wrote down that the command was run.
 
 | Change | Command | Result |
 | --- | --- | --- |
+| September 9, 2026 — required draft starters and paired strategy evaluation | `pnpm backtest` | Development model MAE 5.8818 vs prior-mean 6.0099; tuning 5.7706 vs 5.9453, unchanged. Holdout 2025 not evaluated; published metrics untouched. Structural draft feasibility and the separate strategy evaluation do not change the weekly projection model or establish calibrated title odds. See `docs/draft-strategy-evaluation.md`. |
 | September 8, 2026 — chronological candidate draft continuations | `pnpm backtest` | Development model MAE 5.8818 vs prior-mean 6.0099 (26,837 player-weeks); tuning 5.7706 vs 5.9453 (9,069 player-weeks). Holdout 2025 not evaluated; published metrics untouched. The projection model is unchanged. This run checks shared-code regressions, not draft-policy quality; the frozen live-state regression and opponent-policy sensitivity are in `docs/draft-validation.md`. |
 | #38 — roster-state-aware draft replacement demand | `pnpm backtest` | Every figure in this document reproduced unchanged. `lib/nfl/model/published-metrics.json` untouched, working tree otherwise clean. Holdout not evaluated: the run printed `HOLDOUT 2025 NOT EVALUATED.` |
 | #39 — diminishing bench marginal value in the base policy | `pnpm backtest` | Unchanged again, on the same terms. Spot-checked against the printed output: tuning delta MAE `+0.5243 (+8.33%)`, clustered SE `0.0299`, pairwise 65.46% against 63.94%, lineup regret 17.607 against 19.749. |
