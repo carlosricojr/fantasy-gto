@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { basename, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -9,9 +9,10 @@ import { describe, expect, it } from "vitest";
  * Helpers are entrypoints too; a hyphen here passes tsc/Next but fails deploy.
  */
 function isEntrypoint(path: string): boolean {
-  const file = basename(path);
-  return /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)
-    && !path.startsWith(`_generated${sep}`)
+  const normalized = path.replaceAll("\\", "/");
+  const file = basename(normalized);
+  return /\.(?:[cm]?[jt]s|[jt]sx)$/.test(normalized)
+    && !normalized.startsWith("_generated/")
     && !file.startsWith(".")
     && !file.startsWith("#")
     && file !== "schema.ts"
@@ -22,7 +23,7 @@ function isEntrypoint(path: string): boolean {
 
 function invalidPaths(paths: string[]): string[] {
   return paths.filter((path) => isEntrypoint(path)
-    && path.split(sep).some((part) => !/^[A-Za-z0-9_.]+$/.test(part)));
+    && path.split(/[\\/]/).some((part) => !/^[A-Za-z0-9_.]+$/.test(part)));
 }
 
 function sourcePaths(root: string): string[] {
@@ -59,6 +60,13 @@ describe("Convex deployed module path naming", () => {
       "auth.config.ts", "convex.config.ts", ".scratch-file.ts", "#scratch-file.ts",
       "schema.ts", "schema.js", "notes-file.md", "space dir/bad-name.ts",
     ])).toEqual([]);
+  });
+
+  it("normalizes both slash styles without hiding invalid components", () => {
+    expect(invalidPaths([
+      "lib\\readBounds.ts", "_generated\\bad-name.ts", "tests\\private-reads.test.ts",
+      "lib/readBounds.ts", "lib\\read-bounds.ts", "bad-dir\\helper.js",
+    ])).toEqual(["lib\\read-bounds.ts", "bad-dir\\helper.js"]);
   });
 
   it("checks the repository's deployable source paths", () => {
