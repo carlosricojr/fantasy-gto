@@ -10,6 +10,7 @@ import type { PlayerWeek } from "../nfl/stats/parse";
 import type { WeeklyRosterEntry } from "../nfl/weekly-roster";
 import { indexInjuries, injuryKey, type InjuryReport } from "../nfl/injuries";
 import { NflverseProvider, type DraftRosterEntry, type RosterEntry } from "./nflverse";
+import { injuryCoverageWarning, summarizeNflverseInjuryCoverage, type NflverseInjuryCoverage } from "./nflverse-injury-coverage";
 
 export interface NflverseWeeklyRequest {
   season: number;
@@ -53,6 +54,8 @@ export interface NflverseWeeklyEstimates {
   warnings: string[];
   players: NflverseWeeklyEstimate[];
   coverage: { requested: number; projected: number };
+  /** Optional for old consumers; current producer always reports this evidence summary. */
+  injurySource?: NflverseInjuryCoverage;
 }
 
 const EXTRA_OFFENSE = ["st_ff", "st_fum_rec", "fum_rec_td"];
@@ -108,6 +111,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
   const factors = buildDefenseFactors(history.filter(row => row.period.season === season - 1), scoring, DVP_SHRINKAGE);
   const lines = new Map(data.lines.map(line => [line.contestId, line]));
   const injuries = indexInjuries(data.injuries);
+  const injurySource = summarizeNflverseInjuryCoverage(data.injuries, season, week);
   const injuryCoverageTeams = new Set(data.injuries.filter(row => row.season === season && row.week === week)
     .map(row => row.team).filter(team => team !== null));
   const missingMarketPlayerIds: string[] = [];
@@ -185,8 +189,9 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       : unavailable("The model did not produce a finite estimate under these rules");
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
-    scoringId: profile.id, computedAt: now, providerUpdatedAt: null, excludedRules,
+    scoringId: profile.id, computedAt: now, providerUpdatedAt: null, excludedRules, injurySource,
     warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
+      injuryCoverageWarning(injurySource),
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
       ...(players.some(player => player.conditionalEstimate !== undefined)
