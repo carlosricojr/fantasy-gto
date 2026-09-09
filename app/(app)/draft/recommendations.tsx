@@ -42,6 +42,7 @@ export function Recommendations({
   candidates,
   onTheClock,
   draftComplete,
+  hasRemainingPick = true,
   onPick,
   waitPick,
   waitPickLabel,
@@ -55,6 +56,7 @@ export function Recommendations({
   candidates: number;
   onTheClock: boolean;
   draftComplete: boolean;
+  hasRemainingPick?: boolean;
   onPick: (playerId: string) => void;
   /** The user's next turn *after* this pick — the one "can I wait?" is about. */
   waitPick: number | null;
@@ -84,6 +86,17 @@ export function Recommendations({
     );
   }
 
+  if (!hasRemainingPick) {
+    return (
+      <Panel>
+        <p className="p-4 text-sm text-muted-foreground" role="status">
+          Your draft picks are complete. Other teams are still drafting.
+        </p>
+        <RecordOnlyWarning players={ownRecordOnlyPlayers} completed />
+      </Panel>
+    );
+  }
+
   if (state.unavailable !== null) {
     return (
       <Panel>
@@ -100,6 +113,16 @@ export function Recommendations({
       <Panel>
         <p className="p-4 text-sm text-muted-foreground">
           The recommendation failed: {state.error}
+        </p>
+      </Panel>
+    );
+  }
+
+  if (!state.loading && state.lastElapsedMs !== null && state.recommendations.length === 0) {
+    return (
+      <Panel>
+        <p className="p-4 text-sm text-muted-foreground" role="status">
+          No available candidates remain under the current draft forecast. Advice updates as picks arrive.
         </p>
       </Panel>
     );
@@ -207,7 +230,7 @@ export function Recommendations({
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-brand uppercase">
             <Sparkles className="size-3.5" aria-hidden />
-            {onTheClock ? "Your pick" : "If the board holds"}
+            {onTheClock ? "Your pick" : "Forecast for your next pick"}
           </p>
           <h2 className="mt-1 truncate text-lg leading-tight font-semibold">
             Take {leader.player.name}
@@ -292,7 +315,8 @@ export function Recommendations({
           </Button>
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">
-            Not your pick yet. Record what the manager on the clock takes and this updates.
+            Not your pick yet. Intervening picks follow the default policy in this forecast;
+            advice updates as actual picks arrive.
           </p>
         )}
       </div>

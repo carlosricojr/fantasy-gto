@@ -104,7 +104,8 @@ describe("Recommendations interpretation", () => {
     const waiting = renderRecommendations(false);
 
     expect(onClock).toContain("Your pick");
-    expect(waiting).toContain("If the board holds");
+    expect(waiting).toContain("Forecast for your next pick");
+    expect(waiting).toContain("Intervening picks follow the default policy");
     expect(onClock).toContain("Viable alternatives");
     expect(onClock).toContain("these simulations do not reliably separate the choices");
     expect(onClock).toContain("Viable alternative · tied in this simulation");
@@ -174,5 +175,20 @@ describe("Recommendations interpretation", () => {
     expect(html).toContain("The draft is over");
     expect(html).toContain("Roster player without an active valuation");
     expect(html).toContain("Any title estimate from this draft is incomplete");
+  });
+
+  it.each([false, true])("shows a completed empty answer rather than an endless spinner (owned pick remaining: %s)", (hasRemainingPick) => {
+    const state = {
+      recommendations: [], teams: 10, stale: false, loading: false,
+      error: null, lastElapsedMs: 1, lastFromCache: false, unavailable: null,
+    } as unknown as ReturnType<typeof useRecommendations>;
+    const html = renderToStaticMarkup(createElement(Recommendations, {
+      state, scenarios: 600, candidates: 10, onTheClock: false, draftComplete: false,
+      hasRemainingPick, onPick: () => undefined, waitPick: null, waitPickLabel: null,
+      unrankedAdp: 999, basisFor: () => "blend" as ValueBasis, ownRecordOnlyPlayers: [],
+    }));
+    expect(html).not.toContain("Simulating the rest of the draft");
+    expect(html).not.toContain("Take ");
+    expect(html).toContain(hasRemainingPick ? "No available candidates remain" : "Your draft picks are complete");
   });
 });

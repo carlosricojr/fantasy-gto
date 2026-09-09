@@ -49,11 +49,10 @@ import {
  *
  * ## Where the approximations are
  *
- * The base policy is need-aware best-available, which is a reasonable stand-in for how the
- * remaining picks go but is not how anyone actually drafts. Opponents' completions are
- * computed once from the baseline and reused across candidates, because their behavior
- * barely depends on which player *we* take — one player fewer on a board of hundreds. That
- * is an approximation, and it is what makes evaluating candidates affordable.
+ * The base policy is need-aware best-available. Every candidate gets a separate,
+ * chronological continuation in which opponents respond to the remaining board. This
+ * fixes the draft accounting, but does not validate the assumed opponent policy or
+ * calibrate the resulting championship probabilities against real leagues.
  */
 
 export interface DraftTeam {
@@ -197,9 +196,9 @@ export interface ChampionshipRecommendation {
 /**
  * How many candidates are evaluated by simulating the league.
  *
- * Every evaluation replays a season, so the field has to be narrowed first. Ten is enough
- * that the right pick is essentially always inside it — the prefilter is a genuine
- * value estimate, not a guess — while keeping a decision inside the time a draft allows.
+ * Every evaluation replays a completed league, so the field is narrowed to ten by the
+ * prefilter. This is a runtime budget; no bound establishes that the best action is
+ * inside the shortlist.
  */
 export const CHAMPIONSHIP_CANDIDATES = 10;
 
@@ -1094,23 +1093,9 @@ export function basePolicyPick(
 }
 
 /**
- * Finishes the draft from the current state under the base policy.
- *
- * Picks are taken in overall order across every team, so a team's choices depend on what
- * the teams picking before it have already taken — which is the part a per-team
- * simulation would get wrong.
- */
-/**
- * Completes one team's roster, given what the rest of the league is expected to take.
- *
- * Evaluating a candidate only ever reads our own finished roster — the opponents come from
- * the baseline rollout, which is computed once. Rolling the whole league forward per
- * candidate therefore did twelve times the necessary work and discarded eleven twelfths of
- * it, and that was the dominant cost of a recommendation.
- *
- * The approximation this shares with the cached opponent scores: if we take a player an
- * opponent would have taken, that opponent's alternative is not recomputed. One player out
- * of a board of hundreds cannot move a season simulation.
+ * Completes a roster against a caller-supplied pool without intervening opponents.
+ * This remains a base-policy diagnostic helper. Championship recommendations use
+ * `completeDraft`: a static pool cannot model another manager taking a future option.
  *
  * `opponentUnfilledSlots` is what the *rest* of the league still has to start, and it is
  * fixed for the length of this completion because the opponents are not moving while we
@@ -1187,22 +1172,25 @@ export function completeDraft(
   league: PolicyLeague,
   forcedFirstPick: PlayerRisk | null,
 ): PlayerRisk[][] {
+  return continueDraft(state, league, forcedFirstPick, false).teams.map((team) => team.roster);
+}
+
+/**
+ * Spend actual owned squares in order. A forced candidate consumes our next square,
+ * never a free selection before it. Stopping at that square lets off-turn advice use
+ * the board opponents leave us, without reserving a candidate from their earlier picks.
+ */
+function continueDraft(
+  state: DraftPolicyState,
+  league: PolicyLeague,
+  forcedFirstPick: PlayerRisk | null,
+  stopAtOwnTurn: boolean,
+): DraftPolicyState {
   const { slots } = league;
   const rosters = state.teams.map((t) => [...t.roster]);
+  const remainingPicks = state.teams.map((t) => [...t.remainingPicks]);
   const limits = state.teams.map((team) => team.draftRosterSize ?? state.rosterSize);
   const taken = new Set(rosters.flat().map((p) => p.id));
-  // Same three checks as `completeOwnRoster`, for the same reason: this branch bypasses
-  // the loop below, so nothing else applies them. Seating a player who is already on a
-  // roster would put him on two teams; seating one into a full roster would field a team
-  // larger than everyone it plays.
-  if (
-    forcedFirstPick !== null &&
-    !taken.has(forcedFirstPick.id) &&
-    rosters[state.myTeamIndex].length < limits[state.myTeamIndex]
-  ) {
-    rosters[state.myTeamIndex].push(forcedFirstPick);
-    taken.add(forcedFirstPick.id);
-  }
 
   // Every remaining pick in the draft, in order, tagged with the team that owns it.
   const order: Array<{ pick: number; team: number }> = [];
@@ -1216,10 +1204,23 @@ export function completeDraft(
   // recomputed from scratch for the whole league at every one of a hundred-odd picks. Only
   // the team that just picked can have changed.
   const unfilledByTeam = rosters.map((roster) => ownUnfilledSlots(roster, slots));
-  for (const { team } of order) {
+  let firstOwnTurn = true;
+  for (const { pick: overall, team } of order) {
+    if (stopAtOwnTurn && team === state.myTeamIndex) break;
+    remainingPicks[team] = remainingPicks[team].filter((pick) => pick !== overall);
     if (rosters[team].length >= limits[team]) continue;
     if (pool.length === 0) break;
-    const pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
+    let pick: PlayerRisk | null;
+    if (team === state.myTeamIndex && firstOwnTurn && forcedFirstPick !== null) {
+      const available = pool.find((player) => player.id === forcedFirstPick.id);
+      if (available === undefined) {
+        throw new Error(`Forced player ${forcedFirstPick.id} is unavailable at owned pick ${overall}.`);
+      }
+      pick = available;
+    } else {
+      pick = basePolicyPick(rosters[team], pool, league, unfilledByTeam.flat());
+    }
+    if (team === state.myTeamIndex) firstOwnTurn = false;
     if (pick === null) break;
     rosters[team].push(pick);
     unfilledByTeam[team] = ownUnfilledSlots(rosters[team], slots);
@@ -1227,7 +1228,15 @@ export function completeDraft(
   }
   // Keep every drafted player claimed until the draft ends. Cutting here would let
   // our rollout take an opponent's eventual cut *during* the draft.
-  return rosters;
+  return {
+    ...state,
+    available: pool,
+    teams: state.teams.map((team, index) => ({
+      ...team,
+      roster: rosters[index],
+      remainingPicks: remainingPicks[index],
+    })),
+  };
 }
 
 /** Preseason cut assumption: preserve the mean-optimal starters, then highest-value depth. */
@@ -1267,8 +1276,9 @@ export function recommendByChampionship(
         `${state.teams.length} teams in this draft.`,
     );
   }
-  const me = state.teams[state.myTeamIndex];
+  let me = state.teams[state.myTeamIndex];
   if (state.available.length === 0) return [];
+  if (me.remainingPicks.length === 0 || me.roster.length >= (me.draftRosterSize ?? state.rosterSize)) return [];
 
   // Narrow the field cheaply, then judge what is left properly. The demand this prices
   // against is the whole live league's — every team's unfilled starting slots as they stand
@@ -1288,6 +1298,11 @@ export function recommendByChampionship(
     weeks: config.weeks,
     wireCover: config.wireCover,
   };
+  // Before our turn, forecast the intervening picks once under the base policy.
+  // Shortlist only candidates still available at our actual next owned square.
+  state = continueDraft(state, league, null, true);
+  me = state.teams[state.myTeamIndex];
+  if (state.available.length === 0) return [];
   const leagueUnfilled = state.teams.flatMap((team) =>
     ownUnfilledSlots(team.roster, config.slots),
   );
@@ -1326,116 +1341,33 @@ export function recommendByChampionship(
   // can honestly mean below.
   const gateWithheld = gated.length !== scored.length;
 
-  // Opponents are completed once. Their behavior changes by at most one player depending
-  // on what we take, which cannot move a season simulation meaningfully, and recomputing
-  // eleven rosters per candidate would dominate the cost.
-  const baselineRosters = completeDraft(state, league, null);
-  const opponentRosters = baselineRosters.filter(
-    (_, index) => index !== state.myTeamIndex,
-  );
-  const opponentTeams = state.teams.filter((_, index) => index !== state.myTeamIndex);
-  const seasonRoster = (roster: PlayerRisk[], index: number) => opponentTeams[index].draftRosterSize === undefined
-    ? roster : trimDraftRoster(roster, state.rosterSize, config.slots);
-  // One definition, used by both places that sample an opponent. The baseline samples every
-  // opponent once and a candidate held by an opponent resamples that one team; the two must
-  // draw from the same stream, or the comparison between them carries a change to an
-  // opponent that has nothing to do with the pick. Nothing enforced that when the offset was
-  // written out twice — and an offset that disagrees produces plausible numbers, not an
-  // error.
-  const opponentSeed = (index: number) => seed + 1000 + index;
-  const baselineOpponentScores = opponentRosters.map((roster, index) =>
-    sampleTeamWeeklyScores(seasonRoster(roster, index), config, opponentSeed(index)),
-  );
-
-  // What the rest of the league is expected to take, so our own rollout draws from the
-  // board they leave behind rather than from the whole pool.
-  const claimedByOthers = new Set(opponentRosters.flat().map((p) => p.id));
-  const poolForUs = state.available.filter((p) => !claimedByOthers.has(p.id));
-  const ownPicksLeft = me.remainingPicks.length;
-
-  /**
-   * Opponent scores for a world in which we take `forced`.
-   *
-   * The shortlist is drawn from `state.available`, and the baseline completion may already
-   * have given one of those players to an opponent — so scoring a candidate against the
-   * untouched baseline played him on two teams at once, adding his points to ours without
-   * removing them from theirs. That inflates exactly the candidates an opponent wanted,
-   * which is the ordering this function exists to get right.
-   *
-   * At most one opponent can hold him, since `completeDraft` never deals a player twice.
-   * That opponent is re-completed with the next player the base policy would have taken,
-   * because leaving the hole open would understate them by a whole roster spot — the
-   * mirror of the same error.
-   */
-  const opponentScoresFor = (
-    forced: PlayerRisk | null,
-  ): { scores: number[][][]; replacementId: string | null } => {
-    if (forced === null) {
-      return { scores: baselineOpponentScores, replacementId: null };
-    }
-    const owner = opponentRosters.findIndex((roster) =>
-      roster.some((p) => p.id === forced.id),
-    );
-    if (owner === -1) return { scores: baselineOpponentScores, replacementId: null };
-
-    // `forced` is on an opponent roster in this branch, so `claimedByOthers` already kept
-    // it out of `poolForUs` and no further filtering is needed here.
-    const without = opponentRosters[owner].filter((p) => p.id !== forced.id);
-    // That opponent's own remaining demand, not the league's. Every other team in the
-    // baseline is already complete, and this one is short exactly the player we took, so
-    // the slot he was filling is the demand the substitute is chosen against.
-    const replacement = basePolicyPick(
-      without,
-      poolForUs,
-      league,
-      ownUnfilledSlots(without, config.slots),
-    );
-    const scores = [...baselineOpponentScores];
-    scores[owner] = sampleTeamWeeklyScores(
-      seasonRoster(replacement === null ? without : [...without, replacement], owner),
-      config,
-      opponentSeed(owner),
-    );
-    // `??` rather than `||`, and the two do differ — for a player whose id is the empty
-    // string, `||` would report "no replacement" and leave him in our pool as well as on
-    // the opponent's roster, which is the double-count this branch exists to remove.
-    // Nothing on a real board carries an empty id, so no test separates them; `??` is the
-    // form that stays correct if one ever does.
-    return { scores, replacementId: replacement?.id ?? null };
+  // Cache only identical completed rosters at the same team's seed. A candidate may
+  // change every later selection, so an opponent's baseline roster is never reused
+  // merely because the candidate itself was drafted by somebody else.
+  const scoreCaches = state.teams.map(() => new Map<string, number[][]>());
+  const scoresFor = (roster: PlayerRisk[], index: number): number[][] => {
+    const seasonRoster = state.teams[index].draftRosterSize === undefined
+      ? roster : trimDraftRoster(roster, state.rosterSize, config.slots);
+    const key = JSON.stringify(seasonRoster.map((player) => player.id).sort());
+    const cached = scoreCaches[index].get(key);
+    if (cached !== undefined) return cached;
+    const opponentIndex = index < state.myTeamIndex ? index : index - 1;
+    const teamSeed = index === state.myTeamIndex ? seed : seed + 1000 + opponentIndex;
+    const scores = sampleTeamWeeklyScores(seasonRoster, config, teamSeed);
+    scoreCaches[index].set(key, scores);
+    return scores;
   };
-
   const evaluate = (
     forced: PlayerRisk | null,
   ): { outcome: TeamOutcome; titleByScenario: boolean[] } => {
-    const { scores, replacementId } = opponentScoresFor(forced);
-    // The replacement has to leave our pool as well. Both selections run `basePolicyPick`
-    // over the same `poolForUs`, so they routinely land on the same player — which put him
-    // on the opponent's roster and ours in one scenario. That is the very double-count
-    // this branch was added to remove, reintroduced one step later, and it fires only for
-    // candidates an opponent held, which is precisely the set the branch exists for.
-    const mineRoster = completeOwnRoster(
-      me.roster,
-      ownPicksLeft,
-      replacementId === null
-        ? poolForUs
-        : poolForUs.filter((p) => p.id !== replacementId),
-      league,
-      forced,
-      me.draftRosterSize ?? state.rosterSize,
-      // The opponents are complete by this point, so whatever they still cannot start is a
-      // hole they will carry into the season rather than demand they can spend. Their
-      // remaining slots stay in the total because a slot nobody can fill is still a slot
-      // nobody filled — dropping them would price the last rounds against a league that has
-      // stopped drafting.
-      opponentRosters.flatMap((roster) => ownUnfilledSlots(roster, config.slots)),
+    const rosters = completeDraft(state, league, forced);
+    const scores = rosters.map(scoresFor);
+    return championshipScenarios(
+      scores[state.myTeamIndex],
+      scores.filter((_, index) => index !== state.myTeamIndex),
+      config,
     );
-    const mine = sampleTeamWeeklyScores(me.draftRosterSize === undefined ? mineRoster : trimDraftRoster(mineRoster, state.rosterSize, config.slots), config, seed);
-    // Scenario by scenario, not only the rate. Every candidate is evaluated over the same
-    // seasons, so which of them a candidate wins is the informative quantity and it is only
-    // visible before the sum.
-    return championshipScenarios(mine, scores, config);
   };
-
   const evaluated = shortlist.map((player) => ({ player, ...evaluate(player) }));
 
   // What `deltaVsBaseline` is measured against — and the gate moves it.
