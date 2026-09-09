@@ -86,11 +86,15 @@ function renderRecommendations(
 }
 
 describe("Recommendations interpretation", () => {
-  it("warns about incomplete opponents in candidate or baseline forecasts before percentages", () => {
-    const candidate = { ...recommendation("parker", "Parker Washington", 0.042, true), incompleteOpponentTeams: 1, incompleteBaselineOpponentTeams: 3 };
+  it.each([
+    { label: "candidate only", incompleteOpponentTeams: 2, incompleteBaselineOpponentTeams: undefined, expected: 2 },
+    { label: "baseline only", incompleteOpponentTeams: undefined, incompleteBaselineOpponentTeams: 3, expected: 3 },
+    { label: "both forecasts", incompleteOpponentTeams: 1, incompleteBaselineOpponentTeams: 3, expected: 3 },
+  ])("warns about incomplete opponents before percentages: $label", ({ incompleteOpponentTeams, incompleteBaselineOpponentTeams, expected }) => {
+    const candidate = { ...recommendation("parker", "Parker Washington", 0.042, true), incompleteOpponentTeams, incompleteBaselineOpponentTeams };
     const html = renderRecommendations(true, [], { state: { recommendations: [candidate], teams: 12, stale: false, loading: false, error: null, lastElapsedMs: 1, lastFromCache: false, unavailable: null } as ReturnType<typeof useRecommendations> });
     expect(html).toContain("Incomplete opponent forecasts");
-    expect(html).toContain("3 opponent teams");
+    expect(html).toContain(`${expected} opponent teams`);
     expect(html.indexOf("Incomplete opponent forecasts")).toBeLessThan(html.indexOf("simulated title chance"));
   });
   it("labels title chance as conditional simulation output, not an equal-odds baseline", () => {
