@@ -130,11 +130,15 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     if (injury?.gameStatus === "doubtful") availability = "doubtful";
     else if (injury?.gameStatus === "questionable") availability = "questionable";
     if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
-    if (!Object.values(scoring.offense).some(value => value > 0)) {
-      return unavailable("The model's positive usage prior cannot support nonpositive-only offensive scoring; enter a manual estimate");
-    }
     const position = current.position === "FB" ? "RB" : current.position;
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
+    const offense = scoring.offense;
+    const productiveRules = position === "QB"
+      ? [offense.passingYardsPerPoint, offense.passingTd, offense.rushingYardsPerPoint, offense.rushingTd]
+      : [offense.rushingYardsPerPoint, offense.rushingTd, offense.receptionPoints, offense.receivingYardsPerPoint, offense.receivingTd];
+    if (!productiveRules.some(value => value > 0)) {
+      return unavailable("The model's positive usage prior requires positive production scoring for this position; enter a manual estimate");
+    }
     if (contest === null) return unavailable("No unique scheduled game this week");
     if (!Number.isFinite(kickoff) || kickoff <= now || contest.result !== null) return unavailable("Game has started or kickoff is unknown");
     const bucket = history.filter(row => row.competitor.id === gsisId).sort((a, b) => a.period.season - b.period.season || a.period.index - b.period.index);

@@ -63,7 +63,15 @@ describe("Sleeper projection import", () => {
     expect(sleeperProjectionsUrl(2026)).toBe("https://api.sleeper.com/projections/nfl/2026?season_type=regular");
     expect(() => sleeperProjectionsUrl(2026, 0)).toThrow();
     expect(() => sleeperProjectionsUrl(NaN, 1)).toThrow();
+    expect(parseSleeperProjections([row()], 2026, 0, now).ok).toBe(false);
+    expect(parseSleeperAdp([row({ week: null })], NaN, "ppr", now).ok).toBe(false);
     expect(parseSleeperProjections([row({ week: null })], 2026, 1, now).ok).toBe(false);
+  });
+
+  it("returns the same trimmed identity it uses to detect collisions", () => {
+    const parsed = parseSleeperProjections([row({ player_id: " 5844 " })], 2026, 1, now);
+    expect(parsed.ok && parsed.data.players[0].playerId).toBe("5844");
+    expect(parseSleeperProjections([row(), row({ player_id: " 5844 " })], 2026, 1, now).ok).toBe(false);
   });
 });
 
@@ -81,6 +89,10 @@ describe("platform ADP comparison", () => {
     for (const stats of [{ adp_ppr: 32, search_rank: 1 }, { adp_half_ppr: 999 }, { adp_half_ppr: "12" }]) {
       expect(parseSleeperAdp([row({ week: null, stats })], 2026, "half_ppr", now).ok).toBe(false);
     }
+  });
+  it("preserves the source's two-QB label without asserting superflex equivalence", () => {
+    const parsed = parseSleeperAdp([row({ week: null, stats: { adp_2qb: 130 } })], 2026, "two_qb", now);
+    expect(parsed.ok && parsed.data.sourceField).toBe("adp_2qb");
   });
 });
 

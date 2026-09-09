@@ -103,11 +103,11 @@ describe("nflverse personal weekly estimates", () => {
     expect(buildNflverseWeeklyEstimates(request, data).warnings.some(warning => warning.includes("Betting lines are missing"))).toBe(false);
   });
   it("retains valid zero and negative model means after the history gate", () => {
-    const parsed = parseSleeperScoring({ rec_yd: -0.1, pass_yd: 0.04 });
+    const parsed = parseSleeperScoring({ rec_yd: -0.1, rec_td: 0.01 });
     if (!parsed.ok) throw new Error("Bad fixture");
     const data = inputs();
     expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBeLessThan(0);
-    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0 },
+    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0, receivingTds: 0 },
       usage: { ...row.usage, targets: 0 } }));
     expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, data).players[0].points).toBe(0);
   });
@@ -130,6 +130,12 @@ describe("nflverse personal weekly estimates", () => {
     data.weeklyRoster = [{ ...data.weeklyRoster[0], status: "reserve" }];
     expect(buildNflverseWeeklyEstimates(request, data).players[0])
       .toMatchObject({ gsisId: "gsis-1", points: null, availability: "inactive" });
+  });
+  it("does not apply a receiver usage prior to QB-only scoring", () => {
+    const parsed = parseSleeperScoring({ pass_yd: 0.04, pass_td: 6 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    expect(buildNflverseWeeklyEstimates({ ...request, profile: parsed.profile }, inputs()).players[0])
+      .toMatchObject({ points: null, reason: expect.stringContaining("for this position") });
   });
   it("retains current team and kickoff context even when no estimate is available", () => {
     const data = inputs();
