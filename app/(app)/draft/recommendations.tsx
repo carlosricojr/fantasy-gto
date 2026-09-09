@@ -226,6 +226,7 @@ export function Recommendations({
   }
 
   const [leader, ...rest] = state.recommendations;
+  const incompleteOpponentTeams = Math.max(...state.recommendations.map(rec => Math.max(rec.incompleteOpponentTeams ?? 0, rec.incompleteBaselineOpponentTeams ?? 0)));
   const tiedAlternatives = rest.filter((rec) => rec.tiedWithLeader);
   const evenChance = state.teams === null ? null : 100 / state.teams;
   const tiedNames = tiedAlternatives.slice(0, 2).map((rec) => rec.player.name);
@@ -276,6 +277,10 @@ export function Recommendations({
             alternatives before choosing; this order depends on one assumed opponent policy.
           </p>
         </aside>
+        {incompleteOpponentTeams > 0 ? <aside className="mb-3 rounded-lg border border-amber-500/50 p-3 text-sm" role="note">
+          <p className="font-medium">Incomplete opponent forecasts</p>
+          <p className="mt-1 text-muted-foreground">At least one candidate or default-policy forecast leaves {incompleteOpponentTeams} opponent team{incompleteOpponentTeams === 1 ? "" : "s"} without all required starters. These are not full-roster league odds and can flatter your simulated chances. Do not use the percentages as evidence of an edge.</p>
+        </aside> : null}
         <MarketContext player={leader.player} decisionPick={decisionPick} showSource />
         <details className="mt-3">
           <summary className="cursor-pointer text-sm font-medium">Show conditional simulation results</summary>

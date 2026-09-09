@@ -76,6 +76,8 @@ import { QueuePanel } from "./queue-panel";
 import { describeSeason } from "./season-label";
 import { leagueFingerprint } from "./reply-gate";
 import { Recommendations, type RecordOnlyRosterPlayer } from "./recommendations";
+import { marketFirstOption } from "./market-first";
+import { MarketFirstCard } from "./market-first-card";
 import { SettingsDialog } from "./settings-dialog";
 import { DraftSetup } from "./setup";
 import { StatusBar } from "./status-bar";
@@ -908,6 +910,13 @@ export default function DraftPage() {
     [starters, playoffTeams, championshipWeek, setup.teams, scenarioBudget, extraMedianMatchup],
   );
 
+  // This comparator is immediate and independent of the worker's simulation.
+  // The current verified board is required; never price a future-turn player as available.
+  const marketOption = useMemo(() =>
+    !onTheClock || draftComplete || boardPending || adviceBlock !== null || draftState === null
+      ? null : marketFirstOption(draftState, starters),
+  [onTheClock, draftComplete, boardPending, adviceBlock, draftState, starters]);
+
   // Before anything is requested, and whether or not anything can be. Changing the scoring
   // format re-queries the board, and no request goes out until the new one lands — which is
   // exactly the window in which the previous format's recommendations used to sit on screen
@@ -1474,6 +1483,8 @@ export default function DraftPage() {
         className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem] 3xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)_21rem]"
       >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
+          <div className="min-w-0 space-y-4">
+          {marketOption === null ? null : <MarketFirstCard player={marketOption} onPick={record} />}
           {adviceBlock !== null ? (
             <section className="rounded-xl border border-amber-500/50 bg-amber-500/5 p-5" role="alert">
               <h2 className="font-semibold">Recommendations paused</h2>
@@ -1496,6 +1507,7 @@ export default function DraftPage() {
             basisFor={basisFor}
             ownRecordOnlyPlayers={ownRecordOnlyPlayers}
           />}
+          </div>
 
           <PlayerPool
             players={poolPlayers}
