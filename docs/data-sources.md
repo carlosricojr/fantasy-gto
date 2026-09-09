@@ -97,6 +97,14 @@ Each row also carries structured availability when this source has current evide
 Out, inactive and unknown designations are distinct; questionable/doubtful designations
 remain visible with warnings even when an estimate exists. A missing identity does not
 manufacture an availability status or require consumers to parse an English error message.
+Identity comes from the complete roster catalog, so reserve players retain their published
+ID bridge until the weekly availability check. Profiles with no positive offensive scoring
+coefficient require manual estimates: the unchanged model's positive usage prior is not
+compatible with penalty-only scoring and must not invent a positive total for it.
+Current team, game ID and kickoff also travel with the result, including unpriced or
+started-game rows, so a consumer can reconcile an older league-directory team after a trade.
+An explicit null kickoff blocks lock-time assumptions; absent context means this source
+could not resolve the current roster identity.
 
 A read-only check on 2026-09-09 generated estimates for 12 of 16 entries in the requested
 personal roster. Two had stale playing history; kicker and defense were unpriced. All

@@ -9,7 +9,7 @@ import type { ScoringRules } from "../nfl/scoring/types";
 import type { PlayerWeek } from "../nfl/stats/parse";
 import type { WeeklyRosterEntry } from "../nfl/weekly-roster";
 import { indexInjuries, injuryKey, type InjuryReport } from "../nfl/injuries";
-import { NflverseProvider, type RosterEntry } from "./nflverse";
+import { NflverseProvider, type DraftRosterEntry, type RosterEntry } from "./nflverse";
 
 export interface NflverseWeeklyRequest {
   season: number;
@@ -26,6 +26,10 @@ export interface NflverseWeeklyEstimate {
   reason: string | null;
   /** Omitted when this source has no current availability evidence for the identity. */
   availability?: "active" | "questionable" | "doubtful" | "out" | "inactive" | "unknown";
+  /** Absent without current roster evidence; null kickoff means no unique usable game. */
+  team?: string | null;
+  gameId?: string | null;
+  kickoffAt?: number | null;
 }
 export interface NflverseWeeklyEstimates {
   source: "FantasyGTO model using nflverse";
@@ -43,6 +47,14 @@ export interface NflverseWeeklyEstimates {
 }
 
 const EXTRA_OFFENSE = ["st_ff", "st_fum_rec", "fum_rec_td"];
+
+/** Identity must include inactive entries; eligibility belongs to the current weekly row. */
+export function nflverseWeeklyIdentities(entries: readonly DraftRosterEntry[]): RosterEntry[] {
+  return entries.flatMap(entry => entry.gsisId === null ? [] : [{
+    playerId: entry.gsisId, sleeperId: entry.sleeperId, name: entry.name, position: entry.position,
+    team: entry.team, rookieYear: entry.rookieYear,
+  }]);
+}
 
 /** Existing weekly model's supported offensive subset; omissions are returned, never hidden. */
 export function nflverseWeeklyScoring(profile: SleeperScoringProfile): { scoring: ScoringRules; excludedRules: string[] } {
@@ -92,8 +104,9 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     const ids = new Set(identities.map(row => row.playerId));
     const gsisId = ids.size === 1 ? [...ids][0] : null;
     let availability: NflverseWeeklyEstimate["availability"];
+    let gameContext: Pick<NflverseWeeklyEstimate, "team" | "gameId" | "kickoffAt"> = {};
     const unavailable = (reason: string): NflverseWeeklyEstimate => ({ playerId, gsisId, points: null, reason,
-      ...(availability === undefined ? {} : { availability }) });
+      ...gameContext, ...(availability === undefined ? {} : { availability }) });
     if (gsisId === null) return unavailable(ids.size > 1 ? "Ambiguous player identity" : "No verified nflverse player identity");
     const weekly = data.weeklyRoster.filter(row => row.playerId === gsisId && row.season === season && row.week === week);
     if (weekly.length === 0) return unavailable("Current weekly roster is missing or ambiguous");
@@ -104,6 +117,11 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
       return unavailable("Current weekly roster is missing or ambiguous");
     }
     const current = candidates[0];
+    const contests = data.contests.filter(contest => contest.period.season === season && contest.period.index === week &&
+      (contest.homeTeam === current.team || contest.awayTeam === current.team));
+    const contest = contests.length === 1 ? contests[0] : null;
+    const kickoff = contest?.startsAt == null ? NaN : Date.parse(contest.startsAt);
+    gameContext = { team: current.team, gameId: contest?.id ?? null, kickoffAt: Number.isFinite(kickoff) ? kickoff : null };
     availability = current.status === "active" ? "active" : current.status === "unknown" ? "unknown" : "inactive";
     if (current.status !== "active") return unavailable(`Current roster status: ${current.status}`);
     const injury = injuries.get(injuryKey(gsisId, season, week));
@@ -112,13 +130,12 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     if (injury?.gameStatus === "doubtful") availability = "doubtful";
     else if (injury?.gameStatus === "questionable") availability = "questionable";
     if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
+    if (!Object.values(scoring.offense).some(value => value > 0)) {
+      return unavailable("The model's positive usage prior cannot support nonpositive-only offensive scoring; enter a manual estimate");
+    }
     const position = current.position === "FB" ? "RB" : current.position;
     if (position !== "QB" && position !== "RB" && position !== "WR" && position !== "TE") return unavailable("The model does not project this position");
-    const contests = data.contests.filter(contest => contest.period.season === season && contest.period.index === week &&
-      (contest.homeTeam === current.team || contest.awayTeam === current.team));
-    if (contests.length !== 1) return unavailable("No unique scheduled game this week");
-    const contest = contests[0];
-    const kickoff = contest.startsAt === null ? NaN : Date.parse(contest.startsAt);
+    if (contest === null) return unavailable("No unique scheduled game this week");
     if (!Number.isFinite(kickoff) || kickoff <= now || contest.result !== null) return unavailable("Game has started or kickoff is unknown");
     const bucket = history.filter(row => row.competitor.id === gsisId).sort((a, b) => a.period.season - b.period.season || a.period.index - b.period.index);
     if (bucket.length < 4) return unavailable("Fewer than four prior games; no supported model estimate");
@@ -138,7 +155,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
     if (Number.isFinite(projection.mean) && implied === null) missingMarketPlayerIds.push(playerId);
     return Number.isFinite(projection.mean)
-      ? { playerId, gsisId, points: projection.mean, reason: null, availability }
+      ? { playerId, gsisId, points: projection.mean, reason: null, availability, ...gameContext }
       : unavailable("The model did not produce a finite estimate under these rules");
   });
   return { source: "FantasyGTO model using nflverse", sourceUrl: "https://github.com/nflverse/nflverse-data", season, week,
@@ -164,7 +181,7 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
     const [old, prior, current, roster, weekly, injuries, contests, lines] = await Promise.all([
       provider.playerWeeks(request.season - 2), provider.playerWeeks(request.season - 1),
       request.week === 1 ? Promise.resolve(ok<PlayerWeek[]>([])) : provider.playerWeeks(request.season),
-      provider.seasonRoster(request.season), provider.weeklyRoster(request.season), provider.injuries(request.season),
+      provider.draftRoster(request.season), provider.weeklyRoster(request.season), provider.injuries(request.season),
       provider.allContests(), provider.allMarketLines(),
     ]);
     // Fail closed on required data; a missing current stats release is only expected in week 1.
@@ -176,7 +193,7 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
     if (!injuries.ok) return failed(injuries.reason);
     if (!contests.ok) return failed(contests.reason);
     const result = buildNflverseWeeklyEstimates(request, { history: [...old.data, ...prior.data, ...current.data],
-      roster: roster.data, weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.ok ? lines.data : [] });
+      roster: nflverseWeeklyIdentities(roster.data.entries), weeklyRoster: weekly.data.entries, injuries: injuries.data.reports, contests: contests.data, lines: lines.ok ? lines.data : [] });
     if (!lines.ok) result.warnings.push("Betting lines were unavailable; estimates omit the betting-market adjustment.");
     return ok(result);
   } catch (cause) { return failed("Could not generate nflverse weekly estimates.", cause); }
