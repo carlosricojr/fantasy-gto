@@ -59,6 +59,39 @@ describe("weekly lineup decision safety", () => {
     expect(result.projectedPoints).toBe(10);
   });
 
+  it("requires explicit consent for incomplete model scoring and preserves model freshness provenance", () => {
+    const data = snapshot([player("a", 10, { projectionOrigin: "model" }), player("b", 12)], { model: { source: "nflverse", computedAt: now, providerUpdatedAt: null, excludedRules: ["st_ff"], warnings: ["PPR calibration only"], coverage: { requested: 2, projected: 1 } } });
+    expect(planWeeklyLineup(data, options).status).toBe("blocked");
+    const conditional = planWeeklyLineup(data, { ...options, compareAvailableEstimates: true });
+    expect(conditional.status).toBe("conditional");
+    expect(conditional.warnings).toContain("PPR calibration only");
+    expect(conditional.warnings.some((w) => w.includes("manual date cannot establish"))).toBe(true);
+    expect(planWeeklyLineup({ ...data, model: { ...data.model!, computedAt: now - 10001 } }, { ...options, compareAvailableEstimates: true }).status).toBe("blocked");
+  });
+
+  it("explicit partial comparison freezes unpriced FLEX starters and unpriced bench players", () => {
+    const data = snapshot([player("unpriced-flex", null, { currentSlotId: "flex" }), player("unpriced-bench", null), player("priced", 10)]);
+    const result = planWeeklyLineup(data, { ...options, compareAvailableEstimates: true });
+    expect(result.status).toBe("conditional");
+    expect(result.excludedPlayerIds).toEqual(["unpriced-flex", "unpriced-bench"]);
+    expect(result.assignments[1]).toEqual({ slotId: "flex", playerId: "unpriced-flex", points: null, fixed: true });
+    expect(result.benchIds).toContain("unpriced-bench");
+    expect(result.projectedPoints).toBe(10);
+    expect(result.warnings.some((w) => w.includes("unknown values could change"))).toBe(true);
+  });
+
+  it("does not report a zero-valued comparison when everything is unknown", () => {
+    const result = planWeeklyLineup(snapshot([player("a", null)]), { ...options, compareAvailableEstimates: true });
+    expect(result.status).toBe("blocked");
+    expect(result.projectedPoints).toBeNull();
+  });
+
+  it("roster refresh does not freshen an old manual estimate", () => {
+    const result = planWeeklyLineup(snapshot([player("a", 10, { projectionOrigin: "manual", projectionEnteredAt: now - 10001 })]), options);
+    expect(result.status).toBe("blocked");
+    expect(result.problems.some((p) => p.includes("manual estimate"))).toBe(true);
+  });
+
   it("refuses to hide an unpriced flexible-position tradeoff", () => {
     const result = planWeeklyLineup(snapshot([player("missing", null, { currentSlotId: "flex" })]), { ...options, holdUnpricedPositions: ["RB"] });
     expect(result.status).toBe("blocked");

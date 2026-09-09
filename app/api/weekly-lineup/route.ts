@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { importSleeperLineup } from "@/lib/sources/sleeper-lineup";
+import { generateNflverseWeeklyProjections } from "@/lib/sources/nflverse-weekly-projections";
+import { sleeperScoringFromId } from "@/lib/nfl/scoring/sleeper";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** User-triggered, read-only import. No league, projection, or lineup writes. */
 export async function GET(request: NextRequest) {
@@ -12,7 +15,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Supply valid Sleeper league and user IDs and a week from 1–18." }, { status: 400 });
   }
   try {
-    const snapshot = await importSleeperLineup({ leagueId, ownerId, week, now: Date.now() });
+    let snapshot = await importSleeperLineup({ leagueId, ownerId, week, now: Date.now() });
+    if (request.nextUrl.searchParams.get("estimates") === "nflverse") {
+      const profile = sleeperScoringFromId(snapshot.scoringId);
+      if (!profile) throw new Error("Imported scoring identity is invalid.");
+      const result = await generateNflverseWeeklyProjections({ season: snapshot.season, week, profile, playerIds: snapshot.players.map((p) => p.id), now: Date.now() });
+      if (!result.ok) snapshot = { ...snapshot, warnings: [...(snapshot.warnings ?? []), `Automatic estimates unavailable: ${result.reason}. You can enter weekly expected points manually.`] };
+      else {
+        const estimates = new Map(result.data.players.map((p) => [p.playerId, p]));
+        snapshot = { ...snapshot, source: result.data.source, retrievedAt: result.data.computedAt, model: result.data,
+          players: snapshot.players.map((p) => ({ ...p, projectedPoints: estimates.get(p.id)?.points ?? null, projectionOrigin: "model", projectionMissingReason: estimates.get(p.id)?.reason ?? null })) };
+      }
+    }
     return NextResponse.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     return NextResponse.json({ error: cause instanceof Error ? cause.message : "Could not import this league." }, { status: 502, headers: { "Cache-Control": "no-store" } });

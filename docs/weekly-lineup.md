@@ -14,8 +14,17 @@ states that directory injury designations can be up to a day old and must be che
 against the final inactive list; refreshing the roster does not claim fresh injury
 data. This is a process-local cache, so separate server instances each have their own.
 
-The first version takes user-entered weekly expected points under the displayed
-scoring rules. A blank estimate stays missing. It cannot be replaced with a season
+The user-triggered import can also generate weekly skill-position estimates through
+the existing FantasyGTO model using nflverse statistics, roster, injury and schedule
+inputs. A model value is distinct from the history used to calculate it. Players
+without sufficient recent history and unprojected K/DST positions remain unpriced.
+Each row identifies its origin and any missing-estimate reason. The model's scoring
+omissions and PPR calibration limitation remain immutable metadata, and unknown
+source publication times cannot be replaced with a manual date.
+
+Users can enter weekly expected points under the displayed scoring rules, replacing
+individual model rows with manual overrides. A blank estimate stays missing. It
+cannot be replaced with a season
 total, ADP-derived draft value, historical average, or an assumed zero. The projection
 source and its publication time are separate from the roster retrieval time. Unknown
 publication time produces a conditional comparison. Estimates older than 24 hours,
@@ -50,9 +59,19 @@ is a scoped comparison, not a full-roster optimum. The mechanism cannot hide an
 unpriced FLEX tradeoff: any unpriced player eligible for a compared slot still blocks
 the recommendation.
 
+A separate explicit incomplete-estimates comparison can hold **all** unpriced players
+in their current places, including an unpriced FLEX starter or bench alternative.
+The result names every excluded player, holds occupied unpriced slots fixed, and
+states that those unknown values could change the best full-roster lineup. The same
+opt-in permits comparison of partial model estimates with the omitted scoring rules
+listed. It never turns those omitted terms into assumed zeros or claims an exact
+full-scoring expectation. With no valued players to compare, the result stays blocked.
+
 Refresh preserves entered estimates only when league ID, owner ID, season, week and
-exact scoring identity match. New roster players need estimates; departed players
-are removed. Refresh does not advance the projection publication time. The browser
+exact scoring identity match. Automatic values refresh; manual overrides and their
+original entry times persist, including an explicitly cleared value. New roster
+players use their own available estimates; departed players are removed. Refresh
+does not advance manual entry time or the source publication time. The browser
 clock updates every second and on focus so a comparison expires and locks advance
 while the screen remains open. No point entries are persisted across browser reloads.
 

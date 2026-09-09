@@ -12,6 +12,18 @@ export interface WeeklyPlayer {
   currentSlotId: string | null;
   /** Exact expected points under the snapshot scoringId; absent is not zero. */
   projectedPoints: number | null;
+  projectionOrigin?: "model" | "manual";
+  projectionMissingReason?: string | null;
+  projectionEnteredAt?: number;
+}
+
+export interface WeeklyModelEvidence {
+  source: string;
+  computedAt: number;
+  providerUpdatedAt: number | null;
+  excludedRules: readonly string[];
+  warnings: readonly string[];
+  coverage: { requested: number; projected: number };
 }
 
 export interface WeeklyLineupSnapshot {
@@ -30,6 +42,7 @@ export interface WeeklyLineupSnapshot {
   rosterRetrievedAt: number;
   /** Source limitations travel with imported estimates and cannot be cleared by entry. */
   warnings?: readonly string[];
+  model?: WeeklyModelEvidence;
 }
 
 export interface WeeklyAssignment {
@@ -49,6 +62,7 @@ export interface WeeklyLineupPlan {
   currentProjectedPoints: number | null;
   gain: number | null;
   excludedSlotIds: string[];
+  excludedPlayerIds: string[];
   benchIds: string[];
 }
 
@@ -65,11 +79,11 @@ const cents = (points: number) => Math.round(points * 100);
  */
 export function planWeeklyLineup(
   snapshot: WeeklyLineupSnapshot,
-  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[] },
+  options: { now: number; maxProjectionAgeMs: number; maxRosterAgeMs: number; holdUnpricedPositions?: readonly string[]; compareAvailableEstimates?: boolean },
 ): WeeklyLineupPlan {
   const problems: string[] = [];
   const warnings: string[] = [...(snapshot.warnings ?? [])];
-  const result: WeeklyLineupPlan = { status: "blocked", problems, warnings, assignments: [], projectedPoints: null, currentProjectedPoints: null, gain: null, excludedSlotIds: [], benchIds: [] };
+  const result: WeeklyLineupPlan = { status: "blocked", problems, warnings, assignments: [], projectedPoints: null, currentProjectedPoints: null, gain: null, excludedSlotIds: [], excludedPlayerIds: [], benchIds: [] };
   const { slots, players } = snapshot;
   if (!Number.isInteger(snapshot.season) || snapshot.season < 2000 || !Number.isInteger(snapshot.week) || snapshot.week < 1 || snapshot.week > 18) problems.push("Invalid season or regular-season week.");
   if (!snapshot.scoringId || !snapshot.source) problems.push("Exact scoring identity and projection source are required.");
@@ -84,10 +98,25 @@ export function planWeeklyLineup(
   checkTime(snapshot.retrievedAt, options.maxProjectionAgeMs, "Projection retrieval");
   if (snapshot.projectionUpdatedAt === null) warnings.push("Projection publication time is unknown. Retrieval time does not establish freshness.");
   else checkTime(snapshot.projectionUpdatedAt, options.maxProjectionAgeMs, "Projection publication");
+  const usesModel = players.some((p) => p.projectionOrigin === "model" && p.projectedPoints !== null);
+  if (usesModel) {
+    if (!snapshot.model) problems.push("Model estimates have no provenance.");
+    else {
+      checkTime(snapshot.model.computedAt, options.maxProjectionAgeMs, "Model calculation");
+      warnings.push(...snapshot.model.warnings);
+      if (snapshot.model.providerUpdatedAt === null) warnings.push("The model's source publication time is unknown; a manual date cannot establish model freshness.");
+      else checkTime(snapshot.model.providerUpdatedAt, options.maxProjectionAgeMs, "Model source publication");
+      if (snapshot.model.excludedRules.length > 0) {
+        warnings.push(`Model estimates omit these league scoring terms: ${snapshot.model.excludedRules.join(", ")}. Totals are incomplete expected points.`);
+        if (!options.compareAvailableEstimates) problems.push("Choose the incomplete-estimates comparison explicitly, or replace all model estimates with full-scoring weekly values.");
+      }
+    }
+  }
 
   const slotById = new Map(slots.map((s) => [s.id, s]));
   const occupant = new Map<string, WeeklyPlayer>();
   for (const player of players) {
+    if (player.projectionOrigin === "manual" && player.projectedPoints !== null) checkTime(player.projectionEnteredAt ?? NaN, options.maxProjectionAgeMs, `${player.name}'s manual estimate`);
     if (!player.id || player.positions.length === 0 || !STATUSES.has(player.availability)) problems.push(`${player.name}: player identity, position, or status is invalid.`);
     if (player.projectedPoints !== null && (!Number.isFinite(player.projectedPoints) || Math.abs(player.projectedPoints) > 10000)) problems.push(`${player.name}: invalid projected points.`);
     if (player.availability === "unknown") problems.push(`${player.name}: availability is unknown.`);
@@ -108,7 +137,17 @@ export function planWeeklyLineup(
   const unpricedPositions = new Set(players.filter((p) => p.projectedPoints === null && !UNAVAILABLE.has(p.availability)).flatMap((p) => p.positions));
   const excludedSlots = slots.filter((s) => s.eligiblePositions.every((p) => heldPositions.has(p)) && s.eligiblePositions.some((p) => unpricedPositions.has(p)));
   const excluded = new Set(excludedSlots.map((s) => s.id));
+  const heldUnpricedIds = new Set<string>();
+  if (options.compareAvailableEstimates) {
+    for (const player of players) {
+      if (player.projectedPoints !== null || UNAVAILABLE.has(player.availability)) continue;
+      heldUnpricedIds.add(player.id);
+      if (player.currentSlotId !== null) excluded.add(player.currentSlotId);
+    }
+    if (heldUnpricedIds.size > 0) warnings.push(`No estimate: ${players.filter((p) => heldUnpricedIds.has(p.id)).map((p) => p.name).join(", ")}. These players stay in their current places and are excluded from the comparison; their unknown values could change the best full-roster lineup.`);
+  }
   result.excludedSlotIds = [...excluded];
+  result.excludedPlayerIds = [...heldUnpricedIds];
   if (excluded.size > 0) warnings.push("Unpriced positions are held in their current slots and excluded from all point totals and gains.");
   const fixed = new Map<string, WeeklyAssignment>();
   const candidates: WeeklyPlayer[] = [];
@@ -121,13 +160,14 @@ export function planWeeklyLineup(
       continue;
     }
     // Started bench players remain benched, even if they project above a starter.
-    if (started || UNAVAILABLE.has(player.availability)) continue;
+    if (started || UNAVAILABLE.has(player.availability) || heldUnpricedIds.has(player.id)) continue;
     const relevantSlots = slots.filter((s) => !excluded.has(s.id) && eligible(s, player));
     if (relevantSlots.length === 0) continue;
     if (player.projectedPoints === null) problems.push(`${player.name}: missing exact weekly projection.`);
     else candidates.push(player);
   }
   for (const slot of excludedSlots) if (!fixed.has(slot.id)) fixed.set(slot.id, { slotId: slot.id, playerId: null, points: null, fixed: true });
+  if (options.compareAvailableEstimates && candidates.length === 0 && ![...fixed.values()].some((a) => a.points !== null)) problems.push("No valued players remain in this comparison.");
   if (problems.length > 0) return result;
 
   const open = slots.filter((s) => !fixed.has(s.id));
@@ -163,6 +203,7 @@ export function planWeeklyLineup(
   const assignedIds = new Set(result.assignments.map((a) => a.playerId));
   result.benchIds = players.filter((p) => !assignedIds.has(p.id)).map((p) => p.id);
   if (result.assignments.some((a) => a.playerId === null && !excluded.has(a.slotId))) warnings.push("At least one starting slot is empty in the maximum-points arrangement.");
+  if (options.compareAvailableEstimates) warnings.push("This comparison is optimal only for the included estimates and fixed assignments, not the full roster under complete league scoring.");
   result.status = warnings.length > 0 ? "conditional" : "ready";
   return result;
 }
