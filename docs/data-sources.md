@@ -98,8 +98,10 @@ Out, inactive and unknown designations are distinct; questionable/doubtful desig
 remain visible with warnings even when an estimate exists. A missing identity does not
 manufacture an availability status or require consumers to parse an English error message.
 Identity comes from the complete roster catalog, so reserve players retain their published
-ID bridge until the weekly availability check. Profiles with no positive offensive scoring
-coefficient require manual estimates: the unchanged model's positive usage prior is not
+ID bridge until the weekly availability check. If the injury release has no rows for the
+requested week, active roster rows remain unpriced with unknown injury availability; a
+season-wide successful download is not current-week clearance. Profiles with no positive
+production scoring coefficient for the player's position require manual estimates: the unchanged model's positive usage prior is not
 compatible with penalty-only scoring and must not invent a positive total for it.
 Current team, game ID and kickoff also travel with the result, including unpriced or
 started-game rows, so a consumer can reconcile an older league-directory team after a trade.

@@ -98,6 +98,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
   const factors = buildDefenseFactors(history.filter(row => row.period.season === season - 1), scoring, DVP_SHRINKAGE);
   const lines = new Map(data.lines.map(line => [line.contestId, line]));
   const injuries = indexInjuries(data.injuries);
+  const hasCurrentInjuryCoverage = data.injuries.some(row => row.season === season && row.week === week);
   const missingMarketPlayerIds: string[] = [];
   const players = [...new Set(request.playerIds)].map(playerId => {
     const identities = data.roster.filter(row => row.sleeperId === playerId);
@@ -124,6 +125,10 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     gameContext = { team: current.team, gameId: contest?.id ?? null, kickoffAt: Number.isFinite(kickoff) ? kickoff : null };
     availability = current.status === "active" ? "active" : current.status === "unknown" ? "unknown" : "inactive";
     if (current.status !== "active") return unavailable(`Current roster status: ${current.status}`);
+    if (!hasCurrentInjuryCoverage) {
+      availability = "unknown";
+      return unavailable("Injury reports for the requested week are unavailable; recheck current availability");
+    }
     const injury = injuries.get(injuryKey(gsisId, season, week));
     if (injury?.gameStatus === "out") { availability = "out"; return unavailable("Out injury designation"); }
     if (injury?.gameStatus === "unknown") { availability = "unknown"; return unavailable("Unknown injury designation"); }
