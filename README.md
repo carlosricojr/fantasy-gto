@@ -307,6 +307,14 @@ real Convex functions with a real identity.
 
 Stated plainly rather than left to be discovered.
 
+- **Draft rankings are experimental decision support.** The recommendation panel names its
+  simulation leader rather than declaring a best pick, puts board ADP and source ahead of
+  collapsed simulation figures, and flags choices at least ten picks earlier than that
+  market. Fantasy Football Calculator ADP can differ materially from the draft platform's
+  ADP; neither is an individual projection. Unpriced alternatives have no displayed waiting
+  probability. These are interpretation safeguards, not a validated drafting edge. The
+  implementation/evaluation acceptance plan is in `docs/product-readiness.md`.
+
 - **No league import exists, and no screen writes a roster.** ESPN has no working host —
   `lm.espn.com` and `lm-api-reads.espn.com` are both NXDOMAIN on public DNS — so no adapter
   is implemented behind the `LeagueProvider` seam. CSV parsing (`lib/nfl/lineup-csv.ts`)
