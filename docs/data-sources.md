@@ -7,6 +7,27 @@ endpoint, and update this file in the same commit.
 Primary statistical inputs are available without a paid vendor. Public access and reuse
 permission are separate facts; the Sleeper terms and source limitations below apply.
 
+## Personal one-week waiver membership recheck — 2026-09-09
+
+The read-only waiver comparison uses documented `GET /v1/league/{id}`,
+`/v1/league/{id}/rosters`, `/v1/players/nfl` and `/v1/state/nfl` at
+`https://api.sleeper.app`. Direct requests returned HTTP 200: the personal league
+reported ten rosters; all ten roster rows were present with 16 players each and
+explicitly null reserve/taxi fields. The directory contained 12,227 keyed entries;
+individual `player_id`, fantasy-position and injury/status shapes were inspected.
+Null empty holdings are supported; malformed or incomplete full-league ownership
+fails closed rather than exposing an opponent's holdings as available.
+
+The selected-candidate comparison reuses the existing permitted nflverse weekly model
+and its source, injury, scoring and history limitations. It does not call Sleeper
+projections or infer claim clearance from unrostered membership. The directory is
+shared/cached for up to a day according to API guidance; current league rosters are
+re-read for every comparison. Pool discovery and comparisons are server-authorized
+under the separate narrow waiver-comparison entitlement, with no platform writes or
+billing-account changes. Scope, observed coverage and timings are in
+[`docs/waivers.md`](waivers.md). Sleeper personal/non-commercial API terms and nflverse
+CC BY attribution below remain applicable.
+
 ## Source recheck — 2026-09-09
 
 The draft board's `adp` comes from **Fantasy Football Calculator**, including boards with
