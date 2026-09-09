@@ -96,9 +96,9 @@ export function evaluateWeeklyDecision(record: WeeklyDecisionRecord, outcomes: W
   result.recommendedActualPoints = total(proposed);
   result.originalActualPoints = total(original);
   result.actualDifference = result.recommendedActualPoints - result.originalActualPoints;
-  // Conditional-on-active and partial-scoring means are not forecasts of the full
-  // realized score. Never fold them into an ordinary accuracy number.
-  const forecasts = snapshot.players.filter(p => p.projectedPoints !== null && p.projectionOrigin !== "model-conditional" && !(p.projectionOrigin === "model" && (snapshot.model?.excludedRules.length ?? 0) > 0) && complete.has(p.id) && Object.prototype.hasOwnProperty.call(outcomes.pointsByPlayer, p.id) && Number.isFinite(outcomes.pointsByPlayer[p.id]) && Math.abs(outcomes.pointsByPlayer[p.id]) <= 10000 && Number.isFinite(outcomes.kickoffByPlayer[p.id]) && record.recordedAt < outcomes.kickoffByPlayer[p.id]);
+  // Explicit allowlist: experimental, conditional, unknown future origins and partial
+  // scoring are not full realized-score forecasts. Never fold them into ordinary MAE.
+  const forecasts = snapshot.players.filter(p => p.projectedPoints !== null && (p.projectionOrigin === undefined || p.projectionOrigin === "manual" || p.projectionOrigin === "model") && (p.experimentalEstimate === undefined || p.projectionOrigin === "manual") && !(p.projectionOrigin === "model" && (snapshot.model?.excludedRules.length ?? 0) > 0) && complete.has(p.id) && Object.prototype.hasOwnProperty.call(outcomes.pointsByPlayer, p.id) && Number.isFinite(outcomes.pointsByPlayer[p.id]) && Math.abs(outcomes.pointsByPlayer[p.id]) <= 10000 && Number.isFinite(outcomes.kickoffByPlayer[p.id]) && record.recordedAt < outcomes.kickoffByPlayer[p.id]);
   result.unevaluatedForecastCount -= forecasts.length;
   for (const origin of ["model", "manual", "unspecified"] as const) {
     const group = forecasts.filter(p => (p.projectionOrigin ?? "unspecified") === origin);

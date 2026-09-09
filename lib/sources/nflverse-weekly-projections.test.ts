@@ -3,6 +3,7 @@ import { buildNflverseWeeklyEstimates, generateNflverseWeeklyProjections, nflver
 import { parseSleeperScoring } from "../nfl/scoring/sleeper";
 import { toPlayerWeek } from "../nfl/stats/parse";
 import { NflverseProvider, parseDraftRoster } from "./nflverse";
+import { parseNflverseKickingWeeks } from "./nflverse-kicking";
 
 const rules = parseSleeperScoring({ pass_yd: 0.04, pass_td: 6, pass_int: -2, rush_yd: 0.1, rush_td: 6,
   rec: 0.5, rec_yd: 0.1, rec_td: 6, fum_lost: -2, pass_2pt: 2, rec_2pt: 2, rush_2pt: 2,
@@ -16,7 +17,7 @@ function inputs(): NflverseWeeklyInputs {
       season: "2025", week: String(week), season_type: "REG", position: "TE", team: "MIN", opponent_team: "GB",
       receiving_yards: "70", receptions: "6", receiving_tds: "1", targets: "8" })!),
     roster: [{ playerId: "gsis-1", sleeperId: "5844", name: "Test TE", position: "TE", team: "MIN", rookieYear: 2019 }],
-    weeklyRoster: [{ playerId: "gsis-1", season: 2026, week: 1, name: "Test TE", position: "TE", team: "MIN", status: "active" }],
+    weeklyRoster: [{ playerId: "gsis-1", sleeperId: "5844", season: 2026, week: 1, name: "Test TE", position: "TE", team: "MIN", status: "active" }],
     injuries: [{ season: 2026, week: 1, playerId: "other", name: "Other player", position: "TE", team: "MIN",
       gameStatus: "questionable", practiceStatus: "limited", primaryInjury: "Knee", dateModified: null }],
     contests: [{ id: "game", period: { season: 2026, index: 1 }, homeTeam: "MIN", awayTeam: "GB",
@@ -24,6 +25,95 @@ function inputs(): NflverseWeeklyInputs {
   };
 }
 describe("nflverse personal weekly estimates", () => {
+  it("rejects explicit season/weekly identity conflicts even for ordinary estimates", () => {
+    const data = inputs();
+    for (const weeklyRoster of [
+      [...data.weeklyRoster, { ...data.weeklyRoster[0], playerId: "other", team: "BAL" }],
+      [{ ...data.weeklyRoster[0], sleeperId: "different" }],
+    ]) {
+      const row = buildNflverseWeeklyEstimates(request, { ...data, weeklyRoster }).players[0];
+      expect(row).toMatchObject({ points: null, availability: "unknown", reason: "Current weekly and season-roster player identities conflict" });
+    }
+  });
+  it("requires a direct current-week bridge for experimental values, without changing legacy ordinary missing-bridge behavior", () => {
+    const data = inputs(); data.weeklyRoster = data.weeklyRoster.map(row => ({ ...row, sleeperId: undefined }));
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].points).not.toBeNull();
+    data.history = data.history.map((row, i) => ({ ...row, period: { season: 2025, index: 7 + i } }));
+    expect(buildNflverseWeeklyEstimates({ ...request, includeExperimentalEstimates: true }, data).players[0].experimentalEstimate).toBeUndefined();
+  });
+  it.each([5, 9])("offers gap-%s returning history only as an independent experimental opt-in", gap => {
+    const data = inputs();
+    data.injuries = [];
+    data.history = data.history.map((row, i) => ({ ...row, period: { season: 2025, index: 16 - gap + i } }));
+    const conditional = { ...request, includeConditionalEstimates: true };
+    expect(buildNflverseWeeklyEstimates(conditional, data).players[0].experimentalEstimate).toBeUndefined();
+    const result = buildNflverseWeeklyEstimates({ ...request, includeExperimentalEstimates: true }, data);
+    expect(result.players[0]).toMatchObject({ points: null, injuryCoverage: "unavailable", experimentalEstimate: {
+      version: 1, method: "frozen-model-returning-history", condition: "active-at-kickoff", historyGames: 4,
+      historyGapWeeks: gap, calibration: "ppr-only", excludedRules: ["st_ff"], evidence: "exploratory-development-tuning",
+    } });
+    expect(result.players[0].conditionalEstimate).toBeUndefined();
+    expect(result.coverage.projected).toBe(0);
+    expect(buildNflverseWeeklyEstimates({ ...conditional, includeExperimentalEstimates: true }, data).players).toEqual(result.players);
+  });
+  it("experimental consent alone does not widen ordinary/provisional coverage", () => {
+    const data = inputs(); data.injuries = [];
+    const result = buildNflverseWeeklyEstimates({ ...request, includeExperimentalEstimates: true }, data);
+    expect(result.players[0]).toMatchObject({ points: null });
+    expect(result.players[0].conditionalEstimate).toBeUndefined();
+    expect(result.players[0].experimentalEstimate).toBeUndefined();
+    expect(buildNflverseWeeklyEstimates({ ...request, includeExperimentalEstimates: true }, inputs()).players)
+      .toEqual(buildNflverseWeeklyEstimates(request, inputs()).players);
+  });
+  it.each(["no identity", "ambiguous identity", "unknown roster", "out", "unknown injury", "little history", "older season", "duplicate history", "position changed", "started", "unknown kickoff", "no game", "week 2", "penalty only"])("never relaxes the experimental returning guard for %s", cause => {
+    const data = inputs();
+    data.injuries = [];
+    data.history = data.history.map((row, i) => ({ ...row, period: { season: 2025, index: 7 + i } }));
+    let profile = request.profile;
+    if (cause === "no identity") data.roster = [];
+    if (cause === "ambiguous identity") data.roster = [...data.roster, { ...data.roster[0], playerId: "other" }];
+    if (cause === "unknown roster") data.weeklyRoster = [{ ...data.weeklyRoster[0], status: "unknown" }];
+    if (cause === "out" || cause === "unknown injury") data.injuries = [{ ...inputs().injuries[0], playerId: "gsis-1", gameStatus: cause === "out" ? "out" : "unknown" }];
+    if (cause === "little history") data.history = data.history.slice(0, 3);
+    if (cause === "older season") data.history = data.history.map(row => ({ ...row, period: { ...row.period, season: 2024 } }));
+    if (cause === "duplicate history") data.history = [...data.history, data.history[0]];
+    if (cause === "position changed") data.weeklyRoster = [{ ...data.weeklyRoster[0], position: "WR" }];
+    if (cause === "started") data.contests = [{ ...data.contests[0], startsAt: "2026-09-08T00:00:00Z" }];
+    if (cause === "unknown kickoff") data.contests = [{ ...data.contests[0], startsAt: null }];
+    if (cause === "no game") data.contests = [];
+    if (cause === "penalty only") { const parsed = parseSleeperScoring({ pass_td: 6, rec_yd: -1 }); if (!parsed.ok) throw new Error("Bad fixture"); profile = parsed.profile; }
+    if (cause === "week 2") { data.weeklyRoster = data.weeklyRoster.map(row => ({ ...row, week: 2 })); data.contests = data.contests.map(row => ({ ...row, period: { season: 2026, index: 2 } })); }
+    const row = buildNflverseWeeklyEstimates({ ...request, profile, week: cause === "week 2" ? 2 : 1, includeExperimentalEstimates: true }, data).players[0];
+    expect(row.points).toBeNull(); expect(row.experimentalEstimate).toBeUndefined(); expect(row.conditionalEstimate).toBeUndefined();
+  });
+  it("preserves negative and zero returning-model values, with ordinary points still absent", () => {
+    const parsed = parseSleeperScoring({ rec_yd: -0.1, rec_td: 0.01 });
+    if (!parsed.ok) throw new Error("Bad fixture");
+    const data = inputs(); data.injuries = [];
+    data.history = data.history.map((row, i) => ({ ...row, period: { season: 2025, index: 7 + i } }));
+    const opted = { ...request, profile: parsed.profile, includeExperimentalEstimates: true };
+    expect(buildNflverseWeeklyEstimates(opted, data).players[0].experimentalEstimate?.points).toBeLessThan(0);
+    data.history = data.history.map(row => ({ ...row, stats: { ...row.stats, receivingYards: 0, receivingTds: 0 }, usage: { ...row.usage, targets: 0 } }));
+    expect(buildNflverseWeeklyEstimates(opted, data).players[0]).toMatchObject({ points: null, experimentalEstimate: { points: 0 } });
+  });
+  it("offers an explicit kicking-events baseline without ordinary points or injury clearance", () => {
+    const data = inputs(); data.injuries = [];
+    data.weeklyRoster = [{ ...data.weeklyRoster[0], position: "K" }];
+    data.kickingHistory = parseNflverseKickingWeeks(Array.from({ length: 9 }, (_, i) => ({ player_id: "gsis-1", position: "K", season: "2025", season_type: "REG", week: String(i + 10),
+      fg_made_0_19: "0", fg_made_20_29: "1", fg_made_30_39: "0", fg_made_40_49: "0", fg_made_50_59: "0", fg_made_60_: "0", fg_missed: "0", pat_made: "2", pat_missed: "0" })), 2025);
+    const parsed = parseSleeperScoring({ fgm_20_29: 3, xpm: 1, st_ff: 1 }); if (!parsed.ok) throw new Error("Bad fixture");
+    const opted = { ...request, profile: parsed.profile, includeExperimentalEstimates: true };
+    expect(buildNflverseWeeklyEstimates(opted, data).players[0]).toMatchObject({ points: null, injuryCoverage: "unavailable", experimentalEstimate: { points: 5, method: "kicker-prior-season-game-mean", calibration: "none", excludedRules: ["st_ff"] } });
+    for (const gameStatus of ["out", "unknown"] as const) {
+      data.injuries = [{ ...inputs().injuries[0], playerId: "gsis-1", gameStatus }];
+      expect(buildNflverseWeeklyEstimates(opted, data).players[0].experimentalEstimate).toBeUndefined();
+    }
+  });
+  it("rejects nonboolean experimental requests before source I/O", async () => {
+    const result = await generateNflverseWeeklyProjections({ ...request, includeExperimentalEstimates: "yes" as unknown as boolean }, new NflverseProvider(() => { throw new Error("Unexpected I/O"); }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("Invalid");
+  });
   it("exposes partial injury source evidence without changing estimate coverage", () => {
     const result = buildNflverseWeeklyEstimates(request, inputs());
     expect(result.injurySource).toMatchObject({ season: 2026, week: 1, reportRows: 1,

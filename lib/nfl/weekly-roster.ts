@@ -49,6 +49,8 @@ export interface WeeklyRosterEntry {
   week: number;
   /** `gsis_id` — the same identifier `stats_player_week` calls `player_id`. */
   playerId: string;
+  /** Current-week platform bridge when published; never inferred from a name. */
+  sleeperId?: string | null;
   name: string;
   position: string;
   team: string | null;
@@ -122,6 +124,7 @@ export function toWeeklyRoster(rows: readonly CsvRow[]): WeeklyRosterReport {
       season: num(row, "season"),
       week: num(row, "week"),
       playerId,
+      ...(row.sleeper_id === undefined ? {} : { sleeperId: str(row, "sleeper_id") || null }),
       name: str(row, "full_name"),
       position: str(row, "position").toUpperCase(),
       team: normalizeTeam(str(row, "team")),

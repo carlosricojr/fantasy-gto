@@ -1130,3 +1130,50 @@ D/ST remains a conventional-scoring proxy because opponent final score is not
 proven platform-exact defense points allowed and additional custom events are
 not fully represented. No K/DST projection, new variance, history-gate relaxation
 or 2025 holdout evaluation is shipped by this follow-up.
+
+### September 9, 2026 — explicit experimental week-1 alternatives
+
+Read-only verification at `2026-09-09T22:28:40.876Z` reconfirmed the existing
+free sources; no undocumented Sleeper projection endpoint was queried.
+The [nflverse CC BY 4.0 license](https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md)
+and [official nflverse update schedule](https://nflreadr.nflverse.com/articles/nflverse_data_schedule.html)
+were rechecked. The documented [Sleeper API](https://docs.sleeper.com/) supplies
+the personal league's scoring and roster only. This is personal-use integration,
+not permission for a new commercial Sleeper data service.
+
+| Existing asset | HTTP | Observed Last-Modified (UTC) | Observed rows |
+| --- | --- | --- | --- |
+| `stats_player/stats_player_week_2025.csv` | 200 | August 13, 2026 16:51:22 | 19,422; 543 regular-season K rows with all nine explicit counters |
+| `stats_player/stats_player_week_2024.csv` | 200 | August 13, 2026 16:49:11 | 18,983 |
+| `rosters/roster_2026.csv` | 200 | September 9, 2026 12:05:54 | 2,955 |
+| `weekly_rosters/roster_weekly_2026.csv` | 200 | September 9, 2026 12:05:51 | 2,955 |
+| `injuries/injuries_2026.csv` | 200 | September 9, 2026 12:07:36 | 29; LA, NE, SEA and SF only |
+| `schedules/games.csv` | 200 | September 9, 2026 22:17:07 | 7,548 |
+
+Asset paths are relative to
+`https://github.com/nflverse/nflverse-data/releases/download/`.
+HTTP modification times describe files, not comprehensive player clearance.
+The injury file has no row `date_modified`; the official schedule still warns
+about injury-source unavailability after 2024. The observed 2026 file does not
+resolve that documentation mismatch or establish complete reporting.
+
+The new strict kicking seam shares the existing statistics download and retains
+invalid appearances as failures. All nine counters must be explicit nonnegative
+integers; a published total must agree with the six distance bands. Missing
+fields are not zeros. The imported coefficients map to `fg_made_0_19`,
+`fg_made_20_29`, `fg_made_30_39`, `fg_made_40_49`, `fg_made_50_59`,
+`fg_made_60_`, `fg_missed`, `pat_made`, and `pat_missed`. Every enabled offensive
+rule is omitted and named because this baseline covers kicking events only.
+
+An opt-in local integration check at `2026-09-09T22:45:09.784Z` retained the
+ordinary 2 and conditional 10 values, adding 3 separately typed experimental
+alternatives on the 16-player roster; D/ST remains unpriced. It fetched each
+statistics file once. See [coverage scope and evidence](coverage-evaluation.md)
+for the returning-history and kicker eligibility rules. The 2025 statistics were
+used only as prior history for 2026, never as an accuracy evaluation target.
+
+The direct weekly identity bridge was separately reconfirmed at
+`2026-09-09T22:49:20.741Z`: Daniels, Wilson and Mevis each matched the season
+catalog's GSIS identity and current WAS, NYJ and LA teams respectively. The
+parser now preserves this published `sleeper_id`; contradictory weekly and
+season bridges fail closed before a forecast is attached to a player.

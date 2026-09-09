@@ -64,11 +64,11 @@ removal after a local pick advances the board to an opponent turn.
 The weekly interface is available at `/lineup/weekly`. The separately reviewed opt-in
 active-at-kickoff extension is tracked in [#131](https://github.com/carlosricojr/fantasy-gto/pull/131);
 its source contract, browser checks and remaining workflow friction are recorded in
-[weekly-lineup.md](weekly-lineup.md). The September 9 live roster check produced 2 ordinary
+[weekly-lineup.md](weekly-lineup.md). The September 9 pre-experimental roster check produced 2 ordinary
 estimates and 10 additional conditional forecasts, with 4 players still unpriced. Ordinary
 model coverage is not 12/16, and conditional forecasts do not clear injury uncertainty.
 
-Missing injury reports, stale player history, unsupported K/D/ST projections and omitted
+Missing injury reports, stale player history, unsupported ordinary K/D/ST projections and omitted
 custom scoring events remain explicit. A partial comparison requires consent and holds
 unpriced players in their current places; it cannot establish the best full-roster lineup.
 Neither a successful import nor exact lineup assignment proves forecast accuracy. These
@@ -85,8 +85,8 @@ deployment evidence remains authoritative, not this checklist alone:
   expiry. Account changes reset the planner and consent. Grouped warnings, concise
   proposed changes and an in-app kickoff checklist do not submit platform actions.
 - [#133](https://github.com/carlosricojr/fantasy-gto/pull/133) adds source-coverage
-  transparency and exploratory gap research. No K/D/ST estimate tier or experimental
-  returning-player baseline is promoted to production readiness.
+  transparency and exploratory gap research. That research alone did not activate an
+  estimate tier; the separately gated experimental extension is described below.
 - [#134](https://github.com/carlosricojr/fantasy-gto/pull/134) extends draft evidence;
   the policy remains experimental, with no superiority or optimal-draft claim.
 - [#135](https://github.com/carlosricojr/fantasy-gto/pull/135) supplies the pure
@@ -117,9 +117,54 @@ Free/Pro entitlements remain intact. Signed-in production Arc checks verified a 
 saved Sleeper connection, fresh weekly import, explicitly conditional/incomplete advice,
 private decision save/detail/reload and a correctly pending observed outcome. No
 subscription, forecast or result was changed to manufacture a test pass. A complete
-signed-in waiver comparison remains a separate check; directory lookup alone does not
-pass it. The data and optimality limitations above still apply.
+signed-in waiver comparison also passed on the exact PR #140 production release,
+as recorded below. The data and optimality limitations above still apply.
 
 The recent private decision review follows the bounded descriptive protocol in
 [decision-journal.md](decision-journal.md#recent-descriptive-results-protocol). It does
 not promote the model or draft policy based on selectively saved outcomes.
+
+## September 9 follow-up acceptance
+
+- [#141](https://github.com/carlosricojr/fantasy-gto/pull/141) adds a sensitivity
+  check against original starters, not a confidence interval or all-alternative
+  optimality certificate. Signed-in Arc testing on production `13b0b73` showed
+  76.53 included points and a +1.82 gain; adverse changes of about ±0.46 per changed
+  player could erase it. Changing the stress control from ±1 to ±2 changed the
+  stressed margin without refreshing sources or changing the recommendation.
+  Harmless equal-eligibility slot permutations are suppressed; necessary slot
+  moves remain visible separately from start/bench actions.
+- [#140](https://github.com/carlosricojr/fantasy-gto/pull/140) adds saved-team waiver
+  handoff, explicit current-week resolution, current-season roster evidence and
+  cross-source identity checks for both baseline and candidate estimates. On
+  production `abee745`, signed-in Arc testing checked all 10 real league rosters,
+  loaded 392 evidence-supported unrostered candidates, excluded a retired-player
+  search, and completed all 12 selected AJ Barner add/drop pairs with zero unknown
+  pairs. No pair improved the 76.53 included-point no-transaction baseline. This
+  tested one selected candidate, not a global search. No transaction was submitted.
+- [#143](https://github.com/carlosricojr/fantasy-gto/pull/143) adds the bounded,
+  private descriptive recent-results review. Corrupt receipts withhold the batch;
+  pending results do not become zero; unknown estimate origins remain separate.
+  Exact-head tests and independent review passed before merge. Its new signed-in
+  production report check remains part of the final combined-release acceptance.
+- [#142](https://github.com/carlosricojr/fantasy-gto/pull/142) adds independent,
+  default-off experimental consent for returning-player frozen-model estimates
+  and a prior-season observed-game kicker mean. Both assume active at kickoff;
+  neither is availability-adjusted or injury clearance. The kicker baseline
+  prices only supported kicking events and lists omitted league rules. Disabling
+  consent removes these values immediately. Manual overrides remain separate.
+  The frozen decision records preserve experimental provenance and consent.
+
+The PR #142 live source check produced 2 ordinary, 10 conditional and 3 experimental
+estimates for the 16-player roster: Daniels, Garrett Wilson and Mevis became available
+only in the experimental tier; Houston D/ST remained unpriced. This is source/adapter
+coverage evidence, not a claim of ordinary 15/16 model coverage, full-scoring accuracy,
+or completed signed-in deployment acceptance. The final PR's deployment and browser
+evidence must identify the exact shipped commit before that gate is marked complete.
+
+The frozen-model default backtest remained unchanged at 5.8818 development and 5.7709
+tuning MAE on the current cache. No reserved 2025 holdout evaluation, coefficient
+retuning or published holdout-metric rewrite was performed. Live prior-season inputs
+for 2026 recommendations are not held-out outcome evaluation. Partial injury coverage,
+unknown publication timestamps, omitted scoring events, unpriced D/ST and unproven
+draft-policy superiority remain limitations after these improvements.

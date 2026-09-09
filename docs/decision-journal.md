@@ -16,6 +16,24 @@ Current league/scoring and roster ownership must still match. Commissioner-adjus
 
 Forecast errors are separated by model, manual, and unspecified origin. Conditional-on-active and partial-scoring model estimates are excluded from ordinary full-score accuracy. The original limitations remain attached even when the frozen lineup's realized comparison can be computed.
 
+### Experimental estimate provenance
+
+The experimental extension freezes the independent `allowExperimentalEstimates`
+choice alongside the existing conditional and incomplete-comparison preferences.
+Each experimental estimate retains its version-1 method, active-at-kickoff assumption,
+history count and timing, calibration label, scoring scope, excluded rules and evidence
+tag. Returning-player frozen-model estimates and prior-season observed-game kicker
+means are distinct methods, not ordinary model forecasts. New saves validate the
+supported provenance shape and consent; malformed or unsupported metadata is rejected.
+
+Experimental and unrecognized future origins are excluded from ordinary forecast-error
+statistics, while the original snapshot and unevaluated count remain visible. A genuine
+manual full-score override is evaluated as manual, not as a validated experimental
+forecast. Legacy absent origins may be evaluated only in the separate unspecified-origin
+error group; the recent-results report segregates nonnull absent/unknown origins in its
+experimental-or-unrecognized cohort. None of these classifications establishes injury
+clearance, complete custom scoring or forecast calibration.
+
 ## Verification
 
 Pure tests cover bounded input parsing, original-versus-recommended comparison, no hindsight selection, signed outcomes, zero versus missing, independent timing, excluded slots, scoring identity, consent, source failures, and model/manual error separation. This workflow release separately tests authenticated ownership, server timestamps, append-only/idempotent recording, changed-payload request-ID rejection, bounded reads, entitlement expiry, atomic request quotas and concurrent observation throttling. Deleted accounts lose access immediately; bounded internal batches erase their decisions, observations (including orphans), connections and usage counters without affecting other users. UTF-8 payload caps bound record and observation read costs. No lineup changes or platform transactions are submitted.

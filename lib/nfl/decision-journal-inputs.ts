@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { WeeklyLineupSnapshot } from "./weekly-lineup";
+import { weeklyExperimentalEstimateSchema } from "./weekly-experimental";
 
 const finite = z.number().finite();
 const timestamp = finite.min(0).max(8.64e15);
@@ -29,8 +30,9 @@ export const weeklyDecisionSnapshotSchema = z.object({
     kickoffAt: timestamp.nullable(),
     currentSlotId: id.nullable(),
     projectedPoints: finite.min(-10000).max(10000).nullable(),
-    projectionOrigin: z.enum(["model", "model-conditional", "manual"]).optional(),
+    projectionOrigin: z.enum(["model", "model-conditional", "experimental", "manual"]).optional(),
     conditionalEstimate: conditional.optional(),
+    experimentalEstimate: weeklyExperimentalEstimateSchema.optional(),
     projectionMissingReason: text.nullable().optional(),
     projectionEnteredAt: timestamp.optional(),
     team: z.string().max(20).nullable().optional(),
@@ -60,9 +62,11 @@ export const weeklyDecisionPreferencesSchema = z.object({
   holdUnpricedPositions: z.array(z.enum(["K", "DST"])).max(2).default([]),
   compareAvailableEstimates: z.boolean().default(false),
   allowConditionalEstimates: z.boolean().default(false),
+  allowExperimentalEstimates: z.boolean().default(false),
 }).strict();
 
 export type WeeklyDecisionPreferences = z.output<typeof weeklyDecisionPreferencesSchema>;
+export type WeeklyDecisionPreferenceInput = z.input<typeof weeklyDecisionPreferencesSchema>;
 
 /** At most 128K UTF-16 code units; even four-byte UTF-8 remains below a Convex document. */
 export const MAX_DECISION_JSON_LENGTH = 128 * 1024;

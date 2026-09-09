@@ -76,3 +76,63 @@ scoring mapping, eligibility checks and a deliberately labeled baseline UX.
 D/ST requires platform-correct points-allowed and unsupported-event resolution
 before it can claim full custom-scoring coverage. Limited-history's tuning
 delta is small and exploratory; no rookie/no-history estimate was evaluated.
+
+## Explicit week-1 alternatives — September 9, 2026
+
+The follow-up design uses the existing exploratory results above, not a new
+parameter search or an independent validation claim. Ordinary forecasts and the
+existing missing-injury-report conditional forecasts retain their gates. An
+independent, default-off request may return `experimentalEstimate` version 1:
+
+- `frozen-model-returning-history`: week 1 only, at least four unique valid games
+  in the existing two-season window, latest appearance in the immediately prior
+  season, and an NFL-week gap above four. The unchanged model uses the supported
+  imported offensive subset. Calibration remains PPR-only; custom-scoring
+  accuracy is unvalidated. Every omitted scoring rule stays attached.
+- `kicker-prior-season-game-mean`: week 1 only, at least eight unique complete
+  prior-season games. The fixed mean scores nine explicit kicking counters under
+  the imported coefficients. Every enabled offensive rule is listed as omitted.
+  This is **kicking events only**, not a full league-score forecast. Calibration
+  is `none`; no variance, interval or probability is invented.
+
+Both alternatives assume the player is active at kickoff. They retain unique
+current identity/roster/game checks and reject known Out, unknown designations,
+inactive rosters and unknown or started games. A missing team injury report
+remains missing; a partial report is not comprehensive healthy clearance.
+Negative and zero estimates remain valid. D/ST, no-history players and later
+weeks do not gain an estimate from this release.
+
+Experimental values additionally require a direct current-week Sleeper-to-GSIS
+bridge matching the season roster. An observed contradiction between those
+bridges blocks all helper values, including ordinary forecasts; it must not
+attach another player's model history to the requested identity.
+
+Use requires both experimental-estimate consent and the existing incomplete
+comparison consent. The raw ordinary value remains null; an ephemeral view adds
+`projectionOrigin: "experimental"`. Turning the option off removes that view,
+and manual overrides remain independent. Frozen journal records preserve method,
+history, scoring omissions and consent. Experimental and unknown future origins
+are excluded from ordinary forecast-error statistics, even when full-scoring
+actuals are eventually available. Unknown versions/calibration are rejected.
+
+### Live source and coverage check
+
+At `2026-09-09T22:45:09.784Z`, a read-only local producer run on the personal
+16-player roster took 2.62 seconds: 2 ordinary estimates, 10 existing conditional
+estimates, 3 experimental alternatives and 1 unpriced D/ST. This is a coverage
+check, not a prediction-accuracy evaluation or a serverless latency guarantee.
+No platform lineup was changed.
+
+Daniels' latest prior appearance was 2025 week 14 (gap 5); Wilson's was week 10
+(gap 9). Each had 24 appearances in the existing history window. Their team
+injury reports were missing. Mevis had nine prior-season appearances through
+week 18 and explicit counters for the supported kicking events. The injury
+release still contained only 29 rows across LA, NE, SEA and SF, without row
+revision dates. These facts explain coverage; none establish healthy status.
+
+The 2025 file was used solely as prior history for live 2026 inputs. No 2025
+outcome was scored as a prediction target. Default development/tuning backtests
+on base `5d0c484` and this change, using the same frozen cache, both reproduce
+MAE 5.8818 / 5.7709 over 26,837 / 9,063 rows. The earlier 9,069-row cache gave
+5.7706 on tuning; that source-snapshot difference is not a model improvement.
+Published metrics and model parameters are untouched.
