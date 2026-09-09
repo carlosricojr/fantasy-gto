@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { appErrorMessage } from "../lib/errors";
+import { DecisionResultsReport } from "./decision-results-report";
 import type { WeeklyDecisionRecord, WeeklyDecisionEvaluation, WeeklyDecisionOutcomes } from "../lib/nfl/decision-journal";
 
 export interface DecisionSummary { _id: string; recordedAt: number; leagueName: string; season: number; week: number; timing: string }
@@ -72,6 +73,7 @@ export function DecisionHistory({ transport, initialId }: { transport: DecisionH
 
   return <div className="space-y-6">
     <p className="text-sm text-muted-foreground">Private receipt-dated records, not proof that submitted forecasts or roster state were independently verified. Each result compares saved advice with the starters saved at that moment. Multiple records in one week are revisions, not independent trials.</p>
+    <DecisionResultsReport transport={transport} onSelect={setSelected} />
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {loading && rows.length === 0 ? <p role="status">Loading your decisions…</p> : rows.length === 0 ? <p>No saved decisions yet. Save a weekly recommendation before kickoff to begin.</p> : <ul className="space-y-2">{rows.map(row => <li key={row._id}><button className={`w-full rounded-lg border p-3 text-left text-sm focus-visible:outline focus-visible:outline-2 ${row._id === selected ? "bg-muted" : "hover:bg-muted/40"}`} onClick={() => setSelected(row._id)} aria-pressed={row._id === selected}><span className="font-medium">{row.leagueName} · {row.season}, week {row.week}</span><span className="mt-1 block text-xs text-muted-foreground">Received {new Date(row.recordedAt).toLocaleString()} · {row.timing === "before-listed-kickoffs" ? "Before listed comparison kickoffs" : "Not verified pre-kickoff"}</span></button></li>)}</ul>}
     {more && <Button variant="outline" onClick={loadMore} disabled={loading}>{loading ? "Loading…" : "Load more"}</Button>}

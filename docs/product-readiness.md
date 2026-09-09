@@ -102,9 +102,24 @@ deployment evidence remains authoritative, not this checklist alone:
 Source I/O now requires authenticated admission before upstream work: Free has bounded
 roster-only imports and connection lookup; Pro has bounded model, waiver and journal
 operations. Quotas are atomic across instances and subscription-derived, never an
-owner-wide Pro override. These controls do not eliminate request costs or protect
-unrelated legacy Convex queries; direct-backend hardening is a separate release.
-Private Vercel deployment protection remains an operational pending item until the
-coordinator records its actual activation. Signed-in production happy-path smoke
-also remains pending the owner's authenticated session; no subscription was changed
-to manufacture a test pass. The data and optimality limitations above still apply.
+owner-wide Pro override. Direct-backend hardening in
+[#138](https://github.com/carlosricojr/fantasy-gto/pull/138) gates the eleven public
+football reads behind authenticated admission and explicit bounded reads. The Convex
+module-path correction in [#139](https://github.com/carlosricojr/fantasy-gto/pull/139)
+was deployed with a verified backend push and both production aliases on commit
+`5d0c48426f1da0333658556d6acf56dee7beb3b5`. Anonymous valid-argument RPC calls to all
+eleven endpoints returned unauthenticated errors without football data. These controls
+do not eliminate request, auth or hosting costs and are not an absolute spending cap.
+
+The owner explicitly declined an access allowlist and additional Vercel deployment
+protection; neither is a pending activation task. Existing subscription-derived
+Free/Pro entitlements remain intact. Signed-in production Arc checks verified a real
+saved Sleeper connection, fresh weekly import, explicitly conditional/incomplete advice,
+private decision save/detail/reload and a correctly pending observed outcome. No
+subscription, forecast or result was changed to manufacture a test pass. A complete
+signed-in waiver comparison remains a separate check; directory lookup alone does not
+pass it. The data and optimality limitations above still apply.
+
+The recent private decision review follows the bounded descriptive protocol in
+[decision-journal.md](decision-journal.md#recent-descriptive-results-protocol). It does
+not promote the model or draft policy based on selectively saved outcomes.

@@ -85,7 +85,7 @@ Adding a sport means adding an adapter under `lib/<sport>/` that implements the 
   strategy and cannot be. CSV parsing and `leagues.setRoster` are
   implemented and tested, but no screen calls either yet — `/lineup` is the working path
   and needs no saved roster.
-- **It is currently the offseason.** Resolve the season from data availability, never from
+- **Season state must come from source evidence.** Resolve the season from data availability, never from
   `new Date().getFullYear()` — see `lib/nfl/season.ts`.
 - **nflverse CSVs contain quoted fields with commas.** Use `lib/nfl/csv.ts`, never
   `String.split(",")`.
@@ -102,6 +102,10 @@ Adding a sport means adding an adapter under `lib/<sport>/` that implements the 
 
 ## Not built yet
 
-Waivers, FAAB, D/ST streamer, alerts, and performance history are gated in the entitlement
-table with no implementation behind them. D/ST and kicker scoring exist and are tested, but
-the model projects skill positions only. Do not present any of these as working.
+Bounded, user-selected one-week waiver comparisons and private receipt-dated decision
+history are implemented behind the existing entitlements; they are not global waiver
+optimization or evidence of a forecasting advantage. The weekly workflow includes an
+in-app checklist, not external notifications. FAAB policy, automated claims, D/ST
+streaming and autonomous platform actions remain unimplemented. D/ST and kicker scoring
+exist and are tested; ordinary weekly model coverage remains separately gated. Consult
+the current coverage documentation before claiming any position is projected.
