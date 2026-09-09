@@ -49,6 +49,7 @@ export function Recommendations({
   unrankedAdp,
   basisFor,
   ownRecordOnlyPlayers,
+  decisionPick = null,
 }: {
   state: ReturnType<typeof useRecommendations>;
   scenarios: number;
@@ -66,6 +67,8 @@ export function Recommendations({
   basisFor: (player: { id: string; position: string }) => ValueBasis;
   /** Your recorded players represented by a positional floor rather than their own value. */
   ownRecordOnlyPlayers: readonly RecordOnlyRosterPlayer[];
+  /** Actual overall square being decided; not the count including future keepers. */
+  decisionPick?: number | null;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -116,6 +119,15 @@ export function Recommendations({
         </p>
       </Panel>
     );
+  }
+
+  if (state.stale) {
+    return <Panel>
+      <p className="p-4 text-sm text-muted-foreground" role="status">
+        Picks changed. Recalculating for the current board; previous advice is withheld.
+        You can still inspect and record available players in the player list.
+      </p>
+    </Panel>;
   }
 
   if (!state.loading && state.lastElapsedMs !== null && state.recommendations.length === 0) {
@@ -232,8 +244,8 @@ export function Recommendations({
             <Sparkles className="size-3.5" aria-hidden />
             {onTheClock ? "Your pick" : "Forecast for your next pick"}
           </p>
-          <h2 className="mt-1 truncate text-lg leading-tight font-semibold">
-            Take {leader.player.name}
+          <h2 className="mt-1 break-words text-lg leading-tight font-semibold">
+            Simulation leader: {leader.player.name}
           </h2>
           {/* Position and bye on the leader too, not only on the ranked rows beneath it.
               The one player this panel is actually recommending was the one player on it
@@ -257,6 +269,16 @@ export function Recommendations({
       </header>
 
       <div className="border-b p-4">
+        <aside className="mb-3 rounded-lg border p-3 text-sm" aria-label="Experimental draft advice">
+          <p className="font-medium">Experimental ranking — not a proven best pick</p>
+          <p className="mt-1 text-muted-foreground">
+            No demonstrated drafting edge over ADP. Compare market cost, roster needs, and
+            alternatives before choosing; this order depends on one assumed opponent policy.
+          </p>
+        </aside>
+        <MarketContext player={leader.player} decisionPick={decisionPick} showSource />
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium">Show conditional simulation results</summary>
         {/* Two columns on a phone rather than a wrapping row, which left the fourth
             figure alone on its own line with three-quarters of the width empty — and again
             from `3xl`, where this panel is a 30rem column beside the player list rather
@@ -272,7 +294,6 @@ export function Recommendations({
             unit={`± ${(leader.standardError * 100).toFixed(1)} pp`}
             label="simulated title chance"
             note="sampling error only"
-            emphasis
           />
           <Figure
             value={`${(leader.playoffProbability * 100).toFixed(0)}%`}
@@ -293,6 +314,7 @@ export function Recommendations({
           A conditional simulation estimate, not a team grade: it assumes this pick, the
           picks already recorded, and a default policy completing the rest of the draft.
         </p>
+        </details>
         <RecordOnlyWarning players={ownRecordOnlyPlayers} />
         {tiedAlternatives.length > 0 ? (
           <aside
@@ -311,7 +333,7 @@ export function Recommendations({
         ) : null}
         {onTheClock ? (
           <Button className="mt-3 w-full" onClick={() => onPick(leader.player.id)}>
-            Take {leader.player.name}
+            Record {leader.player.name}
           </Button>
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">
@@ -338,6 +360,7 @@ export function Recommendations({
               waitPickLabel={waitPickLabel}
               unrankedAdp={unrankedAdp}
               basisFor={basisFor}
+              decisionPick={decisionPick}
             />
           ))}
         </ul>
@@ -400,6 +423,7 @@ function Row({
   waitPickLabel,
   unrankedAdp,
   basisFor,
+  decisionPick,
 }: {
   rec: ChampionshipRecommendation;
   rank: number;
@@ -409,12 +433,13 @@ function Row({
   waitPickLabel: string | null;
   unrankedAdp: number;
   basisFor: (player: { id: string; position: string }) => ValueBasis;
+  decisionPick: number | null;
 }) {
   // The wait question, per candidate. A tied second choice who is 90% likely to last until
   // your next pick and a tied second choice who is 10% likely are not the same decision,
   // and nothing on the previous panel distinguished them.
   const survival =
-    waitPick === null
+    waitPick === null || rec.player.adp == null
       ? null
       : survivalProbability(
           { adp: rec.player.adp ?? null, adpStdev: rec.player.adpStdev ?? null },
@@ -438,6 +463,7 @@ function Row({
           <span className="truncate">{rec.player.name}</span>
           <BasisBadge basis={basisFor(rec.player)} />
         </span>
+        <MarketContext player={rec.player} decisionPick={decisionPick} />
         {rec.tiedWithLeader ? (
           <span className="mt-1 inline-flex rounded bg-brand/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-brand">
             Viable alternative · tied in this simulation
@@ -445,8 +471,8 @@ function Row({
         ) : null}
         <span className="block text-xs leading-4 text-muted-foreground tabular-nums">
           {(rec.championshipProbability * 100).toFixed(1)}% ±
-          {(rec.standardError * 100).toFixed(1)} pp sampling error
-          {survival === null ? "" : ` · ${(survival * 100).toFixed(0)}% lasts to ${waitPickLabel}`}
+          {(rec.standardError * 100).toFixed(1)} pp simulated title chance · sampling error only
+          {survival === null ? "" : ` · estimated ${survival < 0.01 ? "<1" : survival > 0.99 ? ">99" : (survival * 100).toFixed(0)}% lasts to ${waitPickLabel}`}
         </span>
         {/* The paired comparison against the leader, which is the only interval on this
             panel that is the uncertainty of the *comparison* rather than of one number on
@@ -472,13 +498,29 @@ function Row({
           size="sm"
           variant="outline"
           onClick={() => onPick(rec.player.id)}
-          aria-label={`Take ${rec.player.name}`}
+          aria-label={`Record ${rec.player.name}`}
         >
-          Take
+          Record
         </Button>
       ) : null}
     </li>
   );
+}
+
+function MarketContext({ player, decisionPick, showSource = false }: {
+  player: ChampionshipRecommendation["player"];
+  decisionPick: number | null;
+  showSource?: boolean;
+}) {
+  const adp = player.adp;
+  const priced = adp != null && Number.isFinite(adp) && adp > 0;
+  const gap = priced && decisionPick !== null ? adp - decisionPick : null;
+  return <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+    {priced ? `Board ADP ${adp.toFixed(1)}` : "No board ADP — waiting estimate unavailable"}
+    {gap === null ? "" : ` · overall pick ${decisionPick} · ${Math.abs(gap).toFixed(1)} picks ${gap > 0 ? "earlier" : "later"} than ADP`}
+    {showSource ? <span className="block">Fantasy Football Calculator market; may differ from your draft platform. ADP is not a player projection.</span> : null}
+    {gap !== null && gap >= 10 ? <span className="block font-medium text-foreground">Reach check: at least 10 picks ahead of this market. The simulation alone does not establish that this reach is worth it.</span> : null}
+  </span>;
 }
 
 function Figure({
