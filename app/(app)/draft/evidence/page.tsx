@@ -31,17 +31,22 @@ export default function DraftEvidencePage() {
           These are local diagnostic timings, not browser/mobile measurements or a draft-clock guarantee.</p>
       </section>
       <section aria-labelledby="draft-gate">
-        <h2 id="draft-gate" className="text-lg font-semibold">What would earn a promotion review</h2>
-        <p className="mt-2">No qualifying independent promotion study is registered in the current evidence manifest.
-          The checklist below concerns promotion evidence, not whether the descriptive diagnostic ran successfully.</p>
+        <h2 id="draft-gate" className="text-lg font-semibold">What we still need to prove</h2>
+        <p className="mt-2">No independent study has yet shown that this simulator deserves more trust than the simple alternatives.</p>
         <ul className="mt-3 space-y-2">
-          {gate.checks.map(check => <li key={check.id} className="flex items-start gap-2">
+          {gate.checks.filter(check => check.id !== "version").map(check => <li key={check.id} className="flex items-start gap-2">
             <span className="shrink-0 font-medium">{check.passed ? "Met:" : "Needed:"}</span><span>{check.label}</span>
           </li>)}
         </ul>
-        <p className="mt-3 text-muted-foreground">Gate version: {gate.version}. Thresholds must be registered before outcomes are inspected;
-          no thresholds are chosen from the results above. Passing these manifest checks only earns a separate review of the linked evidence,
-          its authenticity and scope. It does not automatically promote a strategy or establish calibrated title probabilities.</p>
+        <details className="mt-4 text-muted-foreground">
+          <summary className="min-h-11 cursor-pointer content-center rounded-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4">Technical review requirements</summary>
+          <p className="mt-2">Gate version: {gate.version}. {gate.checks.find(check => check.id === "version")?.passed
+            ? "This version is recognized; that is a software check, not evidence of a drafting advantage."
+            : "This version is not recognized, so the gate fails closed."}
+            {" "}Thresholds must be registered before outcomes are inspected; no thresholds are chosen from the results above.
+            Passing these manifest checks only earns a separate review of the linked evidence, its authenticity and scope.
+            It does not automatically promote a strategy or establish calibrated title probabilities.</p>
+        </details>
       </section>
       <p className="text-muted-foreground">The full protocol and measured tables are in the repository document <code>docs/draft-strategy-evaluation.md</code>.
         The in-app summary intentionally contains no private league identifiers or player-roster dump.</p>

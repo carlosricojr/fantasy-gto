@@ -25,6 +25,11 @@ describe("immediate market comparator", () => {
     expect(summary).toContain("descriptive diagnostic, not a proven drafting edge");
     expect(summary).toContain("reserved 2025 outcomes were not evaluated");
     expect(summary).toContain("Needed:");
+    expect(summary).toContain("What we still need to prove");
+    expect(summary).toContain("deserves more trust than the simple alternatives");
+    expect(summary).toContain("Technical review requirements");
+    expect(summary.indexOf("Gate version:")).toBeGreaterThan(summary.indexOf("<details"));
+    expect(summary).not.toContain("Met:");
     expect(summary).toContain("Browser/mobile latency within the registered budget");
     expect(summary).toContain("does not automatically promote");
     expect(summary).toContain('href="/draft"');
