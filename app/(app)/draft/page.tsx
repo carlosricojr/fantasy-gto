@@ -78,6 +78,7 @@ import { leagueFingerprint } from "./reply-gate";
 import { Recommendations, type RecordOnlyRosterPlayer } from "./recommendations";
 import { marketFirstOption } from "./market-first";
 import { MarketFirstCard } from "./market-first-card";
+import { DraftEvidencePanel } from "./evidence-panel";
 import { SettingsDialog } from "./settings-dialog";
 import { DraftSetup } from "./setup";
 import { StatusBar } from "./status-bar";
@@ -1304,6 +1305,7 @@ export default function DraftPage() {
         title="Draft"
         subtitle="Set your league up once. Everything after that is one tap per pick."
       >
+        <DraftEvidencePanel />
         <BoardHealthNotice freshness={freshness ?? null} pending={freshnessPending} />
         <DraftStatusNotice
           freshness={catalogFreshness ?? null}
@@ -1484,6 +1486,7 @@ export default function DraftPage() {
       >
         <div className="flex min-w-0 flex-col gap-4 3xl:contents">
           <div className="min-w-0 space-y-4">
+          <DraftEvidencePanel />
           {marketOption === null ? null : <MarketFirstCard player={marketOption} onPick={record} />}
           {adviceBlock !== null ? (
             <section className="rounded-xl border border-amber-500/50 bg-amber-500/5 p-5" role="alert">

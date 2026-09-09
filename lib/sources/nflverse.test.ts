@@ -67,13 +67,15 @@ describe("easternWallClockToUtcIso", () => {
     );
   });
 
-  it("defaults a missing time to midnight Eastern", () => {
-    expect(easternWallClockToUtcIso("2025-09-07", "")).toBe("2025-09-07T04:00:00.000Z");
+  it("preserves missing or malformed kickoff times as unknown, never invented midnight", () => {
+    for (const clock of ["", "TBD", "99:00", "13:60", "1:00"]) expect(easternWallClockToUtcIso("2026-09-07", clock)).toBeNull();
+    expect(easternWallClockToUtcIso("2026-09-07", "00:00")).toBe("2026-09-07T04:00:00.000Z");
   });
 
   it("returns null for an unusable date", () => {
     expect(easternWallClockToUtcIso("", "13:00")).toBeNull();
     expect(easternWallClockToUtcIso("not-a-date", "13:00")).toBeNull();
+    expect(easternWallClockToUtcIso("2026-02-30", "13:00")).toBeNull();
   });
 
   it("round-trips back to the original Eastern wall clock", () => {
