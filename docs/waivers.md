@@ -6,6 +6,11 @@ narrow `waiver_comparison` entitlement is authorized on the server before source
 FAAB is not implemented and the bundled `waivers_faab` capability remains disabled.
 The authorization endpoint is `personalTools:authorizeWaiverComparison`, deployed
 with the personal-tools backend. Missing authorization/deployment fails closed.
+That same backend action applies a shared, server-clock per-user request allowance
+before any source reads: 6 calls per fixed 15-minute window and 30 per UTC day.
+Discovery and comparison each consume one admission; failed upstream attempts still
+count. Denial returns HTTP 429 and clears the prior pool/comparison. The client cannot grant itself
+an entitlement or bypass admission, and this route has no separate in-memory limiter.
 
 ## Objective and scope
 

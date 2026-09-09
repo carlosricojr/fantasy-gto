@@ -22,12 +22,14 @@ describe("waiver API server authorization", () => {
     expect(network).not.toHaveBeenCalled();
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
-  it.each([["entitlement", 403], ["unauthenticated", 401]] as const)("fails closed on backend %s before source I/O", async (code, status) => {
+  it.each([["entitlement", 403], ["unauthenticated", 401], ["rate_limit", 429]] as const)("fails closed on backend %s before source I/O", async (code, status) => {
     session("user", "signed-token");
     vi.mocked(fetchAction).mockRejectedValue(new ConvexError({ code }));
     const network = vi.fn(); vi.stubGlobal("fetch", network);
     const response = await GET(new Request(url));
     expect(response.status).toBe(status);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    if (code === "rate_limit") expect(await response.json()).toEqual({ error: "Your waiver request allowance is temporarily exhausted. No source data was fetched. Try again later." });
     expect(network).not.toHaveBeenCalled();
     const [reference, args, options] = vi.mocked(fetchAction).mock.calls[0];
     expect(getFunctionName(reference)).toBe("personalTools:authorizeWaiverComparison");
