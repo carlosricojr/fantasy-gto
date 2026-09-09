@@ -52,6 +52,7 @@ checks. Each pull request records its validation and review evidence:
 - [#127](https://github.com/carlosricojr/fantasy-gto/pull/127): free nflverse weekly estimate adapter with explicit coverage, identity, scoring and availability gates.
 - [#128](https://github.com/carlosricojr/fantasy-gto/pull/128): live-request cache safety. A production-mode service-worker test confirmed that an offline request fails instead of returning an old cached live response.
 - [#129](https://github.com/carlosricojr/fantasy-gto/pull/129): required-starter completion guards and paired draft-policy evaluation.
+- [#130](https://github.com/carlosricojr/fantasy-gto/pull/130): personal weekly roster import and exact constrained lineup assignment, including kickoff locks, refresh safety and the cross-source Out regression.
 
 The evaluation does **not** establish rollout superiority: rollout lost to roster-needs
 ADP in five of six non-stress point estimates. The full assumptions, uncertainty, external
@@ -60,8 +61,15 @@ The immediate market comparator therefore remains a transparent alternative, not
 validated optimal policy. Desktop/mobile draft checks covered its immediate appearance and
 removal after a local pick advances the board to an opponent turn.
 
-The weekly interface and optional active-at-kickoff estimates are separate release gates.
+The weekly interface is available at `/lineup/weekly`. The separately reviewed opt-in
+active-at-kickoff extension is tracked in [#131](https://github.com/carlosricojr/fantasy-gto/pull/131);
+its source contract, browser checks and remaining workflow friction are recorded in
+[weekly-lineup.md](weekly-lineup.md). The September 9 live roster check produced 2 ordinary
+estimates and 10 additional conditional forecasts, with 4 players still unpriced. Ordinary
+model coverage is not 12/16, and conditional forecasts do not clear injury uncertainty.
+
 Missing injury reports, stale player history, unsupported K/D/ST projections and omitted
-custom scoring events must remain explicit. Neither a successful import nor exact lineup
-assignment proves forecast accuracy. Do not infer weekly release readiness from the adapter
-merge alone.
+custom scoring events remain explicit. A partial comparison requires consent and holds
+unpriced players in their current places; it cannot establish the best full-roster lineup.
+Neither a successful import nor exact lineup assignment proves forecast accuracy. These
+are supervised decision-support workflows, not an autonomous draft or lineup manager.

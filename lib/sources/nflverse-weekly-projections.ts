@@ -18,6 +18,8 @@ export interface NflverseWeeklyRequest {
   /** Exact Sleeper IDs for the personal roster; no name-based guessing. */
   playerIds: readonly string[];
   now: number;
+  /** Explicit opt-in only; never changes ordinary points or availability clearance. */
+  includeConditionalEstimates?: boolean;
 }
 export interface NflverseWeeklyEstimate {
   playerId: string;
@@ -28,6 +30,11 @@ export interface NflverseWeeklyEstimate {
   availability?: "active" | "questionable" | "doubtful" | "out" | "inactive" | "unknown";
   /** Report coverage is distinct from a player's observed roster/injury designation. */
   injuryCoverage?: "available" | "unavailable";
+  conditionalEstimate?: {
+    points: number;
+    condition: "active-at-kickoff";
+    missingEvidence: "team-injury-report";
+  };
   /** Absent without current roster evidence; null kickoff means no unique usable game. */
   team?: string | null;
   gameId?: string | null;
@@ -91,7 +98,8 @@ export interface NflverseWeeklyInputs {
 /** Pure calculation exported for tests; source I/O is below. No lineup is submitted. */
 export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, data: NflverseWeeklyInputs): NflverseWeeklyEstimates {
   const { season, week, profile, now } = request;
-  if (!Number.isInteger(season) || season < 2013 || season > 2100 || !Number.isInteger(week) || week < 1 || week > 18 || !Number.isFinite(now)) {
+  if (!Number.isInteger(season) || season < 2013 || season > 2100 || !Number.isInteger(week) || week < 1 || week > 18 || !Number.isFinite(now) ||
+    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean") {
     throw new Error("Invalid weekly projection request.");
   }
   const { scoring, excludedRules } = nflverseWeeklyScoring(profile);
@@ -103,7 +111,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
   const injuryCoverageTeams = new Set(data.injuries.filter(row => row.season === season && row.week === week)
     .map(row => row.team).filter(team => team !== null));
   const missingMarketPlayerIds: string[] = [];
-  const players = [...new Set(request.playerIds)].map(playerId => {
+  const players = [...new Set(request.playerIds)].map((playerId): NflverseWeeklyEstimate => {
     const identities = data.roster.filter(row => row.sleeperId === playerId);
     const ids = new Set(identities.map(row => row.playerId));
     const gsisId = ids.size === 1 ? [...ids][0] : null;
@@ -136,7 +144,7 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     if (injury?.gameStatus === "unknown") { availability = "unknown"; return unavailable("Unknown injury designation"); }
     if (injury?.gameStatus === "doubtful") availability = "doubtful";
     else if (injury?.gameStatus === "questionable") availability = "questionable";
-    if (injuryCoverage === "unavailable") {
+    if (injuryCoverage === "unavailable" && request.includeConditionalEstimates !== true) {
       return unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance");
     }
     if (Object.values(scoring.offense).every(value => value === 0)) return unavailable("No supported offensive scoring rules");
@@ -168,6 +176,10 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
         impliedTeamTotal: implied,
         teamMeanImpliedTotal: meanImpliedTotalBefore(priorTotals, week) } });
     if (Number.isFinite(projection.mean) && implied === null) missingMarketPlayerIds.push(playerId);
+    if (Number.isFinite(projection.mean) && injuryCoverage === "unavailable") {
+      return { ...unavailable("Injury reports for this team and requested week are unavailable; roster status is not injury clearance"),
+        conditionalEstimate: { points: projection.mean, condition: "active-at-kickoff", missingEvidence: "team-injury-report" } };
+    }
     return Number.isFinite(projection.mean)
       ? { playerId, gsisId, points: projection.mean, reason: null, availability, injuryCoverage, ...gameContext }
       : unavailable("The model did not produce a finite estimate under these rules");
@@ -177,6 +189,8 @@ export function buildNflverseWeeklyEstimates(request: NflverseWeeklyRequest, dat
     warnings: ["Skill-position model estimates; rookies without history, kickers and defenses remain unpriced.",
       "Model calibration was fitted on PPR; custom-scoring accuracy has not been validated.",
       "Source revision timestamps are unavailable; computed time is not source freshness.",
+      ...(players.some(player => player.conditionalEstimate !== undefined)
+        ? ["Conditional forecasts assume the player is active at kickoff; they are not availability-adjusted expected points or injury clearance."] : []),
       ...players.filter(player => player.injuryCoverage === "unavailable")
         .map(player => `Player ${player.playerId} has no current team injury-report coverage; roster status is not injury clearance, including when a manual estimate is supplied.`),
       ...(missingMarketPlayerIds.length ? [`Betting lines are missing for ${missingMarketPlayerIds.length} projected player games; those estimates omit the betting-market adjustment.`] : []),
@@ -191,7 +205,8 @@ export async function generateNflverseWeeklyProjections(request: NflverseWeeklyR
   // Validate before any network request, including a bounded roster to cap per-user work.
   if (!Number.isInteger(request.season) || request.season < 2013 || request.season > 2100 ||
     !Number.isInteger(request.week) || request.week < 1 || request.week > 18 ||
-    request.playerIds.length === 0 || request.playerIds.length > 100 || !Number.isFinite(request.now)) return failed("Invalid or oversized weekly projection request.");
+    request.playerIds.length === 0 || request.playerIds.length > 100 || !Number.isFinite(request.now) ||
+    request.includeConditionalEstimates !== undefined && typeof request.includeConditionalEstimates !== "boolean") return failed("Invalid or oversized weekly projection request.");
   try {
     nflverseWeeklyScoring(request.profile);
     const [old, prior, current, roster, weekly, injuries, contests, lines] = await Promise.all([
