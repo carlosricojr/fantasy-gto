@@ -194,6 +194,8 @@ Every claim the interface makes, and the computation behind it.
 | Contributions sum to the projection | True by construction — the mean is derived from the summed contributions — and asserted in tests. |
 | "Provably optimal lineup" | Maximum-weight bipartite matching. Optimal by construction; tests include a roster where greedy loses 14 points. |
 | Weekly lineup with imported starters and kickoff locks | `/lineup/weekly` imports the current Sleeper roster and can generate skill estimates from nflverse inputs, with missing players and omitted custom scoring terms disclosed. Manual weekly estimates override individual rows. `planWeeklyLineup` maximizes included estimates in cents, preserves started starters and bench players, and uses later kickoffs in flexible slots only among equal-point alternatives. Missing values and stale inputs block full recommendations; an explicit incomplete-estimates comparison fixes unpriced players in place and produces scoped totals, never a full-roster optimum. Independent brute-force tests verify assignment. See [`docs/weekly-lineup.md`](docs/weekly-lineup.md) for source and freshness limits. |
+| Private decision history | Explicitly saved snapshots are validated and the included-estimate lineup is recomputed using server receipt time. Later source observations are appended separately; the original decision is never re-optimized against actual results. Observed differences compare those two frozen lineups, not a measured predictive edge. Per-record errors separate manual/model origins and exclude provisional or incomplete-scoring model values. See [`docs/decision-journal.md`](docs/decision-journal.md). |
+| One-week waiver comparisons | A separate read-only comparator evaluates selected, verified available candidates under current roster/lock/scoring constraints. This is the narrow `waiver_comparison` capability, not FAAB bidding, season strategy or claim submission. See [`docs/waivers.md`](docs/waivers.md). |
 | Scoring correctness | Reproduces upstream's own `fantasy_points` and `fantasy_points_ppr` columns exactly on every offensive player-week in the fixture. |
 | Residual bias of −0.57 points | Published on `/accuracy` rather than hidden. |
 | Pairwise start/sit accuracy and lineup regret | `pnpm backtest`, **in-sample** on the development (2013–2021) and tuning (2022–2024) sets — no decision metric is measured on the 2025 holdout, and none reaches the interface. Pair counts, accuracy by projected gap, points forgone with a pair-clustered 95% CI, and regret against a perfect-hindsight lineup are recorded in [`docs/model-validation.md`](docs/model-validation.md). The headline is that on the closest calls the model is barely better than a coin flip. |
@@ -228,10 +230,14 @@ state.
 
 | | Free | Pro |
 | --- | --- | --- |
-| Projections, lineup optimizer | ✓ (no account needed) | ✓ |
+| Projections, lineup optimizer | ✓ (app sign-in required) | ✓ |
 | Start/sit advice | ✓ | ✓ |
+| Sleeper roster-only import / connection lookup | ✓ (sign-in and quotas) | ✓ (quotas) |
+| On-demand weekly model estimates | — | ✓ (quotas) |
 | Leagues | 1 | **unlimited** |
-| Everything else in the plan | — | *not built* |
+| Private saved decisions / outcome comparisons | — | ✓ |
+| One-week waiver comparisons | — | ✓ |
+| FAAB, defense streamer, notifications | — | *not built* |
 
 The cap lives in `lib/billing/entitlements.ts` and every surface derives from it — server
 enforcement, `/pricing`, `/dashboard`, and the error message a capped user sees. **The
@@ -240,16 +246,18 @@ text in the Clerk dashboard, no code reads them, and only the plan *key* crosses
 repository. Changing the cap here therefore requires editing the Clerk plan features by
 hand, or a card will advertise a limit the server refuses to honor.
 
-**Pro's only implemented differentiator today is the league cap.** That is an uncomfortable
-thing for a paid tier to admit, and it is what the code does. Every other capability named
-in the plan is `false` in the entitlement table because nothing reads it:
+Pro adds the saved-league cap, private decision history and the narrow one-week waiver
+comparison. Saved Sleeper bookmarks share the existing league cap with legacy leagues;
+they do not grant an extra free slot. No prices, billing accounts, subscriptions or
+direct entitlement grants are changed. The remaining capability gaps are explicit:
 
 - `accuracy_dashboard` — `/accuracy` is a public marketing page with no gate.
 - `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested, but no route imports it.
 - `daily_refresh` — the cron rewrites shared projection rows and `projections.forWeek` is a
-  public query with no staleness tier, so a free visitor reads the same fresh data. Billing
+  signed-in query with no staleness tier, so a free account reads the same fresh data. Billing
   for it would be charging for a difference that does not exist.
-- `waivers_faab`, `dst_streamer`, `alerts`, `performance_history` — not built.
+- `waivers_faab`, `dst_streamer`, `alerts` — not built. A one-week comparison does not
+  implement the bundled FAAB/season-strategy capability.
 
 Each flips to `true` in the same change that implements it. `UNIMPLEMENTED_FEATURES` keeps
 the list explicit, a test asserts none of them is granted, and `/pricing` renders both its
@@ -258,6 +266,11 @@ against — so the page cannot promise more than the code delivers.
 
 Free deliberately includes start/sit. A free tier that cannot answer "who do I start?"
 cannot demonstrate value before asking for payment.
+
+Football-data reads require app sign-in and enforce per-request budgets independently of
+Vercel hosting protection. Oversized whole pools fail explicitly rather than being silently
+truncated. See [private data access and rollout notes](docs/private-data-access.md), including
+the reload requirement for older tabs and authenticated operator diagnostics.
 
 To be precise about what that means today: start/sit is delivered by `/lineup`, which takes
 the players you select and returns the highest-scoring legal arrangement. The narrower
@@ -316,16 +329,17 @@ Stated plainly rather than left to be discovered.
   probability. These are interpretation safeguards, not a validated drafting edge. The
   implementation/evaluation acceptance plan is in `docs/product-readiness.md`.
 
-- **No league import exists, and no screen writes a roster.** ESPN has no working host —
+- **ESPN league import is unavailable; Sleeper weekly import is read-only.** ESPN has no working host —
   `lm.espn.com` and `lm-api-reads.espn.com` are both NXDOMAIN on public DNS — so no adapter
   is implemented behind the `LeagueProvider` seam. CSV parsing (`lib/nfl/lineup-csv.ts`)
   and roster storage (`leagues.setRoster`) are implemented and tested, but nothing in `app/`
-  calls either, so today a league can be created and never populated. `/lineup` is the
-  working path: it takes the players you pick and returns the optimal arrangement.
+  calls either. `/lineup` is the manual preset path; `/lineup/weekly` imports a public
+  Sleeper roster and preserves current starters and kickoff locks. Neither submits a lineup.
 - **D/ST and kicker projections are not computed.** Scoring for both is implemented and
   tested; the model currently projects skill positions only.
-- **Waivers, FAAB, alerts, and performance history are not built.** They appear in the
-  entitlement table and are gated, with no implementation behind them yet.
+- **FAAB, automated claims, notification alerts and season waiver strategy are not built.**
+  The one-week waiver comparator and private decision journal are narrower workflows;
+  they do not establish calibrated season strategy or a predictive edge.
 - **The model has a known −0.57 point high bias**, disclosed on `/accuracy`.
 - **One season cannot detect an improvement smaller than about 2%.** The minimum detectable
   effect at 80% power on the 2025 sample is 0.1242 MAE, or 2.07% of the baseline, and no
@@ -339,7 +353,8 @@ Stated plainly rather than left to be discovered.
 - **Calibration and the floor/ceiling bands were fitted on PPR only.** Half PPR and
   Standard projections are rescaled, but that validation does not carry over, and the
   projections page says so when either is selected.
-- **Pro currently unlocks only the league cap.** See the entitlements section.
+- **Pro capabilities follow the existing entitlement policy.** See the entitlements section;
+  the added tools do not change prices or create subscriptions.
 - **The Clerk webhook payload shape is inferred, not verified.** Every data source in
   `docs/data-sources.md` was confirmed by direct request except this one: no real delivery
   has been captured, so the field names `convex/http.ts` probes come from documentation

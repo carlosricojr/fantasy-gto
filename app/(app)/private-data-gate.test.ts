@@ -1,5 +1,6 @@
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PrivateDataGate } from "@/components/private-data-gate";
 
@@ -50,5 +51,11 @@ describe("private data page readiness", () => {
     state.auth.isAuthenticated = true;
     state.me = { signedIn: true };
     expect(render().html).toContain("Protected query consumers");
+  });
+  it("wraps all four protected query-consuming pages before their hooks mount", () => {
+    for (const page of ["draft", "projections", "lineup", "dashboard"]) {
+      const source = readFileSync(`app/(app)/${page}/page.tsx`, "utf8");
+      expect(source).toMatch(/export default function \w+\(\) \{\s*return <PrivateDataGate[^>]*><\w+Content \/><\/PrivateDataGate>;\s*\}/);
+    }
   });
 });

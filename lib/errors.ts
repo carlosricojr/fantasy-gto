@@ -11,7 +11,7 @@
  */
 
 export interface AppErrorShape {
-  code: "unauthenticated" | "entitlement" | "not_found" | "invalid";
+  code: "unauthenticated" | "entitlement" | "not_found" | "invalid" | "rate_limit";
   message: string;
   feature?: string;
 }

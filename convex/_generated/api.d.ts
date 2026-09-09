@@ -11,14 +11,20 @@
 import type * as billing from "../billing.js";
 import type * as contests from "../contests.js";
 import type * as crons from "../crons.js";
+import type * as decisionJournal from "../decisionJournal.js";
 import type * as draft from "../draft.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as jobs from "../jobs.js";
 import type * as leagues from "../leagues.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_personalQuota from "../lib/personalQuota.js";
+import type * as lib_timedEntitlement from "../lib/timedEntitlement.js";
+import type * as personalData from "../personalData.js";
+import type * as personalTools from "../personalTools.js";
 import type * as projections from "../projections.js";
 import type * as season from "../season.js";
+import type * as sleeperConnections from "../sleeperConnections.js";
 import type * as users from "../users.js";
 
 import type {
@@ -31,14 +37,20 @@ declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   contests: typeof contests;
   crons: typeof crons;
+  decisionJournal: typeof decisionJournal;
   draft: typeof draft;
   http: typeof http;
   ingest: typeof ingest;
   jobs: typeof jobs;
   leagues: typeof leagues;
   "lib/auth": typeof lib_auth;
+  "lib/personalQuota": typeof lib_personalQuota;
+  "lib/timedEntitlement": typeof lib_timedEntitlement;
+  personalData: typeof personalData;
+  personalTools: typeof personalTools;
   projections: typeof projections;
   season: typeof season;
+  sleeperConnections: typeof sleeperConnections;
   users: typeof users;
 }>;
 

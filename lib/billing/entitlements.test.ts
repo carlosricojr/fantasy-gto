@@ -60,6 +60,7 @@ describe("entitlement table", () => {
     for (const feature of [
       "daily_refresh",
       "waivers_faab",
+      "waiver_comparison",
       "dst_streamer",
       "alerts",
       "accuracy_dashboard",

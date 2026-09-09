@@ -7,6 +7,27 @@ endpoint, and update this file in the same commit.
 Primary statistical inputs are available without a paid vendor. Public access and reuse
 permission are separate facts; the Sleeper terms and source limitations below apply.
 
+## Personal one-week waiver membership recheck — 2026-09-09
+
+The read-only waiver comparison uses documented `GET /v1/league/{id}`,
+`/v1/league/{id}/rosters`, `/v1/players/nfl` and `/v1/state/nfl` at
+`https://api.sleeper.app`. Direct requests returned HTTP 200: the personal league
+reported ten rosters; all ten roster rows were present with 16 players each and
+explicitly null reserve/taxi fields. The directory contained 12,227 keyed entries;
+individual `player_id`, fantasy-position and injury/status shapes were inspected.
+Null empty holdings are supported; malformed or incomplete full-league ownership
+fails closed rather than exposing an opponent's holdings as available.
+
+The selected-candidate comparison reuses the existing permitted nflverse weekly model
+and its source, injury, scoring and history limitations. It does not call Sleeper
+projections or infer claim clearance from unrostered membership. The directory is
+shared/cached for up to a day according to API guidance; current league rosters are
+re-read for every comparison. Pool discovery and comparisons are server-authorized
+under the separate narrow waiver-comparison entitlement, with no platform writes or
+billing-account changes. Scope, observed coverage and timings are in
+[`docs/waivers.md`](waivers.md). Sleeper personal/non-commercial API terms and nflverse
+CC BY attribution below remain applicable.
+
 ## Source recheck — 2026-09-09
 
 The draft board's `adp` comes from **Fantasy Football Calculator**, including boards with
@@ -132,6 +153,17 @@ omissions, and never silently promote this value to an ordinary projection. No m
 parameter or history threshold changes in this mode.
 
 ## Runbook: refreshing the draft boards before a draft
+
+### Personal connection lookup — September 9, 2026
+
+The saved-connection workflow additionally uses the documented
+`/v1/user/{username-or-user-id}`, `/v1/user/{user-id}/leagues/nfl/{season}` and
+`/v1/league/{league-id}/users` endpoints. Sleeper's documentation was rechecked on
+September 9: usernames may change, so bookmarks retain the numerical user ID.
+League URLs are parsed against an explicit HTTPS Sleeper hostname/path allowlist;
+the submitted URL is never fetched directly. Selected connections recheck league,
+season and unique roster ownership before saving. These public endpoints do not
+authenticate the external manager. No player-directory download is required for lookup.
 
 The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
 and not during the regular season — `planDraftRefresh` in `lib/nfl/draft/refresh-plan.ts`

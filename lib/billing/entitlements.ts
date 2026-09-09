@@ -61,6 +61,7 @@ export const FEATURES = [
   "league_count",
   "daily_refresh",
   "waivers_faab",
+  "waiver_comparison",
   "dst_streamer",
   "alerts",
   "accuracy_dashboard",
@@ -92,8 +93,8 @@ export type Entitlements = Readonly<Record<FeatureKey, EntitlementValue>>;
  * Free deliberately includes `start_sit`. The product's whole argument is that value must
  * be demonstrated before payment is requested, and a free tier that cannot answer "who do
  * I start?" demonstrates nothing. That argument is about the *question*, not the number of
- * leagues: the lineup optimizer and projections need no account and no league at all, so a
- * visitor can see the whole product work before anything is stored.
+ * leagues: the lineup optimizer and projections require a signed-in app account but no
+ * connected league, so a free user can try them before saving a league.
  *
  * One free league is what that argument actually requires. It covers the person this is
  * built for — someone with a team, wanting to know who to start — end to end, from saved
@@ -106,6 +107,7 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
     league_count: 1,
     daily_refresh: false,
     waivers_faab: false,
+    waiver_comparison: false,
     dst_streamer: false,
     alerts: false,
     accuracy_dashboard: false,
@@ -113,19 +115,19 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
     performance_history: false,
   },
   /**
-   * **Pro's only implemented differentiator today is unlimited leagues.**
+   * Pro includes unlimited saved leagues, private decision history and the
+   * narrow one-week waiver comparison. Automated FAAB/season policy is not built.
    *
-   * That is an uncomfortable thing for a paid tier to admit, and it is the truth. Every
-   * other capability in this table is `false` because nothing in the codebase reads it:
+   * The remaining named capabilities are false where no distinct implementation exists:
    *
    * - `accuracy_dashboard` — `/accuracy` is a public marketing page with no gate.
    * - `import_export` — `lib/nfl/lineup-csv.ts` is complete and tested but no route or
    *   screen imports it.
    * - `daily_refresh` — the cron in `convex/crons.ts` rewrites the shared `projections`
-   *   rows, and `projections.forWeek` is a public query with no staleness tier. A free
-   *   visitor sees the identical freshly recomputed rows. Billing for it would be
+   *   rows, and `projections.forWeek` is an authenticated query with no staleness tier. A
+   *   free signed-in user sees the identical freshly recomputed rows. Billing for it would be
    *   charging for a difference that does not exist.
-   * - `waivers_faab`, `dst_streamer`, `alerts`, `performance_history` — not built.
+   * - `waivers_faab`, `dst_streamer`, `alerts` — not built.
    *
    * Each flips to `true` in the same change that implements it, and the pricing page
    * renders both columns from this table so it cannot claim otherwise.
@@ -135,11 +137,12 @@ const ENTITLEMENTS: Readonly<Record<PlanId, Entitlements>> = {
     league_count: UNLIMITED,
     daily_refresh: false,
     waivers_faab: false,
+    waiver_comparison: true,
     dst_streamer: false,
     alerts: false,
     accuracy_dashboard: false,
     import_export: false,
-    performance_history: false,
+    performance_history: true,
   },
 };
 
@@ -157,7 +160,6 @@ export const UNIMPLEMENTED_FEATURES: readonly FeatureKey[] = [
   "alerts",
   "accuracy_dashboard",
   "import_export",
-  "performance_history",
 ];
 
 // Entitlement records are handed out by reference on every check. Freezing them means a

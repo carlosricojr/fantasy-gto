@@ -3,6 +3,7 @@ import { importSleeperLineup } from "@/lib/sources/sleeper-lineup";
 import { generateNflverseWeeklyProjections } from "@/lib/sources/nflverse-weekly-projections";
 import { sleeperScoringFromId } from "@/lib/nfl/scoring/sleeper";
 import { applyWeeklyModel } from "@/lib/nfl/weekly-lineup-inputs";
+import { personalSourceAccess } from "@/lib/server/personal-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,8 +14,10 @@ export async function GET(request: NextRequest) {
   const ownerId = request.nextUrl.searchParams.get("ownerId") ?? "";
   const week = Number(request.nextUrl.searchParams.get("week"));
   if (!/^\d{1,30}$/.test(leagueId) || !/^\d{1,30}$/.test(ownerId) || !Number.isInteger(week) || week < 1 || week > 18) {
-    return NextResponse.json({ error: "Supply valid Sleeper league and user IDs and a week from 1–18." }, { status: 400 });
+    return NextResponse.json({ error: "Supply valid Sleeper league and user IDs and a week from 1–18." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
+  const denied = await personalSourceAccess(request.nextUrl.searchParams.get("estimates") === "nflverse" ? "model" : "roster");
+  if (denied) return denied;
   try {
     let snapshot = await importSleeperLineup({ leagueId, ownerId, week, now: Date.now() });
     if (request.nextUrl.searchParams.get("estimates") === "nflverse") {
