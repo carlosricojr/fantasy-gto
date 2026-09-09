@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 import {
   FREE_SUBSCRIPTION,
+  UNLIMITED,
   type Entitlements,
   type FeatureKey,
   type Subscription,
@@ -12,6 +13,7 @@ import {
   canAddLeague,
   describeLeagueCap,
   entitlementsFor,
+  limit,
 } from "../../lib/billing/entitlements";
 
 /**
@@ -155,6 +157,7 @@ const FEATURE_PROMPTS: Readonly<Record<FeatureKey, string>> = {
   league_count: "Additional leagues",
   daily_refresh: "Daily projection refreshes",
   waivers_faab: "Waiver and FAAB guidance",
+  waiver_comparison: "One-week waiver comparisons",
   dst_streamer: "The defense streamer",
   alerts: "Alerts",
   accuracy_dashboard: "The accuracy dashboard",
@@ -195,11 +198,15 @@ export async function requireLeagueCapacity(
   userId: Id<"users">,
 ): Promise<void> {
   const entitlements = await entitlementsForUser(ctx, userId);
+  const cap = limit(entitlements, "league_count");
+  if (cap >= UNLIMITED) return;
   const existing = await ctx.db
     .query("leagues")
     .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
-  if (!canAddLeague(entitlements, existing.length)) {
+    .take(cap);
+  const connections = await ctx.db.query("sleeperConnections")
+    .withIndex("by_user", (q) => q.eq("userId", userId)).take(cap);
+  if (!canAddLeague(entitlements, existing.length + connections.length)) {
     throw entitlementRequired(
       "league_count",
       `Your plan includes ${describeLeagueCap(entitlements)}. Upgrade to Pro for unlimited leagues.`,

@@ -133,6 +133,17 @@ parameter or history threshold changes in this mode.
 
 ## Runbook: refreshing the draft boards before a draft
 
+### Personal connection lookup — September 9, 2026
+
+The saved-connection workflow additionally uses the documented
+`/v1/user/{username-or-user-id}`, `/v1/user/{user-id}/leagues/nfl/{season}` and
+`/v1/league/{league-id}/users` endpoints. Sleeper's documentation was rechecked on
+September 9: usernames may change, so bookmarks retain the numerical user ID.
+League URLs are parsed against an explicit HTTPS Sleeper hostname/path allowlist;
+the submitted URL is never fetched directly. Selected connections recheck league,
+season and unique roster ownership before saving. These public endpoints do not
+authenticate the external manager. No player-directory download is required for lookup.
+
 The boards rebuild every six hours at 03:00, 09:00, 15:00 and 21:00 UTC through the offseason and preseason,
 and not during the regular season — `planDraftRefresh` in `lib/nfl/draft/refresh-plan.ts`
 decides that, and it is tested across every phase. The matrix is three scoring formats across

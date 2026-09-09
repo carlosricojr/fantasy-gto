@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 import { internalMutation, mutation, query } from "./_generated/server";
 import { callerEntitlements, currentUser, subscriptionFor } from "./lib/auth";
@@ -149,6 +150,9 @@ export const deleteFromClerk = internalMutation({
     });
 
     await ctx.db.delete(user._id);
+    // Access is revoked with the user row immediately. Large private snapshots
+    // are erased in indexed bounded batches, including orphan observations.
+    await ctx.scheduler.runAfter(0, internal.personalData.eraseBatch, { userId: user._id });
   },
 });
 
