@@ -1,5 +1,7 @@
 # Private weekly decision journal
 
+This foundational change supplies pure record validation/evaluation and a read-only outcome adapter. It does not activate persistent history, authentication, or a journal UI. The server-owned behavior described below is the contract for the dependent backend/UI release, not a claim that a caller-supplied clock alone provides it.
+
 The journal freezes the imported roster, current starters, supplied estimates, scoring identity, source limitations, comparison choices, and recomputed recommendation. Receipt time is assigned by the server. Inputs remain explicitly **user supplied**: a server timestamp proves when the app received them, not that forecasts or league state were independently authenticated.
 
 The baseline is the starting lineup present when the decision was recorded. Evaluation scores those two frozen lineups; it never optimizes after seeing the results. Unpriced held slots are excluded from both totals. A positive realized difference describes this decision only, not a proven forecasting or championship advantage. Multiple records for the same week are revisions, not independent trials; no aggregate performance claim is made.
@@ -16,4 +18,4 @@ Forecast errors are separated by model, manual, and unspecified origin. Conditio
 
 ## Verification
 
-Pure tests cover bounded input parsing, original-versus-recommended comparison, no hindsight selection, signed outcomes, zero versus missing, independent timing, excluded slots, scoring identity, consent, source failures, and model/manual error separation. Backend tests separately cover authenticated ownership, server timestamps, append-only/idempotent recording, bounded reads, and entitlement enforcement. No lineup changes or platform transactions are submitted.
+Pure tests cover bounded input parsing, original-versus-recommended comparison, no hindsight selection, signed outcomes, zero versus missing, independent timing, excluded slots, scoring identity, consent, source failures, and model/manual error separation. The dependent backend release must separately verify authenticated ownership, server timestamps, append-only/idempotent recording, bounded reads, and entitlement enforcement before activating persistent history. Those guarantees have not been established by this pure-core change. No lineup changes or platform transactions are submitted.
