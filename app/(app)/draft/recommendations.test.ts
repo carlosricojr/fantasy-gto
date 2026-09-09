@@ -51,6 +51,7 @@ function recommendation(
 function renderRecommendations(
   onTheClock: boolean,
   ownRecordOnlyPlayers: Parameters<typeof Recommendations>[0]["ownRecordOnlyPlayers"] = [],
+  overrides: Partial<Parameters<typeof Recommendations>[0]> = {},
 ) {
   const state = {
     recommendations: [
@@ -79,6 +80,7 @@ function renderRecommendations(
       unrankedAdp: 999,
       basisFor: () => "blend" as ValueBasis,
       ownRecordOnlyPlayers,
+      ...overrides,
     }),
   );
 }
@@ -109,9 +111,67 @@ describe("Recommendations interpretation", () => {
     expect(onClock).toContain("Viable alternatives");
     expect(onClock).toContain("these simulations do not reliably separate the choices");
     expect(onClock).toContain("Viable alternative · tied in this simulation");
-    expect(onClock.indexOf("Take Parker Washington")).toBeLessThan(
+    expect(onClock.indexOf("Simulation leader: Parker Washington")).toBeLessThan(
       onClock.indexOf("Michael Wilson"),
     );
+  });
+
+  it("places market evidence and the experimental label before collapsed simulation odds", () => {
+    const html = renderRecommendations(true, [], { decisionPick: 96 });
+    expect(html).toContain("Experimental ranking — not a proven best pick");
+    expect(html).toContain("No demonstrated drafting edge over ADP");
+    expect(html).toContain("Board ADP 120.0");
+    expect(html).toContain("24.0 picks earlier than ADP");
+    expect(html).toContain("Reach check");
+    expect(html).toContain("Fantasy Football Calculator");
+    expect(html).toContain("Record Parker Washington");
+    expect(html).not.toContain("Take Parker Washington");
+    expect(html.indexOf("Board ADP")).toBeLessThan(html.indexOf("simulated title chance"));
+    expect(html).toContain("<details class=\"mt-3\">");
+    expect(html).not.toContain("<details open");
+  });
+
+  it("does not invent a reach when the owned pick is unknown", () => {
+    const html = renderRecommendations(false);
+    expect(html).not.toContain("Reach check");
+    expect(html).not.toContain("overall pick");
+  });
+
+  it("labels alternative title probabilities outside the collapsed leader details", () => {
+    const html = renderRecommendations(true);
+    const alternatives = html.slice(html.indexOf("<ul"), html.indexOf("</ul>"));
+    expect(alternatives).toContain("simulated title chance");
+    expect(alternatives).toContain("sampling error only");
+  });
+
+  it("withholds stale players and actions instead of pairing old advice with a new pick", () => {
+    const html = renderRecommendations(true, [], {
+      decisionPick: 36,
+      state: {
+        recommendations: [recommendation("gone", "Already drafted", 0.05, true)],
+        teams: 10, stale: true, loading: false, error: null,
+        lastElapsedMs: 1, lastFromCache: false, unavailable: null,
+      } as ReturnType<typeof useRecommendations>,
+    });
+    expect(html).toContain("previous advice is withheld");
+    expect(html).not.toContain("Already drafted");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("overall pick");
+  });
+
+  it("does not show waiting probabilities for an unpriced alternative", () => {
+    const unpriced = recommendation("unknown", "Unpriced player", 0.04, true);
+    unpriced.player.adp = null;
+    const html = renderRecommendations(true, [], {
+      waitPick: 130, waitPickLabel: "13.10",
+      state: {
+        recommendations: [recommendation("leader", "Leader", 0.05, true), unpriced],
+        teams: 10, stale: false, loading: false, error: null,
+        lastElapsedMs: 1, lastFromCache: false, unavailable: null,
+      } as ReturnType<typeof useRecommendations>,
+    });
+    expect(html).toContain("No board ADP — waiting estimate unavailable");
+    expect(html).not.toContain("lasts to 13.10");
   });
 
   it("uses the team count that arrived with the recommendation snapshot", () => {

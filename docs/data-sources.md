@@ -4,8 +4,70 @@ Every fact in this document was verified by direct HTTP request on 2026-07-30. T
 authoritative: it supersedes any recollection of these APIs. Re-verify before changing an
 endpoint, and update this file in the same commit.
 
-All primary sources are **free and unauthenticated**. The product requires no paid data
-vendor to produce a projection.
+Primary statistical inputs are available without a paid vendor. Public access and reuse
+permission are separate facts; the Sleeper terms and source limitations below apply.
+
+## Source recheck — 2026-09-09
+
+The draft board's `adp` comes from **Fantasy Football Calculator**, including boards with
+custom Sleeper scoring. Importing a league's scoring settings does not change that market.
+A screenshot of Sleeper's own ADP therefore need not match FantasyGTO's price.
+
+The following public source responses were inspected at approximately 18:38 UTC. These are
+observations of that response, not a reproduction of an earlier screenshot:
+
+| Source / format | T.J. Hockenson | Hunter Henry |
+| --- | ---: | ---: |
+| Sleeper seasonal `adp_half_ppr` | 183.6 | 149.7 |
+| Sleeper seasonal `adp_ppr` | 165.9 | 142.9 |
+| Sleeper seasonal `adp_std` | 127.7 | 91.9 |
+| FFC 10-team half-PPR | absent | 154.5 |
+| FFC 10-team PPR | 162.0 | 154.5 |
+| FFC 10-team standard | absent | 118.0 |
+
+The Sleeper rows came from
+`https://api.sleeper.com/projections/nfl/2026?season_type=regular` and identified their
+company as `rotowire`. They carry `updated_at` and `last_modified`. The endpoint has no
+league-size parameter, draft-count field, or ADP dispersion. `999` is an unpriced sentinel.
+`lib/sources/sleeper-projections.ts` accepts a supplied response and preserves the exact
+format, field name, provider revision time and import time; it never substitutes another
+format, a search rank, or FFC's standard deviation. It has no network fetcher or ingest job.
+
+The weekly sibling `/projections/nfl/2026/1?season_type=regular` returned 9,420 rows,
+including many placeholders containing only ADP. The import parser requires an expected
+appearance and a published point total, keeps explicitly published zeroes, counts excluded
+rows, and rejects wrong source dimensions or duplicate identities. A recent import cannot
+make an old or unknown provider revision fresh.
+
+Weekly raw projected statistics are incomplete for exact custom scoring. A TE row may have
+receiving counters but omit passing, rushing and special-teams counters; the parser does
+not infer that these are zero. The separate `scoreSleeperProjection` returns missing
+scored fields explicitly. Defensive tiers are also unavailable: a tier selected from
+expected yards/points is not the expected score across possible outcomes. Published
+`pts_std`, `pts_half_ppr`, and `pts_ppr` remain labeled provider totals, not our custom score.
+
+### Access and reuse
+
+[Sleeper's API introduction](https://docs.sleeper.com/) states that the documented read-only
+API is “free to use for non-commercial purposes” and directs commercial users to discuss
+licensing. Its documented resources include leagues, rosters, drafts, and players, but not
+the projection endpoints above. [Sleeper's General Terms](https://support.sleeper.com/en/articles/5486620-general-terms-of-use),
+sections 9.2, 11 and 11.3, restrict third-party and automated access without its approval.
+These pages were checked on 2026-09-09. No additional automated projection requests or
+public projection service are enabled by this change. An unauthenticated HTTP 200 does
+not establish redistribution permission. The user's personal league workflow and a public
+commercial data service are different scopes; this source audit does not disable the
+existing documented league API integration or request any paid license.
+
+[nflverse-data publishes a CC BY 4.0 license](https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md).
+Use the data with attribution and preserve applicable source notices; this is the data
+license, distinct from the MIT license on nflreadr's software. FTN participation data has
+separate attribution/share-alike terms and is not added here. Current direct release checks:
+`stats_player_week_2026.csv` returned 404 before week-1 production was published;
+`roster_weekly_2026.csv` returned 200 (Last-Modified 12:05:51 UTC), and
+`injuries_2026.csv` returned 200 (Last-Modified 12:07:36 UTC). The existing model can use
+prior-season history plus the current roster/schedule before week 1; a missing current
+statistics release is expected in that window.
 
 ## Runbook: refreshing the draft boards before a draft
 
