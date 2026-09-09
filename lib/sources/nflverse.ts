@@ -168,12 +168,11 @@ export const httpTextFetcher: TextFetcher = async (url) => {
  * Returns `null` for an unparseable input rather than a wrong instant.
  */
 export function easternWallClockToUtcIso(day: string, time: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const clock = /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
 
   // Provisional instant, read as if the wall clock were UTC.
-  const provisional = Date.parse(`${day}T${clock}:00Z`);
-  if (Number.isNaN(provisional)) return null;
+  const provisional = Date.parse(`${day}T${time}:00Z`);
+  if (Number.isNaN(provisional) || new Date(provisional).toISOString().slice(0, 10) !== day) return null;
 
   // What that instant actually reads as in New York.
   const parts = new Intl.DateTimeFormat("en-US", {
