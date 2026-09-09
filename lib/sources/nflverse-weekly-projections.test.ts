@@ -77,6 +77,31 @@ describe("nflverse personal weekly estimates", () => {
     inactive.weeklyRoster = [{ ...inactive.weeklyRoster[0], status: "reserve" }];
     expect(buildNflverseWeeklyEstimates(request, inactive).players[0].availability).toBe("inactive");
   });
+  it("applies the last injury correction for the exact player-week", () => {
+    const data = inputs();
+    const injury = { season: 2026, week: 1, playerId: "gsis-1", name: "Test TE", position: "TE", team: "MIN",
+      gameStatus: "out" as const, practiceStatus: "none" as const, primaryInjury: "Knee", dateModified: null };
+    data.injuries = [injury, { ...injury, gameStatus: "questionable" }];
+    const eligible = buildNflverseWeeklyEstimates(request, data).players[0];
+    expect(eligible.availability).toBe("questionable");
+    expect(eligible.points).not.toBeNull();
+    data.injuries = [...data.injuries, injury];
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].availability).toBe("out");
+  });
+  it("resolves one active transaction destination but rejects conflicting active teams", () => {
+    const data = inputs();
+    data.weeklyRoster = [{ ...data.weeklyRoster[0], team: "GB", status: "traded" }, ...data.weeklyRoster];
+    expect(buildNflverseWeeklyEstimates(request, data).players[0].points).not.toBeNull();
+    data.weeklyRoster = [{ ...data.weeklyRoster[0], status: "active" }, data.weeklyRoster[1]];
+    expect(buildNflverseWeeklyEstimates(request, data).players[0]).toMatchObject({ points: null, availability: "unknown" });
+  });
+  it("warns when a successful market response has no usable total for the projected game", () => {
+    const data = inputs();
+    data.lines = [{ contestId: "game", total: null, spread: 3, homeMoneyline: null, awayMoneyline: null }];
+    expect(buildNflverseWeeklyEstimates(request, data).warnings.some(warning => warning.includes("Betting lines are missing"))).toBe(true);
+    data.lines = [{ ...data.lines[0], total: 45 }];
+    expect(buildNflverseWeeklyEstimates(request, data).warnings.some(warning => warning.includes("Betting lines are missing"))).toBe(false);
+  });
   it("retains valid zero and negative model means after the history gate", () => {
     const parsed = parseSleeperScoring({ rec_yd: -0.1 });
     if (!parsed.ok) throw new Error("Bad fixture");
