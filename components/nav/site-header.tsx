@@ -98,6 +98,7 @@ function HeaderLink({
   return (
     <Link
       href={item.href}
+      prefetch={item.prefetch}
       aria-current={current ? "page" : undefined}
       className={cn(
         // The underline is always present and transparent when inactive, so the label does

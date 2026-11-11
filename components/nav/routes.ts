@@ -15,6 +15,8 @@ export interface NavItem {
   /** Shorter form for the bottom bar, where four labels share the screen width. */
   shortLabel?: string;
   icon: LucideIcon;
+  /** Suppress speculative RSC fetches for a destination that requires sign-in. */
+  prefetch?: false;
 }
 
 /**
@@ -28,7 +30,7 @@ export const APP_NAV: readonly NavItem[] = [
   { href: "/projections", label: "Projections", shortLabel: "Proj", icon: BarChart3 },
   { href: "/lineup", label: "Lineup", icon: ListChecks },
   { href: "/draft", label: "Draft", icon: ClipboardList },
-  { href: "/dashboard", label: "My leagues", shortLabel: "Leagues", icon: Trophy },
+  { href: "/dashboard", label: "My leagues", shortLabel: "Leagues", icon: Trophy, prefetch: false },
 ];
 
 export const MARKETING_NAV: readonly NavItem[] = [

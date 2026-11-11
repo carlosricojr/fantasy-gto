@@ -46,6 +46,7 @@ export function BottomTabs() {
             <li key={item.href} className="flex-1">
               <Link
                 href={item.href}
+                prefetch={item.prefetch}
                 aria-current={current ? "page" : undefined}
                 className={cn(
                   // 56px tall clears the 44px minimum touch target with room to spare.
