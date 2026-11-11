@@ -20,3 +20,7 @@ Before merge: preview/browser checks, independent review, canonical current-head
 review and trusted CI/readiness. After merge: trace the production artifact to the reviewed
 merge and verify representative flows. No 2025 holdout evaluation, model change,
 published-metric rewrite, billing or backend data mutation is part of this work.
+
+The holdout instruction now distinguishes unscored 2025 player-weeks from the
+all-season schedule/betting rows read for a printed diagnostic, matching
+`scripts/backtest.ts`. This is a wording correction; the script is unchanged.

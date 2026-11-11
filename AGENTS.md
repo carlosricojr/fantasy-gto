@@ -18,7 +18,10 @@ ESPN by ≥8%" with nothing behind either; the measured edge is 2.74%.
 
 **Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
 same commit.** That is the *default* run: development (2013–2021) and tuning (2022–2024).
-It never touches 2025 and never rewrites `published-metrics.json`. Hyperparameters in
+It never loads, projects or scores 2025 player-weeks, and never rewrites
+`published-metrics.json`. The all-season `games.csv` still contributes 2025 schedule
+and betting rows to the printed league-mean implied-total diagnostic; that diagnostic
+is not holdout-free. Hyperparameters in
 `lib/nfl/model/config.ts` were chosen on the tuning seasons and frozen before 2025 was
 evaluated; retuning them against 2025 destroys that property and makes the published figure
 meaningless.
