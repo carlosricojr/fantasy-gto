@@ -1,0 +1,119 @@
+# Fantasy GTO — Agent instructions
+
+## What this is
+
+Fantasy football projections with visible reasoning, and a lineup optimizer that solves
+slot assignment exactly. Mobile-first PWA, Clerk-billed free and Pro tiers.
+
+Read [`README.md`](README.md) first, then [`docs/model-validation.md`](docs/model-validation.md)
+and [`docs/data-sources.md`](docs/data-sources.md). Those three describe what is true; this
+file records the rules for changing it.
+
+## Non-negotiable rules
+
+**Never state a number the code cannot produce.** Every user-visible claim maps to a row in
+the README's honesty ledger. If you cannot point at the computation, delete the claim
+rather than soften it. This project previously advertised "+8.2 points/week" and "beats
+ESPN by ≥8%" with nothing behind either; the measured edge is 2.74%.
+
+**Any model change re-runs `pnpm backtest` and updates `docs/model-validation.md` in the
+same commit.** That is the *default* run: development (2013–2021) and tuning (2022–2024).
+It never touches 2025 and never rewrites `published-metrics.json`. Hyperparameters in
+`lib/nfl/model/config.ts` were chosen on the tuning seasons and frozen before 2025 was
+evaluated; retuning them against 2025 destroys that property and makes the published figure
+meaningless.
+
+**`pnpm backtest -- --holdout` is the only run that scores 2025 or rewrites the published
+figures, and it is not part of the ordinary change loop.** Use it once per hypothesis, at a
+decision point written down in advance — not to see how a change landed. A hypothesis that
+fails is closed, not retuned. The published figures therefore lag the default run by design:
+they describe the last pre-registered holdout evaluation, not the current tip.
+
+**Keep the domain core pure.** Nothing in `lib/core`, `lib/nfl`, or `lib/billing` may
+import Convex, Clerk, React, or call `fetch`, `Date.now()`, or `Math.random()`. Pass the
+clock in. This is what makes the model backtestable and the entitlement logic testable, and
+`lib/purity.test.ts` enforces it. I/O adapters go in `lib/sources/`, which is exempt.
+
+**Never grant an entitlement directly.** Access is derived from subscription state by a
+pure function. If you find yourself writing a mutation that sets a capability, the design
+has gone wrong — that exact bug shipped once already.
+
+**Verify data endpoints before coding against them.** `docs/data-sources.md` records what
+was confirmed by direct request. Upstream renames columns and retires releases; reading a
+column that no longer exists yields zero silently rather than failing.
+
+**ALWAYS use pnpm.**
+
+## Stack
+
+Next.js 15.5 (App Router), React 19, Tailwind 4, Convex, Clerk (auth + billing), Vercel.
+
+There is no Redis and no paid data vendor. Both were in the original plan; neither is
+needed. The unconfigured Upstash client was removed because it logged errors on every build
+and nothing used it. nflverse supplies statistics, schedule, and Vegas lines for free.
+
+## Commands
+
+```bash
+pnpm verify     # typecheck, lint, tests (both projects) — run before every commit
+pnpm test       # watch mode
+pnpm backtest   # development + tuning sets; does NOT touch the 2025 holdout
+pnpm backtest -- --holdout   # scores 2025 and rewrites published-metrics.json
+pnpm backtest -- --sweeps    # reproduce the parameter sweeps on the tuning set
+pnpm dev        # frontend + Convex
+```
+
+## Layout
+
+```
+lib/core/       Sport-agnostic: domain types, provider seams, lineup optimizer
+lib/nfl/        NFL domain: csv, teams, season, scoring/, model/, stats/ (pure)
+lib/billing/    Entitlement derivation (pure)
+lib/sources/    Adapter layer — the only part of lib/ allowed to do I/O
+convex/         Thin orchestration; schema, queries, ingest, http webhook
+app/            App Router; (marketing) is public, (app) is mixed
+scripts/        backtest.ts
+```
+
+Adding a sport means adding an adapter under `lib/<sport>/` that implements the seams in
+`lib/core/providers.ts`. It must not require edits to `lib/core` or to another sport.
+
+## Where the bodies are buried
+
+- **ESPN's fantasy league API has no working host.** `lm.espn.com` and
+  `lm-api-reads.espn.com` are NXDOMAIN on public DNS. "ESPN-first" is no longer the
+  strategy and cannot be. CSV parsing and `leagues.setRoster` are
+  implemented and tested, but no screen calls either yet — `/lineup` is the working path
+  and needs no saved roster.
+- **Season state must come from source evidence.** Resolve the season from data availability, never from
+  `new Date().getFullYear()` — see `lib/nfl/season.ts`.
+- **nflverse CSVs contain quoted fields with commas.** Use `lib/nfl/csv.ts`, never
+  `String.split(",")`.
+- **The current stats release is `stats_player_week_{season}.csv`.** The older
+  `player_stats` release stops at 2024 and spells several columns differently.
+- **Nothing under `lib/` or `convex/` may import through the `@/*` alias.** It resolves
+  under Next.js and not under the three other resolvers that compile the same files — tsc
+  against `convex/tsconfig.json`, vitest, tsx, and the esbuild bundler Convex deploys with.
+  `convex/tsconfig.json` therefore carries no `paths` mapping, deliberately, and everything
+  shared imports by relative path so all four agree. This entry used to say the opposite —
+  that Convex *needs* the mapping — which was true before the imports were relative and is
+  the sort of stale guideline a reviewer will cite at you. `lib/import-alias.test.ts`
+  enforces it now, so the rule cannot rot again.
+
+## Not built yet
+
+Bounded, user-selected one-week waiver comparisons and private receipt-dated decision
+history are implemented behind the existing entitlements; they are not global waiver
+optimization or evidence of a forecasting advantage. The weekly workflow includes an
+in-app checklist, not external notifications. FAAB policy, automated claims, D/ST
+streaming and autonomous platform actions remain unimplemented. D/ST and kicker scoring
+exist and are tested; ordinary weekly model coverage remains separately gated. Consult
+the current coverage documentation before claiming any position is projected.
+
+## Shared review policy
+
+This repository follows the canonical handbook PR review policy through
+[`docs/agents/coderabbit-pr-review-loop.md`](docs/agents/coderabbit-pr-review-loop.md).
+Run `check-review-loop-drift --show-policy` and `check-review-loop-drift` before
+pushing or reviewing; follow `pr-review-of-record` for the exact settled head.
+Read `STATUS.md` for the current maintenance position.
